@@ -306,6 +306,19 @@ const sendSchema = Schema.object({
   project: Schema.string().pattern(/^[a-z0-9-]{1,80}$/),
   // A new chat's own permission level, chosen in the composer before its first message (checked by normalizeLevel).
   permissions: Schema.any(),
+  // An answer given on a question card: the card shows it, so the chat need not repeat it as a message.
+  answers: Schema.object({
+    seq: Schema.natural().required(),
+    picks: Schema.array(
+      Schema.object({
+        picked: Schema.array(Schema.string().max(500)).max(50).required(),
+        other: Schema.string().max(MAX_MESSAGE_CHARS),
+        skipped: Schema.boolean(),
+      }),
+    )
+      .max(20)
+      .required(),
+  }),
   attachments: Schema.array(
     Schema.object({
       name: Schema.string().min(1).max(200).required(),
@@ -2188,6 +2201,7 @@ export function startServer(options: ServeOptions): WebServer {
               planFirst: body.plan === true,
               ...(body.project ? { project: body.project } : {}),
               ...(calls ? { context: calls.context } : {}),
+              ...(body.answers ? { answers: body.answers } : {}),
               // Like PUT /api/chats/:id/permissions, a chat's own level needs a device with full access.
               ...(body.permissions !== undefined && !body.chatId
                 ? access.scope === 'full'

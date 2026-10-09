@@ -7,6 +7,7 @@ import type {
   ComputerApp,
   EventPayloads,
   NoteSection,
+  QuestionAnswers,
   QuestionChoice,
   SignalKind,
   TaskSnapshot,
@@ -144,6 +145,8 @@ export interface ChatEntry extends Entry {
   readBy?: string[]
   /** Artifact names of files the person attached. */
   readonly attachments?: readonly string[]
+  /** The person answered a question card: the card shows it, so the chat does not repeat it as a message. */
+  readonly answers?: QuestionAnswers
 }
 
 export interface SignalEntry extends Entry {
@@ -493,6 +496,7 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
         ...(p.attachments?.length ? { attachments: p.attachments } : {}),
         ...(p.voice ? { voice: true } : {}),
         ...(p.to?.length ? { to: p.to } : {}),
+        ...(p.answers ? { answers: p.answers } : {}),
       })
       break
     }

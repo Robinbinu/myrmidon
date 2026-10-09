@@ -21,6 +21,7 @@ import {
   type PermissionScope,
   type ProjectPermissions,
   projectLevelFrom,
+  type QuestionAnswers,
   type RoundInfo,
   STOPPED_BY_USER,
   withRule,
@@ -145,6 +146,8 @@ export interface SendOptions {
   readonly askAll?: boolean
   /** A new chat's own permission level (its preset, rules), chosen before its first message. */
   readonly permissions?: unknown
+  /** The message answers a question card: which one, and what was picked (the card shows it). */
+  readonly answers?: QuestionAnswers
 }
 
 /** Accepts the current team config or the older `{ mode: 'auto' | 'manual', workers, workerModel }` shape. */
@@ -586,8 +589,19 @@ export class ChatService {
     config: TeamConfig,
     options: SendOptions,
   ): Promise<{ chatId: string; colonyId: string; started: boolean; round?: number }> {
-    const { delivery = 'steer', attachments = [], planFirst = false, voice = false, context } = options
-    const extra = { ...(voice ? { voice: true } : {}), ...(context ? { context } : {}) }
+    const {
+      delivery = 'steer',
+      attachments = [],
+      planFirst = false,
+      voice = false,
+      context,
+      answers,
+    } = options
+    const extra = {
+      ...(voice ? { voice: true } : {}),
+      ...(context ? { context } : {}),
+      ...(answers ? { answers } : {}),
+    }
     await this._settle()
     const live = this._live.get(id)
     if (live && live.state().status === 'running') {
