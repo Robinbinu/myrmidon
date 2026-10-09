@@ -456,3 +456,13 @@ test('every tool parameter says what it is, in every prompt and for every tool t
     }),
   ).toEqual(['items[].text'])
 })
+
+test('a team lead assigns tasks and holds none, so it has no claim, release or submit', () => {
+  for (const t of ['claim_task', 'release_task', 'submit_task']) {
+    expect(toolsFor(teamRound, lead)).not.toContain(t)
+    expect(toolsFor(teamRound, kai)).toContain(t)
+  }
+  expect(toolsFor(teamRound, lead)).toEqual(
+    expect.arrayContaining(['create_task', 'assign_task', 'reject_task']),
+  )
+})

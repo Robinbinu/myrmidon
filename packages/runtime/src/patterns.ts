@@ -146,7 +146,7 @@ function baseRoleTools(spec: ColonySpec, agent: AgentSpec): string[] {
         'create_task',
         'assign_task',
         'reject_task',
-        ...HOLD,
+        // It assigns tasks and never holds one, so it has no claim, release or submit.
         'publish_artifact',
         ...USER,
         ...review,
