@@ -1376,6 +1376,8 @@ export class ColonyRun implements ColonyHost {
     return prompts.colony.spawned({ name, label, model: chosen })
   }
 
+  /** Crewmates that joined for a job and opened with it: the job's mail is for the log, not delivered again. */
+  private readonly _jobInKickoff = new Map<string, string>()
   /** Crewmates the lead is waiting on (ask_crewmate): their next reply to the lead answers it. */
   private readonly _asked = new Map<
     string,
@@ -1402,8 +1404,9 @@ export class ColonyRun implements ColonyHost {
     )
     try {
       if (!here) {
-        // On call until now: it joins the round, its job in its instructions, and is woken by the job's mail below.
-        const spec: AgentSpec = { ...called, role: 'worker' }
+        // On call until now: it joins the round and opens with its job, which is all it is told to do.
+        const spec: AgentSpec = { ...called, role: 'worker', focus: job }
+        this._jobInKickoff.set(spec.name, job)
         this.spec.agents.push(spec)
         await this.append({
           type: 'agent/joined',
@@ -1729,6 +1732,11 @@ export class ColonyRun implements ColonyHost {
         if (asked && p.to === asked.lead && e.seq > asked.since) {
           this._asked.delete(p.from)
           asked.resolve(p.body)
+          break
+        }
+        if (!group && this._jobInKickoff.get(p.to) === p.body) {
+          this._jobInKickoff.delete(p.to)
+          void this.append({ type: 'mail/delivered', actor: SYSTEM, payload: { mail: e.id, to: p.to } })
           break
         }
         if (!group) notify(p.to, prompts.colony.mail(message), 'mail', { mail: e.id })

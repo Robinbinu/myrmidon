@@ -490,7 +490,7 @@ test('saved specialists: kept by name, joined from the team picker or by the lea
 
 test('crewmates on call: a lead working alone asks them for work and gets their answers back as results', async () => {
   const resolver = new ModelResolver()
-  const seen: { system?: string; tools?: string[]; results?: string } = {}
+  const seen: { system?: string; tools?: string[]; results?: string; job?: unknown } = {}
   const names = (system: string) =>
     [
       // Only the roster lines, up to the instructions after them.
@@ -516,7 +516,10 @@ test('crewmates on call: a lead working alone asks them for work and gets their 
   ])
   // The researcher answers the lead by message; the writer stops without answering.
   scripted(resolver, 'mock/researcher', [
-    [tool('message', { to: 'lead', text: 'Typically 300,000 ants.' })],
+    (ctx) => {
+      seen.job = ctx.messages[0]?.content
+      return [tool('message', { to: 'lead', text: 'Typically 300,000 ants.' })]
+    },
     ['Answered the lead.'],
   ])
   scripted(resolver, 'mock/writer', [['Thinking about titles.']])
@@ -535,6 +538,10 @@ test('crewmates on call: a lead working alone asks them for work and gets their 
   expect(s.status).toBe('completed')
   expect(seen.tools).toContain('ask_crewmate')
   expect(names(seen.system ?? '').map(([role]) => role)).toEqual(['researcher', 'writer'])
+  // A crewmate opens with its job alone: not the person's request, not a mail to answer.
+  expect(JSON.stringify(seen.job)).toBe(
+    JSON.stringify([{ type: 'text', text: 'Find how many ants live in a typical colony.' }]),
+  )
   // The answer came back as the tool's result, and a crewmate that went quiet is reported, not waited on.
   expect(seen.results).toContain('answered:\\nTypically 300,000 ants.')
   expect(seen.results).toContain('stopped without answering')

@@ -522,6 +522,7 @@ export const copy = {
       'permissions/changed': 'permissions changed',
       'plugin/event': 'plugin event',
       'agent/compacted': 'older messages summarized',
+      'agent/prompt': 'prompt assembled',
       'agent/model': 'model switched',
       'tool/created': 'tool made',
       'chat/user': 'message from you',

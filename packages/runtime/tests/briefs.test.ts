@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test'
-import { type Environment, skillsFor, startsAwake, systemPrompt, toolsFor } from '../src/patterns.ts'
+import { type Environment, skillsFor, startsAwake, toolsFor } from '../src/patterns.ts'
+import { systemPrompt } from '../src/prompt/assemble.ts'
 import type { AgentSpec, ColonySpec } from '../src/spec.ts'
 import { TOOL_DEFS } from '../src/tools.ts'
 

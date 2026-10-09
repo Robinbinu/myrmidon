@@ -361,6 +361,19 @@ const defs: EventTypeDefinition[] = [
     }),
   },
   {
+    type: 'agent/prompt',
+    version: 1,
+    actors: ['system'],
+    schema: Schema.object({
+      agent: str(),
+      sections: Schema.array(
+        Schema.object({ key: str(), version: Schema.natural().required(), hash: str() }),
+      ).required(),
+      family: str(),
+      totalTokens: Schema.natural().required(),
+    }),
+  },
+  {
     type: 'agent/model',
     version: 1,
     actors: ['user'],

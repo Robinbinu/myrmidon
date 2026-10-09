@@ -1,5 +1,4 @@
 import type { ColonyState } from '@myrmidon/protocol'
-import { localDate, personZone, zoneOffset } from './clock.ts'
 import type { ProjectContext } from './project-context.ts'
 import { prompts } from './prompts.ts'
 import type { AgentSpec, ColonySpec } from './spec.ts'
@@ -221,74 +220,6 @@ export function toolsFor(spec: ColonySpec, agent: AgentSpec): string[] {
     : allowed
 }
 
-function roster(spec: ColonySpec, self: AgentSpec): string {
-  return (
-    spec.agents
-      .filter((a) => a.name !== self.name)
-      .map((a) => `- ${a.name}: ${a.specialty ?? a.role} (${a.model})`)
-      .join('\n') || '- (none yet)'
-  )
-}
-
-/** When the round's agent may hand the request to a bigger tier, and what that costs. */
-function escalationNote(spec: ColonySpec): string {
-  const to = spec.chat?.escalate ?? []
-  if (to.length === 0) return ''
-  const options = to
-    .map((t) => (t === 'team' ? prompts.escalation.team : prompts.escalation.solo))
-    .join(' or ')
-  return prompts.escalation.note(options)
-}
-
-function roleBrief(spec: ColonySpec, agent: AgentSpec): string {
-  if (spec.chat && spec.tier === 'answer') return prompts.roles.answer(escalationNote(spec))
-  if (spec.chat && spec.tier === 'solo' && agent.role === 'worker') {
-    const lead = spec.agents.find((a) => isLead(spec, a))?.name ?? 'lead'
-    return prompts.roles.crewmate({
-      name: agent.name,
-      ...(agent.specialty ? { specialty: agent.specialty } : {}),
-      model: agent.model,
-      lead,
-    })
-  }
-  if (spec.chat && (spec.tier !== 'team' || spec.agents.length === 1)) {
-    const onCall = isLead(spec, agent) ? (spec.team?.crewmates ?? []) : []
-    const list = onCall.map((c) => `- ${c.name}: ${c.specialty ?? 'crewmate'} (${c.model})`).join('\n')
-    const escalates = toolsFor(spec, agent).includes('escalate')
-    return prompts.roles.solo(escalationNote(spec), list ? prompts.roles.crewmates(list, escalates) : '')
-  }
-  if (spec.chat && spec.team?.mode === 'swarm') {
-    return prompts.roles.swarmPeer({
-      name: agent.name,
-      peers: spec.agents.length,
-      ...(agent.specialty ? { specialty: agent.specialty } : {}),
-      roster: roster(spec, agent),
-    })
-  }
-  if (isLead(spec, agent)) {
-    const extra = (spec.team?.maxWorkers ?? 0) - (spec.agents.length - 1)
-    if (!spec.chat) return prompts.roles.lead(roster(spec, agent))
-    const saved = spec.team?.specialists
-      ?.map((s) => `- ${s.name}: ${s.specialty ?? s.role} (${s.model})`)
-      .join('\n')
-    return prompts.roles.chatLead({
-      roster: roster(spec, agent),
-      extra,
-      ...(spec.team ? { workerModels: spec.team.workerModels } : {}),
-      ...(saved ? { saved } : {}),
-    })
-  }
-  if (spec.pattern === 'lead-workers') {
-    if (!spec.chat) return prompts.roles.worker
-    return prompts.roles.chatWorker({
-      name: agent.name,
-      ...(agent.specialty ? { specialty: agent.specialty } : {}),
-      model: agent.model,
-    })
-  }
-  return prompts.roles.peer
-}
-
 export interface Environment {
   /** This round's marker for untrusted content blocks. */
   readonly boundary?: string
@@ -323,95 +254,7 @@ export function thinkingFor(spec: ColonySpec, agent: AgentSpec): Effort {
 }
 
 /** Runtimes present on this machine, checked once, so agents know what they can actually run. */
-const RUNTIMES = ['bun', 'node', 'python3', 'deno', 'uv', 'git'].filter((c) => Bun.which(c) !== null)
-
-function environment(spec: ColonySpec, env: Environment, tools: readonly string[]): string {
-  const now = new Date()
-  const lines = [
-    prompts.environment.today({
-      date: localDate(now),
-      weekday: now.toLocaleDateString('en-US', { weekday: 'long' }),
-      zone: `${personZone()} (${zoneOffset(now)})`,
-    }),
-  ]
-  const project = spec.chat?.project
-  if (project && env.worktree)
-    lines.push(
-      prompts.environment.worktree({
-        name: project.name,
-        workdir: env.worktree.workdir,
-        branch: env.worktree.branch,
-        path: project.path,
-      }),
-    )
-  else if (project)
-    lines.push(
-      prompts.environment.project({
-        name: project.name,
-        path: project.path,
-        propose: tools.includes('propose'),
-      }),
-    )
-  if (env.boundary && tools.some((t) => t.startsWith('web_') || t.startsWith('browser_') || t === 'mcp'))
-    lines.push(prompts.environment.untrusted(env.boundary))
-  const permissions = project?.permissions
-  if (env.sandbox === 'unconfined') lines.push(prompts.environment.fullAccess)
-  if (env.computer && tools.includes('computer')) lines.push(prompts.environment.computer(env.boundary))
-  if (permissions?.mode === 'read-only')
-    lines.push(prompts.environment.readOnly(project?.name, tools.includes('propose')))
-  else if (permissions?.mode === 'ask') lines.push(prompts.environment.ask(project?.name, permissions.allow))
-  if (env.skills?.length && tools.includes('use_skill')) {
-    const skills = env.skills.slice(0, 40)
-    const fits = skillsFor(spec.chat?.request ?? spec.mission, skills)
-    lines.push(
-      prompts.environment.skills(
-        fits
-          .map(
-            (s) =>
-              `- ${s.name}: ${s.description.length > 220 ? `${s.description.slice(0, 217)}…` : s.description}`,
-          )
-          .join('\n'),
-        skills.filter((s) => !fits.includes(s)).map((s) => s.name),
-      ),
-    )
-  }
-  if (tools.includes('find_tools')) {
-    const ready = new Set(preloaded(spec.chat?.request ?? spec.mission, tools))
-    const later = tools.filter((t) => onDemand(t) && !ready.has(t))
-    lines.push(prompts.environment.onDemand({ later, mcp: tools.includes('mcp') }))
-  }
-  const memory = spec.chat?.memory
-  if (memory?.length) lines.push(prompts.environment.memory(memory))
-  if (tools.includes('remember')) lines.push(prompts.environment.remember)
-  const guide = env.project?.instructions
-  if (project && env.project?.layout) lines.push(prompts.environment.layout(env.project.layout))
-  if (project && env.project?.checks.length && tools.includes('run_checks'))
-    lines.push(
-      prompts.environment.checks(env.project.checks.map((c) => `${c.name} \`${c.command}\``).join(', ')),
-    )
-  if (project && guide) {
-    if (guide.text) lines.push(prompts.environment.instructions(guide.files, guide.text))
-    if (guide.nested.length) lines.push(prompts.environment.nested(guide.nested))
-  }
-  if (tools.includes('shell')) {
-    const shell = { platform: process.platform, sandbox: env.sandbox, runtimes: RUNTIMES }
-    lines.push(
-      env.sandbox === 'unconfined'
-        ? prompts.environment.shellFull({ ...shell, project: !!project })
-        : project
-          ? prompts.environment.shellProject(shell)
-          : prompts.environment.shellScratch(shell),
-    )
-  }
-  if (env.sandbox !== 'unconfined' && (tools.includes('shell') || tools.includes('fs_read')))
-    lines.push(
-      prompts.environment.reads({
-        folders: spec.askAll ? [] : (spec.reads ?? []),
-        ask: tools.includes('request_read') && !spec.askAll,
-      }),
-    )
-  return lines.join('\n')
-}
+export const RUNTIMES = ['bun', 'node', 'python3', 'deno', 'uv', 'git'].filter((c) => Bun.which(c) !== null)
 
 // Words too common in requests and skill descriptions to say a skill fits.
 const COMMON_WORDS = new Set(
@@ -435,118 +278,6 @@ export function skillsFor<T extends { name: string; description: string }>(
   return skills.filter((s) =>
     words(`${s.name.replace(/[-_]/g, ' ')} ${s.description}`).some((w) => asked.has(w)),
   )
-}
-
-/** What this agent can do here, stated from the actual configuration so capability answers are factual. */
-function capabilities(spec: ColonySpec, agent: AgentSpec, env: Environment): string {
-  const tools = toolsFor(spec, agent)
-  const has = (t: string) => tools.includes(t)
-  const say = prompts.capabilities
-  const ready = new Set(preloaded(spec.chat?.request ?? spec.mission, tools))
-  // A capability whose tools load on demand says how to load them.
-  const load = (tool: string, query: string) =>
-    has('find_tools') && onDemand(tool) && !ready.has(tool) ? say.load(query) : ''
-  const lead = spec.agents.find((a) => isLead(spec, a))?.name ?? 'lead'
-  const onCall = spec.team?.crewmates?.length ?? 0
-  const mode =
-    spec.tier === 'answer'
-      ? say.modes.answer
-      : spec.chat && spec.tier === 'solo' && agent.role === 'worker'
-        ? say.modes.crewmate(lead)
-        : spec.chat && spec.tier === 'solo' && has('ask_crewmate')
-          ? say.modes.soloCrew(onCall)
-          : spec.tier === 'solo' || (spec.chat && spec.agents.length === 1)
-            ? say.modes.solo
-            : spec.team?.mode === 'swarm'
-              ? say.modes.swarm(spec.agents.length)
-              : spec.team
-                ? say.modes.orchestrated(spec.agents.length - 1)
-                : say.modes.colony(spec.pattern, spec.agents.length)
-  return [
-    say.harness,
-    say.round(mode),
-    say.can(
-      [
-        has('web_search') && (env.web ? say.web : say.noWeb),
-        has('shell') &&
-          (env.sandbox === 'unconfined'
-            ? say.shellFull
-            : env.sandbox !== 'none'
-              ? say.shell(env.sandbox)
-              : say.noShell),
-        has('publish_artifact') && say.publish,
-        has('browser_open') &&
-          (env.browser ? `${say.browser}${load('browser_open', 'browser')}` : say.noBrowser),
-        has('mcp') && say.mcp,
-        has('computer') && env.computer && `${say.computer}${load('computer', 'computer')}`,
-        has('create_tool') &&
-          env.sandbox !== 'none' &&
-          `${say.makeTools}${load('create_tool', 'create_tool')}`,
-        has('create_task') && say.createTasks,
-        has('add_crewmate') && say.addWorkers,
-        has('reply_user') && say.talk,
-      ]
-        .filter(Boolean)
-        .join('; '),
-    ),
-    `${say.limits}${has('create_tool') ? say.madeToolsKept : ''}`,
-    say.docs(!doesWork(spec, agent)),
-  ].join('\n')
-}
-
-/** Agents that do hands-on work (everyone except a lead that only delegates, and direct answers). */
-function doesWork(spec: ColonySpec, agent: AgentSpec): boolean {
-  if (spec.tier === 'answer') return false
-  return !(isLead(spec, agent) && spec.chat && spec.agents.length > 1)
-}
-
-/** Whether the round's final answer is reviewed: never with no acceptance checks or the reviewer off. */
-function reviewed(spec: ColonySpec): boolean {
-  return spec.acceptance.length > 0 && spec.review !== 'off'
-}
-
-/** What happens to the speaking agent's final answer under this round's reviewer setting. */
-function reviewNote(spec: ColonySpec): string {
-  if (!reviewed(spec)) return prompts.review.off
-  const judge = spec.acceptance.find((c) => c.verifier === 'llm-judge')
-  const by = judge?.verifier === 'llm-judge' ? judge.model : spec.acceptance.map((c) => c.verifier).join(', ')
-  return spec.review === 'auto' ? prompts.review.auto(by) : prompts.review.always(by)
-}
-
-/** The parts of how the colony works that apply to this agent: a solo-round crewmate has no tasks or team chat. */
-function common(spec: ColonySpec, agent: AgentSpec): string {
-  const tools = toolsFor(spec, agent)
-  const crewmate = spec.chat !== undefined && spec.tier === 'solo' && agent.role === 'worker'
-  return prompts.system.common({
-    tasks: tools.includes('claim_task'),
-    talk: !crewmate && tools.includes('message'),
-    groups: tools.includes('create_group'),
-    deliver: !crewmate && tools.includes('publish_artifact'),
-    reviewed: !crewmate && (!spec.chat || reviewed(spec)),
-    // The crewmate's brief says how it finishes: by answering the lead.
-    finish: !crewmate,
-    honest: !doesWork(spec, agent),
-  })
-}
-
-export function systemPrompt(spec: ColonySpec, agent: AgentSpec, env: Environment): string[] {
-  const team = spec.agents.length > 1
-  const tools = toolsFor(spec, agent)
-  return [
-    prompts.system.identity(agent.name),
-    capabilities(spec, agent, env),
-    roleBrief(spec, agent),
-    doesWork(spec, agent) ? prompts.system.craft.trim() : '',
-    team ? common(spec, agent) : '',
-    spec.chat && tools.includes('reply_user') && speaksForColony(spec, agent)
-      ? `${prompts.system.speaker({ web: tools.includes('web_search'), plugins: tools.includes('create_plugin') }).trim()}\n- ${reviewNote(spec)}`
-      : '',
-    tools.includes('submit_task') ? prompts.review.tasks(spec.taskJudge) : '',
-    agent.instructions ? prompts.system.additional(agent.instructions) : '',
-    ...(env.plugins ?? []),
-    // Volatile facts go last so the stable part of the prompt can be cached.
-    environment(spec, env, toolsFor(spec, agent)),
-  ].filter(Boolean)
 }
 
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}…` : s)
@@ -585,8 +316,8 @@ export function snapshot(spec: ColonySpec, s: ColonyState): string {
 export function startsAwake(spec: ColonySpec, agent: AgentSpec): boolean {
   // A round the person opened by writing to someone directly starts with that someone.
   if (spec.chat?.addressed?.length) return spec.chat.addressed.includes(agent.name)
-  // A crewmate the lead asks for a job is woken by the job; the person's request is the lead's.
-  if (spec.chat && spec.tier === 'solo' && agent.role === 'worker') return false
+  // A crewmate the lead asks for a job starts with the job (its focus); the person's request is the lead's.
+  if (spec.chat && spec.tier === 'solo' && agent.role === 'worker') return agent.focus !== undefined
   if (!spec.chat || spec.tier !== 'team' || !spec.team) return true
   // Every swarm peer joins the opening huddle.
   if (spec.team.mode === 'swarm') return true
@@ -602,6 +333,8 @@ export function attachedNote(names: readonly string[] | undefined): string {
 export function kickoff(spec: ColonySpec, state: ColonyState, remembers = false, agent?: string): string {
   if (!spec.chat) return prompts.kickoff.mission(spec.mission)
   const to = spec.chat.addressed
+  // A crewmate on call opens with its job (the assembled kickoff prefix), never the person's request.
+  if (spec.tier === 'solo' && spec.agents.find((a) => a.name === agent)?.role === 'worker') return ''
   if (to?.length && agent && !to.includes(agent))
     return prompts.kickoff.addressedElsewhere(to, spec.chat.request)
   const history = spec.chat.history && !remembers ? prompts.kickoff.history(spec.chat.history) : ''

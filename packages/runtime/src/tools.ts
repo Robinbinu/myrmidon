@@ -74,6 +74,7 @@ import {
 import { toolsFor } from './patterns.ts'
 import { adoptDraft, isOwnDraft, testPlugin, writeDraft } from './plugin-builder.ts'
 import type { ProjectCheck } from './project-context.ts'
+import type { PromptFacts } from './prompt/facts.ts'
 import { prompts } from './prompts.ts'
 import { SANDBOX_DIRS } from './sandbox.ts'
 import { assertArtifactName, SKIP_DIRS } from './workspace.ts'
@@ -102,6 +103,8 @@ interface ToolDef {
   readonly name: string
   readonly tier: Tier
   readonly description: string
+  /** For a tool whose description depends on the round's configuration: what this agent is told instead. */
+  readonly describe?: (facts: PromptFacts) => string
   readonly parameters: ReturnType<typeof type>
   // biome-ignore lint/suspicious/noExplicitAny: arguments are validated against `parameters` by the agent loop
   run(args: any, agent: string, host: ColonyHost): Promise<string | ToolOutput>
@@ -1584,7 +1587,9 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'reply_user',
     tier: 'write',
-    description: prompts.tools.reply_user.description,
+    description: prompts.tools.reply_user.description('always', false),
+    describe: (f) =>
+      prompts.tools.reply_user.description(f.review.setting, f.tools.names.includes('request_review')),
     parameters: type({ text: type('string').atLeastLength(1), 'final?': type('boolean') }),
     async run(args, agent, host) {
       if (host.spec.team?.mode === 'swarm' && host.spec.tier === 'team' && speaker(host.state()) !== agent)
@@ -2323,7 +2328,8 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'shell',
     tier: 'exec',
-    description: prompts.tools.shell.description,
+    description: prompts.tools.shell.description(false),
+    describe: (f) => prompts.tools.shell.description(f.access.fullAccess),
     parameters: type({ command: type('string'), 'timeoutSeconds?': type('number') }),
     async run(args, agent, host) {
       if (host.sandbox.kind === 'none' && !host.unsafeNoSandbox)
@@ -2535,6 +2541,8 @@ export function buildAgentTools(
   host: ColonyHost,
   /** The agent's current model, which sizes computer use's screenshots. */
   model?: () => Model,
+  /** The facts the agent's prompt was assembled from, so configuration-dependent descriptions match it. */
+  facts?: PromptFacts,
 ): AgentTool[] {
   const allow = new Set(allowed)
   const mcp = allow.has('mcp')
@@ -2552,7 +2560,7 @@ export function buildAgentTools(
   // The person's Mac, only for rounds that may use it (never one a channel member started or wrote into).
   const computer =
     allow.has(COMPUTER_TOOL) && host.computer && model ? [computerTool(agent, host, model)] : []
-  return [...harnessTools(agent, allow, host), ...mcp, ...made, ...computer]
+  return [...harnessTools(agent, allow, host, facts), ...mcp, ...made, ...computer]
 }
 
 /** Runs a made tool's script in the caller's sandbox, with its inputs as JSON in MYR_INPUT. */
@@ -2882,14 +2890,25 @@ class AlreadyDone extends Error {
   }
 }
 
-function harnessTools(agent: string, allow: ReadonlySet<string>, host: ColonyHost): AgentTool[] {
+/** A harness tool's description as this agent sees it. */
+export function toolDescription(name: string, facts?: PromptFacts): string | undefined {
+  const def = TOOL_DEFS.find((d) => d.name === name)
+  return def && facts && def.describe ? def.describe(facts) : def?.description
+}
+
+function harnessTools(
+  agent: string,
+  allow: ReadonlySet<string>,
+  host: ColonyHost,
+  facts?: PromptFacts,
+): AgentTool[] {
   return TOOL_DEFS.filter((d) => allow.has(d.name))
     .filter((d) => d.tier !== 'exec' || host.sandbox.kind !== 'none' || host.unsafeNoSandbox)
     .map(
       (def): AgentTool => ({
         name: def.name,
         label: def.name,
-        description: def.description,
+        description: (facts && def.describe?.(facts)) || def.description,
         parameters: def.parameters,
         intent: 'omit',
         approval: def.tier,

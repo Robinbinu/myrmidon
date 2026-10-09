@@ -110,7 +110,7 @@ test('read_log shows each call with what it returned, filtered by agent or tool,
 })
 
 test('agents see every time in one zone, the one their prompt names', async () => {
-  const { systemPrompt } = await import('../src/patterns.ts')
+  const { systemPrompt } = await import('../src/prompt/assemble.ts')
   const { parseColonySpec } = await import('../src/spec.ts')
   const spec = parseColonySpec({ name: 'Zone', mission: 'x', agents: [{ name: 'a', model: 'm' }] })
   const agent = spec.agents[0] as (typeof spec.agents)[number]
