@@ -759,7 +759,17 @@ export const copy = {
       notifyHint: 'A notification on this device, only while Myrmidon is not in front.',
       test: 'Send a test notification',
       testBody: 'This is how Myrmidon tells you a chat is done.',
-      sent: 'Sent. Look for it in the corner of your screen.',
+      /** How the test went, under its button. */
+      result: {
+        sent: 'Sent. Look for it in the corner of your screen. Nothing there? Check that Focus or Do Not Disturb is off and that your system lets this browser notify.',
+        sentDesktop:
+          'Sent. Look for it in the corner of your screen. Nothing there? Check that Focus is off and that System Settings → Notifications → Myrmidon allows them.',
+        waiting:
+          'Switch to another app to see it: macOS shows Myrmidon’s notifications while it is in the background, so the test arrives as you leave.',
+        blocked:
+          'Blocked: this browser does not let Myrmidon notify. Allow notifications in the site settings from the address bar, then try again.',
+        failed: (error: string) => `The notification could not be sent: ${error}`,
+      },
       badge: 'Count on the Dock icon',
       badgeHint: 'The number of chats waiting for you.',
       unsupported: 'This browser cannot show notifications.',

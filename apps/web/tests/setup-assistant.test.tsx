@@ -487,3 +487,80 @@ test('the whole assistant run again still walks on to the next step', async () =
     await unmount()
   }
 })
+
+/* ------------------------------------------------------------------ the test notification */
+
+test('the test notification says how it went: sent, or blocked with how to allow it', async () => {
+  fakeServer({ steps: { welcome: 'done' } })
+  localStorage.setItem('myr-notify', '1')
+  const made: string[] = []
+  const permission = { now: 'granted' }
+  ;(globalThis as { Notification?: unknown }).Notification = class {
+    static get permission() {
+      return permission.now
+    }
+    static requestPermission = async () => permission.now
+    constructor(title: string) {
+      made.push(title)
+    }
+  }
+  const { unmount } = await showSetup('alerts', { steps: { welcome: 'done' } })
+  try {
+    await settle()
+    const status = () => document.querySelector('[role="status"][data-result]')
+    await act(async () => button('Send a test notification').click())
+    await settle()
+    expect(made).toEqual(['Myrmidon'])
+    expect(status()?.getAttribute('data-result')).toBe('sent')
+    expect(status()?.textContent).toContain('Sent.')
+    // Allowed when the switch went on, blocked since: it says so and how to allow it, and stays on the step.
+    permission.now = 'denied'
+    await act(async () => button('Send a test notification').click())
+    await settle()
+    expect(status()?.getAttribute('data-result')).toBe('blocked')
+    expect(status()?.textContent).toContain('Allow notifications in the site settings')
+    expect(heading()).toBe('Alerts')
+  } finally {
+    localStorage.removeItem('myr-notify')
+    await unmount()
+  }
+})
+
+test('in the desktop app in front, the test waits for Myrmidon to go to the background, then is sent', async () => {
+  fakeServer({ steps: { welcome: 'done' } })
+  localStorage.setItem('myr-notify', '1')
+  const sent: string[] = []
+  window.myrmidonDesktop = {
+    pickFolder: async () => undefined,
+    reveal: async () => {},
+    setBadge: async () => {},
+    notify: async (_title, body) => {
+      sent.push(body)
+    },
+  }
+  const hasFocus = document.hasFocus.bind(document)
+  let focused = true
+  document.hasFocus = () => focused
+  const { unmount } = await showSetup('alerts', { steps: { welcome: 'done' } })
+  try {
+    await settle()
+    const status = () => document.querySelector('[role="status"][data-result]')
+    await act(async () => button('Send a test notification').click())
+    await settle()
+    expect(status()?.getAttribute('data-result')).toBe('waiting')
+    expect(sent).toEqual([])
+    focused = false
+    await act(async () => {
+      window.dispatchEvent(new Event('blur'))
+    })
+    await settle()
+    expect(sent).toEqual(['This is how Myrmidon tells you a chat is done.'])
+    expect(status()?.getAttribute('data-result')).toBe('sent')
+    expect(status()?.textContent).toContain('System Settings → Notifications → Myrmidon')
+  } finally {
+    document.hasFocus = hasFocus
+    delete window.myrmidonDesktop
+    localStorage.removeItem('myr-notify')
+    await unmount()
+  }
+})
