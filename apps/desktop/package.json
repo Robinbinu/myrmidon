@@ -1,0 +1,16 @@
+{
+  "name": "@myrmidon/desktop",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0",
+  "scripts": {
+    "dev": "electrobun dev",
+    "build": "bun scripts/build-sidecar.ts && electrobun build --env=stable",
+    "sidecar": "bun scripts/build-sidecar.ts",
+    "typecheck": "electrobun prepare && tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "electrobun": "2.0.2"
+  }
+}
