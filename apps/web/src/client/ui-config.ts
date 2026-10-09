@@ -121,10 +121,10 @@ export const MASCOT_DOZE_MS = 45_000
 /** The user's own pointer outranks the crew's for this long after it moves. */
 export const MASCOT_USER_FOCUS_MS = 2500
 /**
- * Windows shorter than this leave the mascot off the new-chat view: its screen (about 180px) would push the message
+ * Windows shorter than this leave the mascot off the new-chat view: its screen (about 300px) would push the message
  * box and the starters below the fold, and they matter more.
  */
-export const HERO_MASCOT_MIN_HEIGHT = 640
+export const HERO_MASCOT_MIN_HEIGHT = 760
 /** How many of the latest chats the new-chat view lists under its starters. */
 export const HERO_RECENT_CHATS = 5
 
