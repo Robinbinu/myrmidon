@@ -499,11 +499,11 @@ Open work, in the order it will be done:
       file tools (hard-coded in patterns.ts) and nothing lets the person change it; the lead then told the person the
       team had no browser. Decided: presets + rules, cards once/chat/project/everywhere, Auto default, hands-on lead
       by default with a role x tool-group control. Building on branch `permissions`.
-12u. - [ ] **Voice providers from Models & providers** (asked 2026-10-09) — any cloud STT/TTS and realtime
+12u. - [x] **Voice providers from Models & providers** (done, merged f3188ec; untested with real keys) (asked 2026-10-09) — any cloud STT/TTS and realtime
       (speech-to-speech) provider, configured in Settings → Models & providers like LLM providers, after Pipecat and
       similar repos; Settings → Voice picks among the configured ones and links to Models & providers to add more.
       Today: Phonon/Kitten locally, omp, or one OpenAI-compatible endpoint with keys in voice/secrets.json.
-12v. - [ ] **Themes like VS Code, and more mascot settings** (asked 2026-10-09) — the themes developers love
+12v. - [x] **Themes like VS Code, and more mascot settings** (done, merged) (asked 2026-10-09) — the themes developers love
       (research which), applied to the whole UI; more ways to tune the mascot.
 12w. - [ ] **Search in Settings, like iPhone Settings** (asked 2026-10-09: "settings is not searchable and very
       confusing to find an option") — a search field at the top of Settings; every setting indexed with its page,
