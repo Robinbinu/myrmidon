@@ -150,3 +150,81 @@ test('removing a model takes it out of every default, hiding it or forgetting it
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('mascot settings from before liveliness, crew, screen and sounds keep their look and gain the defaults', () => {
+  const dir = home()
+  try {
+    writeFileSync(
+      join(dir, 'settings.json'),
+      JSON.stringify({ mascot: { eyes: 'lashes', look: 'bow', color: 'violet', screen: 'clock' } }),
+    )
+    const { mascot, appearance } = new SettingsStore(dir).get()
+    expect(mascot).toEqual({
+      eyes: 'lashes',
+      look: 'bow',
+      color: 'violet',
+      screen: 'clock',
+      idle: 'normal',
+      shows: { pacman: true, life: true, confetti: true, boot: true },
+      temper: 'playful',
+      crew: { show: true, count: 3, names: 'minions', custom: [], boldness: 'curious' },
+      display: { dots: 'led', grid: 'faint', glow: 'soft', eyeColor: 'own', size: 'medium' },
+      sounds: { enabled: false, reactions: true, typing: true, volume: 'quiet' },
+    })
+    expect(appearance).toEqual({ imported: [] })
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('mascot settings are checked: the crew count, its names, and every choice', () => {
+  const dir = home()
+  try {
+    const store = new SettingsStore(dir)
+    expect(() => store.set({ mascot: { crew: { count: 0 } } })).toThrow()
+    expect(() => store.set({ mascot: { crew: { count: 7 } } })).toThrow()
+    expect(() => store.set({ mascot: { display: { dots: 'hexagon' } } })).toThrow()
+    expect(() => store.set({ mascot: { crew: { custom: ['a-name-far-too-long-for-a-tag'] } } })).toThrow()
+    const saved = store.set({ mascot: { crew: { names: 'custom', custom: [' Ada ', 'Ada', 'Grace', ''] } } })
+    expect(saved.mascot.crew.custom).toEqual(['Ada', 'Grace'])
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('imported themes keep only hex colours, under keys and roles that can be colours', () => {
+  const dir = home()
+  try {
+    const store = new SettingsStore(dir)
+    const theme = {
+      id: 'imported-abc123',
+      name: ' Mine ',
+      type: 'dark' as const,
+      colors: { 'editor.background': '#101010', 'editor.foreground': '#eeeeee' },
+      syntax: { keyword: '#ff00ff' },
+    }
+    expect(() =>
+      store.set({ appearance: { imported: [{ ...theme, colors: { 'editor.background': 'url(x)' } }] } }),
+    ).toThrow()
+    expect(() =>
+      store.set({ appearance: { imported: [{ ...theme, colors: { 'editor.background': 'red' } }] } }),
+    ).toThrow()
+    expect(() => store.set({ appearance: { imported: [{ ...theme, id: '../etc' }] } })).toThrow()
+    const saved = store.set({
+      appearance: {
+        imported: [
+          {
+            ...theme,
+            colors: { ...theme.colors, 'bad key!': '#000000' },
+            syntax: { ...theme.syntax, oops: '#000' },
+          },
+          theme,
+        ],
+      },
+    })
+    // The same id twice is one theme, the later one.
+    expect(saved.appearance.imported).toEqual([{ ...theme, name: 'Mine' }])
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

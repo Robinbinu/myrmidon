@@ -306,6 +306,19 @@ const sendSchema = Schema.object({
   project: Schema.string().pattern(/^[a-z0-9-]{1,80}$/),
   // A new chat's own permission level, chosen in the composer before its first message (checked by normalizeLevel).
   permissions: Schema.any(),
+  // An answer given on a question card: the card shows it, so the chat need not repeat it as a message.
+  answers: Schema.object({
+    seq: Schema.natural().required(),
+    picks: Schema.array(
+      Schema.object({
+        picked: Schema.array(Schema.string().max(500)).max(50).required(),
+        other: Schema.string().max(MAX_MESSAGE_CHARS),
+        skipped: Schema.boolean(),
+      }),
+    )
+      .max(20)
+      .required(),
+  }),
   attachments: Schema.array(
     Schema.object({
       name: Schema.string().min(1).max(200).required(),
@@ -378,6 +391,7 @@ export function startServer(options: ServeOptions): WebServer {
     return {
       supported: computer?.supported ?? false,
       enabled: computer?.enabled ?? false,
+      engine: computer?.engine ?? 'cua',
       state: computer?.status() ?? { state: 'unsupported' },
       ...(driver ? { driver } : {}),
       version: computer?.installVersion ?? '',
@@ -1395,10 +1409,11 @@ export function startServer(options: ServeOptions): WebServer {
             // Setup is kept by /api/setup alone: a page saving its settings sends the copy it read, which may be older.
             const { setup } = options.settings.get()
             const body = { ...((await req.json()) as Record<string, unknown>), setup }
-            const wasOn = options.settings.get().computerUse.enabled
+            const was = options.settings.get().computerUse
             const settings = options.settings.set(body)
-            // Switched off: agents on the person's Mac stop at once, and the driver with them.
-            if (wasOn && !settings.computerUse.enabled && options.computer) {
+            // Switched off, or to the other engine: agents on the person's Mac stop at once, and the driver with them.
+            const engineChanged = (was.engine ?? 'cua') !== (settings.computerUse.engine ?? 'cua')
+            if (was.enabled && (!settings.computerUse.enabled || engineChanged) && options.computer) {
               options.computer.stopAll()
               await options.computer.stop()
             }
@@ -2188,6 +2203,7 @@ export function startServer(options: ServeOptions): WebServer {
               planFirst: body.plan === true,
               ...(body.project ? { project: body.project } : {}),
               ...(calls ? { context: calls.context } : {}),
+              ...(body.answers ? { answers: body.answers } : {}),
               // Like PUT /api/chats/:id/permissions, a chat's own level needs a device with full access.
               ...(body.permissions !== undefined && !body.chatId
                 ? access.scope === 'full'
@@ -2201,6 +2217,10 @@ export function startServer(options: ServeOptions): WebServer {
             return json({ error: err instanceof Error ? err.message : String(err) }, 422)
           }
         }),
+      },
+      // What the person has written before, for the composer's suggestions (learned in the page, never sent on).
+      '/api/suggestions': {
+        GET: guard(async () => json({ said: options.chats ? await options.chats.said() : [] })),
       },
       // Chats by what was said in them; the chat list already matches titles itself.
       '/api/chats/search': {

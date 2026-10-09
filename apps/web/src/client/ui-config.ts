@@ -158,11 +158,26 @@ export const MASCOT_BEATS = {
 } as const
 /** The tricks the new-chat mascot plays while nobody types. */
 export const MASCOT_IDLE = {
-  /** How often it considers playing one, and the chance it does each time. */
+  /** How often it considers playing one, and the chance it does each time, by how lively the person set it. */
   everyMs: 1000,
-  chance: 0.12,
+  chance: { off: 0, rare: 0.04, normal: 0.12, often: 0.3 },
   /** The share of its tricks that are the Pac-Man show rather than something its eyes do. */
   showShare: 0.1,
+  /** The eye tricks a calm mascot still plays: nothing that jolts, sneezes or crosses its eyes. */
+  calmClips: ['eye roll', 'squint', 'look around', 'yawn', 'double blink', 'peek', 'beam'],
+} as const
+/** The live mascot in Settings plays its tricks this many times as often as the real one, so a setting shows quickly. */
+export const MASCOT_PREVIEW = { speedUp: 4 } as const
+/** The mascot's dot screen as the person set it up (Settings → You & mascot → Screen look). */
+export const MASCOT_DISPLAY = {
+  /** A dot's corner radius, as a share of its size: LED cells are softly rounded, round ones are circles. */
+  radius: { led: 0.3, round: 0.5, square: 0.06 },
+  /** How strongly the unlit cells take the eyes' colour when the grid is tinted. */
+  tint: 0.16,
+  /** The glow around lit dots: its blur, as a share of a dot (and at most `maxPx`), and how much colour it carries. */
+  glow: { soft: { blur: 1.4, maxPx: 18, mix: 40 }, strong: { blur: 2.4, maxPx: 30, mix: 70 } },
+  /** The screen's width on the new-chat view, in px; narrow windows shrink it further. */
+  widthPx: { small: 300, medium: 400, large: 480 },
 } as const
 /** Shows that take the mascot's whole screen. */
 export const MASCOT_SHOWS = {
@@ -319,6 +334,32 @@ export const MASCOT_CREW = {
   fullTurnSpeed: 900,
 } as const
 
+/** How bold the crew is: the range their curiosity (how often they poke) and nerve are drawn from. */
+export const CREW_BOLDNESS = {
+  shy: { curiosity: [0.1, 0.35], nerve: [0.05, 0.35] },
+  curious: { curiosity: [0.3, 1], nerve: [0.2, 1] },
+  bold: { curiosity: [0.75, 1], nerve: [0.7, 1] },
+} as const
+
+/** The mascot's soft blips (ui/sounds.ts), made with Web Audio when the person turns sounds on. */
+export const MASCOT_SOUNDS = {
+  /** Loudness by the person's setting, as the peak gain of a blip. */
+  volume: { quiet: 0.04, normal: 0.08, loud: 0.14 },
+  /** Typing blips come at most this often, so fast typing is a patter rather than a buzz. */
+  typingEveryMs: 70,
+  /** A typing tick: a short triangle blip, its pitch picked from this range (Hz). */
+  typing: { ms: 30, hz: [880, 1180] },
+  /** A reaction: two quick sine notes, rising when it is pleased and falling when it is not (Hz). */
+  reaction: { ms: 90, gapMs: 70, up: [660, 990], down: [520, 390] },
+} as const
+
+/* ------------------------------------------------------------------ themes */
+
+/** An imported VS Code theme file: the largest accepted, and the longest name kept. */
+export const THEME_IMPORT = { maxBytes: 512_000, maxName: 60 } as const
+/** Imported themes kept at once; the gateway keeps as many (MAX_IMPORTED_THEMES in packages/runtime). */
+export const MAX_IMPORTED_THEMES = 12
+
 /* ------------------------------------------------------------------ connection */
 
 /** A crew's event stream reconnects after this long, doubling while the server stays down, up to the most. */
@@ -439,3 +480,14 @@ export const APPROVAL_MENU_PX = 260
 export const APPROVAL_MENU_ROOM_PX = 340
 /** How tall the rules table grows before it scrolls. */
 export const RULES_LIST_MAX_PX = 420
+
+// Suggestions in the composer (chat/suggest.ts)
+
+/** Characters typed before one of the person's past messages is offered back. */
+export const SUGGEST_MIN_HISTORY_CHARS = 3
+/** Letters of a word typed before it is finished for them. */
+export const SUGGEST_MIN_WORD_PREFIX = 2
+/** Times a next word must have followed the words before it to be predicted: one sighting is chance. */
+export const SUGGEST_MIN_COUNT = 2
+/** The longest ghost text shown; a longer past message is cut at a word. */
+export const SUGGEST_MAX_CHARS = 80

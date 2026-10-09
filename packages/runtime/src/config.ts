@@ -263,6 +263,11 @@ export const SANDBOX_SECRETS = [
 ] as const
 /** The most extra readable folders the person may list, in Settings or for one project, and grant in one chat. */
 export const MAX_READ_FOLDERS = 50
+/** Imported VS Code themes kept in settings, and the most colours one keeps (Myrmidon reads 34). */
+export const MAX_IMPORTED_THEMES = 12
+export const MAX_THEME_COLORS = 64
+/** Names the person may give the mascot's crew cursors (Settings → You & mascot). */
+export const MAX_CREW_NAMES = 8
 /** How long a hook may run when it sets no timeout, the most it may set, and how much of its output is kept. */
 export const HOOK_TIMEOUT_S = 60
 export const HOOK_MAX_TIMEOUT_S = 600
@@ -456,6 +461,19 @@ export const COMPUTER_SEND_APPS = [
   /^com\.microsoft\.teams/,
   /^com\.microsoft\.Outlook$/,
 ]
+/**
+ * omp's desktop engine (computer/desktop.ts). Screenshots are capped at omp's coordinate-safe frame: a provider that
+ * resizes a larger image would put the model's pointer coordinates off.
+ */
+export const DESKTOP_CAPTURE = { maxWidth: 1280, maxHeight: 896 } as const
+/** How long one desktop script may run by default, and at most, in seconds. */
+export const DESKTOP_TIMEOUT_S = 30
+export const DESKTOP_MAX_TIMEOUT_S = 120
+/** The latest screenshots of a script returned to the model, and how much of its text output. */
+export const DESKTOP_IMAGES_SHOWN = 3
+export const DESKTOP_OUTPUT_CHARS = 12_000
+/** How long launching an app (`open -a`) from a desktop script may take. */
+export const DESKTOP_OPEN_MS = 15_000
 
 // Services (mcp.ts, recovery.ts)
 
@@ -468,6 +486,8 @@ export const RECOVERY_GRACE_MS = 60_000
 
 /** The most chats one message search returns, and how much of the matching message shows around the match. */
 export const CHAT_SEARCH_LIMIT = 50
+/** The person's past messages the composer learns its suggestions from, most recent first. */
+export const SUGGEST_CORPUS = 2_000
 export const SNIPPET_BEFORE = 40
 export const SNIPPET_AFTER = 100
 

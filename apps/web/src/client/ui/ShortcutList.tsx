@@ -42,6 +42,8 @@ export const SHORTCUT_GROUPS: readonly { title: string; items: readonly Shortcut
       { label: t.focusComposer, combo: '/' },
       { label: t.send, combo: 'enter' },
       { label: t.newLine, combo: 'shift+enter' },
+      { label: t.takeWord, combo: 'tab' },
+      { label: t.takeSuggestion, combo: 'arrowright' },
       { label: t.stopRun, combo: 'mod+.' },
     ],
   },

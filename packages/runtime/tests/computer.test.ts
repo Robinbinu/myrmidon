@@ -15,7 +15,9 @@ import {
 import type { AgentTool, AgentToolResult } from '@oh-my-pi/pi-agent-core'
 import type { Model } from '@oh-my-pi/pi-ai'
 import { createMockModel, type MockContent } from '@oh-my-pi/pi-ai/providers/mock'
+import { AssistantMessageEventStream } from '@oh-my-pi/pi-ai/utils/event-stream'
 import {
+  appTool,
   bootRuntime,
   ChatService,
   type ColonyHost,
@@ -119,6 +121,7 @@ function fakeHost(
 
 const mockModel = { id: 'mock-model', api: 'mock', provider: 'mock' } as unknown as Model
 const generic = (host: ColonyHost) => computerTool('nova', host, () => mockModel)
+const opener = (host: ColonyHost) => appTool('open_app', 'nova', host, () => mockModel)
 const call = (tool: AgentTool, args: Record<string, unknown>, context?: unknown) =>
   tool.execute('c1', args as never, undefined, undefined, context as never)
 
@@ -143,7 +146,7 @@ test('Cua Driver runs embedded under Myrmidon, as an internal MCP server agents 
 test('opening an app asks the person once per chat, then each call returns a screenshot sized for the model', async () => {
   const { host, events, cards } = fakeHost()
   const tool = generic(host)
-  const opened = await call(tool, { action: 'open_app', app: 'Notes' })
+  const opened = await call(opener(host), { app: 'Notes' })
   expect(opened.isError).toBe(false)
   expect(cards).toHaveLength(1)
   expect(cards[0]).toContain('Notes')
@@ -178,11 +181,11 @@ test('opening an app asks the person once per chat, then each call returns a scr
 
 test('an app the person does not approve stays out of reach, and Myrmidon itself is never offered', async () => {
   const { host } = fakeHost({ decide: () => false })
-  const denied = await call(generic(host), { action: 'open_app', app: 'Notes' })
+  const denied = await call(opener(host), { app: 'Notes' })
   expect(denied.isError).toBe(true)
   expect(textOf(denied)).toContain('did not let you use Notes')
   expect(asked().some((c) => c.name === 'launch_app')).toBe(false)
-  const own = await call(generic(host), { action: 'open_app', app: 'Myrmidon' })
+  const own = await call(opener(host), { app: 'Myrmidon' })
   expect(textOf(own)).toContain('never shown to or driven by agents')
   const before = await call(generic(fakeHost().host), { action: 'left_click', coordinate: [1, 1] })
   expect(textOf(before)).toContain('open_app')
@@ -191,20 +194,18 @@ test('an app the person does not approve stays out of reach, and Myrmidon itself
 test('browsers are view-only, terminals click-only until the person gives full control', async () => {
   const { host, cards } = fakeHost()
   const tool = generic(host)
-  await call(tool, { action: 'open_app', app: 'Safari' })
+  await call(opener(host), { app: 'Safari' })
   const click = await call(tool, { action: 'left_click', coordinate: [10, 10] })
   expect(click.isError).toBe(true)
   expect(textOf(click)).toContain('view-only')
-  expect(textOf(await call(tool, { action: 'open_app', app: 'Safari', full_control: true }))).toContain(
-    'cannot be given',
-  )
+  expect(textOf(await call(opener(host), { app: 'Safari', full_control: true }))).toContain('cannot be given')
 
-  await call(tool, { action: 'open_app', app: 'Terminal' })
+  await call(opener(host), { app: 'Terminal' })
   expect((await call(tool, { action: 'left_click', coordinate: [10, 10] })).isError).toBe(false)
   const typing = await call(tool, { action: 'type', text: 'ls' })
   expect(textOf(typing)).toContain('click-only')
   expect(cards).toHaveLength(2)
-  await call(tool, { action: 'open_app', app: 'Terminal', full_control: true })
+  await call(opener(host), { app: 'Terminal', full_control: true })
   expect(cards).toHaveLength(3)
   expect(cards[2]).toContain('full control')
   expect((await call(tool, { action: 'type', text: 'ls' })).isError).toBe(false)
@@ -214,7 +215,7 @@ test('a consequential-looking step waits for the person, and secrets are never t
   let allow = true
   const { host, cards } = fakeHost({ decide: () => allow })
   const tool = generic(host)
-  await call(tool, { action: 'open_app', app: 'Messages' })
+  await call(opener(host), { app: 'Messages' })
   allow = false
   // Element 1 is the Send button; clicking its pixels counts too.
   const send = await call(tool, { action: 'click_element', element: 1 })
@@ -235,7 +236,7 @@ test('a consequential-looking step waits for the person, and secrets are never t
 test('computer set to ask in Settings asks before every step', async () => {
   const { host, cards } = fakeHost({ rules: [{ kind: 'tool', target: 'computer', decision: 'ask' }] })
   const tool = generic(host)
-  await call(tool, { action: 'open_app', app: 'Notes' })
+  await call(opener(host), { app: 'Notes' })
   await call(tool, { action: 'scroll', coordinate: [10, 10], scroll_direction: 'down' })
   expect(cards.filter((c) => c.includes('Allow this step'))).toHaveLength(2)
 })
@@ -243,7 +244,7 @@ test('computer set to ask in Settings asks before every step', async () => {
 test("OpenAI's native computer call runs its batch and answers with a screenshot for the provider", async () => {
   const { host, cards } = fakeHost()
   const tool = generic(host)
-  await call(tool, { action: 'open_app', app: 'Notes' })
+  await call(opener(host), { app: 'Notes' })
   const meta = {
     type: 'computer',
     providerItemId: 'cu_1',
@@ -278,7 +279,7 @@ test("OpenAI's native computer call runs its batch and answers with a screenshot
 
 test("Anthropic toolset members run in order and halt after the batch's first failure", async () => {
   const { host } = fakeHost()
-  await call(generic(host), { action: 'open_app', app: 'Notes' })
+  await call(opener(host), { app: 'Notes' })
   const ctx = { toolCall: { batchId: 'b1' } }
   const bad = await call(
     computerMember('left_click', 'nova', host, () => mockModel),
@@ -317,7 +318,7 @@ test('one agent drives an app at a time, and Stop ends a round’s computer use 
   let stopped = 0
   hub.newRound('colony-test', () => stopped++)
   const { host } = fakeHost()
-  await call(generic(host), { action: 'open_app', app: 'Messages' })
+  await call(opener(host), { app: 'Messages' })
   expect(hub.stopAll()).toBe(2)
   expect(stopped).toBe(1)
   expect(hub.controls()).toHaveLength(0)
@@ -329,9 +330,9 @@ test('one agent drives an app at a time, and Stop ends a round’s computer use 
 test('missing grants are explained once in the chat and stop the call; a channel member never gets the computer', async () => {
   grants = { accessibility: false, screenRecording: true }
   const { host, events } = fakeHost()
-  const r = await call(generic(host), { action: 'open_app', app: 'Notes' })
+  const r = await call(opener(host), { app: 'Notes' })
   expect(textOf(r)).toContain('Accessibility')
-  await call(generic(host), { action: 'open_app', app: 'Notes' })
+  await call(opener(host), { app: 'Notes' })
   expect(events.filter((e) => e.type === 'computer/blocked').map((e) => e.payload)).toEqual([
     { agent: 'nova', reason: 'grants', missing: ['accessibility'] },
   ])
@@ -403,37 +404,29 @@ test('the computer tool is offered only while computer use is on, and never to a
   expect(runs[2]?.offered[0]).not.toContain('computer')
 })
 
-test("a Claude toolset model gets Anthropic's toolset in its request, and its member calls reach the computer", async () => {
+/** Runs a chat round on a model with a native computer tool, approving each card; the tool results, in order. */
+async function nativeRound(
+  model: Partial<Model>,
+  script: MockContent[][],
+  wrap: (stream: AssistantMessageEventStream) => AssistantMessageEventStream = (stream) => stream,
+  onRequest?: (context: { tools?: { name: string }[] }, onPayload: unknown) => void,
+) {
   const resolver = new ModelResolver()
-  const payloads: unknown[] = []
   let n = 0
-  const script: MockContent[][] = [
-    [tool('computer', { action: 'open_app', app: 'Notes' })],
-    // The toolset calls each action by its own name.
-    [tool('scroll', { coordinate: [10, 10], scroll_direction: 'down', scroll_amount: 2 })],
-  ]
   const m = createMockModel({
     handler: () => ({ content: script[n++] ?? [tool('reply_user', { text: 'Done.', final: true })] }),
   })
-  const claude = {
-    ...m.model,
-    id: 'claude-opus-5-5',
-    api: 'anthropic-messages',
-    provider: 'anthropic',
-  } as Model
-  resolver.register('mock/claude', {
-    model: claude,
+  resolver.register('mock/native', {
+    model: { ...m.model, ...model } as Model,
     streamFn: (model, context, options) => {
-      // What pi-ai's Anthropic provider would send, run through the hook the agent set.
-      const body = { tools: (context.tools ?? []).map((t) => ({ name: t.name })), messages: [] }
-      payloads.push(options?.onPayload?.(body, model))
-      return m.stream(model, context, options)
+      onRequest?.(context, options?.onPayload)
+      return wrap(m.stream(model, context, options) as AssistantMessageEventStream)
     },
   })
   const judge = createMockModel({ handler: () => ({ content: ['{"score": 0.9, "reasons": "ok"}'] }) })
   resolver.register('mock/judge', { model: judge.model, streamFn: judge.stream })
   const chats = new ChatService(runtime, { resolver, settings, mcp, computer: hub })
-  const sent = await chats.send('Scroll my Notes on my Mac', { ...config, leadModel: 'mock/claude' })
+  const sent = await chats.send('Look at my Notes on my Mac', { ...config, leadModel: 'mock/native' })
   for (let i = 0; i < 200; i++) {
     const s = foldColony(sent.colonyId, await runtime.ctx.log.read(sent.colonyId as never))
     const waiting = Object.values(s.approvals).find((a) => !a.decided)
@@ -443,13 +436,83 @@ test("a Claude toolset model gets Anthropic's toolset in its request, and its me
   }
   const s = await finished(sent.colonyId)
   expect(s.status).toBe('completed')
+  const events = await runtime.ctx.log.read(sent.colonyId as never)
+  return events.flatMap((e) =>
+    e.type === 'tool/result' ? [e.payload as { tool: string; ok: boolean; output: string }] : [],
+  )
+}
+
+test("a Claude toolset model gets Anthropic's toolset and the app tools, opens an app, and its member calls reach it", async () => {
+  const payloads: unknown[] = []
+  const offered: string[][] = []
+  const results = await nativeRound(
+    { id: 'claude-opus-5-5', api: 'anthropic-messages', provider: 'anthropic' },
+    [
+      // The toolset calls each action by its own name; before an app is open, the error names a tool it has.
+      [tool('screenshot', {})],
+      [tool('open_app', { app: 'Notes' })],
+      [tool('screenshot', {})],
+      [tool('scroll', { coordinate: [10, 10], scroll_direction: 'down', scroll_amount: 2 })],
+    ],
+    undefined,
+    (context, onPayload) => {
+      offered.push((context.tools ?? []).map((t) => t.name))
+      // What pi-ai's Anthropic provider would send, run through the hook the agent set.
+      const body = { tools: (context.tools ?? []).map((t) => ({ name: t.name })), messages: [] }
+      payloads.push((onPayload as ((b: unknown, m: unknown) => unknown) | undefined)?.(body, undefined))
+    },
+  )
   const first = (await payloads[0]) as { tools: Record<string, unknown>[] }
   expect(first.tools.some((t) => t.type === 'computer_toolset_20260801')).toBe(true)
   expect(first.tools.some((t) => t.name === 'computer')).toBe(false)
+  expect(first.tools.filter((t) => t.name === 'open_app' || t.name === 'list_apps')).toHaveLength(2)
+  expect(results[0]).toMatchObject({ tool: 'screenshot', ok: false })
+  expect(results[0]?.output).toContain('open_app')
+  expect(offered[0]).toContain('open_app')
+  expect(results.slice(1, 4).map((r) => [r.tool, r.ok])).toEqual([
+    ['open_app', true],
+    ['screenshot', true],
+    ['scroll', true],
+  ])
   expect(asked().find((c) => c.name === 'scroll')?.args).toMatchObject({
     direction: 'down',
     amount: 2,
     x: 10,
     y: 10,
   })
+})
+
+test('an OpenAI computer-use model gets the app tools beside its native tool, opens an app, then takes a screenshot', async () => {
+  const offered: string[][] = []
+  const meta = {
+    type: 'computer',
+    providerItemId: 'cu_1',
+    actions: [{ type: 'screenshot' }],
+    pendingSafetyChecks: [],
+  }
+  // pi-ai hands the native call's actions over as its metadata; the mock provider has none, so they are added here.
+  const withMeta = (stream: AssistantMessageEventStream) => {
+    const out = new AssistantMessageEventStream()
+    void (async () => {
+      for await (const e of stream) {
+        if (e.type === 'done')
+          for (const c of e.message.content)
+            if (c.type === 'toolCall' && c.name === 'computer') c.providerMetadata = meta as never
+        out.push(e)
+      }
+    })()
+    return out
+  }
+  const results = await nativeRound(
+    { id: 'computer-use-preview', api: 'openai-responses', provider: 'openai', supportsComputerUse: true },
+    [[tool('open_app', { app: 'Notes' })], [tool('computer', {})]],
+    withMeta,
+    (context) => offered.push((context.tools ?? []).map((t) => t.name)),
+  )
+  expect(offered[0]).toEqual(expect.arrayContaining(['computer', 'open_app', 'list_apps']))
+  expect(results.slice(0, 2).map((r) => [r.tool, r.ok])).toEqual([
+    ['open_app', true],
+    ['computer', true],
+  ])
+  expect(results[1]?.output).toContain('Notes')
 })

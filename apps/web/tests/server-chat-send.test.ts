@@ -45,3 +45,30 @@ test('a message the person can fix is refused in words that say how; a malformed
     console.warn = warn
   }
 })
+
+test('an answer to a question card reaches the chat with the question it answers and what was picked', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'myr-send-'))
+  homes.push(home)
+  const got: unknown[] = []
+  const chats = {
+    onStream: () => () => {},
+    send: async (_text: string, _config: unknown, _chatId: unknown, options: unknown) => {
+      got.push(options)
+      return {}
+    },
+  } as unknown as ChatService
+  const server = startServer({ home, port: 0, chats })
+  servers.push(server)
+  const res = await fetch(new URL('/api/chats', server.url.replace(/#.*$/, '')), {
+    method: 'POST',
+    headers: { authorization: `Bearer ${server.token}`, 'content-type': 'application/json' },
+    body: JSON.stringify({
+      text: 'What SSH key info should I look at? → Full listing',
+      chatId: 'chat-abc',
+      config: { mode: 'orchestrated', leadModel: 'mock/lead', judgeModel: 'mock/lead' },
+      answers: { seq: 42, picks: [{ picked: ['Full listing'], other: '', skipped: false }] },
+    }),
+  })
+  expect({ status: res.status, body: await res.json() }).toMatchObject({ status: 200 })
+  expect(got[0]).toMatchObject({ answers: { seq: 42, picks: [{ picked: ['Full listing'] }] } })
+})

@@ -1,5 +1,6 @@
-import { effectivePreset, type PermissionPreset, rulesIn } from '@myrmidon/protocol'
+import { ACCESS_GROUPS, effectivePreset, type PermissionPreset, rulesIn } from '@myrmidon/protocol'
 import { canonicalZone, zoneOffset } from '../clock.ts'
+import { COMPUTER_TOOL, DESKTOP_TOOL, LIST_APPS_TOOL, OPEN_APP_TOOL } from '../computer/names.ts'
 import {
   type Environment,
   isLead,
@@ -60,7 +61,8 @@ const GROUP_TOOLS: [ToolGroup, string][] = [
   ['browser', 'browser_open'],
   ['shell', 'shell'],
   ['files', 'fs_write'],
-  ['computer', 'computer'],
+  ['computer', COMPUTER_TOOL],
+  ['computer', DESKTOP_TOOL],
 ]
 
 /**
@@ -75,7 +77,13 @@ export function toolGroups(names: readonly string[], env: Environment): ToolGrou
     files: true,
     computer: env.computer ?? false,
   }
-  return GROUP_TOOLS.filter(([g, tool]) => live[g] && names.includes(tool)).map(([g]) => g)
+  return [...new Set(GROUP_TOOLS.filter(([g, tool]) => live[g] && names.includes(tool)).map(([g]) => g))]
+}
+
+/** Computer use's tools for the engine it runs on: Cua Driver's computer and app tools, or omp's desktop tool. */
+function engineTools(names: readonly string[], env: Environment): string[] {
+  const cua: readonly string[] = [COMPUTER_TOOL, OPEN_APP_TOOL, LIST_APPS_TOOL]
+  return names.filter((t) => (env.computerEngine === 'omp' ? !cua.includes(t) : t !== DESKTOP_TOOL))
 }
 
 /**
@@ -244,7 +252,7 @@ function reviewOf(spec: ColonySpec): PromptFacts['review'] {
 /** The facts every prompt section of this agent reads, for this round. */
 export function factsFor(spec: ColonySpec, agent: AgentSpec, env: Environment): PromptFacts {
   const kind = kindOf(spec, agent)
-  const names = toolsFor(spec, agent)
+  const names = engineTools(toolsFor(spec, agent), env)
   const request = spec.chat?.request ?? spec.mission
   const ready = new Set(preloaded(request, names))
   const project = spec.chat?.project
@@ -293,7 +301,10 @@ export function factsFor(spec: ColonySpec, agent: AgentSpec, env: Environment): 
       names,
       // Computer use is loadable only where the round may use the person's Mac.
       deferred: names.includes('find_tools')
-        ? names.filter((t) => onDemand(t) && !ready.has(t) && (t !== 'computer' || env.computer === true))
+        ? names.filter(
+            (t) =>
+              onDemand(t) && !ready.has(t) && (!ACCESS_GROUPS.computer.includes(t) || env.computer === true),
+          )
         : [],
     },
     model: { ref: agent.model, family: modelFamily(agent.model) },

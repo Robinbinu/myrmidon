@@ -7,6 +7,7 @@ import {
   type PermissionLevel,
   type PermissionPreset,
   type PluginCommand,
+  type QuestionAnswers,
   roundSlice,
   type SetupStep,
 } from '@myrmidon/protocol'
@@ -81,6 +82,7 @@ import {
   type Starter,
 } from './setup/state.ts'
 import { useStatus } from './status.tsx'
+import { useImportedThemes } from './themes/imported.ts'
 import { desktop } from './ui/desktop.ts'
 import { anyDialogOpen } from './ui/dialog.ts'
 import {
@@ -305,7 +307,7 @@ function sectionFromAddress(): Section | undefined {
 export function App() {
   const toast = useToast()
   const heldToast = useToastHandle()
-  const [theme, setTheme] = useTheme()
+  const [theme, setTheme] = useTheme(useImportedThemes())
   const [reduceMotion, setReduceMotion] = useReduceMotion()
   const [listed, refreshChats, chatsError, chatsLoaded] = usePoll<ChatSummary[]>('/api/chats', [], 2500)
   const online = useReachable()
@@ -371,6 +373,8 @@ export function App() {
     chatId?: string
     colonyId?: string
     round?: number
+    /** An answer to a question card: the card shows it, so the waiting round shows no message of its own. */
+    answer?: boolean
   }>()
   const [draft, setDraft] = useState('')
   const [projects, setProjects] = useState<Project[]>([])
@@ -804,6 +808,7 @@ export function App() {
     delivery: Delivery = 'steer',
     files: readonly File[] = [],
     plan = false,
+    answers?: QuestionAnswers,
   ) => {
     if (!config) return
     if (!config.leadModel) {
@@ -812,7 +817,8 @@ export function App() {
     }
     setBusy(true)
     const startsRound = !chat || !running
-    if (startsRound) setPending({ text, ...(chatId ? { chatId } : {}) })
+    const answer = answers ? { answer: true } : {}
+    if (startsRound) setPending({ text, ...(chatId ? { chatId } : {}), ...answer })
     try {
       const r = await post<{ chatId: string; colonyId: string; started: boolean; round?: number }>(
         '/api/chats',
@@ -824,6 +830,7 @@ export function App() {
           ...(plan ? { plan: true } : {}),
           ...(!chatId && newProject ? { project: newProject } : {}),
           ...(!chatId && newPermissions ? { permissions: newPermissions } : {}),
+          ...(answers ? { answers } : {}),
           ...(files.length ? { attachments: await Promise.all(files.map(encodeFile)) } : {}),
         },
       )
@@ -831,7 +838,13 @@ export function App() {
       if (!chatId) setNewPermissions(undefined)
       setView('chat')
       if (r.started)
-        setPending({ text, chatId: r.chatId, colonyId: r.colonyId, ...(r.round ? { round: r.round } : {}) })
+        setPending({
+          text,
+          chatId: r.chatId,
+          colonyId: r.colonyId,
+          ...(r.round ? { round: r.round } : {}),
+          ...answer,
+        })
       else {
         setPending(undefined)
         toast(delivery === 'queue' ? copy.app.toasts.queued : copy.app.toasts.steering, 'info')
@@ -1544,11 +1557,13 @@ export function App() {
                             onOpenColony={setColonyModal}
                             onRetry={(t) => void send(t).catch(() => {})}
                             onLearn={() => void learn()}
-                            onAnswer={(t) => send(t)}
+                            onAnswer={(t, a) => send(t, activeChat, 'steer', [], false, a)}
                             onResume={resume}
                             models={models}
                             sending={busy}
-                            {...(waiting && pending ? { pending: pending.text } : {})}
+                            {...(waiting && pending
+                              ? { pending: pending.text, pendingAnswer: pending.answer === true }
+                              : {})}
                           />
                           {box}
                         </>
@@ -1764,13 +1779,15 @@ function Transcript(props: {
   onRetry(text: string): void
   /** Asks for a skill to be learned from this chat. */
   onLearn(): void
-  onAnswer(text: string): Promise<unknown>
+  onAnswer(text: string, answers?: QuestionAnswers): Promise<unknown>
   onResume(model?: string): Promise<void>
   models: ModelOption[]
   /** A message is on its way to the server; retry stays disabled until it lands. */
   sending: boolean
   /** A request whose round has not started yet. */
   pending?: string
+  /** That request answers a question card, which already shows it: the waiting round goes on without a divider. */
+  pendingAnswer?: boolean
   /** Voice calls in this chat, placed among the rounds by when they started. */
   calls: readonly SavedCall[]
 }) {
@@ -1832,8 +1849,8 @@ function Transcript(props: {
             <CallCard key={c.id} call={c} />
           ))}
           {props.pending && (
-            <div className={cn(rounds.length > 0 && 'border-t border-line pt-8')}>
-              <PendingRound text={props.pending} />
+            <div className={cn(rounds.length > 0 && !props.pendingAnswer && 'border-t border-line pt-8')}>
+              <PendingRound text={props.pending} bubble={!props.pendingAnswer} />
             </div>
           )}
         </div>
@@ -1862,10 +1879,18 @@ function ColonyRounds(props: {
   render(colony: ColonyView, round: ChatRound): ReactNode
 }) {
   const colony = useColony(props.colonyId)
+  // A round the person started by answering a question card carries on from that card, with no divider.
+  const answered = (r: ChatRound) => {
+    const info = colony.state.rounds.find((x) => x.round === r.round)
+    const opener = info
+      ? colony.state.chatMessages.find((m) => m.from === 'user' && m.seq >= info.startSeq)
+      : undefined
+    return !!opener?.answers && opener.seq <= (info?.endSeq ?? Number.POSITIVE_INFINITY)
+  }
   return props.rounds.map((r, i) => (
     <div
       key={`${r.colonyId}:${r.round}`}
-      className={cn((i > 0 || !props.first) && 'border-t border-line pt-8')}
+      className={cn((i > 0 || !props.first) && !answered(r) && 'border-t border-line pt-8')}
     >
       {props.render(colony, r)}
     </div>

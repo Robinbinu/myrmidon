@@ -47,6 +47,7 @@
   --color-control-active: var(--control-active);
   --color-fill: var(--fill);
   --color-fill-strong: var(--fill-strong);
+  --color-segment-on: var(--segment-on);
   --color-row-selected: var(--row-selected);
   --color-on-accent: var(--on-accent);
   --color-ok: var(--ok);

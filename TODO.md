@@ -505,6 +505,18 @@ Open work, in the order it will be done:
       Today: Phonon/Kitten locally, omp, or one OpenAI-compatible endpoint with keys in voice/secrets.json.
 12v. - [ ] **Themes like VS Code, and more mascot settings** (asked 2026-10-09) — the themes developers love
       (research which), applied to the whole UI; more ways to tune the mascot.
+12w. - [ ] **Search in Settings, like iPhone Settings** (asked 2026-10-09: "settings is not searchable and very
+      confusing to find an option") — a search field at the top of Settings; every setting indexed with its page,
+      section, label, help text and synonyms ("dark mode" → Theme, "api key" → Models & providers, "mic" → Voice);
+      results as rows with a breadcrumb (Voice › Speech to text), keyboard first (⌘F / ⌘K, arrows, Enter); choosing one
+      opens its page, scrolls to it and highlights it briefly. Built after the voice and themes branches merge.
+      Never out of date (asked 2026-10-10): one settings registry is the single source — each entry declares id,
+      page, section, label, help, keywords and its control — and the Settings pages render their rows from it, so
+      search reads the same data the screen shows. Guards: (1) a DOM test renders every page and fails on any control
+      without a registry id, or any registry entry that no page renders; (2) a test fails when a key in the runtime
+      settings schema (settings.ts) has no registry entry or an explicit "not shown" mark; (3) dynamic rows (providers,
+      models, MCP servers, plugins, specialists, channels) are indexed from live data through the same registry hook;
+      (4) a short rule in CLAUDE.md/AGENTS.md: add a setting by adding a registry entry. Then tidy the page groups.
 12l. - [x] **Full access, no sandbox** (asked 2026-10-09, like Hermes) — global switch in Settings → Tools (default on)
       and a per-project Full access; lifts the command sandbox, file-path limits and the private-address rule; approvals
       still apply; channel members and read-only projects stay sandboxed. Left: Windows (unconfined commands still use
