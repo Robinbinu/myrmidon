@@ -388,7 +388,8 @@ export const copy = {
     attach: 'Attach files',
     attachTitle: 'Attach files (or drop / paste them)',
     deliveryTitle: (hint?: string) => `${hint}. Click to switch (Alt+Enter sends the other way).`,
-    deliveryLabel: (delivery: string, other: string) => `Delivery: ${delivery}. Switch to ${other}`,
+    /** Starts with what the button shows, so speech control finds it by that. */
+    deliveryLabel: (delivery: string, other: string) => `${delivery}. Switch to ${other}`,
     stopLabel: 'Stop the crew',
     stopTitle: (status: string) => `${status} Click to stop.`,
     stop: 'Stop',
@@ -1127,7 +1128,7 @@ export const copy = {
       removeTitle: 'Remove from projects (the folder and its chats stay)',
       noChats: 'No chats yet',
       /** The armed remove button: the second click removes the project from the list. */
-      removeConfirm: 'Yes, remove',
+      removeConfirm: 'Yes, remove project',
     },
     /** `combo` is the New chat shortcut, written for this platform. */
     empty: (combo: string) => `No chats yet. Start one with New chat (${combo}).`,
@@ -1273,6 +1274,9 @@ export const copy = {
       sensitive:
         'This folder holds keys or sign-ins. Agents can read anything in it, and what they read can end up in a reply or leave over the network. Allow it only if the task needs it.',
       allowed: (folder: string) => `Agents may read ${folder} for the rest of this chat`,
+      /** The request was allowed, but opening the folder for the whole chat then failed. */
+      onceOnly: (folder: string, why: string) =>
+        `Allowed reading ${folder} this once, but it could not be opened for the rest of the chat: ${why}`,
       chip: (name: string) => `Reads ${name}`,
       chipTitle: (folder: string) => `Agents may read ${folder} in this chat (never change it)`,
       revoke: (folder: string) => `Stop agents reading ${folder}`,
@@ -1459,7 +1463,7 @@ export const copy = {
       },
       full: {
         label: 'Full access',
-        hint: 'No sandbox and no asking: agents work as you on this computer. Rules still apply.',
+        hint: 'No sandbox and no asking: agents work as you on this computer. Your rules still apply, though an agent with full access could get around them.',
       },
     },
     /** The first choice of a project or chat: take the level above's preset. */
@@ -1534,6 +1538,9 @@ export const copy = {
         `${group} for the ${role.toLowerCase()}: use the level above`,
       leadTip:
         'The lead plans and assigns; with these on it also does hands-on work itself. Turn a group off to keep it delegating.',
+      /** A group whose feature is switched off in Settings: no agent gets it, whatever the switches here say. */
+      computerOff: 'Off for everyone while computer use is off.',
+      computerOn: 'Set up computer use',
     },
     /** The rules table. */
     rules: {
@@ -1598,18 +1605,103 @@ export const copy = {
       noProject: 'A chat without a project',
       inProject: (name: string) => `A chat in ${name}`,
       outcome: { allow: 'Runs', ask: 'Asks you', deny: 'Refused' },
+      /** A tool in the list: what it does, then the name agents and rules use. */
+      option: (name: string, id: string) => `${name} · ${id}`,
+      /** Tools outside every "who can use what" group: the crew's own work together. */
+      otherGroup: 'Crew, tasks and replies',
+      mcpGroup: (server: string) => `MCP · ${server}`,
+      /** Names people know for the built-in tools; one missing shows its id. */
+      names: {
+        shell: 'Run a command',
+        run_checks: 'Run checks',
+        start_server: 'Start a dev server',
+        server_logs: 'Read server logs',
+        stop_server: 'Stop a dev server',
+        create_tool: 'Make a tool',
+        fs_read: 'Read a file',
+        fs_list: 'List a folder',
+        fs_write: 'Write a file',
+        fs_edit: 'Edit a file',
+        grep: 'Search file contents',
+        glob: 'Find files by name',
+        request_read: 'Ask to read a folder',
+        propose: 'Propose changes',
+        web_search: 'Search the web',
+        web_fetch: 'Read a web page',
+        browser_open: 'Open a page',
+        request_login: 'Ask you to sign in',
+        browser_tabs: 'Switch tabs',
+        browser_downloads: 'Downloads',
+        browser_extract: 'Pull data from a page',
+        browser_network: 'Watch network requests',
+        browser_upload: 'Upload a file',
+        browser_snapshot: 'Read the page',
+        browser_click: 'Click',
+        browser_type: 'Type',
+        browser_press: 'Press a key',
+        browser_screenshot: 'Take a screenshot',
+        browser_console: 'Read the console',
+        browser_eval: 'Run a script in the page',
+        mcp: 'Any MCP tool',
+        computer: 'Use your Mac',
+        message: 'Message a crewmate',
+        create_group: 'Start a group chat',
+        update_group: 'Change a group chat',
+        append_note: 'Add a shared note',
+        read_notes: 'Read shared notes',
+        read_messages: 'Read messages',
+        create_plugin: 'Build a plugin',
+        test_plugin: 'Test a plugin',
+        propose_plugin: 'Propose a plugin',
+        read_task: 'Read a task',
+        list_agents: 'List the crew',
+        list_tasks: 'List tasks',
+        create_task: 'Create a task',
+        claim_task: 'Take a task',
+        assign_task: 'Assign a task',
+        release_task: 'Give a task back',
+        reject_task: 'Send a task back',
+        submit_task: 'Hand in a task',
+        update_todo: 'Update the to-do list',
+        publish_artifact: 'Publish a file',
+        read_artifact: 'Read a published file',
+        list_artifacts: 'List published files',
+        observe: 'Look in on the crew',
+        use_skill: 'Use a skill',
+        find_tools: 'Find tools',
+        read_docs: 'Read Myrmidon’s docs',
+        read_log: 'Read the run’s log',
+        request_review: 'Ask for a review',
+        request_final_verification: 'Ask for the final review',
+        ask_crewmate: 'Ask a crewmate',
+        add_crewmate: 'Bring in a crewmate',
+        dismiss_crewmate: 'Let a crewmate go',
+        escalate: 'Raise it with you',
+        reply_user: 'Reply to you',
+        reply_person: 'Reply to a person',
+        ask_user: 'Ask you a question',
+        remember: 'Remember something',
+        check_in: 'Check in',
+      } as Record<string, string>,
     },
     /** Why a call was decided as it was, as the approval card and the explainer say it. */
     why: {
       askAll: 'Someone other than you started this round, so every step asks.',
       readOnly: (where: string) => `Files are read only ${where}.`,
-      preset: (preset: string, where: string, what: string) => `${preset} ${where} ${what}.`,
+      /** `who` is what the preset was set on, from `setOn`: "This project is set to Ask, so this waits for you." */
+      preset: (preset: string, who: string, what: string) => `${who} is set to ${preset}, so ${what}.`,
       rule: (where: string, decision: string, what: string) => `A rule ${where} ${decision} ${what}.`,
       ruleDecision: { allow: 'allows', ask: 'asks before', deny: 'denies' },
       presetWhat: {
-        allow: 'runs this without asking',
-        ask: 'asks before this',
-        deny: 'does not allow this',
+        allow: 'this runs without asking',
+        ask: 'this waits for you',
+        deny: 'this is not allowed',
+      },
+      setOn: {
+        default: 'The default',
+        global: 'Your default',
+        project: 'This project',
+        chat: 'This chat',
       },
       /** Where a preset or rule was set, as the sentence says it. */
       where: {
@@ -1640,7 +1732,18 @@ export const copy = {
       denyAlways: 'Always deny',
       rememberIn: 'Remember for',
       scopes: { chat: 'This chat', project: 'This project', global: 'Everywhere' },
-      scopeHint: { chat: 'Until you remove it', project: 'Every chat in this project', global: 'Every chat' },
+      scopeHint: { chat: 'Only in this chat', project: 'Every chat in this project', global: 'Every chat' },
+      /** Remembering an answer for every chat, or for every command or tool, asks once more before it is saved. */
+      confirm: {
+        allow: (what: string, where: string) => `Yes, allow ${what} ${where}`,
+        deny: (what: string, where: string) => `Yes, deny ${what} ${where}`,
+        where: { chat: 'in this chat', project: 'in every chat in this project', global: 'in every chat' },
+        warning: {
+          allow: 'Agents will do this without asking you.',
+          deny: 'Agents will be refused this without asking you.',
+        },
+        back: 'Back',
+      },
       target: {
         command: (prefix: string) => `${prefix} …`,
         everyCommand: 'every command',
@@ -1656,12 +1759,11 @@ export const copy = {
     },
   },
 
-  /** Agents running without the sandbox: the warning before it is given, and the badge on chats that have it. */
   /** Computer use: agents seeing and controlling the person's Mac through Cua Driver. */
   computerUse: {
     title: 'Computer use',
     intro:
-      'Agents can see your Mac and use its apps with the mouse and keyboard, as you would: for native apps, simulators and tools with no other way in. They use it only after you approve each app in the chat, and you can stop them at any time.',
+      'Agents can see your Mac and use its apps with the mouse and keyboard, as you would: for native apps, simulators and tools with no other way in. They use it only after you allow each app in the chat, and you can stop them at any time.',
     unsupported: 'Computer use runs on macOS only.',
     switchLabel: 'Let agents use my Mac',
     switchHint: 'Off by default. Chats from channels never get it.',
@@ -1669,7 +1771,7 @@ export const copy = {
     turnOnName: 'Turn on computer use',
     confirmOn: 'Yes, let agents use my Mac',
     warning:
-      'Agents will see the windows of apps you approve and can click and type in them as you. What they see on screen can try to trick them; approve only apps the task needs, and watch while they work.',
+      'Agents will see the windows of apps you allow and can click and type in them as you. What they see on screen can try to trick them; allow only apps the task needs, and watch while they work.',
     turnOff: 'Turn off',
     driverTitle: 'Cua Driver',
     driverNote: 'The open-source driver agents use your Mac through (trycua, MIT).',
@@ -1694,7 +1796,7 @@ export const copy = {
     grants: {
       screenRecording: {
         label: 'Screen Recording',
-        hint: 'Lets agents see the windows of apps you approve.',
+        hint: 'Lets agents see the windows of apps you allow.',
       },
       accessibility: { label: 'Accessibility', hint: 'Lets agents click, type and scroll in them.' },
     },
@@ -1711,7 +1813,7 @@ export const copy = {
       'Browsers and trading apps: view only (agents use their own browser for websites).',
       'Terminals and code editors: click only, unless you give full control in the chat.',
       'Everything else: see, click and type.',
-      'Finder, terminals and System Settings show a warning before you approve them. Myrmidon itself is never shown to agents.',
+      'Finder, terminals and System Settings show a warning before you allow them. Myrmidon itself is never shown to agents.',
     ],
     appsTitle: 'Apps you allowed in chats',
     appsNote: 'Each chat asks once per app; take one back here.',
@@ -1736,6 +1838,7 @@ export const copy = {
     },
   },
 
+  /** Agents running without the sandbox: the warning before it is given, and the badge on chats that have it. */
   fullAccess: {
     badge: 'Full access',
     title: 'This chat runs without the sandbox: its agents can read and change anything you can',
@@ -2746,7 +2849,7 @@ export const copy = {
       waitingHint:
         'People and groups who messaged your bot. To approve one, type the code the bot sent them: only they, or someone they told, can know it.',
       ownerFirst:
-        'No owner yet: the first person you approve becomes the owner, who approves risky steps and can allow tools for good. Approve yourself first, with the code your own message got.',
+        'No owner yet: the first person you approve becomes the owner, who allows or denies risky steps and can allow tools for good. Approve yourself first, with the code your own message got.',
       group: (title: string) => `group “${title}”`,
       sender: (platform: string, id: string, handle?: string) =>
         `${handle ? `@${handle} · ` : ''}${platform} ID ${id}`,
@@ -2757,8 +2860,8 @@ export const copy = {
       makeOwnerName: (name: string) => `Make ${name} the owner`,
       makeOwnerConfirm: 'Yes, make owner',
       makeOwnerWarning:
-        'They approve risky steps and can allow tools for good; the current owner becomes a member.',
-      makeOwnerFirstWarning: 'They approve risky steps and can allow tools for good.',
+        'They allow or deny risky steps and can allow tools for good; the current owner becomes a member.',
+      makeOwnerFirstWarning: 'They allow or deny risky steps and can allow tools for good.',
       madeOwner: (name: string) => `${name} is now the owner`,
       confirmOwner: (name: string) =>
         `${name} is the owner, but may have become it just by being under "Let in without a code", which no longer gives ownership. Confirm them if they are you or someone you trust; otherwise make someone else the owner or revoke them.`,
@@ -2776,7 +2879,7 @@ export const copy = {
       revokeConfirm: 'Yes, revoke access',
       revokeWarning: 'Their messages are ignored until they are approved again with a new code.',
       revokeOwnerWarning:
-        'This channel will have no owner: nothing can be approved in the chat until you approve someone with a new code or make a member the owner.',
+        'This channel will have no owner: no step can be allowed in the chat until you approve someone with a new code or make a member the owner.',
       revokeGroupWarning: 'The bot ignores the group until it is approved again with a new code.',
       none: 'No one yet: message your bot to get a code.',
       approved: (name: string) => `Approved ${name}`,
@@ -3084,7 +3187,8 @@ export const copy = {
         monthly: 'Monthly',
         custom: 'Custom (cron)',
       },
-      time: 'Time',
+      hour: 'Hour',
+      minute: 'Minute',
       minutePast: 'Minutes past the hour',
       dayOfMonth: 'Day of the month',
       days: 'Days',
@@ -3110,7 +3214,8 @@ export const copy = {
         return `${n}${suffix}`
       },
       describe: {
-        hourly: (minute: string) => `Every hour at :${minute}`,
+        /** `minute` as the locale writes it, separator included (":15"). */
+        hourly: (minute: string) => `Every hour at ${minute}`,
         daily: (time: string) => `Every day at ${time}`,
         weekdays: (time: string) => `Weekdays at ${time}`,
         days: (days: string, time: string) => `${days} at ${time}`,
@@ -3118,6 +3223,8 @@ export const copy = {
         custom: (cron: string) => `Custom: ${cron}`,
       },
       localTime: 'in this computer’s time zone',
+      /** This Myrmidon runs schedules by its own clock, which a browser on another computer may not share. */
+      serverZone: (zone: string) => `in ${zone} time, where this Myrmidon runs`,
       pickADay: 'Pick at least one day',
       shortMonths: (day: string) => `Months without a ${day} are skipped`,
       change: 'Change',

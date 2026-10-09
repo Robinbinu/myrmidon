@@ -7,6 +7,7 @@ import {
 } from '@myrmidon/protocol'
 import { useEffect, useState } from 'react'
 import { api, type Project, send } from '../api.ts'
+import { OPEN_SETTINGS_EVENT } from '../ComputerUse.tsx'
 import { copy } from '../copy.ts'
 import { AccessMatrix } from '../permissions/AccessMatrix.tsx'
 import { type CatalogTool, PRESET_ICONS, presetLabel } from '../permissions/describe.ts'
@@ -90,15 +91,20 @@ export function ProjectPermissions(props: {
   const [busy, setBusy] = useState(false)
   const [global, setGlobal] = useState<PermissionLevel & { preset: PermissionPreset }>()
   const [catalog, setCatalog] = useState<{ tools: CatalogTool[]; servers: string[] }>()
+  const [computerOn, setComputerOn] = useState(true)
   useEffect(() => {
     api<{
-      settings: { permissions: PermissionLevel & { preset: PermissionPreset } }
+      settings: {
+        permissions: PermissionLevel & { preset: PermissionPreset }
+        computerUse?: { enabled: boolean }
+      }
       toolCatalog: CatalogTool[]
       mcpServers?: string[]
     }>('/api/settings')
       .then((r) => {
         setGlobal(r.settings.permissions)
         setCatalog({ tools: r.toolCatalog, servers: r.mcpServers ?? [] })
+        setComputerOn(r.settings.computerUse?.enabled === true)
       })
       .catch(() => {})
   }, [])
@@ -164,6 +170,16 @@ export function ProjectPermissions(props: {
           compact
           levels={levels}
           scope="project"
+          {...(computerOn
+            ? {}
+            : {
+                computerOff: {
+                  onSetUp: () => {
+                    props.onClose()
+                    window.dispatchEvent(new CustomEvent(OPEN_SETTINGS_EVENT, { detail: 'computer' }))
+                  },
+                },
+              })}
           onChange={(access) => {
             const { access: _, ...rest } = level
             setLevel(access ? { ...rest, access } : rest)

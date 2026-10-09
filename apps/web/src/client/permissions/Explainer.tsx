@@ -1,17 +1,48 @@
-import { type AgentRole, decide, type PermissionLevel, type RuleDecision } from '@myrmidon/protocol'
+import {
+  ACCESS_GROUPS,
+  type AgentRole,
+  decide,
+  type PermissionLevel,
+  type RuleDecision,
+} from '@myrmidon/protocol'
 import { Ban, Check } from 'lucide-react'
 import { useId, useState } from 'react'
 import type { Project } from '../api.ts'
 import { copy } from '../copy.ts'
 import { FEATURE_ICONS } from '../ui/icons.ts'
 import { cn, Select, TextInput } from '../ui/primitives.tsx'
-import { type CatalogTool, callFor, sourceText } from './describe.ts'
+import { ACCESS_INFO, type CatalogTool, callFor, mcpToolPrefix, sourceText } from './describe.ts'
 
 const t = copy.permissions.explain
 const OUTCOME: Record<RuleDecision, { tone: string; icon: typeof Check }> = {
   allow: { tone: 'bg-ok-soft text-ok-ink', icon: Check },
   ask: { tone: 'bg-warn-soft text-warn-ink', icon: FEATURE_ICONS.approvalAsk },
   deny: { tone: 'bg-bad-soft text-bad-ink', icon: Ban },
+}
+
+/** A tool's name for people, from the list of names or, for an MCP tool, its own name after the server's. */
+function toolName(tool: CatalogTool) {
+  if (tool.server) return tool.name.replace(mcpToolPrefix(tool.server), '').replace(/_/g, ' ')
+  return t.names[tool.name] ?? tool.name
+}
+
+/**
+ * The tools as the list shows them: built-in ones under the "who can use what" groups (the crew's own work together
+ * last), then each MCP server's.
+ */
+function toolGroups(tools: readonly CatalogTool[]): { label: string; tools: CatalogTool[] }[] {
+  // `mcp` itself (every MCP tool) has no server: it sits with the built-in MCP group.
+  const builtIn = tools.filter((x) => !x.server)
+  const grouped = new Set(Object.values(ACCESS_GROUPS).flat())
+  const groups = ACCESS_INFO.map((g) => ({
+    label: g.label,
+    tools: builtIn.filter((x) => ACCESS_GROUPS[g.group].includes(x.name)),
+  }))
+  groups.push({ label: t.otherGroup, tools: builtIn.filter((x) => !grouped.has(x.name)) })
+  const servers = [...new Set(tools.flatMap((x) => x.server ?? []))]
+  for (const server of servers)
+    groups.push({ label: t.mcpGroup(server), tools: tools.filter((x) => x.server === server) })
+  return groups.filter((g) => g.tools.length)
 }
 
 /**
@@ -32,8 +63,6 @@ export function Explainer(props: {
   const chosen = props.tools.find((x) => x.name === tool) ?? { name: tool, description: '' }
   const call = callFor(chosen, command)
   const levels = { global: props.global, ...(project?.permissions ? { project: project.permissions } : {}) }
-  const builtIn = props.tools.filter((x) => !x.mcp)
-  const mcp = props.tools.filter((x) => x.mcp)
   return (
     <div className="rounded-base border border-line bg-surface">
       <div className="grid gap-3 px-4 py-3 sm:grid-cols-2">
@@ -42,22 +71,15 @@ export function Explainer(props: {
             {t.tool}
           </label>
           <Select id={`${id}tool`} value={tool} onChange={(e) => setTool(e.target.value)}>
-            <optgroup label={copy.permissions.rules.kinds.tool}>
-              {builtIn.map((x) => (
-                <option key={x.name} value={x.name}>
-                  {x.name}
-                </option>
-              ))}
-            </optgroup>
-            {mcp.length > 0 && (
-              <optgroup label={copy.permissions.rules.kinds['mcp-tool']}>
-                {mcp.map((x) => (
+            {toolGroups(props.tools).map((g) => (
+              <optgroup key={g.label} label={g.label}>
+                {g.tools.map((x) => (
                   <option key={x.name} value={x.name}>
-                    {x.name}
+                    {t.option(toolName(x), x.name)}
                   </option>
                 ))}
               </optgroup>
-            )}
+            ))}
           </Select>
         </div>
         <div className="flex flex-col gap-1">

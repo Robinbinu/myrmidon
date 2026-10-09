@@ -7,6 +7,7 @@ import { copy } from '../copy.ts'
 import { useScope } from '../DeviceGate.tsx'
 import { type DiffLine, diffLines } from '../diff.ts'
 import { sourceText, targetText } from '../permissions/describe.ts'
+import { useArmGuard } from '../ui/ConfirmButton.tsx'
 import { MenuItem, MenuList, MenuSeparator, Popover } from '../ui/Popover.tsx'
 import { Button, cn, TextArea, TextInput } from '../ui/primitives.tsx'
 import { useToast } from '../ui/Toast.tsx'
@@ -192,16 +193,27 @@ function ApprovalCard({
       setBusy(false)
     }
   }
-  // Allowing the folder for the chat approves this request with it.
+  // This request is answered first, so the note typed on it goes with it; allowing the folder for the chat then
+  // answers the other requests to read it already waiting.
   const readForChat = async () => {
     if (!a.read || !chatId) return
     setBusy(true)
     try {
-      await send('PUT', `/api/chats/${chatId}/readable`, { folder: a.read, allowed: true })
-      toast(copy.approvals.reads.allowed(a.read), 'success')
+      await send('POST', `/api/colonies/${colonyId}/approvals/${a.id}`, {
+        approved: true,
+        ...(note.trim() ? { note: note.trim() } : {}),
+      })
     } catch (err) {
       toast(String((err as Error).message), 'error')
       setBusy(false)
+      return
+    }
+    // The read itself is allowed by now and its card is going; only the chat-wide part can still fail.
+    try {
+      await send('PUT', `/api/chats/${chatId}/readable`, { folder: a.read, allowed: true })
+      toast(copy.approvals.reads.allowed(a.read), 'success')
+    } catch (err) {
+      toast(copy.approvals.reads.onceOnly(a.read, String((err as Error).message)), 'error')
     }
   }
   return (
@@ -271,6 +283,7 @@ function ApprovalCard({
           choices={choices}
           scopes={scopes}
           heading={copy.permissions.card.denyAlways}
+          decision="deny"
           onRemember={(scope, rules) =>
             void decide(false, { scope, rules: rules.map((r) => ({ ...r, decision: 'deny' as const })) })
           }
@@ -295,6 +308,7 @@ function ApprovalCard({
           choices={choices}
           scopes={scopes}
           heading={copy.permissions.card.allowAlways}
+          decision="allow"
           onRemember={(scope, rules) =>
             void decide(true, { scope, rules: rules.map((r) => ({ ...r, decision: 'allow' as const })) })
           }
@@ -305,6 +319,9 @@ function ApprovalCard({
 }
 
 type Offer = Omit<PermissionRule, 'decision'>
+
+/** A rule for every command or every MCP tool, rather than one of them. */
+const wide = (o: Offer) => o.target === '*' && o.kind !== 'edit'
 
 /**
  * What a card offers to remember, most specific first. A compound command's parts are one choice, remembered together
@@ -334,9 +351,15 @@ function SplitButton(props: {
   onClick(): void
   choices: readonly { label: string; rules: Offer[] }[]
   scopes: readonly PermissionScope[]
+  /** What remembering saves, for the confirmation of a wide one. */
+  decision: 'allow' | 'deny'
   onRemember(scope: PermissionScope, rules: Offer[]): void
 }) {
   const [open, setOpen] = useState(false)
+  // A remembered answer for every chat, or for every command or MCP tool, waits for a second, spelled-out yes: one
+  // stray click would otherwise stop agents asking about anything of its kind.
+  const [confirming, setConfirming] = useState<PermissionScope>()
+  const guard = useArmGuard()
   // A card near the top of the chat opens its menu downward, so the menu is never cut off under the title bar.
   const [up, setUp] = useState(true)
   const [pick, setPick] = useState(0)
@@ -386,7 +409,10 @@ function SplitButton(props: {
           <Popover
             role="dialog"
             label={props.menuLabel}
-            onClose={() => setOpen(false)}
+            onClose={() => {
+              setOpen(false)
+              setConfirming(undefined)
+            }}
             within={box}
             up={up}
             style={{ width: APPROVAL_MENU_PX }}
@@ -403,7 +429,10 @@ function SplitButton(props: {
                     key={c.label}
                     checked={i === pick}
                     title={<span className={c.rules[0]?.target === '*' ? '' : 'font-mono'}>{c.label}</span>}
-                    onSelect={() => setPick(i)}
+                    onSelect={() => {
+                      setPick(i)
+                      setConfirming(undefined)
+                    }}
                   />
                 ))}
               </MenuList>
@@ -411,21 +440,57 @@ function SplitButton(props: {
               <p className="truncate px-2 pb-1.5 font-mono text-body text-fg">{choice.label}</p>
             )}
             <MenuSeparator />
-            <div className="px-2 pb-1 pt-1 section-label text-muted">{t.rememberIn}</div>
-            <MenuList label={t.rememberIn}>
-              {props.scopes.map((scope, i) => (
-                <MenuItem
-                  key={scope}
-                  tabStop={i === 0 && props.choices.length === 1}
-                  title={t.scopes[scope]}
-                  detail={t.scopeHint[scope]}
-                  onSelect={() => {
+            {confirming ? (
+              <div className="flex flex-col gap-2 px-2 pb-1 pt-1">
+                <p role="alert" className="text-callout leading-snug text-bad-ink">
+                  {t.confirm.warning[props.decision]}
+                </p>
+                <Button
+                  size="sm"
+                  variant="danger"
+                  autoFocus
+                  className="h-auto min-h-6 whitespace-normal py-1 text-left"
+                  onKeyDown={(e) => guard.repeat(e)}
+                  onClick={() => {
+                    // The Enter held, or the double-click, that chose "Everywhere" must not also say yes here.
+                    if (guard.tooSoon()) return
                     setOpen(false)
-                    props.onRemember(scope, choice.rules)
+                    setConfirming(undefined)
+                    props.onRemember(confirming, choice.rules)
                   }}
-                />
-              ))}
-            </MenuList>
+                >
+                  {t.confirm[props.decision](
+                    choice.rules.map(targetText).join(t.and),
+                    t.confirm.where[confirming],
+                  )}
+                </Button>
+                <Button size="sm" variant="borderless" onClick={() => setConfirming(undefined)}>
+                  {t.confirm.back}
+                </Button>
+              </div>
+            ) : (
+              <>
+                <div className="px-2 pb-1 pt-1 section-label text-muted">{t.rememberIn}</div>
+                <MenuList label={t.rememberIn}>
+                  {props.scopes.map((scope, i) => (
+                    <MenuItem
+                      key={scope}
+                      tabStop={i === 0 && props.choices.length === 1}
+                      title={t.scopes[scope]}
+                      detail={t.scopeHint[scope]}
+                      onSelect={() => {
+                        if (scope === 'global' || choice.rules.some(wide)) {
+                          guard.arm()
+                          return setConfirming(scope)
+                        }
+                        setOpen(false)
+                        props.onRemember(scope, choice.rules)
+                      }}
+                    />
+                  ))}
+                </MenuList>
+              </>
+            )}
           </Popover>
         )}
       </AnimatePresence>
@@ -454,15 +519,15 @@ function ReviewBody(props: {
               <span className="min-w-0 truncate font-mono text-fg-2">{f.label}</span>
               {value !== f.value && <span className="text-accent-fg">{copy.approvals.review.edited}</span>}
               {f.editable && (
+                // Named by what it shows, then which field, so speech control finds it by its visible words.
                 <button
                   type="button"
                   onClick={() => setEditing(isEditing ? undefined : f.key)}
-                  aria-pressed={isEditing}
-                  aria-label={copy.approvals.review.editLabel(f.label)}
                   className="ml-auto inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-muted transition-colors hover:bg-fill hover:text-fg"
                 >
                   <PencilLine className="size-3.5" />
                   {isEditing ? copy.approvals.review.preview : copy.approvals.review.edit}
+                  <span className="sr-only"> {f.label}</span>
                 </button>
               )}
             </div>

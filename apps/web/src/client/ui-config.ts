@@ -69,6 +69,12 @@ export const PALETTE_LIMITS = {
 /** How long typing in the chat search pauses before the server searches what was said; titles match at once. */
 export const MESSAGE_SEARCH_DELAY_MS = 200
 
+/**
+ * From this window width the sidebar sits beside the content; below it, it slides over the content when asked for
+ * (⌘B, the sidebar button), since next to it the page would be left too narrow to read.
+ */
+export const SIDEBAR_DOCK_PX = 720
+
 /* ------------------------------------------------------------------ scrolling */
 
 /** Within this many pixels of the bottom, a view counts as following its newest content and keeps doing so. */
@@ -383,6 +389,12 @@ export const GATEWAY_POLL_MS = 30_000
  * list (256px) would leave the page too little room.
  */
 export const SETTINGS_NAV_COLLAPSE_PX = 1100
+
+/**
+ * Walking a preset choice with the arrow keys saves the one it rests on after this long (or at once on Space, Enter,
+ * or leaving the choices), not each preset passed on the way.
+ */
+export const PRESET_SETTLE_MS = 700
 
 /**
  * A two-step remove ignores its second step for this long after the first, so a double-click or a held Enter that
