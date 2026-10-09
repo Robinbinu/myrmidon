@@ -55,6 +55,11 @@ describe('crew map links stand out from the window at 3:1, as lines that carry m
       })
 })
 
+test("the mascot screen's caption and readout read at 4.5:1 on the screen, in both themes", async () => {
+  for (const tokens of Object.values(await themes()))
+    expect(contrast(tokens['screen-ink'] as string, tokens.screen as string)).toBeGreaterThanOrEqual(4.5)
+})
+
 test('initials on any agent or author colour read at 4.5:1', async () => {
   const { inkOn } = await import('../src/client/ui/pixel.tsx')
   const { JUDGE_COLOR, LEAD_COLOR, USER_COLOR, WORKER_PALETTE } = await import('@myrmidon/protocol')
