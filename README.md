@@ -3,7 +3,8 @@
 <img src="docs/assets/banner.svg" alt="Myrmidon: one chat, a whole crew of AI agents behind it" width="100%">
 
 Myrmidon is a local-first, open-source agent harness. You talk to one lead; it answers, codes, browses, or brings
-in a crew of specialists when the job is big. Reach it from the browser, from 30 messaging channels, or by voice call.
+in a crew of specialists when the job is big. Use it in the browser or the macOS app, from 30 messaging channels,
+or by voice and phone call.
 Every step is logged, sandboxed, and reviewable.
 
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache_2.0-blue.svg)](LICENSE)
@@ -39,7 +40,7 @@ framework you wire together yourself. Myrmidon is all four behind a single conve
 - **Nothing is hidden.** Every message, tool call, file, and decision is an event in an append-only SQLite log that
   refuses `UPDATE` and `DELETE`. The UI, replay, audit view, and exports all read that same log.
 - **Talk to it from anywhere.** Telegram, WhatsApp, Signal, iMessage, Slack, Discord, Teams, email and more continue
-  the same chats as the browser. Call your crew and talk; run it on a server and pair your phone.
+  the same chats as the browser. Call your crew from the app or a phone; run it on a server and pair your devices.
 - **Extend it without forking it.** Plugins use Claude Code's folder format (skills, commands, hooks, MCP servers)
   plus Myrmidon code and UI. Ask the lead for a Myrmidon feature and it builds one as a plugin.
 - **Safe by default.** Shell commands run under `sandbox-exec` (macOS) or bubblewrap (Linux). Secrets are redacted
@@ -67,8 +68,20 @@ cd myrmidon && bun install
 bun run myr serve
 ```
 
-The command prints a `http://127.0.0.1:…/#token=…` link. Open it, pick a model in the composer, and type what you
-want done.
+The command prints a `http://127.0.0.1:…/#token=…` link. Open it and a setup assistant walks you through nine
+skippable steps (models, crew, a first project, voice, messaging apps, alerts), detecting the providers you already
+have. Then type what you want done.
+
+<img src="docs/assets/setup-dark.png" alt="The first-run setup assistant: nine steps in a sidebar, the mascot greeting you, and a note on what stays on this computer" width="100%">
+
+On a Mac you can run it as a desktop app instead. The app starts its own server and has native menus, a dock badge,
+and a folder picker:
+
+```bash
+bun run desktop
+```
+
+`bun run desktop:build` packages it with Electrobun.
 
 Prefer the terminal? `bun run myr setup` walks through sign-in or keys, the default model and a first device, and
 `bun run myr doctor` checks the server, models, sandbox, browser tools, previews, devices and channels.
@@ -102,7 +115,8 @@ flowchart LR
 ```
 
 1. **The lead starts at once.** Every request goes straight to one lead with every tool. It answers directly, does
-   moderate work itself, or calls `escalate(to: team)` early when parallel specialists would help.
+   moderate work itself, asks a crewmate for one piece of work (`ask_crewmate`), or calls `escalate(to: team)` early
+   when parallel specialists would help.
 2. **Crews coordinate through logged tools only:** a shared board with `@mentions`, direct mail, append-only notes,
    a task graph with revision checks, and versioned artifacts. Nothing is edited in place.
 3. **Two crew modes.**
@@ -115,7 +129,7 @@ flowchart LR
 4. **Finishing follows your reviewer setting.** Off: the answer ends the round. Auto: the lead asks for a review
    when the work deserves one. Always: every final answer is checked and findings go back as fix tasks.
 5. **Follow-ups carry on.** Files, notes, and each agent's own conversation persist across rounds of a chat. Write
-   `@name` to talk to one crew member directly, or open one-to-one chats, groups and a team chat with the crew.
+   `@name` to talk to one crewmate directly, or open one-to-one chats, groups and a team chat with the crew.
 
 The agent-facing docs in [`packages/runtime/docs`](packages/runtime/docs) describe the same rules the agents read at
 runtime.
@@ -178,12 +192,23 @@ A lead plans a snake game, a coder and a tester build it in parallel, and the re
   channel continues the same chats as the browser.
 - **Approved people only.** A new sender gets a code and nothing else until you approve it; the first person
   approved is the owner, later ones are members, and members' runs ask the owner before each outside step.
-- **Voice calls.** Press Call and talk: a fast call model answers out loud and hands real work to the crew while
-  the call goes on. Silero VAD and Smart Turn detect your turns; speech runs on local engines (Phonon-2, Kitten TTS)
-  or a cloud or OpenAI-compatible provider. Approvals count only on a plain spoken yes or no.
+- **Voice and phone calls.** Press Call and talk, or ring your Twilio number from any phone: a fast call model
+  answers out loud and hands real work to the crew while the call goes on. Silero VAD and Smart Turn detect your
+  turns; speech runs on local engines (Phonon-2, Kitten TTS) or a cloud or OpenAI-compatible provider. Approvals
+  count only on a plain spoken yes or no.
 - **Run it on a server.** Turn any VPS or home server into a gateway, reach it over Tailscale or an SSH tunnel,
   pair each device once (full access or chats only), and revoke it any time. One window can switch between
   several gateways. See [docs/remote.md](docs/remote.md).
+
+### The app
+
+- **Setup assistant** on first run, resumable, with **Run setup again** in Settings.
+- **macOS desktop app** on Electrobun; its server stops with the app, and no agent process outlives Myrmidon.
+- A **⌘K command menu**, a ⌘/ shortcuts sheet, context menus everywhere, and Settings laid out like System Settings.
+- **Search** across every chat's messages (SQLite FTS5).
+- The project folder as a file tree, with the files agents edit shown and opened.
+- Safe defaults: new project folders ask before changing files, each run stops at $5 unless you raise it, and the
+  cheapest model you have names your chats.
 
 ### Agent harness
 
@@ -257,6 +282,7 @@ follow the browser UI without the runtime changing.
 | [`packages/runtime`](packages/runtime) | Agents, tools, team patterns, observer, reviewer, sandbox, browser, MCP, skills, hooks, plugins, channels, voice, worktrees, recovery |
 | [`apps/web`](apps/web) | API server (local or remote gateway with paired devices) and the React UI |
 | [`apps/cli`](apps/cli) | The `myrmidon` command |
+| [`apps/desktop`](apps/desktop) | The macOS app (Electrobun) that runs the server as a sidecar |
 | [`apps/eval`](apps/eval) | Eval harness with fixed coding, browsing, research, and crew cases |
 
 Models and the agent loop come from [`@oh-my-pi/pi-ai`](https://github.com/can1357/oh-my-pi) and
@@ -289,7 +315,8 @@ Runs the eval suite against real models and writes a JSON report you can diff be
 ## Status
 
 Myrmidon is alpha. It works end to end, but APIs, the event schema, and storage formats will
-still change. The browser UI is the first client; desktop shells come later. See the [roadmap](ROADMAP.md) for
+still change. The clients today are the browser UI and a macOS app; other desktop platforms come later. See the
+[roadmap](ROADMAP.md) for
 what is done and what is next.
 
 ## Contributing
