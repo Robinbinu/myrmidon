@@ -73,6 +73,18 @@ export interface DriverResult {
   readonly isError: boolean
 }
 
+/** What a wait for the desktop ends with when the person stops computer use (see `beforeControl`). */
+export class ComputerStopped extends Error {
+  constructor() {
+    super('the person stopped computer use')
+  }
+}
+
+/** One wait for the desktop: `ended` once Stop reached it, even if a new round of its chat has started since. */
+export interface Wait {
+  readonly ended: boolean
+}
+
 const FOREGROUND = '\0foreground'
 const same = (a: Holder, b: Holder) => a.colonyId === b.colonyId && a.agent === b.agent
 
@@ -401,13 +413,13 @@ export class ComputerHub {
    * agent waits for it a while, then is told who has it.
    */
   take(app: { name: string; bundleId: string }, holder: Holder, waitMs = COMPUTER_LOCK_WAIT_MS) {
-    return this.beforeControl(holder.colonyId, () => this._take(app, holder, waitMs))
+    return this.beforeControl(holder.colonyId, (wait) => this._take(app, holder, waitMs, wait))
   }
 
-  private async _take(app: { name: string; bundleId: string }, holder: Holder, waitMs: number) {
+  private async _take(app: { name: string; bundleId: string }, holder: Holder, waitMs: number, wait: Wait) {
     const deadline = Date.now() + waitMs
     for (;;) {
-      if (this._stopped.has(holder.colonyId)) throw new Error('the person stopped computer use')
+      if (wait.ended || this._stopped.has(holder.colonyId)) throw new ComputerStopped()
       const held = this._locks.get(app.bundleId)
       if (!held || same(held, holder)) break
       if (Date.now() >= deadline)
@@ -427,16 +439,20 @@ export class ComputerHub {
    * Runs `work` (an app's approval card, waiting for the app) for a round about to drive the desktop, so the person's
    * Stop reaches it there too: it ends at once with an error, and the round never takes the app after.
    */
-  async beforeControl<T>(colonyId: string, work: () => Promise<T>): Promise<T> {
+  async beforeControl<T>(colonyId: string, work: (wait: Wait) => Promise<T>): Promise<T> {
     const waits = this._waiting.get(colonyId) ?? new Set()
     this._waiting.set(colonyId, waits)
+    const wait = { ended: false }
     let end = () => {}
     const stopped = new Promise<never>((_, reject) => {
-      end = () => reject(new Error('the person stopped computer use'))
+      end = () => {
+        wait.ended = true
+        reject(new ComputerStopped())
+      }
     })
     waits.add(end)
     try {
-      return await Promise.race([work(), stopped])
+      return await Promise.race([work(wait), stopped])
     } finally {
       waits.delete(end)
       if (!waits.size) this._waiting.delete(colonyId)

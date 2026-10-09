@@ -140,7 +140,16 @@ test('the macOS profile hides the home, then opens what may be read, parents fir
     expect(profile).toContain(`(deny file-read* (subpath "${dir}"))`)
   expect(profile).toContain('(deny network-outbound (remote unix-socket (regex #"^/private/tmp/myr-")))')
   expect(profile).toContain('(deny appleevent-send)')
-  expect(profile).toContain('(deny mach-lookup (global-name-regex #"^com\\.apple\\.windowserver"))')
+  expect(profile).toContain(
+    '(deny mach-lookup (global-name-regex #"^com\\.apple\\.windowserver") (global-name "com.apple.replayd"))',
+  )
+  expect(profile).toContain('(deny lsopen)')
+  expect(profile).toContain('(deny mach-lookup (global-name-regex #"^com\\.apple\\.pasteboard\\."))')
+  // The /tmp/myr-* rule comes after the reads, so no readable folder reopens it, and one regex covers them all.
+  expect(at('(deny file-read* (regex #"^/private/tmp/myr-"))')).toBeGreaterThan(
+    profile.lastIndexOf('(allow file-read* (subpath'),
+  )
+  if (process.platform === 'darwin') expect(profile).not.toContain('(subpath "/private/tmp/myr-')
 })
 
 test('bubblewrap gets the same rules as mounts: an empty home, then what may be read, then what may be written', () => {
@@ -230,6 +239,12 @@ test('file tools refuse what the sandbox hides, open what the person allowed, an
     '.pgpass',
     '.gem/credentials',
     '.m2/settings.xml',
+    '.zsh_sessions/x.history',
+    '.python_history',
+    '.psql_history',
+    '.yarnrc.yml',
+    '.gradle/gradle.properties',
+    '.composer/auth.json',
     'Library/Containers/com.example.app/Data/x',
     'Library/Group Containers/group.example/x',
     '.dotnet/corefx/cryptography/x509stores/my/key.pfx',

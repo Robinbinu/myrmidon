@@ -202,7 +202,10 @@ export const SANDBOX_SECRETS = [
   '.cargo/credentials.toml',
   '.password-store',
   '.zsh_history',
+  '.zsh_sessions',
   '.bash_history',
+  '.python_history',
+  '.psql_history',
   'Library/Keychains',
   'Library/Cookies',
   'Library/Application Support',
@@ -231,6 +234,9 @@ export const SANDBOX_SECRETS = [
   '.pgpass',
   '.gem/credentials',
   '.m2/settings.xml',
+  '.yarnrc.yml',
+  '.gradle/gradle.properties',
+  '.composer/auth.json',
   // .NET's certificate store (private keys), inside a toolchain folder that is otherwise readable.
   '.dotnet/corefx',
   // Sandboxed apps' data, and what app groups share (password managers, mail and chat apps).
@@ -428,7 +434,8 @@ export const COMPUTER_SCRIPT_APPS = [
   /^org\.hammerspoon\.Hammerspoon$/,
   /^com\.raycast\.macos$/,
 ]
-export const COMPUTER_SCRIPT_KEYS = [/^cmd\+r$/i]
+/** Keys that run in a script app (combos as `computerCombo` writes them): cmd+R with any other modifiers, Return. */
+export const COMPUTER_SCRIPT_KEYS = [/^cmd(\+\w+)*\+r$/, /^return$/]
 export const COMPUTER_SCRIPT_LABEL = /\brun\b/i
 export const COMPUTER_SHELL_APPS = [
   ...COMPUTER_SCRIPT_APPS,
@@ -461,16 +468,17 @@ export const COMPUTER_OWN_WINDOW_TITLE = /\bMyrmidon\b/
 /**
  * What makes a desktop action consequential enough to ask the person first: the label of what it clicks (buy, send,
  * delete…), and keys that send or delete. Agents are told to ask before such steps too; this catches the ones they
- * do not.
+ * do not. Key combos are matched as `computerCombo` writes them: modifiers in alphabetical order (cmd, ctrl, fn,
+ * option, shift), then the key, so each pattern also allows modifiers besides the ones it names.
  */
 export const COMPUTER_SENSITIVE_LABEL =
   /\b(buy|purchase|pay|checkout|check out|place order|order now|subscribe|donate|transfer|send|post|publish|tweet|reply all|submit|delete|remove|erase|trash|empty trash|uninstall|format|wipe|sign out|log out|confirm|approve|accept)\b/i
 export const COMPUTER_SENSITIVE_KEYS = [
-  /^(cmd|ctrl)\+(return|enter)$/i,
-  /^cmd\+(delete|backspace)$/i,
-  /^(shift\+cmd|cmd\+shift)\+delete$/i,
+  /^(cmd|ctrl)(\+\w+)*\+return$/,
+  // Delete, Move to Trash, Empty Trash (with or without its confirmation).
+  /^cmd(\+\w+)*\+delete$/,
   // Mail's Send.
-  /^(shift\+cmd|cmd\+shift)\+d$/i,
+  /^cmd(\+\w+)*\+shift\+d$/,
 ]
 /** Apps where Return sends what was typed (a message, a mail): pressing it there asks first. */
 export const COMPUTER_SEND_APPS = [

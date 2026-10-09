@@ -5,6 +5,7 @@ import {
   appTier,
   appWarning,
   canRaise,
+  computerCombo,
   computerProtocol,
   fromGeneric,
   fromOpenAi,
@@ -270,4 +271,21 @@ test('script apps are shell-like and Tor Browser view-only; their run and send k
   expect(sendsOrRuns(fromGeneric('type', { text: 'hi' }), 'com.apple.MobileSMS')).toBe(false)
   expect(sendsOrRuns(fromGeneric('type', { text: 'a\nb' }), 'com.apple.Notes')).toBe(false)
   expect(sendsOrRuns(key('Return'), 'com.apple.MobileSMS')).toBe(true)
+})
+
+test('key combos match whatever order their modifiers come in; Return runs in a launcher', () => {
+  const key = (text: string) => fromGeneric('key', { text })
+  expect(computerCombo(['shift', 'option', 'cmd', 'delete'])).toBe('cmd+option+shift+delete')
+  expect(sendsOrRuns(key('option+shift+cmd+delete'), 'com.apple.finder')).toBe(true)
+  expect(sendsOrRuns(key('shift+option+cmd+d'), 'com.apple.mail')).toBe(true)
+  expect(sendsOrRuns(key('shift+ctrl+enter'), 'com.apple.Notes')).toBe(true)
+  expect(sendsOrRuns(key('shift+cmd+r'), 'com.apple.ScriptEditor2')).toBe(true)
+  expect(sendsOrRuns(key('option+cmd+r'), 'com.apple.ScriptEditor2')).toBe(true)
+  expect(sendsOrRuns(key('Return'), 'com.raycast.macos')).toBe(true)
+  expect(sendsOrRuns(fromGeneric('type', { text: 'rm -rf ~\n' }), 'com.raycast.macos')).toBe(true)
+  // Ordinary keys stay free.
+  expect(sendsOrRuns(key('shift+return'), 'com.apple.MobileSMS')).toBe(false)
+  expect(sendsOrRuns(key('cmd+shift+r'), 'com.apple.Notes')).toBe(false)
+  expect(sendsOrRuns(key('Return'), 'com.apple.Notes')).toBe(false)
+  expect(sendsOrRuns(key('option+delete'), 'com.apple.finder')).toBe(false)
 })

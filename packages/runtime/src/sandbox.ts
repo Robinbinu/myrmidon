@@ -81,8 +81,12 @@ export interface PathRule {
 
 const ORDER = { hide: 0, read: 1, write: 2 } as const
 
-/** Myrmidon's socket folders in /tmp as they are now (see SANDBOX_HIDDEN_TMP). */
+/**
+ * Myrmidon's socket folders in /tmp as they are now (see SANDBOX_HIDDEN_TMP), for bubblewrap, which can only cover
+ * folders that exist: one made after a command started stays visible to it. macOS's profile matches them by name.
+ */
 function tmpSocketDirs(): string[] {
+  if (process.platform !== 'linux') return []
   try {
     return readdirSync('/tmp')
       .filter((name) => name.startsWith(SANDBOX_HIDDEN_TMP))
@@ -170,16 +174,24 @@ export function macProfile(spec: PathSpec, home: string): string {
   return [
     '(version 1)',
     '(allow default)',
-    `(deny file-read* ${tmp})`,
-    `(deny network-outbound (remote unix-socket ${tmp}))`,
     ...reads,
+    // After the reads, so a readable /tmp (or /) does not open them again: the last matching rule wins.
+    `(deny file-read* ${tmp})`,
     `(allow file-read* ${temp.join(' ')})`,
     ...sockets,
+    `(deny network-outbound (remote unix-socket ${tmp}))`,
     // Commands are Myrmidon's children, so macOS lets them use its Screen Recording and Accessibility grants. With no
-    // window server they cannot capture the screen or post input events, and with no Apple events they cannot script
-    // other apps (System Events). Accessibility calls made straight to another app's process are not covered here.
-    '(deny mach-lookup (global-name-regex #"^com\\.apple\\.windowserver"))',
+    // window server and no ScreenCaptureKit (replayd) they cannot capture the screen or post input events, and with
+    // no Apple events they cannot script other apps (System Events). Accessibility calls made straight to another
+    // app's process are not covered here.
+    '(deny mach-lookup (global-name-regex #"^com\\.apple\\.windowserver") (global-name "com.apple.replayd"))',
     '(deny appleevent-send)',
+    // LaunchServices starts what it opens outside the sandbox: `open ./Made.app` (or NSWorkspace) would run a bundle
+    // the command wrote with none of these rules.
+    '(deny lsopen)',
+    // The clipboard often holds passwords. Builds, git, package managers and test runners do not use it; a test
+    // that copies and pastes fails here.
+    '(deny mach-lookup (global-name-regex #"^com\\.apple\\.pasteboard\\."))',
     '(deny file-write*)',
     ...writes,
     '(allow file-write* (literal "/dev/null") (literal "/dev/tty") (regex #"^/dev/fd/"))',

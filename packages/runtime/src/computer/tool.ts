@@ -33,7 +33,7 @@ import {
   UnsupportedAction,
 } from './actions.ts'
 import { type AppTier, allows, appTier, appWarning, canRaise, isOwnApp, sendsOnReturn } from './apps.ts'
-import type { DriverResult } from './driver.ts'
+import { ComputerStopped, type DriverResult, type Wait } from './driver.ts'
 
 export const COMPUTER_TOOL = 'computer'
 
@@ -209,13 +209,23 @@ export function sensitiveLabel(label: string | undefined, bundleId: string): boo
 }
 
 /**
+ * A key press written one way whatever order the model gave its modifiers in: modifiers in alphabetical order, then
+ * the key (`cmd+option+shift+delete`). The sensitive and script key patterns are written against this.
+ */
+export function computerCombo(keys: readonly string[]): string {
+  const key = keys.at(-1) ?? ''
+  return [...new Set(keys.slice(0, -1))].sort().concat(key).join('+')
+}
+
+/**
  * Whether a key press or typed text sends, deletes or runs something in this app: a sensitive combo, Return (or a
- * newline typed) where Return sends, a script app's run key.
+ * newline typed) where Return sends or runs (a launcher like Raycast), a script app's run key.
  */
 export function sendsOrRuns(action: DesktopAction, bundleId: string): boolean {
-  if (action.kind === 'type') return /[\r\n]/.test(action.text) && sendsOnReturn(bundleId)
+  if (action.kind === 'type')
+    return /[\r\n]/.test(action.text) && (sendsOnReturn(bundleId) || runsScripts(bundleId))
   if (action.kind !== 'key') return false
-  const combo = action.keys.join('+')
+  const combo = computerCombo(action.keys)
   return (
     COMPUTER_SENSITIVE_KEYS.some((r) => r.test(combo)) ||
     (combo === 'return' && sendsOnReturn(bundleId)) ||
@@ -615,13 +625,13 @@ async function openApp(
   const want: AppTier = fullControl && canRaise(app.bundleId) ? 'full' : appTier(app.bundleId)
   // On the card and while another agent has the app, the round is about to drive the desktop: Stop reaches it.
   try {
-    await hub.beforeControl(host.id, async () => {
+    await hub.beforeControl(host.id, async (wait) => {
       if (!approved || (want === 'full' && approved.tier !== 'full'))
-        await approveApp(host, agent, app, want, !!approved)
+        await approveApp(host, agent, app, want, !!approved, wait)
       await hub.take({ name: app.name, bundleId: app.bundleId }, { colonyId: host.id, agent })
     })
   } catch (err) {
-    if (hub.stopped(host.id)) throw new Error(t.stopped)
+    if (err instanceof ComputerStopped) throw new Error(t.stopped)
     throw err
   }
   const launched = await call('launch_app', { bundle_id: app.bundleId })
@@ -655,6 +665,7 @@ async function approveApp(
   app: { name: string; bundleId: string },
   tier: AppTier,
   raising: boolean,
+  wait: Wait,
 ) {
   const warning = appWarning(app.bundleId)
   const r = t.review
@@ -697,7 +708,7 @@ async function approveApp(
     },
   )
   if (!decision.approved) throw new Error(t.denied(app.name, decision.note))
-  if (host.computer?.stopped(host.id)) throw new Error(t.stopped)
+  if (wait.ended) throw new Error(t.stopped)
   const others = (host.state().computerApps ?? []).filter((a) => a.bundleId !== app.bundleId)
   await host.append({
     type: 'computer/apps',

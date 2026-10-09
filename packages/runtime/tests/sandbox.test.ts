@@ -1,5 +1,14 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { detectSandbox, fullAccessIn, unconfinedSandbox } from '../src/sandbox.ts'
@@ -140,6 +149,54 @@ test.skipIf(detectSandbox().kind !== 'sandbox-exec')(
       `osascript -e 'with timeout of 5 seconds' -e 'tell application "System Events" to count processes' -e 'end timeout'`,
     )
     expect(events.code).not.toBe(0)
+    // The clipboard is out of reach: the probe only counts what kinds of data it holds, never reads them.
+    const clipboard = await run(
+      `osascript -l JavaScript -e 'ObjC.import("AppKit"); var t = $.NSPasteboard.generalPasteboard.types; "types=" + (t ? t.count : "none")'`,
+    )
+    expect(clipboard.stdout.trim()).toBe('types=none')
+  },
+  30_000,
+)
+
+test.skipIf(detectSandbox().kind !== 'sandbox-exec')(
+  'a sandboxed command cannot have LaunchServices start an app it wrote, outside the sandbox',
+  async () => {
+    const scratch = join(root, 'scratch')
+    const outside = join(root, 'outside')
+    const app = join(scratch, 'Probe.app')
+    mkdirSync(join(app, 'Contents', 'MacOS'), { recursive: true })
+    mkdirSync(outside)
+    writeFileSync(
+      join(app, 'Contents', 'Info.plist'),
+      `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleExecutable</key><string>run</string>
+<key>CFBundleIdentifier</key><string>dev.myrmidon.test.probe-${Date.now()}</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>LSBackgroundOnly</key><true/>
+</dict></plist>`,
+    )
+    // Started by LaunchServices it would run unconfined, and could write where the command cannot.
+    writeFileSync(join(app, 'Contents', 'MacOS', 'run'), `#!/bin/sh\ntouch "${outside}/escaped"\n`)
+    chmodSync(join(app, 'Contents', 'MacOS', 'run'), 0o755)
+    try {
+      const r = await detectSandbox().run({
+        command: `open -g -j "${app}"`,
+        cwd: scratch,
+        writable: [scratch],
+        timeoutMs: 20_000,
+      })
+      expect(r.code).not.toBe(0)
+      await Bun.sleep(1_500)
+      expect(existsSync(join(outside, 'escaped'))).toBe(false)
+    } finally {
+      Bun.spawnSync([
+        '/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister',
+        '-u',
+        app,
+      ])
+    }
   },
   30_000,
 )
@@ -161,6 +218,15 @@ test.skipIf(detectSandbox().kind === 'none')(
     try {
       expect((await run(`cat "${join(root, 'left.txt')}"`)).code).not.toBe(0)
       expect((await run(`cat "${join(other, 'run.txt')}"`)).code).not.toBe(0)
+      // A readable /tmp does not open them again.
+      const tmpOpen = await detectSandbox().run({
+        command: `cat "${join(other, 'run.txt')}"`,
+        cwd: project,
+        writable: [project, scratch],
+        readable: ['/tmp'],
+        timeoutMs: 20_000,
+      })
+      expect(tmpOpen.code).not.toBe(0)
       for (const dir of ['/Volumes', '/Users/Shared'].filter(existsSync))
         expect((await run(`ls "${dir}"`)).code).not.toBe(0)
       // What toolchains and the command's own temp need still works.

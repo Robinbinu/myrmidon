@@ -355,6 +355,19 @@ test('Stop also ends rounds waiting for an app or on its approval card: they nev
   expect(hub.stopped('colony-waits')).toBe(true)
 }, 40_000)
 
+test('a wait Stop ended never takes the app, even once a new round of its chat has started', async () => {
+  await hub.take({ name: 'Notes', bundleId: 'com.apple.Notes' }, { colonyId: 'a', agent: 'nova' })
+  const waiting = hub.take({ name: 'Notes', bundleId: 'com.apple.Notes' }, { colonyId: 'b', agent: 'kai' })
+  await Bun.sleep(50)
+  hub.stopAll()
+  // Before the waiting loop looks again: the chat's next round starts and Notes comes free.
+  hub.newRound('b', () => {})
+  hub.release('a')
+  await expect(waiting).rejects.toThrow('stopped')
+  await Bun.sleep(500)
+  expect(hub.controls()).toHaveLength(0)
+})
+
 test('a driver the person installed runs with a minimal environment, and the log says it is their own', async () => {
   const lines: string[] = []
   process.env.MYR_TEST_SECRET = 'leaked'
