@@ -36,6 +36,8 @@ export function useTheme(): [ThemeChoice, (t: ThemeChoice) => void] {
 
 /** Whether this browser should notify the person when a round finishes in the background. */
 export const NOTIFY_KEY = 'myr-notify'
+/** Whether the desktop app's Dock icon counts the chats waiting for the person (on unless turned off). */
+export const DOCK_BADGE_KEY = 'myr-dock-badge'
 
 export function usePersistentFlag(key: string, initial: boolean): [boolean, (v: boolean) => void] {
   const [value, setValue] = useState(() => readStored(key, initial ? '1' : '0') === '1')

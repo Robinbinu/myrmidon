@@ -12,6 +12,9 @@ export interface MascotLook {
 
 export const DEFAULT_MASCOT: MascotLook = { eyes: 'round', look: 'neutral', color: 'amber', screen: 'rotate' }
 
+/** The home screen's mascot and the setup assistant's are one to the eye: setup's settles into the home screen's place. */
+export const MASCOT_LAYOUT_ID = 'mascot'
+
 /** Sent when Settings saves, so the mascot on the entry page picks up a new look at once. */
 export const SETTINGS_SAVED = 'myr-settings-saved'
 

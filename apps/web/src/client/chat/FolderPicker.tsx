@@ -19,7 +19,11 @@ interface Listing {
  * folders and the person walks to the one they want (or types its path). The desktop app opens the native dialog
  * instead, while the window shows this machine's Myrmidon (another gateway's folders are on another machine).
  */
-export function FolderPicker(props: { onClose(): void; onAdded(project: Project, all: Project[]): void }) {
+export function FolderPicker(props: {
+  onClose(): void
+  /** `isGit`: the folder is a git repository (the setup assistant picks its permissions from that). */
+  onAdded(project: Project, all: Project[], isGit: boolean): void
+}) {
   const toast = useToast()
   const [native] = useState(() => (activeGateway() ? undefined : desktop()))
   const [listing, setListing] = useState<Listing>()
@@ -56,8 +60,14 @@ export function FolderPicker(props: { onClose(): void; onAdded(project: Project,
   const add = async (path: string) => {
     setBusy(true)
     try {
-      const r = await send<{ project: Project; projects: Project[] }>('POST', '/api/projects', { path })
-      props.onAdded(r.project, r.projects)
+      const r = await send<{ project: Project; projects: Project[]; isGit?: boolean }>(
+        'POST',
+        '/api/projects',
+        {
+          path,
+        },
+      )
+      props.onAdded(r.project, r.projects, r.isGit === true)
     } catch (err) {
       toast(String((err as Error).message), 'error')
     } finally {

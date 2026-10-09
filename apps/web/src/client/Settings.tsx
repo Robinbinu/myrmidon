@@ -171,7 +171,7 @@ export interface ServerSettings {
   }
 }
 
-interface SettingsResponse {
+export interface SettingsResponse {
   settings: ServerSettings
   providers: ProviderInfo[]
   searchProviders: { id: string; label: string }[]
@@ -367,8 +367,9 @@ export function Settings(props: {
   guard?: { current?: (go: () => void) => void }
   /** Told the section on screen, so the app can keep it in the address and a refresh comes back to it. */
   onSection?(section: Section): void
+  /** Opens the setup assistant again from its first step (Settings → General). */
+  onRunSetup?(): void
 }) {
-  const toast = useToast()
   const [section, setSection] = useState<Section>(props.initialSection ?? 'general')
   const onSection = useRef(props.onSection)
   onSection.current = props.onSection
@@ -376,13 +377,9 @@ export function Settings(props: {
     onSection.current?.(section)
   }, [section])
   const [modelsTab, setModelsTab] = useState<'models' | 'providers'>('models')
-  const [data, setData] = useState<SettingsResponse>()
-  const [error, setError] = useState<string>()
-  const [saving, setSaving] = useState<'idle' | 'saving' | 'saved' | 'failed'>('idle')
-  const [saveError, setSaveError] = useState<string>()
-  const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
-  // The settings last sent, so a failed save can be retried as it was.
-  const unsaved = useRef<ServerSettings>(undefined)
+  const { data, error, saving, saveError, retry, update, providersChanged } = useSettingsData(
+    props.onModelsChanged,
+  )
   const wideNav = useMinWidth(SETTINGS_NAV_COLLAPSE_PX)
   // Hooks are the one section with an explicit Save; leaving it with edits asks first.
   const [hooksDirty, setHooksDirty] = useState(false)
@@ -412,12 +409,6 @@ export function Settings(props: {
   }, [hooksDirty])
 
   useEffect(() => {
-    api<SettingsResponse>('/api/settings')
-      .then(setData)
-      .catch((err) => setError(String(err.message ?? err)))
-  }, [])
-
-  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const typing = (e.target as HTMLElement | null)?.closest('input, textarea, select')
       if (e.key === 'Escape' && !typing && !anyDialogOpen()) onClose.current()
@@ -425,40 +416,6 @@ export function Settings(props: {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
-
-  const persist = (next: ServerSettings) => {
-    unsaved.current = next
-    setSaving('saving')
-    send<{ settings: ServerSettings }>('PUT', '/api/settings', next)
-      .then((r) => {
-        setData((d) => (d ? { ...d, settings: r.settings } : d))
-        setSaving('saved')
-        setTimeout(() => setSaving((v) => (v === 'saved' ? 'idle' : v)), 1200)
-        props.onModelsChanged()
-        window.dispatchEvent(new Event(SETTINGS_SAVED))
-      })
-      .catch((err) => {
-        // The page still shows the edit, so the header keeps saying it is not saved until a retry works.
-        setSaving('failed')
-        setSaveError(String(err.message ?? err))
-        toast(String(err.message ?? err), 'error')
-      })
-  }
-
-  /** Autosave: edits apply in the UI at once and persist shortly after (or immediately for toggles). */
-  const update = (patch: (s: ServerSettings) => ServerSettings, immediate = false) => {
-    if (!data) return
-    const next = patch(structuredClone(data.settings))
-    setData({ ...data, settings: next })
-    clearTimeout(timer.current)
-    if (immediate) persist(next)
-    else timer.current = setTimeout(() => persist(next), 450)
-  }
-
-  const providersChanged = (providers: ProviderInfo[]) => {
-    setData((d) => (d ? { ...d, providers } : d))
-    props.onModelsChanged()
-  }
 
   const current = SECTIONS.find((s) => s.id === section) ?? SECTIONS[0]
   const waiting = useStatus().status?.waiting?.length ?? 0
@@ -495,12 +452,7 @@ export function Settings(props: {
               <CircleX className="size-3.5" />
               {copy.settings.page.saveFailed}
               <span aria-hidden>·</span>
-              <Button
-                size="sm"
-                variant="borderless"
-                onClick={() => unsaved.current && persist(unsaved.current)}
-                icon={<RefreshCw className="size-3" />}
-              >
+              <Button size="sm" variant="borderless" onClick={retry} icon={<RefreshCw className="size-3" />}>
                 {copy.settings.page.retry}
               </Button>
             </motion.span>
@@ -634,6 +586,7 @@ export function Settings(props: {
                     onTheme={props.onTheme}
                     reduceMotion={props.reduceMotion}
                     onReduceMotion={props.onReduceMotion}
+                    {...(props.onRunSetup ? { onRunSetup: props.onRunSetup } : {})}
                   />
                   <Shortcuts />
                   <About data={data} />
@@ -744,6 +697,80 @@ export function Settings(props: {
   )
 }
 
+/**
+ * The settings as the server has them, and the autosave every section uses: edits apply on the page at once and are
+ * saved shortly after (toggles at once). Also used by the setup assistant, which shows some of the same sections.
+ */
+export function useSettingsData(onModelsChanged: () => void) {
+  const toast = useToast()
+  const [data, setData] = useState<SettingsResponse>()
+  const [error, setError] = useState<string>()
+  const [saving, setSaving] = useState<'idle' | 'saving' | 'saved' | 'failed'>('idle')
+  const [saveError, setSaveError] = useState<string>()
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  // The settings last sent, so a failed save can be retried as it was.
+  const unsaved = useRef<ServerSettings>(undefined)
+  const changed = useRef(onModelsChanged)
+  changed.current = onModelsChanged
+
+  useEffect(() => {
+    api<SettingsResponse>('/api/settings')
+      .then(setData)
+      .catch((err) => setError(String(err.message ?? err)))
+  }, [])
+
+  const persist = (next: ServerSettings): Promise<boolean> => {
+    unsaved.current = next
+    setSaving('saving')
+    return send<{ settings: ServerSettings }>('PUT', '/api/settings', next)
+      .then((r) => {
+        setData((d) => (d ? { ...d, settings: r.settings } : d))
+        setSaving('saved')
+        setTimeout(() => setSaving((v) => (v === 'saved' ? 'idle' : v)), 1200)
+        changed.current()
+        window.dispatchEvent(new Event(SETTINGS_SAVED))
+        return true
+      })
+      .catch((err) => {
+        // The page still shows the edit, so the header keeps saying it is not saved until a retry works.
+        setSaving('failed')
+        setSaveError(String(err.message ?? err))
+        toast(String(err.message ?? err), 'error')
+        return false
+      })
+  }
+
+  /** Autosave: edits apply in the UI at once and persist shortly after (or immediately for toggles). */
+  const update = (patch: (s: ServerSettings) => ServerSettings, immediate = false) => {
+    if (!data) return
+    const next = patch(structuredClone(data.settings))
+    setData({ ...data, settings: next })
+    clearTimeout(timer.current)
+    if (immediate) void persist(next)
+    else timer.current = setTimeout(() => void persist(next), 450)
+  }
+
+  /** An edit saved at once, for what must be on the server before the next request (voice on before an install). */
+  const saveNow = (patch: (s: ServerSettings) => ServerSettings): Promise<boolean> => {
+    if (!data) return Promise.resolve(false)
+    const next = patch(structuredClone(data.settings))
+    setData({ ...data, settings: next })
+    clearTimeout(timer.current)
+    return persist(next)
+  }
+
+  const providersChanged = (providers: ProviderInfo[]) => {
+    setData((d) => (d ? { ...d, providers } : d))
+    changed.current()
+  }
+
+  const retry = () => {
+    if (unsaved.current) void persist(unsaved.current)
+  }
+
+  return { data, error, saving, saveError, retry, update, saveNow, providersChanged }
+}
+
 /** Desktop notifications when a round finishes while Myrmidon is in the background (this browser only). */
 function NotifyToggle() {
   const toast = useToast()
@@ -775,11 +802,49 @@ function NotifyToggle() {
   )
 }
 
+/** Light, dark, or as the system has it; also on the setup assistant's Welcome. */
+export function ThemePicker(props: { theme: ThemeChoice; onTheme(t: ThemeChoice): void }) {
+  return (
+    <Segmented
+      id="theme"
+      value={props.theme}
+      onChange={props.onTheme}
+      options={[
+        {
+          value: 'system',
+          label: (
+            <>
+              <Monitor className="size-3.5" /> {copy.settings.general.themeSystem}
+            </>
+          ),
+        },
+        {
+          value: 'light',
+          label: (
+            <>
+              <Sun className="size-3.5" /> {copy.settings.general.themeLight}
+            </>
+          ),
+        },
+        {
+          value: 'dark',
+          label: (
+            <>
+              <Moon className="size-3.5" /> {copy.settings.general.themeDark}
+            </>
+          ),
+        },
+      ]}
+    />
+  )
+}
+
 function General(props: {
   theme: ThemeChoice
   onTheme(t: ThemeChoice): void
   reduceMotion: boolean
   onReduceMotion(v: boolean): void
+  onRunSetup?(): void
 }) {
   return (
     <>
@@ -787,37 +852,7 @@ function General(props: {
       <Card>
         <CardRow>
           <Field label={copy.settings.general.theme} hint={copy.settings.general.themeHint} inline>
-            <Segmented
-              id="theme"
-              value={props.theme}
-              onChange={props.onTheme}
-              options={[
-                {
-                  value: 'system',
-                  label: (
-                    <>
-                      <Monitor className="size-3.5" /> {copy.settings.general.themeSystem}
-                    </>
-                  ),
-                },
-                {
-                  value: 'light',
-                  label: (
-                    <>
-                      <Sun className="size-3.5" /> {copy.settings.general.themeLight}
-                    </>
-                  ),
-                },
-                {
-                  value: 'dark',
-                  label: (
-                    <>
-                      <Moon className="size-3.5" /> {copy.settings.general.themeDark}
-                    </>
-                  ),
-                },
-              ]}
-            />
+            <ThemePicker theme={props.theme} onTheme={props.onTheme} />
           </Field>
         </CardRow>
         <CardRow>
@@ -836,6 +871,15 @@ function General(props: {
         <CardRow>
           <NotifyToggle />
         </CardRow>
+        {props.onRunSetup && (
+          <CardRow>
+            <Field label={copy.settings.general.setup} hint={copy.settings.general.setupHint} inline>
+              <Button icon={<FEATURE_ICONS.setup className="size-3.5" />} onClick={props.onRunSetup}>
+                {copy.settings.general.runSetup}
+              </Button>
+            </Field>
+          </CardRow>
+        )}
       </Card>
     </>
   )
@@ -1324,10 +1368,12 @@ function SignIns(props: { onProviders(p: ProviderInfo[]): void }) {
   )
 }
 
-function Providers(props: {
+export function Providers(props: {
   data: SettingsResponse
   onProviders(p: ProviderInfo[]): void
   update(p: (s: ServerSettings) => ServerSettings, immediate?: boolean): void
+  /** Inside the setup assistant, which has its own heading and says where keys are kept itself. */
+  embedded?: boolean
 }) {
   const off = new Set(props.data.settings.models.hiddenProviders)
   const setOff = (id: string, hide: boolean) =>
@@ -1366,8 +1412,10 @@ function Providers(props: {
 
   return (
     <>
-      <PageHeader title={copy.settings.providers.title}>{copy.settings.providers.intro}</PageHeader>
-      {props.data.agentDir && (
+      {!props.embedded && (
+        <PageHeader title={copy.settings.providers.title}>{copy.settings.providers.intro}</PageHeader>
+      )}
+      {props.data.agentDir && !props.embedded && (
         <p className="-mt-4 mb-6 truncate font-mono text-footnote text-muted" title={props.data.agentDir}>
           {copy.settings.providers.storedIn(props.data.agentDir)}
         </p>
@@ -1764,6 +1812,19 @@ function ProviderForm(props: {
   )
 }
 
+/** The settings with `config`'s crew as the default every new chat starts with. */
+export function withDefaultCrew(s: ServerSettings, c: TeamConfig): ServerSettings {
+  s.team = {
+    ...s.team,
+    mode: c.mode,
+    workers: c.roster.length,
+    leadModel: c.leadModel,
+    ...(c.roster[0] ? { workerModel: c.roster[0].model } : {}),
+    judgeModel: c.judgeModel,
+  }
+  return s
+}
+
 function TeamSection(props: {
   data: SettingsResponse
   update(p: (s: ServerSettings) => ServerSettings): void
@@ -1784,17 +1845,7 @@ function TeamSection(props: {
               config={props.config}
               onConfig={(c) => {
                 props.onConfig(c)
-                props.update((s) => {
-                  s.team = {
-                    ...s.team,
-                    mode: c.mode,
-                    workers: c.roster.length,
-                    leadModel: c.leadModel,
-                    ...(c.roster[0] ? { workerModel: c.roster[0].model } : {}),
-                    judgeModel: c.judgeModel,
-                  }
-                  return s
-                })
+                props.update((s) => withDefaultCrew(s, c))
               }}
             />
           </div>
@@ -1871,7 +1922,7 @@ function TeamSection(props: {
  * A number with limits. Typing applies each value inside the limits at once; leaving the box keeps an out-of-range
  * value at the nearest limit and an empty one at what it was, and while the value is outside them the box says so.
  */
-function NumberField(props: {
+export function NumberField(props: {
   label: string
   value: number
   min: number
@@ -2487,7 +2538,7 @@ function DevicesSection() {
   )
 }
 
-interface ChannelView {
+export interface ChannelView {
   id: string
   label: string
   setup?: string
@@ -2553,7 +2604,13 @@ const channelState = (c: ChannelView) => (c.enabled ? c.status.state : 'off')
  * Messaging channels as a gallery of their apps (OpenClaw's and Hermes's channel pages): the ones in use first, with
  * their state and who is waiting, then every other app to add, grouped and searchable. A tile opens the app's sheet.
  */
-function ChannelsSection(props: { initial?: string | undefined }) {
+export function ChannelsSection(props: {
+  initial?: string | undefined
+  /** Inside the setup assistant, which has its own heading. */
+  embedded?: boolean
+  /** Told each list as it loads, so the setup assistant can notice an app connecting. */
+  onChannels?(channels: readonly ChannelView[]): void
+}) {
   const t = copy.settings.channels
   const toast = useToast()
   const [list, setList] = useState<ChannelView[]>()
@@ -2567,6 +2624,7 @@ function ChannelsSection(props: { initial?: string | undefined }) {
       .then((r) => {
         setList(r.channels)
         setLoadError(undefined)
+        props.onChannels?.(r.channels)
       })
       .catch((err: Error) => setLoadError(err.message))
   // biome-ignore lint/correctness/useExhaustiveDependencies: load on a timer
@@ -2585,7 +2643,7 @@ function ChannelsSection(props: { initial?: string | undefined }) {
   const shown = list?.find((c) => c.id === open)
   return (
     <>
-      <PageHeader title={t.title}>{t.intro}</PageHeader>
+      {!props.embedded && <PageHeader title={t.title}>{t.intro}</PageHeader>}
       {loadError && (
         <Banner tone="bad" role="alert" className="mb-6">
           {t.loadError(loadError)}
@@ -3229,7 +3287,7 @@ function ChannelSheet(props: {
   )
 }
 
-interface VoiceStatusView {
+export interface VoiceStatusView {
   enabled: boolean
   callModel?: string
   stt: {
@@ -3276,7 +3334,7 @@ function plainHttp(url: string | undefined): boolean {
 }
 
 /** A speech engine that failed: what went wrong and what to do, with its own message behind details. */
-function EngineTrouble(props: { engine: 'phonon' | 'kitten'; raw: string }) {
+export function EngineTrouble(props: { engine: 'phonon' | 'kitten'; raw: string }) {
   const t = copy.settings.voice.trouble
   const trouble = engineTrouble(props.engine, props.raw)
   return (
@@ -4009,9 +4067,14 @@ function MiniMascot(props: { look: MascotLook; cell?: number }) {
   )
 }
 
-function MascotSection(props: {
+export function MascotSection(props: {
   data: SettingsResponse
   update(p: (s: ServerSettings) => ServerSettings, immediate?: boolean): void
+  /**
+   * Inside the setup assistant: its own heading, only the name and the look, and no small preview, since the
+   * assistant's own mascot changes as the person picks.
+   */
+  embedded?: boolean
 }) {
   const t = copy.settings.mascot
   const profile = props.data.settings.profile ?? { greeting: 'model' as const }
@@ -4020,7 +4083,7 @@ function MascotSection(props: {
     props.update((s) => ({ ...s, mascot: { ...DEFAULT_MASCOT, ...s.mascot, ...patch } }), true)
   return (
     <>
-      <PageHeader title={t.title}>{t.intro}</PageHeader>
+      {!props.embedded && <PageHeader title={t.title}>{t.intro}</PageHeader>}
       <Card className="mb-6">
         <CardRow>
           <Field label={t.name} hint={t.nameHint(props.data.account ?? '')} inline>
@@ -4039,43 +4102,52 @@ function MascotSection(props: {
             />
           </Field>
         </CardRow>
-        <CardRow>
-          <Field label={t.greeting} hint={t.greetingHints[profile.greeting]} inline>
-            <Segmented
-              id="greeting"
-              value={profile.greeting}
-              options={[
-                { value: 'model', label: t.greetingModel },
-                { value: 'rules', label: t.greetingRules },
-              ]}
-              onChange={(greeting) =>
-                props.update((s) => ({ ...s, profile: { ...s.profile, greeting } }), true)
-              }
-            />
-          </Field>
-        </CardRow>
-        <CardRow>
-          <Field label={t.titles} hint={t.titlesHints[profile.titles ?? 'model']} inline>
-            <Segmented
-              id="titles"
-              value={profile.titles ?? 'model'}
-              options={[
-                { value: 'model', label: t.titlesModel },
-                { value: 'first-message', label: t.titlesFirst },
-              ]}
-              onChange={(titles) =>
-                props.update((s) => ({ ...s, profile: { greeting: 'model', ...s.profile, titles } }), true)
-              }
-            />
-          </Field>
-        </CardRow>
+        {!props.embedded && (
+          <>
+            <CardRow>
+              <Field label={t.greeting} hint={t.greetingHints[profile.greeting]} inline>
+                <Segmented
+                  id="greeting"
+                  value={profile.greeting}
+                  options={[
+                    { value: 'model', label: t.greetingModel },
+                    { value: 'rules', label: t.greetingRules },
+                  ]}
+                  onChange={(greeting) =>
+                    props.update((s) => ({ ...s, profile: { ...s.profile, greeting } }), true)
+                  }
+                />
+              </Field>
+            </CardRow>
+            <CardRow>
+              <Field label={t.titles} hint={t.titlesHints[profile.titles ?? 'model']} inline>
+                <Segmented
+                  id="titles"
+                  value={profile.titles ?? 'model'}
+                  options={[
+                    { value: 'model', label: t.titlesModel },
+                    { value: 'first-message', label: t.titlesFirst },
+                  ]}
+                  onChange={(titles) =>
+                    props.update(
+                      (s) => ({ ...s, profile: { greeting: 'model', ...s.profile, titles } }),
+                      true,
+                    )
+                  }
+                />
+              </Field>
+            </CardRow>
+          </>
+        )}
       </Card>
       <Card>
-        <CardRow>
-          <figure className="m-0 grid place-items-center py-4" aria-label={t.preview}>
-            <MiniMascot look={look} cell={9} />
-          </figure>
-        </CardRow>
+        {!props.embedded && (
+          <CardRow>
+            <figure className="m-0 grid place-items-center py-4" aria-label={t.preview}>
+              <MiniMascot look={look} cell={9} />
+            </figure>
+          </CardRow>
+        )}
         <CardRow>
           <Field label={t.eyes}>
             <div className="flex flex-wrap gap-3">

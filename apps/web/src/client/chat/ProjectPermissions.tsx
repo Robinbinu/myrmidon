@@ -45,6 +45,42 @@ export function PermissionMark({ mode }: { mode?: PermissionMode }) {
   return null
 }
 
+/** The three ways agents may treat a folder, one to choose; also in the setup assistant's project step. */
+export function PermissionChoices(props: { mode: PermissionMode; onChange(mode: PermissionMode): void }) {
+  return (
+    <fieldset
+      aria-label={copy.permissions.modesLabel}
+      className="m-0 flex min-w-0 flex-col gap-2 border-0 p-0"
+    >
+      {MODES.map((m) => (
+        <label
+          key={m.value}
+          className={cn(
+            'flex items-start gap-3 rounded-lg border px-3 py-2.5 transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent-soft',
+            props.mode === m.value ? 'border-accent/50 bg-accent-soft/50' : 'border-line hover:bg-fill',
+          )}
+        >
+          <input
+            type="radio"
+            name="permission-mode"
+            value={m.value}
+            checked={props.mode === m.value}
+            onChange={() => props.onChange(m.value)}
+            className="sr-only"
+          />
+          <m.icon
+            className={cn('mt-0.5 size-4 shrink-0', props.mode === m.value ? 'text-accent-fg' : 'text-muted')}
+          />
+          <span>
+            <span className="block text-reading font-medium">{m.label}</span>
+            <span className="block text-callout leading-snug text-muted">{m.hint}</span>
+          </span>
+        </label>
+      ))}
+    </fieldset>
+  )
+}
+
 /** How freely agents may change one project folder; applies from each chat's next message. */
 export function ProjectPermissions(props: {
   project: Project
@@ -89,36 +125,7 @@ export function ProjectPermissions(props: {
       }
     >
       <div className="flex flex-col gap-3">
-        <fieldset
-          aria-label={copy.permissions.modesLabel}
-          className="m-0 flex min-w-0 flex-col gap-2 border-0 p-0"
-        >
-          {MODES.map((m) => (
-            <label
-              key={m.value}
-              className={cn(
-                'flex items-start gap-3 rounded-lg border px-3 py-2.5 transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent-soft',
-                mode === m.value ? 'border-accent/50 bg-accent-soft/50' : 'border-line hover:bg-fill',
-              )}
-            >
-              <input
-                type="radio"
-                name="permission-mode"
-                value={m.value}
-                checked={mode === m.value}
-                onChange={() => setMode(m.value)}
-                className="sr-only"
-              />
-              <m.icon
-                className={cn('mt-0.5 size-4 shrink-0', mode === m.value ? 'text-accent-fg' : 'text-muted')}
-              />
-              <span>
-                <span className="block text-reading font-medium">{m.label}</span>
-                <span className="block text-callout leading-snug text-muted">{m.hint}</span>
-              </span>
-            </label>
-          ))}
-        </fieldset>
+        <PermissionChoices mode={mode} onChange={setMode} />
         {mode === 'ask' && (
           <div className="flex flex-col gap-1.5">
             <label htmlFor="allow-commands" className="text-callout text-muted">

@@ -589,6 +589,223 @@ export const copy = {
     },
   },
 
+  /** The first-run setup assistant: one step per screen, a list of them to jump between, and its mascot. */
+  setup: {
+    title: 'Set up Myrmidon',
+    navLabel: 'Setup steps',
+    finishLater: 'Finish later',
+    finishLaterTitle: 'Close the assistant. What is left waits on the home screen.',
+    back: 'Back',
+    continue: 'Continue',
+    later: 'Set up later',
+    tryAgain: 'Try again',
+    loading: 'Loading…',
+    /** Read out as each step opens. */
+    announce: (n: number, total: number, title: string) => `Step ${n} of ${total}: ${title}`,
+    /** After a step's name in the list, for screen readers, which cannot see its dot. */
+    status: {
+      done: 'done',
+      current: 'current step',
+      later: 'set up later',
+      todo: 'not set up yet',
+    },
+    steps: {
+      welcome: 'Welcome',
+      you: 'You & mascot',
+      models: 'Connect models',
+      crew: 'Your crew',
+      project: 'Your first project',
+      voice: 'Voice calls',
+      channels: 'Messaging apps',
+      alerts: 'Alerts',
+      ready: 'Ready',
+    },
+    /** The mascot's status line during setup, beside the moods it has everywhere. */
+    mascot: {
+      yawn: 'yawn',
+      thinking: 'thinking',
+      worried: 'hmm',
+      shrug: 'maybe later',
+      nod: 'nice',
+      ping: 'ping',
+      celebrate: 'all set',
+    },
+    /** What its dot screen spells (letters, digits and a few signs only). */
+    screen: {
+      hi: 'HI',
+      hello: (name: string) => `HI ${name.toUpperCase()}`,
+      thinking: 'THINKING',
+      ping: 'PING',
+      percent: (n: number) => `${n}%`,
+    },
+    welcome: {
+      title: 'Welcome to Myrmidon',
+      intro:
+        'Myrmidon runs a crew of AI agents on this computer. You talk to the lead; it plans the work and asks crewmates to research, build and review it.',
+      localTitle: 'What stays on this computer',
+      local:
+        'Your chats, files, settings and keys stay here. What leaves is what the crew sends to the model providers you connect, and the web pages it reads.',
+      theme: 'Theme',
+      start: 'Get started',
+    },
+    you: {
+      title: 'You & your mascot',
+      intro: 'What the mascot calls you and how it looks. It changes as you pick.',
+    },
+    models: {
+      title: 'Connect a model',
+      intro:
+        'The crew needs a model to think with. Use one this computer already has, sign in to a provider, or add a key.',
+      found: 'Found on this computer',
+      looking: 'Looking for models on this computer…',
+      none: 'Nothing found yet. Sign in or add a key below.',
+      lookFailed: (reason: string) => `Could not look for models: ${reason}`,
+      ready: 'Ready',
+      models: (n: number) => `${n} model${n === 1 ? '' : 's'}`,
+      envKey: (variable: string) => `${variable} is set`,
+      envKeyHint: 'A key in Myrmidon’s environment. It stays there; Myrmidon does not copy it.',
+      local: { ollama: 'Ollama', 'lm-studio': 'LM Studio' } as Record<string, string>,
+      localRunning: (name: string) => `${name} is running`,
+      use: 'Use',
+      pickLabel: (name: string) => `Use ${name}`,
+      inUse: 'In use',
+      adding: (name: string) => `Adding ${name}…`,
+      noModels: (name: string) => `${name} lists no models that can lead a crew yet.`,
+      tooSmall: 'Its models are too small to lead a crew',
+      more: 'More ways to connect',
+      testTitle: 'Test it',
+      testHint: 'Myrmidon sends the model a one-line message and waits for the reply.',
+      testModel: 'Model to test',
+      test: 'Send a test message',
+      testing: 'Waiting for the reply…',
+      answered: (seconds: string, reply?: string) =>
+        reply ? `It answered in ${seconds} s: “${reply}”` : `It answered in ${seconds} s`,
+      failed: 'The model did not answer',
+      noModel: 'Connect a model above, then test it here.',
+      gate: 'Continue opens once a model answers.',
+    },
+    crew: {
+      title: 'Your crew',
+      intro:
+        'Every new chat starts with this crew; the message box changes it for one chat. The lead does the talking and asks crewmates for work.',
+      waiting: 'The crew can be set once a model is connected.',
+    },
+    project: {
+      title: 'Your first project',
+      intro:
+        'A project is a folder on this computer the crew works in: it reads the files and, if you let it, changes them.',
+      choose: 'Choose a folder',
+      change: 'Choose another folder',
+      none: 'No folder chosen yet.',
+      git: 'A git repository, so it starts on Ask first: each change waits for your yes.',
+      notGit: 'Not a git repository, so it starts read-only: agents read it and propose changes.',
+      permissions: 'What agents may do here',
+      spend: 'Spend limit per run',
+      spendHint: 'A run stops once its model calls cost this much. 0 means no limit.',
+      reviewer: 'Review the work',
+      reviewerHint: 'An independent reviewer checks the crew’s answers before they reach you.',
+      saveFailed: (reason: string) => `Could not save the folder’s permissions: ${reason}`,
+    },
+    voice: {
+      title: 'Voice calls',
+      intro: 'Talk to the crew out loud. Nothing is downloaded until you choose.',
+      choice: 'Voice calls',
+      off: 'Off',
+      local: 'On this computer',
+      cloud: 'Cloud',
+      offHint: 'You can turn calls on later in Settings → Voice.',
+      localHint: (size: string) =>
+        size
+          ? `Speech is heard and spoken on this computer. About ${size} downloads once, in the background.`
+          : 'Speech is heard and spoken on this computer. The engines download once, in the background.',
+      cloudHint: (models: string) =>
+        models
+          ? `Speech goes to your providers’ speech models (${models}).`
+          : 'Speech goes to your providers’ speech models. None you connected has one yet; an OpenAI or Groq key does.',
+      installing: 'Getting the speech engines ready',
+      progress: (pct: number) => `${pct}% downloaded`,
+      ready: 'Speech engines ready',
+      failed: 'A speech engine could not be set up',
+      micTitle: 'Microphone',
+      micWhy: 'Calls need your microphone; Myrmidon asks for it once, here.',
+      micAllow: 'Allow the microphone',
+      micListening: 'Say something: the mascot hears you.',
+      micStop: 'Stop the test',
+      micLevel: 'Microphone level',
+      micDenied: {
+        browser:
+          'The microphone was not allowed. To allow it later, open the site settings from your browser’s address bar, then call from any chat.',
+        desktop:
+          'The microphone was not allowed. To allow it later, open System Settings → Privacy & Security → Microphone and turn on Myrmidon.',
+      },
+      micUnavailable: 'This page cannot use a microphone. Open Myrmidon at localhost or over https.',
+    },
+    channels: {
+      title: 'Messaging apps',
+      intro:
+        'Talk to the crew from the apps you already use. Pick one to connect it; come back for more any time.',
+      connected: (name: string) => `${name} is connected`,
+    },
+    alerts: {
+      title: 'Alerts',
+      intro: 'Know when a chat finishes or needs you while Myrmidon is in the background.',
+      notify: 'Notify me when a chat finishes or needs me',
+      notifyHint: 'A notification on this device, only while Myrmidon is not in front.',
+      test: 'Send a test notification',
+      testBody: 'This is how Myrmidon tells you a chat is done.',
+      sent: 'Sent. Look for it in the corner of your screen.',
+      badge: 'Count on the Dock icon',
+      badgeHint: 'The number of chats waiting for you.',
+      unsupported: 'This browser cannot show notifications.',
+      denied: {
+        browser:
+          'Notifications were not allowed. To allow them later, open the site settings from your browser’s address bar, then Settings → General.',
+        desktop:
+          'Notifications were not allowed. To allow them later, open System Settings → Notifications → Myrmidon.',
+      },
+    },
+    ready: {
+      title: 'You’re ready',
+      intro: 'Here is what you set up. Anything left waits on the home screen.',
+      done: 'Set up',
+      later: 'Set up later',
+      todo: 'Not set up',
+      open: (step: string) => `Open ${step}`,
+      starters: 'Start your first chat',
+      noModel: 'The crew needs a model before it can start a chat.',
+      connect: 'Connect a model',
+      finish: 'Open Myrmidon',
+      starter: {
+        project: (name: string) => ({
+          label: `Summarise ${name}`,
+          text: 'Summarise this project: what it is, how it is laid out, and where to start reading.',
+        }),
+        projectRisks: {
+          label: 'Find what to fix first',
+          text: 'Look through this project and list the five things most worth fixing or improving, with the files for each.',
+        },
+        research: {
+          label: 'Research a question',
+          text: 'Compare the three most popular note-taking apps this year and write a short report with a source for every claim.',
+        },
+        app: {
+          label: 'Build a small app',
+          text: 'Build a single-file HTML snake game with keyboard and touch controls, levels, and a saved high score.',
+        },
+        explain: {
+          label: 'Explain something',
+          text: 'Explain how large language models handle long context today, with a short glossary and further reading.',
+        },
+      },
+    },
+    /** On the home screen once setup is finished, while steps set up later are left. */
+    nudge: {
+      title: (n: number) => `Finish setting up · ${n} left`,
+      body: (steps: string) => `Still to do: ${steps}.`,
+      action: 'Continue',
+    },
+  },
+
   teamControls: {
     effort: {
       auto: { title: 'Auto', hint: 'Quick for questions, deeper for real work' },
@@ -1861,6 +2078,9 @@ export const copy = {
       themeDark: 'Dark',
       reduceMotion: 'Reduce motion',
       reduceMotionHint: 'Turn off animations and transitions.',
+      setup: 'Setup assistant',
+      setupHint: 'Go through the first-run steps again: models, crew, project, voice and the rest.',
+      runSetup: 'Run setup again',
     },
     models: {
       title: 'Models',
