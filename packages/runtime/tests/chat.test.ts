@@ -1919,7 +1919,8 @@ test('a chat in a project works in that folder, follow-ups stay in it, and a rou
   const folder = mkdtempSync(join(tmpdir(), 'myr-project-'))
   await Bun.write(join(folder, 'README.md'), '# Demo project')
   const projects = new ProjectStore(home)
-  const project = projects.add(folder)
+  // Autonomous, as a folder added before new ones started on ask.
+  const project = projects.setPermissions(projects.add(folder).id, { mode: 'auto', allow: [] })
   const resolver = new ModelResolver()
   scripted(resolver, 'mock/solo', [
     [
@@ -2013,7 +2014,8 @@ test.skipIf(detectSandbox().kind === 'none')(
     )
     await Bun.write(join(folder, 'bun.lock'), '')
     const projects = new ProjectStore(home)
-    const project = projects.add(folder)
+    // Autonomous, as a folder added before new ones started on ask.
+    const project = projects.setPermissions(projects.add(folder).id, { mode: 'auto', allow: [] })
     const resolver = new ModelResolver()
     scripted(resolver, 'mock/checker', [
       [tool('run_checks', {})],
@@ -2060,7 +2062,8 @@ test.skipIf(detectSandbox().kind === 'none')(
     await Bun.write(join(folder, 'bun.lock'), '')
     await Bun.write(join(folder, 'src', 'state.txt'), 'good\n')
     const projects = new ProjectStore(home)
-    const project = projects.add(folder)
+    // Autonomous, as a folder added before new ones started on ask.
+    const project = projects.setPermissions(projects.add(folder).id, { mode: 'auto', allow: [] })
     const resolver = new ModelResolver()
     scripted(resolver, 'mock/coder', [
       [tool('fs_write', { path: 'src/state.txt', content: 'broken\n' })],
@@ -2254,7 +2257,8 @@ test('team workers in a git project each get a worktree, and their changes merge
   git('add', '-A')
   git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'init')
   const projects = new ProjectStore(home)
-  const project = projects.add(folder)
+  // Autonomous, as a folder added before new ones started on ask.
+  const project = projects.setPermissions(projects.add(folder).id, { mode: 'auto', allow: [] })
   const resolver = new ModelResolver()
   const specialist = (ctx: LlmContext, role: string) =>
     new RegExp(`- ([a-z]+): ${role} \\(`).exec(ctx.systemPrompt?.join('\n') ?? '')?.[1] ?? ''

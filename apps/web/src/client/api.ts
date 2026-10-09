@@ -522,7 +522,7 @@ export interface Project {
   name: string
   path: string
   addedAt: string
-  /** How freely agents may change the folder; absent means autonomous. */
+  /** How freely agents may change the folder. New folders start on ask; absent (an older folder) means autonomous. */
   permissions?: { mode: 'auto' | 'ask' | 'read-only'; allow: string[] }
 }
 

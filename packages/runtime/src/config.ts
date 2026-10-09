@@ -126,6 +126,14 @@ export const HOOK_TIMEOUT_S = 60
 export const HOOK_MAX_TIMEOUT_S = 600
 export const HOOK_MAX_OUTPUT = 20_000
 
+// Projects (projects.ts)
+
+/**
+ * How freely agents may change a folder added from now on. A folder added before this setting existed has no stored
+ * mode and stays autonomous, so nothing changes under the person's feet.
+ */
+export const NEW_PROJECT_MODE: 'auto' | 'ask' | 'read-only' = 'ask'
+
 // Project context (instructions.ts, git.ts)
 
 /** The most instruction text read from a project, how deep its @imports are followed, and how many folders are searched for nested files. */

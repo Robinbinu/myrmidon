@@ -867,7 +867,7 @@ export const copy = {
   folderPicker: {
     title: 'Open a project folder',
     intro:
-      "Agents in this project's chats work in the folder: they read and edit its files and run commands there.",
+      "Agents in this project's chats work in the folder: they read and edit its files and run commands there. A new folder starts on Ask first: each change and command waits for you until you change its permissions.",
     useFolder: 'Use this folder',
     path: { placeholder: '~/code/my-app', label: 'Folder path' },
     go: 'Open',
