@@ -700,8 +700,9 @@ export class ColonyRun implements ColonyHost {
     return a.loadTools(query)
   }
 
-  toolsChanged() {
+  toolsChanged(made?: { readonly by: string; readonly tool: string }) {
     for (const a of this._agents.values()) a.refreshTools()
+    if (made) this._agents.get(made.by)?.load([made.tool])
   }
 
   /**

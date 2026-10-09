@@ -2275,7 +2275,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
         actor: agentActor(agent),
         payload: { agent, ...tool },
       })
-      host.toolsChanged()
+      host.toolsChanged({ by: agent, tool: `${MADE_PREFIX}${tool.name}` })
       return prompts.toolResults.toolCreated(`${MADE_PREFIX}${tool.name}`, r.output)
     },
   },
@@ -2409,28 +2409,40 @@ export function guessMediaType(name: string): string {
 }
 
 /**
- * Wraps tool definitions as pi-agent-core tools for one agent. The allowlist and tier rules are
- * enforced here, inside execution, so hiding a tool from the model is never the only defence.
+ * Tools matching a find_tools query. Every tool a query word names is found, however many: exact names, and names
+ * with a part that is the word or starts with it ("browser" is every browser_* tool, "server" start_server and the
+ * rest). Descriptions are only a fallback when no name matches, best first and at most `limit`; whatever else
+ * matches comes back as `more`, so nothing that matched is left out without the agent being told.
  */
-/** Tools matching a find_tools query: exact names first, then by how many query words a name or description holds. */
-export function matchTools(tools: readonly AgentTool[], query: string, limit = 12): AgentTool[] {
+export function matchTools(
+  tools: readonly AgentTool[],
+  query: string,
+  limit = 12,
+): { found: AgentTool[]; more: AgentTool[] } {
   const q = query.toLowerCase()
-  const exact = tools.filter((t) => q.split(/[\s,]+/).includes(t.name.toLowerCase()))
-  const words = q.split(/[^a-z0-9_]+/).filter((w) => w.length > 1)
-  const scored = tools
-    .map((t) => {
-      const text = `${t.name} ${t.description}`.toLowerCase()
-      return {
-        t,
-        score: words.filter((w) => text.includes(w)).length + (t.name.toLowerCase().includes(q) ? 3 : 0),
-      }
-    })
+  const asked = q.split(/[\s,]+/).filter(Boolean)
+  const words = q.split(/[^a-z0-9_-]+/).filter((w) => w.length > 2)
+  const names = (w: string, part: string) =>
+    part === w || part === `${w}s` || `${part}s` === w || (w.length > 3 && part.startsWith(w))
+  const byName = tools.filter((t) => {
+    const name = t.name.toLowerCase()
+    const parts = name.split(/[_-]+/)
+    return asked.includes(name) || words.some((w) => w === name || parts.some((p) => names(w, p)))
+  })
+  const described = tools
+    .filter((t) => !byName.includes(t))
+    .map((t) => ({ t, score: words.filter((w) => t.description.toLowerCase().includes(w)).length }))
     .filter((x) => x.score > 0)
     .sort((a, b) => b.score - a.score || a.t.name.localeCompare(b.t.name))
     .map((x) => x.t)
-  return [...new Set([...exact, ...scored])].slice(0, limit)
+  if (byName.length > 0) return { found: byName, more: described }
+  return { found: described.slice(0, limit), more: described.slice(limit) }
 }
 
+/**
+ * Wraps tool definitions as pi-agent-core tools for one agent. The allowlist and tier rules are
+ * enforced here, inside execution, so hiding a tool from the model is never the only defence.
+ */
 export function buildAgentTools(agent: string, allowed: readonly string[], host: ColonyHost): AgentTool[] {
   const allow = new Set(allowed)
   const mcp = allow.has('mcp')

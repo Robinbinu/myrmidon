@@ -168,17 +168,24 @@ export class ColonyAgent {
     this._agent.setTools(buildAgentTools(this.spec.name, toolsFor(this.host.spec, this.spec), this.host))
   }
 
+  /** Shows these on-demand tools in this agent's next model calls. */
+  load(names: readonly string[]) {
+    for (const name of names) this._loaded.add(name)
+  }
+
   /** Loads the on-demand tools matching `query` for this agent's next steps (find_tools). */
   loadTools(query: string): string {
     const waiting = this._agent.state.tools.filter((t) => !this._shown(t.name))
-    const found = matchTools(waiting, query)
+    const { found, more } = matchTools(waiting, query)
     if (found.length === 0) {
       const names = waiting.map((t) => t.name)
       return names.length ? prompts.agent.noMatch(query, names) : prompts.agent.allLoaded
     }
-    for (const t of found) this._loaded.add(t.name)
+    this.load(found.map((t) => t.name))
     const first = (d: string) => d.split(/(?<=\.)\s/)[0] ?? d
-    return prompts.agent.loaded(found.map((t) => `- ${t.name}: ${first(t.description)}`).join('\n'))
+    return `${prompts.agent.loaded(found.map((t) => `- ${t.name}: ${first(t.description)}`).join('\n'))}${
+      more.length ? prompts.agent.more(more.map((t) => t.name)) : ''
+    }`
   }
 
   get idle() {

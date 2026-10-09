@@ -612,6 +612,9 @@ Score 1.0 only for work you would hand to the person as-is.`,
       `nothing matches "${query}". Tools you can load: ${names.join(', ')}`,
     allLoaded: 'every tool you have is already loaded',
     loaded: (lines: string) => `Loaded, callable from your next step:\n${lines}`,
+    /** Tools a find_tools query matched only by description, or past its limit: named, so none is left out unseen. */
+    more: (names: readonly string[]) =>
+      `\nAlso matching, not loaded: ${names.join(', ')}. Ask for them by name to load them.`,
     /** Stands in for tool output from an earlier round of the chat, which a new round leaves out. */
     elided: (size: number) => `[output from an earlier round elided, ${size} chars]`,
   },
@@ -907,7 +910,7 @@ Use end_call when the person says goodbye or asks you to hang up.${o.chatTitle ?
     browserBlocked: (url: string, reason?: string) =>
       `the browser did not load ${url}: ${reason ?? 'it, or a redirect from it, goes to a private or local network address. Agents can reach only the public internet, plus the localhost ports of servers they started with start_server in this round'}`,
     toolCreated: (name: string, output: string) =>
-      `Created ${name}; the team can call it now. Test run:\n${output}`,
+      `Created ${name}; you can call it from your next step, and crewmates load it with find_tools("${name}"). Test run:\n${output}`,
     worktreeUpdated: (files: readonly string[]) =>
       `\nYour worktree now has the project's latest changes (${files.slice(0, 8).join(', ')}${files.length > 8 ? ', …' : ''}).`,
     snapshotCut: '\n… (snapshot cut; scroll or use browser_eval to read a specific part)',

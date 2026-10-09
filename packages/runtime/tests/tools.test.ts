@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 import type { MyrEvent } from '@myrmidon/protocol'
 import type { ColonyHost } from '../src/host.ts'
-import { flowStepFailure, logLines, mcpBreaker, similar, sniffImage } from '../src/tools.ts'
+import { flowStepFailure, logLines, matchTools, mcpBreaker, similar, sniffImage } from '../src/tools.ts'
 
 test('task dedupe catches rewordings but not numbered siblings', () => {
   expect(similar('Research Flask in depth', 'Research Flask in depth: stats and features')).toBeGreaterThan(
@@ -60,6 +60,36 @@ test('read_log lists what agents did, filtered by agent or tool, with each call 
   expect(logLines(events, { agent: 'kai', tool: 'shell' })).toEqual([
     '12:00:01 kai shell({"command":"bun test"}) → ok: exit 1',
   ])
+})
+
+test('find_tools loads every tool a query names, and names the ones it matched but did not load', () => {
+  const BROWSER = Array.from({ length: 14 }, (_, i) => `browser_${i}`)
+  const tools = [
+    ...BROWSER.map((name) => ({ name, description: `Browser action ${name}.` })),
+    { name: 'browser_type', description: 'Type into a field.' },
+    { name: 'browser_upload', description: 'Choose a file for an upload field.' },
+    { name: 'read_log', description: 'Read what agents did.' },
+    { name: 'request_login', description: 'Ask the person to sign in to a site in your browser.' },
+    { name: 'start_server', description: 'Start a dev server.' },
+    { name: 'server_logs', description: 'A server output.' },
+    { name: 'create_tool', description: 'Make a reusable tool.' },
+  ] as unknown as Parameters<typeof matchTools>[0]
+  const names = (r: ReturnType<typeof matchTools>) => ({
+    found: r.found.map((t) => t.name).sort(),
+    more: r.more.map((t) => t.name),
+  })
+  const browser = names(matchTools(tools, 'browser read_log'))
+  // All 16 browser tools and read_log, past any limit: browser_type and browser_upload included.
+  expect(browser.found).toEqual([...BROWSER, 'browser_type', 'browser_upload', 'read_log'].sort())
+  // A tool that only mentions the browser is named, not silently dropped.
+  expect(browser.more).toEqual(['request_login'])
+  expect(names(matchTools(tools, 'dev server')).found).toEqual(['server_logs', 'start_server'])
+  expect(names(matchTools(tools, 'make a tool')).found).toEqual(['create_tool'])
+  expect(names(matchTools(tools, 'request_login')).found).toEqual(['request_login'])
+  // Matching descriptions only: capped, and the rest are named.
+  const capped = names(matchTools(tools, 'action', 5))
+  expect(capped.found).toHaveLength(5)
+  expect(capped.more).toHaveLength(9)
 })
 
 test('a request that plainly needs the browser or a dev server starts with those tools loaded', async () => {
