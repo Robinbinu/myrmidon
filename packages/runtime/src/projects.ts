@@ -19,7 +19,7 @@ import {
   NEW_PROJECT_MODE,
 } from './config.ts'
 import { git } from './git.ts'
-import { readFolder, secretAt } from './read-access.ts'
+import { readFolder, realPath, secretAt, secretPaths, within } from './read-access.ts'
 
 /**
  * Project folders, like Claude Code's and Codex's: a chat can belong to a directory on this machine. Its agents
@@ -154,9 +154,37 @@ function projectPath(root: string, path: string, allowRoot = false): { base: str
   return { base, real }
 }
 
+/** Whose keys a project's file views hide: the person's home (the real one unless a test sets it), Myrmidon's data. */
+export interface SecretGuard {
+  readonly home?: string
+  readonly dataDir?: string
+}
+
+/**
+ * The person's keys and sign-ins (SANDBOX_SECRETS) and Myrmidon's data folder that lie deeper inside a project folder
+ * than the folder itself: a project around the home (one at /Users, say) must not show `~/.ssh` to whoever browses
+ * it, just as the sandbox hides them from its agents. The deepest rule decides, as there: a project the person made
+ * inside one of those folders is theirs to read. Ordinary project content, `.env` included, is not hidden: the file
+ * views need full access (devices.ts `needsFull`), and hiding a project's own files from its owner would only get in
+ * the way.
+ */
+function secretsIn(base: string, guard: SecretGuard): string[] {
+  const guarded = [...secretPaths(guard.home), ...(guard.dataDir ? [realPath(guard.dataDir)] : [])]
+  return guarded.filter((s) => s.startsWith(base + sep))
+}
+
+const hiddenBy = (path: string, secrets: readonly string[]) => secrets.some((s) => within(path, s))
+
+const secretRefused = (path: string) => `${path} holds keys or sign-ins, which the app does not show`
+
 /** A text file in a project folder, for the person to read in the app: one an agent edited, say. */
-export function readProjectFile(root: string, file: string): { path: string; text: string } {
+export function readProjectFile(
+  root: string,
+  file: string,
+  guard: SecretGuard = {},
+): { path: string; text: string } {
   const { base, real } = projectPath(root, file)
+  if (hiddenBy(real, secretsIn(base, guard))) throw new Error(secretRefused(file))
   const stat = statSync(real)
   if (!stat.isFile()) throw new Error(`${file} is not a file`)
   if (stat.size > MAX_PROJECT_FILE_BYTES) throw new Error(`${file} is over 2 MB, too large to show`)
@@ -185,14 +213,17 @@ export interface ProjectEntry {
 export async function listProjectDir(
   root: string,
   dir: string,
+  guard: SecretGuard = {},
 ): Promise<{ path: string; entries: ProjectEntry[]; truncated: boolean }> {
   const { base, real } = projectPath(root, dir, true)
+  const secrets = secretsIn(base, guard)
+  if (hiddenBy(real, secrets)) throw new Error(secretRefused(dir))
   if (!statSync(real).isDirectory()) throw new Error(`${dir} is not a folder`)
   const at = relative(base, real)
   const marks = await gitMarks(base, at)
   const entries: ProjectEntry[] = []
   for (const d of readdirSync(real, { withFileTypes: true })) {
-    if (d.name === '.git') continue
+    if (d.name === '.git' || hiddenBy(join(real, d.name), secrets)) continue
     let isDir = d.isDirectory()
     if (d.isSymbolicLink()) {
       try {
@@ -274,8 +305,10 @@ async function gitMarks(base: string, dir: string): Promise<Map<string, string>>
 export async function findProjectFiles(
   root: string,
   query: string,
+  guard: SecretGuard = {},
 ): Promise<{ paths: string[]; truncated: boolean }> {
   const { real } = projectPath(root, '', true)
+  const secrets = secretsIn(real, guard)
   const q = query.trim().toLowerCase()
   let all: string[]
   try {
@@ -284,7 +317,7 @@ export async function findProjectFiles(
     all = walkFiles(real)
   }
   const found = [...new Set(all)]
-    .filter((p) => p.toLowerCase().includes(q))
+    .filter((p) => p.toLowerCase().includes(q) && !hiddenBy(join(real, p), secrets))
     .sort((a, b) => a.localeCompare(b))
   return { paths: found.slice(0, MAX_FIND_RESULTS), truncated: found.length > MAX_FIND_RESULTS }
 }
