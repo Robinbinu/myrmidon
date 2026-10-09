@@ -1,3 +1,4 @@
+import { createPublicKey, type KeyObject, verify } from 'node:crypto'
 import { channelCopy } from './copy.ts'
 import { discordMarkdown } from './format.ts'
 import {
@@ -22,7 +23,8 @@ import {
  * drop (a fresh IDENTIFY when the session is gone), close codes that cannot be fixed by reconnecting reported, 429s
  * and the global limit waited out; direct messages and server channels (a thread as `chat.thread`), mentions,
  * attachments, buttons (message components) and their presses (interactions). Nothing on this machine needs to be
- * reachable from the internet.
+ * reachable from the internet, unless the app's presses go to an Interactions Endpoint URL (HTTP interactions):
+ * Discord then sends them only there, signed with the application's key.
  */
 
 export const DISCORD_API = 'https://discord.com/api/v10'
@@ -39,6 +41,8 @@ const RETRIES = 3
 const TYPING_MS = 8000
 /** Discord wants a press answered within 3 s; one the hub has not answered by then is acknowledged silently. */
 const PRESS_ACK_MS = 2000
+/** The longest an HTTP press's request is held for its callback, inside Discord's 3 s. */
+const HTTP_ANSWER_MS = 2800
 /** A press's token takes follow-ups for 15 minutes. */
 const PRESS_KEEP_MS = 14 * 60_000
 /** Bots may upload 10 MB to a server without boosts. */
@@ -186,10 +190,31 @@ export class DiscordAdapter implements ChannelAdapter {
   private _globalUntil = 0
   private readonly _buckets = new Map<string, number>()
 
+  /** HTTP presses waiting for their callback to go out before Discord's request is answered, by interaction id. */
+  private readonly _answered = new Map<string, () => void>()
+  private _key?: KeyObject
+
+  /**
+   * `publicKey` is the application's, for presses Discord posts to an Interactions Endpoint URL (the gateway's
+   * webhook address) instead of sending them over the gateway; messages always come by the gateway.
+   */
   constructor(
     private readonly token: string,
     private readonly api = DISCORD_API,
+    private readonly publicKey = '',
   ) {}
+
+  /** The application's Ed25519 public key; throws when it is not one. */
+  private _publicKey(): KeyObject {
+    if (this._key) return this._key
+    const hex = this.publicKey.trim()
+    if (!/^[0-9a-f]{64}$/i.test(hex)) throw new Error(channelCopy.discord.badPublicKey)
+    this._key = createPublicKey({
+      key: { kty: 'OKP', crv: 'Ed25519', x: Buffer.from(hex, 'hex').toString('base64url') },
+      format: 'jwk',
+    })
+    return this._key
+  }
 
   /** One REST call, waiting out rate limits; never logs or throws its headers (they carry the token). */
   private async _rest<T>(method: string, path: string, body?: unknown, tries = 0): Promise<T> {
@@ -240,6 +265,7 @@ export class DiscordAdapter implements ChannelAdapter {
   }
 
   async check(): Promise<string> {
+    if (this.publicKey) this._publicKey()
     try {
       const me = await this._rest<DcUser>('GET', '/users/@me')
       this._me = { id: me.id, username: me.username }
@@ -269,7 +295,8 @@ export class DiscordAdapter implements ChannelAdapter {
           await this.check()
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err)
-          if (message === channelCopy.discord.refused) return io.status({ state: 'error', error: message })
+          if (message === channelCopy.discord.refused || message === channelCopy.discord.badPublicKey)
+            return io.status({ state: 'error', error: message })
           io.status({ state: 'retrying', error: message })
           await sleep(jitter(backoff), signal)
           backoff = Math.min(backoff * 2, BACKOFF_MAX_MS)
@@ -307,6 +334,52 @@ export class DiscordAdapter implements ChannelAdapter {
     await this._loop?.catch(() => {})
     for (const press of this._presses.values()) clearTimeout(press.timer)
     this._presses.clear()
+    for (const answered of this._answered.values()) answered()
+    this._answered.clear()
+  }
+
+  /**
+   * A press Discord posted to the Interactions Endpoint URL, taken only with a valid Ed25519 signature of the
+   * timestamp and raw body. It is handled like one from the gateway (answered through the callback endpoint), and
+   * the request itself answered 202 once that callback went out, as Discord asks of HTTP interactions.
+   */
+  async webhook(req: Request): Promise<Response> {
+    if (!this.publicKey) return new Response('not found', { status: 404 })
+    if (req.method !== 'POST') return new Response('method not allowed', { status: 405 })
+    const raw = await req.text()
+    const signature = req.headers.get('x-signature-ed25519') ?? ''
+    const timestamp = req.headers.get('x-signature-timestamp') ?? ''
+    let valid = false
+    try {
+      valid =
+        /^[0-9a-f]{128}$/i.test(signature) &&
+        verify(null, Buffer.from(timestamp + raw), this._publicKey(), Buffer.from(signature, 'hex'))
+    } catch {
+      valid = false
+    }
+    if (!valid) return new Response('invalid request signature', { status: 401 })
+    let i: DcInteraction
+    try {
+      i = JSON.parse(raw) as DcInteraction
+    } catch {
+      return new Response('bad request', { status: 400 })
+    }
+    // Discord checks the endpoint with a PING before taking it, and now and then after.
+    if (i.type === 1) return Response.json({ type: 1 })
+    const io = this._io
+    if (i.type !== 3 || !io) return new Response('not handled', { status: 400 })
+    const fresh = !this._presses.has(i.id)
+    this._hold(i)
+    const answered = fresh
+      ? new Promise<void>((resolve) => this._answered.set(i.id, resolve))
+      : Promise.resolve()
+    this._queue = this._queue
+      .then(() => this._dispatch('INTERACTION_CREATE', i))
+      .catch((err) => io.log(err instanceof Error ? err.message : String(err)))
+    // Bounded: Discord drops the press after 3 s however it went.
+    await Promise.race([answered, sleep(HTTP_ANSWER_MS)])
+    this._answered.delete(i.id)
+    return new Response(null, { status: 202 })
   }
 
   /** One gateway connection, from HELLO until it closes. */
@@ -571,13 +644,17 @@ export class DiscordAdapter implements ChannelAdapter {
     else press.timer = setTimeout(() => this._presses.delete(id), PRESS_KEEP_MS)
     if (!press.acked) {
       press.acked = true
-      await this._rest(
-        'POST',
-        `/interactions/${id}/${press.token}/callback`,
-        note
-          ? { type: 4, data: { content: note, flags: EPHEMERAL, allowed_mentions: NO_PINGS } }
-          : { type: 6 },
-      )
+      try {
+        await this._rest(
+          'POST',
+          `/interactions/${id}/${press.token}/callback`,
+          note
+            ? { type: 4, data: { content: note, flags: EPHEMERAL, allowed_mentions: NO_PINGS } }
+            : { type: 6 },
+        )
+      } finally {
+        this._answered.get(id)?.()
+      }
     } else if (note)
       await this._rest('POST', `/webhooks/${press.app}/${press.token}`, {
         content: note,

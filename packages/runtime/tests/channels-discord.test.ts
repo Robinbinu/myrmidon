@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from 'bun:test'
+import { generateKeyPairSync, sign } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import type { ServerWebSocket } from 'bun'
 import {
@@ -443,4 +444,88 @@ test('Discord Markdown: only headings it cannot show change, and never inside co
   expect(discordMarkdown('# Title\n#### Deep\n```\n#### kept\n```')).toBe(
     '# Title\n**Deep**\n```\n#### kept\n```',
   )
+})
+
+/** The application's key pair: Discord signs `timestamp + body` with the private half. */
+const appKeys = generateKeyPairSync('ed25519')
+const PUBLIC_KEY = Buffer.from(appKeys.publicKey.export({ format: 'jwk' }).x ?? '', 'base64url').toString(
+  'hex',
+)
+const HOOK = 'https://box.example/hooks/channels/discord'
+
+function interaction(body: unknown, key = appKeys.privateKey) {
+  const raw = JSON.stringify(body)
+  const timestamp = String(Math.floor(Date.now() / 1000))
+  return new Request(HOOK, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-signature-ed25519': sign(null, Buffer.from(timestamp + raw), key).toString('hex'),
+      'x-signature-timestamp': timestamp,
+    },
+    body: raw,
+  })
+}
+
+test('HTTP interactions: signed with the app key, PING answered, presses answered by callback then 202', async () => {
+  const fake = fakeDiscord()
+  servers.push(fake.server)
+  const adapter = new DiscordAdapter('TOKEN', fake.api, PUBLIC_KEY)
+  adapters.push(adapter)
+  const { handle, received, statuses } = io()
+  await adapter.start({ ...handle, webhookUrl: HOOK })
+  await until(() => statuses.some((s) => s.state === 'on'))
+
+  const ping = await adapter.webhook(interaction({ id: '1', type: 1, application_id: '100', token: 't' }))
+  expect(await ping.json()).toEqual({ type: 1 })
+
+  const press = (id: string) => ({
+    id,
+    application_id: '100',
+    type: 3,
+    token: `tok-${id}`,
+    channel_id: '500',
+    user: ALICE,
+    data: { custom_id: 'a:o:k1' },
+    message: { id: '900', channel_id: '500' },
+  })
+  // The hub's note goes out as the callback; the request is answered 202 after it.
+  const pending = adapter.webhook(interaction(press('810')))
+  await until(() => received.length === 1)
+  const first = received[0]?.press
+  if (!first) throw new Error('no press')
+  await adapter.answerPress(first, { text: 'Only the owner can approve this.' })
+  const res = await pending
+  expect(res.status).toBe(202)
+  expect(await res.text()).toBe('')
+  expect(fake.rest.find((c) => c.path === '/interactions/810/tok-810/callback')?.body).toMatchObject({
+    type: 4,
+    data: { content: 'Only the owner can approve this.', flags: 64 },
+  })
+
+  // Unanswered, it is acknowledged silently before Discord's 3 s run out.
+  const started = Date.now()
+  expect((await adapter.webhook(interaction(press('811')))).status).toBe(202)
+  expect(Date.now() - started).toBeLessThan(3000)
+  expect(fake.rest.find((c) => c.path === '/interactions/811/tok-811/callback')?.body).toEqual({ type: 6 })
+})
+
+test('HTTP interactions refuse a bad signature; a malformed public key is an error at start', async () => {
+  const fake = fakeDiscord()
+  servers.push(fake.server)
+  const adapter = new DiscordAdapter('TOKEN', fake.api, PUBLIC_KEY)
+  adapters.push(adapter)
+  const stranger = generateKeyPairSync('ed25519').privateKey
+  expect((await adapter.webhook(interaction({ type: 1 }, stranger))).status).toBe(401)
+  const unsigned = new Request(HOOK, { method: 'POST', body: '{"type":1}' })
+  expect((await adapter.webhook(unsigned)).status).toBe(401)
+  // Without a public key presses come by the gateway, and the webhook is not there.
+  expect((await setup().adapter.webhook(interaction({ type: 1 }))).status).toBe(404)
+
+  const broken = new DiscordAdapter('TOKEN', fake.api, 'not-a-key')
+  adapters.push(broken)
+  const { handle, statuses } = io()
+  await broken.start(handle)
+  await until(() => statuses.some((s) => s.state === 'error'))
+  expect(statuses.at(-1)).toEqual({ state: 'error', error: expect.stringContaining('64 hexadecimal') })
 })

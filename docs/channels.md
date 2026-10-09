@@ -191,6 +191,12 @@ There are no buttons, so approvals are typed (`/approve KEY`).
 Myrmidon keeps a WebSocket open to Discord's gateway (resumed after a drop), so nothing needs to be reachable from
 the internet; messages sent while it is off are not delivered later.
 
+**HTTP interactions** (optional): if the app has an **Interactions Endpoint URL** (General Information), Discord
+sends button presses only there, never over the gateway. On a gateway with a public HTTPS address, set it to
+`<public-url>/hooks/channels/discord` and give Myrmidon the app's **Public Key** (General Information) too; each
+request is checked against its Ed25519 signature, and Discord's PING is answered so the portal accepts the URL.
+Messages still come over the gateway, since Discord sends them nowhere else.
+
 - **In a server channel** it answers only when mentioned (`@bot`) or replied to, after the channel is approved like
   a Telegram group (mention it once; it sends the code). A thread is a conversation of its own; once the bot was
   mentioned in a thread, or wrote in it, it answers there without a mention.
@@ -239,6 +245,13 @@ the internet; messages sent while it is off are not delivered later.
    `myrmidon channels approve slack <code>`.
 
 Myrmidon uses Socket Mode (a WebSocket Slack opens for the app), so nothing needs to be reachable from the internet.
+
+**HTTP mode** (instead of Socket Mode, for a gateway with a public HTTPS address): in the manifest set
+`"socket_mode_enabled": false`, and give both `"interactivity"` and `"event_subscriptions"` the `"request_url"`
+`<public-url>/hooks/channels/slack`. Skip the app-level token; give Myrmidon the **Signing Secret** (Basic
+Information → App Credentials) with the bot token instead. Every request is checked against Slack's `v0` signature
+and refused when signed more than five minutes ago; Slack's URL check (its challenge) is answered. With an
+app-level token given as well, Myrmidon uses Socket Mode, which must then be on in Slack.
 
 - **In a channel**, invite the app (`/invite @Myrmidon`) and mention it; approve the channel with the code it sends.
   Each message there that mentions it starts a thread, and the answer goes into that thread: each thread is a
@@ -769,7 +782,9 @@ know. Without a public address it polls, which needs nothing reachable from the 
 presses arrive at `<public-url>/hooks/channels/mattermost` (signed by the gateway), and SMS needs the public address
 for every text (`<public-url>/hooks/channels/sms`, signed by Twilio). Email and ntfy never need one. iMessage does the same
 with BlueBubbles (`/hooks/channels/imessage`, the secret in the URL). Signal and Matrix always connect out (an event
-stream, `/sync`), so they need no public address.
+stream, `/sync`), so they need no public address. Slack and Discord connect out too, unless set up to post instead:
+Slack in HTTP mode (`/hooks/channels/slack`, signed with the app's signing secret) and Discord's HTTP interactions
+(`/hooks/channels/discord`, signed with the application's Ed25519 key), as described in their sections.
 
 Microsoft Teams, Google Chat and LINE only push, so they **need** the public HTTPS address: each posts to
 `<public-url>/hooks/channels/<id>` (`msteams`, `googlechat`, `line`), and without `--public-url` the channel shows

@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from 'bun:test'
+import { createHmac } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import type { ServerWebSocket } from 'bun'
 import {
@@ -401,4 +402,103 @@ test('Slack mrkdwn: emphasis, links, headings, bullets, quotes and code, with &,
   expect(slackMrkdwn('# Title\n- one\n> quoted <@U1>')).toBe('*Title*\n• one\n> quoted &lt;@U1&gt;')
   expect(slackMrkdwn('```ts\nconst a = 1 && b < 2\n```')).toBe('```\nconst a = 1 &amp;&amp; b &lt; 2\n```')
   expect(slackMrkdwn('<!channel> hi')).toBe('&lt;!channel&gt; hi')
+})
+
+const SIGNING = 'signing-secret-1'
+const HOOK = 'https://box.example/hooks/channels/slack'
+
+/** A request as Slack signs it (v0 HMAC-SHA256 of `v0:<timestamp>:<body>`). */
+function signed(body: string, opts: { form?: boolean; secret?: string; at?: number } = {}) {
+  const ts = String(opts.at ?? Math.floor(Date.now() / 1000))
+  const sig = `v0=${createHmac('sha256', opts.secret ?? SIGNING)
+    .update(`v0:${ts}:${body}`)
+    .digest('hex')}`
+  return new Request(HOOK, {
+    method: 'POST',
+    headers: {
+      'content-type': opts.form ? 'application/x-www-form-urlencoded' : 'application/json',
+      'x-slack-request-timestamp': ts,
+      'x-slack-signature': sig,
+    },
+    body,
+  })
+}
+
+test('HTTP mode: no app-level token, a signing secret, and events and presses posted to the webhook', async () => {
+  const fake = fakeSlack()
+  servers.push(fake.server)
+  const adapter = new SlackAdapter('xoxb-bot', '', `${fake.base}/api`, SIGNING)
+  adapters.push(adapter)
+  const watch = io()
+  await adapter.start({ ...watch.handle, webhookUrl: HOOK })
+  await until(() => watch.statuses.some((s) => s.state === 'on'))
+  expect(watch.statuses.at(-1)).toEqual({ state: 'on', account: '@myr in Acme' })
+  // No socket is opened.
+  expect(fake.calls.map((c) => c.method)).toEqual(['auth.test'])
+
+  // Slack checks the Request URL with a challenge.
+  const challenge = await adapter.webhook(
+    signed(JSON.stringify({ type: 'url_verification', challenge: 'c-1' })),
+  )
+  expect(await challenge.text()).toBe('c-1')
+
+  const body = JSON.stringify({
+    type: 'event_callback',
+    event: { type: 'message', channel: 'D1', channel_type: 'im', user: 'U1', text: 'hello', ts: '1.1' },
+  })
+  expect((await adapter.webhook(signed(body))).status).toBe(200)
+  await until(() => watch.received.length === 1)
+  expect(watch.received[0]).toMatchObject({ messageId: '1.1', chat: { id: 'D1', kind: 'dm' }, text: 'hello' })
+
+  // An interaction is a form whose `payload` is the JSON.
+  const payload = JSON.stringify({
+    type: 'block_actions',
+    user: { id: 'U1' },
+    channel: { id: 'D1' },
+    container: { channel_id: 'D1', message_ts: '5.5' },
+    response_url: `${fake.base}/respond/P1`,
+    actions: [{ value: 'a:o:k1', action_ts: '6.6' }],
+  })
+  expect(
+    (await adapter.webhook(signed(`payload=${encodeURIComponent(payload)}`, { form: true }))).status,
+  ).toBe(200)
+  await until(() => watch.received.length === 2)
+  const press = watch.received[1]?.press
+  expect(press).toMatchObject({ id: '6.6', data: 'a:o:k1' })
+  if (!press) throw new Error('no press')
+  await adapter.answerPress(press, { text: 'Only the owner can approve this.' })
+  expect(fake.responses.at(-1)).toMatchObject({
+    response_type: 'ephemeral',
+    text: 'Only the owner can approve this.',
+  })
+})
+
+test('HTTP mode refuses a wrong signature, an old timestamp, and runs only with a public address', async () => {
+  const fake = fakeSlack()
+  servers.push(fake.server)
+  const adapter = new SlackAdapter('xoxb-bot', '', `${fake.base}/api`, SIGNING)
+  adapters.push(adapter)
+  const watch = io()
+  await adapter.start(watch.handle)
+  await until(() => watch.statuses.some((s) => s.state === 'error'))
+  expect(watch.statuses.at(-1)).toEqual({
+    state: 'error',
+    error: expect.stringContaining('public HTTPS address'),
+  })
+
+  const body = JSON.stringify({ type: 'url_verification', challenge: 'c' })
+  expect((await adapter.webhook(signed(body, { secret: 'wrong' }))).status).toBe(401)
+  expect((await adapter.webhook(signed(body, { at: Math.floor(Date.now() / 1000) - 600 }))).status).toBe(401)
+  const tampered = signed(body)
+  expect(
+    (
+      await adapter.webhook(
+        new Request(HOOK, { method: 'POST', headers: tampered.headers, body: `${body} ` }),
+      )
+    ).status,
+  ).toBe(401)
+
+  // Without a signing secret there is no webhook; without either credential, nothing to run.
+  expect((await setup().adapter.webhook(signed(body))).status).toBe(404)
+  await expect(new SlackAdapter('xoxb-bot', '', `${fake.base}/api`).check()).rejects.toThrow('signing secret')
 })
