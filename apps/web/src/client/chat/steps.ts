@@ -13,6 +13,8 @@ export type StepKind =
   | 'talk'
   | 'signal'
   | 'think'
+  | 'computer'
+  | 'computerSetup'
 
 export interface Step {
   readonly id: string
@@ -28,6 +30,8 @@ export interface Step {
   readonly file?: string
   /** What it put in the file: the text replaced and its replacement, or a whole new content. */
   readonly change?: { readonly before?: string; readonly after: string }
+  /** A desktop step's screenshot (computer use), stored with the round. */
+  readonly shot?: { readonly colony: string; readonly blob: string }
 }
 
 const cut = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}…` : s)
@@ -408,6 +412,40 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
         out.push({ ...base, kind: 'talk', agent: p.agent, lead: copy.steps.posted, tail: cut(p.text, 120) })
         break
       }
+      case 'computer/keyframe': {
+        const p = e.payload as EventPayloads['computer/keyframe']
+        out.push({
+          ...base,
+          kind: 'computer',
+          agent: p.agent,
+          lead: copy.steps.onMac(p.app),
+          strong: p.action.replace(/_/g, ' '),
+          ...(p.label ? { tail: cut(p.label, 60) } : {}),
+          shot: { colony: e.colonyId, blob: p.blob },
+        })
+        break
+      }
+      case 'computer/blocked': {
+        const p = e.payload as EventPayloads['computer/blocked']
+        const missing = (p.missing ?? [])
+          .map((m) =>
+            m === 'screen-recording'
+              ? copy.computerUse.grants.screenRecording.label
+              : copy.computerUse.grants.accessibility.label,
+          )
+          .join(' & ')
+        out.push({
+          ...base,
+          kind: 'computerSetup',
+          agent: p.agent,
+          lead: copy.steps.computerSetup,
+          tail:
+            p.reason === 'install'
+              ? copy.computerUse.blocked.install
+              : copy.computerUse.blocked.grants(missing),
+        })
+        break
+      }
       case 'observer/signal': {
         const p = e.payload as EventPayloads['observer/signal']
         if (p.severity !== 'info')
@@ -465,6 +503,7 @@ export function currentStep(events: readonly MyrEvent[]): string | undefined {
         ask_crewmate: copy.steps.now.askingCrewmate(args.to),
         create_task: copy.steps.now.planningTasks,
         reply_user: copy.steps.now.writingReply,
+        computer: copy.steps.now.usingMac,
       }
       return copy.steps.now.doing(p.agent, what[p.tool] ?? copy.steps.now.using(p.tool))
     }

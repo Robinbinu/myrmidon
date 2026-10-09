@@ -38,6 +38,7 @@ import {
   switchGateway,
   type TeamConfig,
 } from './api.ts'
+import { ComputerSection } from './ComputerUse.tsx'
 import { CHANNEL_GROUPS } from './channel-logos.ts'
 import { type ChannelConnection, channelStatusText } from './channel-status.ts'
 import { SkillProposalCard, type SkillProposalView } from './chat/ApprovalCards.tsx'
@@ -145,6 +146,8 @@ export interface ServerSettings {
   tools: { shell: boolean; web: boolean; files: boolean; messaging: boolean; mcp: boolean }
   /** `enabled: false` gives the person's chats full access; absent from older servers. */
   sandbox?: { enabled: boolean }
+  /** Computer use (agents on the person's Mac); absent from older servers. */
+  computerUse?: { enabled: boolean }
   verification: { threshold: number; rubric?: string; reviewer: 'off' | 'auto' | 'always' }
   instructions: { lead?: string; worker?: string }
   observer: { intervalSeconds: number }
@@ -195,6 +198,7 @@ export type Section =
   | 'gateways'
   | 'channels'
   | 'voice'
+  | 'computer'
   | 'models'
   | 'team'
   | 'tools'
@@ -331,6 +335,13 @@ export const SECTIONS: { id: Section; group: SectionGroup; label: string; hint: 
       label: copy.settings.sections.voice.label,
       hint: copy.settings.sections.voice.hint,
       icon: FEATURE_ICONS.voice,
+    },
+    {
+      id: 'computer',
+      group: 'connect',
+      label: copy.settings.sections.computer.label,
+      hint: copy.settings.sections.computer.hint,
+      icon: FEATURE_ICONS.computerUse,
     },
   ]
 
@@ -662,6 +673,12 @@ export function Settings(props: {
               {section === 'channels' && <ChannelsSection initial={props.initialChannel} />}
               {section === 'voice' && data && (
                 <VoiceSection settings={data.settings} update={update} models={props.models} />
+              )}
+              {section === 'computer' && data && (
+                <ComputerSection
+                  enabled={data.settings.computerUse?.enabled === true}
+                  setEnabled={(enabled) => update((s) => ({ ...s, computerUse: { enabled } }), true)}
+                />
               )}
               {section === 'tools' && data && <ToolsSection data={data} update={update} />}
               {section === 'verification' && data && (
