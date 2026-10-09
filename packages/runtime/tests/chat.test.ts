@@ -1750,6 +1750,50 @@ test.skipIf(!findChrome())(
   60_000,
 )
 
+test.skipIf(!findChrome())(
+  'a published page loads its sibling files (fetch, ES modules) in the agent browser',
+  async () => {
+    const browser = new BrowserHub(join(home, 'browser'))
+    opened.push(browser)
+    const resolver = new ModelResolver()
+    const page =
+      '<!doctype html><title>Ants</title><p id="out">loading</p><script type="module">' +
+      "import { label } from './lib/label.js'; const r = await fetch('data.json'); " +
+      "document.getElementById('out').textContent = label((await r.json()).count)</script>"
+    scripted(resolver, 'mock/solo', [
+      [
+        tool('publish_artifact', { name: 'data.json', content: '{"count": 300000}' }),
+        tool('publish_artifact', {
+          name: 'lib/label.js',
+          content: 'export const label = (n) => `${n} ants`',
+        }),
+        tool('publish_artifact', { name: 'index.html', content: page }),
+      ],
+      [tool('browser_open', { url: 'artifact:index.html' })],
+      [tool('browser_console', {})],
+      [tool('reply_user', { text: 'Tested.', final: true })],
+    ])
+    judge(resolver)
+    const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), browser })
+    const { colonyId } = await chats.send('Build an ant counter page', {
+      ...solo('mock/solo'),
+      judgeModel: 'mock/judge',
+    })
+    await waitFor(colonyId)
+    const results = (await events(colonyId))
+      .filter((e) => e.type === 'tool/result')
+      .map((e) => e.payload as EventPayloads['tool/result'])
+    const page_ = results.find((r) => r.tool === 'browser_open')
+    expect(page_?.output).toContain('300000 ants')
+    // Served from the colony's own origin, not from the person's disk.
+    expect(page_?.output).toContain('.artifacts.localhost/index.html')
+    expect(page_?.output).not.toContain('file://')
+    expect(results.find((r) => r.tool === 'browser_console')?.output).not.toContain('CORS')
+    await browser.close()
+  },
+  60_000,
+)
+
 test('long pages are saved to scratch with an excerpt, and an unfinished todo list gets a reminder', async () => {
   const resolver = new ModelResolver()
   const web = {

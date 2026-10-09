@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative, resolve, sep } from 'node:path'
-import { pathToFileURL } from 'node:url'
 import {
   type ColonyState,
   type ConversationLine,
@@ -35,6 +34,7 @@ import pluginsDoc from '../docs/plugins.md' with { type: 'text' }
 import verificationDoc from '../docs/verification.md' with { type: 'text' }
 import workingDoc from '../docs/working.md' with { type: 'text' }
 import {
+  artifactOrigin,
   assertAgentControl,
   type BrowserTab,
   doneWith,
@@ -187,6 +187,13 @@ async function browserTab(host: ColonyHost, agent: string): Promise<BrowserTab> 
   const tab = await host.browser.tab(host.id, agent, {
     downloads: join(host.workspace.scratch(agent), 'downloads'),
     localPorts: () => host.localPorts(),
+    artifacts: {
+      origin: artifactOrigin(host.id),
+      file: async (name) => {
+        const latest = host.state().artifacts[name]?.at(-1)
+        return latest && { body: await host.blobs.get(latest.blob), mediaType: latest.mediaType }
+      },
+    },
   })
   assertAgentControl(tab)
   return tab
@@ -227,20 +234,10 @@ async function keyframe(
   }
 }
 
-/** A file URL for a published artifact, after writing the latest files so relative links resolve. */
-async function artifactUrl(host: ColonyHost, name: string): Promise<string> {
-  const artifacts = host.state().artifacts
-  if (!artifacts[name]) throw new Error(`no such artifact: ${name}`)
-  // Its own copy: the mirror is read-only for the agents' shells.
-  const root = join(host.workspace.colonyDir, 'browse')
-  for (const [file, versions] of Object.entries(artifacts)) {
-    const latest = versions.at(-1)
-    if (!latest) continue
-    const path = join(root, assertArtifactName(file))
-    mkdirSync(dirname(path), { recursive: true })
-    writeFileSync(path, await host.blobs.get(latest.blob))
-  }
-  return pathToFileURL(join(root, name)).href
+/** Where a published artifact opens in the agents' browsers: the colony's own origin, so relative links resolve. */
+function artifactUrl(host: ColonyHost, name: string): string {
+  if (!host.state().artifacts[name]) throw new Error(`no such artifact: ${name}`)
+  return `${artifactOrigin(host.id)}/${name.split('/').map(encodeURIComponent).join('/')}`
 }
 
 /** All a swarm peer may do during the opening huddle: look around and talk. */
@@ -1886,8 +1883,8 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     parameters: type({ url: type('string').describe(prompts.tools.browser_open.params.url) }),
     async run(args, agent, host) {
       const tab = await browserTab(host, agent)
-      const target = args.url.startsWith('artifact:') ? await artifactUrl(host, args.url.slice(9)) : args.url
-      if (!/^(https?|file):/.test(target)) throw new Error('url must be http(s) or artifact:<name>')
+      const target = args.url.startsWith('artifact:') ? artifactUrl(host, args.url.slice(9)) : args.url
+      if (!/^https?:/.test(target)) throw new Error('url must be http(s) or artifact:<name>')
       await navigate(tab, tab.page, target)
       await tab.page.waitForNetworkIdle({ idleTime: 500, timeout: 5_000 }).catch(() => {})
       await keyframe(host, agent, tab, 'open')
@@ -1939,9 +1936,10 @@ export const TOOL_DEFS: readonly ToolDef[] = [
         changed = true
       }
       if (args.open !== undefined) {
-        if (!/^https?:/.test(args.open)) throw new Error('open must be an http(s) URL')
+        const target = args.open.startsWith('artifact:') ? artifactUrl(host, args.open.slice(9)) : args.open
+        if (!/^https?:/.test(target)) throw new Error('open must be an http(s) URL or artifact:<name>')
         const page = await openPage(tab)
-        await navigate(tab, page, args.open)
+        await navigate(tab, page, target)
         await page.waitForNetworkIdle({ idleTime: 500, timeout: 5_000 }).catch(() => {})
         changed = true
       }
@@ -2392,6 +2390,7 @@ export function guessMediaType(name: string): string {
       html: 'text/html',
       css: 'text/css',
       js: 'text/javascript',
+      mjs: 'text/javascript',
       ts: 'text/typescript',
       json: 'application/json',
       md: 'text/markdown',
@@ -2404,6 +2403,7 @@ export function guessMediaType(name: string): string {
       gif: 'image/gif',
       webp: 'image/webp',
       pdf: 'application/pdf',
+      wasm: 'application/wasm',
     }[ext ?? ''] ?? 'text/plain'
   )
 }

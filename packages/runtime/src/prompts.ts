@@ -1297,7 +1297,7 @@ Use end_call when the person says goodbye or asks you to hang up.${o.chatTitle ?
         'one); `switch` makes another tab active; `close` closes one. Links that open a new window switch to it ' +
         'automatically. Returns the tab list, and the active page when it changed.',
       params: {
-        open: 'URL to open in a new tab',
+        open: 'URL (or artifact:<name>) to open in a new tab',
         switch: 'Tab number to switch to',
         close: 'Tab number to close',
       },
