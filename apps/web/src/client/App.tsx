@@ -1414,7 +1414,7 @@ function ComposerPending(props: { centered: boolean; error?: string; onRetry(): 
     <div className={cn('shrink-0', props.centered ? 'w-full' : 'px-6 pb-4 pt-2')}>
       <div
         aria-busy={!props.error}
-        className="mx-auto flex max-w-[820px] items-center gap-2.5 rounded-4xl border border-line-strong bg-surface px-5 py-4 text-title text-muted shadow-pop"
+        className="mx-auto flex max-w-[820px] items-center gap-2.5 rounded-xl border border-line-strong bg-surface px-5 py-4 text-title text-muted shadow-pop"
       >
         {props.error ? (
           <CircleAlert className="size-4 shrink-0 text-bad-ink" />

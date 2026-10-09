@@ -15,7 +15,7 @@ import { copy } from '../copy.ts'
 import { FEATURE_ICONS } from '../ui/icons.ts'
 import { Popover } from '../ui/Popover.tsx'
 import { ProviderGlyph, ProviderLogo } from '../ui/ProviderGlyph.tsx'
-import { cn } from '../ui/primitives.tsx'
+import { cn, POPUP } from '../ui/primitives.tsx'
 import { AGENT_MIN_WINDOW, MODEL_LIST_MIN_PX } from '../ui-config.ts'
 import { withoutDatedAliases } from './model-list.ts'
 
@@ -151,8 +151,9 @@ export function ModelPicker(props: {
         className={
           variant === 'chip'
             ? cn(
-                'group inline-flex h-8 w-full min-w-[52px] max-w-[220px] items-center gap-1.5 rounded-full border border-line bg-fill/40 pl-1.5 pr-2.5 text-callout font-medium text-fg-2 shadow-[inset_0_0.5px_0_rgb(255_255_255/0.07)] transition-colors hover:bg-fill hover:text-fg',
-                open && 'bg-fill text-fg',
+                'group inline-flex h-7 w-full min-w-[52px] max-w-[220px] items-center gap-1.5 pl-1.5 pr-2',
+                POPUP,
+                open && 'bg-control-active',
               )
             : variant === 'compact'
               ? 'group inline-flex h-7 max-w-full items-center gap-1.5 rounded-md border border-line-strong/70 bg-control pl-2.5 pr-1.5 text-body shadow-control transition-colors hover:bg-control-hover'

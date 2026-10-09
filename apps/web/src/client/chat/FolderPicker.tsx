@@ -129,7 +129,7 @@ export function ProjectPill(props: {
   onAdd?(): void
 }) {
   const pill =
-    'inline-flex h-8 min-w-0 max-w-[180px] shrink items-center gap-1.5 rounded-xl px-2 text-callout font-medium text-muted'
+    'inline-flex h-7 min-w-0 max-w-[180px] shrink items-center gap-1.5 rounded-md px-2 text-body text-muted'
   if (props.fixed) {
     const mode = props.projects.find((p) => p.id === props.fixed?.id)?.permissions?.mode
     return (

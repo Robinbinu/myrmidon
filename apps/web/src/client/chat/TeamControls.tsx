@@ -7,13 +7,12 @@ import { useSpecialists } from '../specialists.ts'
 import { FEATURE_ICONS } from '../ui/icons.ts'
 import { MenuItem, MenuList, Popover } from '../ui/Popover.tsx'
 import { agentColor } from '../ui/pixel.tsx'
-import { Button, cn, Segmented, Select } from '../ui/primitives.tsx'
+import { Button, cn, POPUP, Segmented, Select } from '../ui/primitives.tsx'
 import { AGENT_MIN_WINDOW } from '../ui-config.ts'
 import { type HelperMode, helperMode, helpersLabel, withHelperMode } from './helpers.ts'
 import { ModelPicker, PickerHost, windowLabel } from './ModelPicker.tsx'
 
-const PILL =
-  'inline-flex h-8 min-w-0 items-center gap-1.5 rounded-full border border-line bg-fill/40 px-2.5 text-callout font-medium text-fg-2 shadow-[inset_0_0.5px_0_rgb(255_255_255/0.07)] transition-colors hover:bg-fill hover:text-fg'
+const PILL = cn('inline-flex h-7 min-w-0 items-center gap-1.5 px-2.5', POPUP)
 
 /**
  * A glass pill in the composer toolbar that opens its own panel above it. The pill reads as its value (the label is

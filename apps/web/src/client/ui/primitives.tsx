@@ -265,12 +265,20 @@ export const TextArea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<H
   },
 )
 
+/**
+ * The face of a macOS pop-up button, for any control that opens a list or a panel: Select, and the composer's model
+ * and crew controls. Height, padding and the chevrons are the caller's.
+ */
+export const POPUP =
+  'rounded-md border border-line-strong/70 bg-control text-body text-fg shadow-control transition-colors duration-100 hover:bg-control-hover'
+
 /** A native select drawn as a macOS popup button: keyboard and screen readers keep the real control. */
 export function Select({ className, children, ...rest }: SelectHTMLAttributes<HTMLSelectElement>) {
   return (
     <select
       className={cn(
-        'h-7 appearance-none rounded-md border border-line-strong/70 bg-control bg-[image:var(--chevrons)] bg-[length:10px_14px] bg-[position:right_8px_center] bg-no-repeat pl-2.5 pr-7 text-body text-fg shadow-control outline-none transition-colors duration-100 hover:bg-control-hover focus-visible:border-focus focus-visible:ring-3 focus-visible:ring-focus/30 disabled:opacity-50',
+        'h-7 appearance-none bg-[image:var(--chevrons)] bg-[length:10px_14px] bg-[position:right_8px_center] bg-no-repeat pl-2.5 pr-7 outline-none focus-visible:border-focus focus-visible:ring-3 focus-visible:ring-focus/30 disabled:opacity-50',
+        POPUP,
         className,
       )}
       {...rest}
