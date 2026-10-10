@@ -1233,6 +1233,14 @@ It is ${o.now.weekday}, ${o.now.date}, ${o.now.time} in their time zone (${o.now
     /** ask_crewmate to a name not on call; `onCall`: "name (role)" for each crewmate on call. */
     noCrewmate: (name: string, onCall: readonly string[]) =>
       `${name} is not one of your crewmates on call, and ask_crewmate never brings in someone new. On call: ${onCall.join(', ') || 'nobody'}. Ask one of them by name.`,
+    /** run_checks with nothing to run: `project` when the round has a project, else the agent's scratch folder. */
+    noChecks: (project: boolean) =>
+      project
+        ? 'this project defines no checks (no check, typecheck, lint or test script in package.json, no Cargo.toml, go.mod, or pyproject with ruff, mypy or pytest); run its commands with shell'
+        : 'nothing to check in your scratch folder: run_checks runs what a package.json (check, typecheck, lint or test scripts), tsconfig.json, Cargo.toml, go.mod or pyproject (ruff, mypy, pytest) there defines. Add one, or run your code with shell',
+    /** run_checks(only) naming a check that is not there; `has`: the checks there are. */
+    noSuchCheck: (only: string, has: readonly string[], project: boolean) =>
+      `${project ? 'this project' : 'your scratch folder'} has no ${only} check; it has: ${has.join(', ') || 'none'}`,
     /** submit_task for a task that names outputs, with none of them submitted. */
     outputsMissing: (id: string, outputs: readonly string[]) =>
       `${id} names outputs (${outputs.join(', ')}) and none were submitted, so review would reject it. Publish them with publish_artifact and submit them in artifacts, or release_task and tell the lead why you cannot`,
@@ -2295,10 +2303,10 @@ It is ${o.now.weekday}, ${o.now.date}, ${o.now.time} in their time zone (${o.now
     run_checks: {
       /** `full`: the round runs without the sandbox. */
       description: (full: boolean) =>
-        `Run the project's own checks${full ? '' : ' in the sandbox'} and get a short pass or fail per check, with ` +
-        'the failing output: its `check` script if it has one, otherwise typecheck, lint and test, from its ' +
-        'package.json, Cargo.toml, go.mod or pyproject. Run it after you change code and before you say you are done, ' +
-        'then fix what fails. only runs one check by name.',
+        `Run the project's own checks${full ? '' : ' in the sandbox'} (outside a project, your scratch folder's) and ` +
+        'get a short pass or fail per check, with the failing output: its `check` script if it has one, otherwise ' +
+        'typecheck, lint and test, from its package.json, tsconfig.json, Cargo.toml, go.mod or pyproject. Run it ' +
+        'after you change code and before you say you are done, then fix what fails. only runs one check by name.',
       params: {
         only: '"check", "typecheck", "lint", "test" or "build" (build runs only when asked; default: all but build)',
       },

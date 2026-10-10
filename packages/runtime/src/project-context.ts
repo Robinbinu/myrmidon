@@ -79,6 +79,23 @@ export function projectChecks(root: string): ProjectCheck[] {
   return checks
 }
 
+/**
+ * The checks of an agent's scratch folder, for run_checks outside a project: those its manifests define, as a
+ * project's are found, and for a TypeScript folder with no check or typecheck script, the compiler itself.
+ */
+export function scratchChecks(dir: string): ProjectCheck[] {
+  const checks = projectChecks(dir)
+  if (
+    existsSync(join(dir, 'tsconfig.json')) &&
+    !checks.some((c) => c.name === 'check' || c.name === 'typecheck')
+  )
+    checks.push({
+      name: 'typecheck',
+      command: `${Bun.which('bun') ? 'bunx' : 'npx --yes'} --package typescript tsc --noEmit`,
+    })
+  return checks
+}
+
 const files = (n: number) => `${n} file${n === 1 ? '' : 's'}`
 
 /** Folders two levels deep with how many files each holds, then top-level files; at most 40 lines. */
