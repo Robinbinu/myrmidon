@@ -1087,7 +1087,10 @@ export const copy = {
       shortcuts: 'Keyboard shortcuts',
       export: 'Export this chat as Markdown',
       crewConsole: 'Open the crew console',
+      importSession: 'Import a Claude Code or Codex session',
     },
+    /** More words the import action answers to. */
+    importKeywords: 'continue resume claude codex transcript history',
     newChatIn: (name: string) => `New chat in ${name}`,
     noMatches: (query: string) => `Nothing matches “${query}”.`,
     footer: { move: 'move', open: 'open', close: 'close' },
@@ -2408,6 +2411,44 @@ export const copy = {
       remove: (site: string) => `Remove ${site}`,
       back: 'Back to options',
     },
+  },
+
+  /** Import a session: another tool's conversation, continued as a new chat. */
+  importSessions: {
+    title: 'Import a session',
+    /** The home screen's way in, under the composer. */
+    open: 'Continue a Claude Code or Codex session',
+    search: 'Search sessions',
+    loading: 'Reading your Claude Code and Codex sessions…',
+    failed: 'Could not list your sessions',
+    empty: 'No Claude Code or Codex sessions on this computer.',
+    emptyHint: 'Claude Code keeps them in ~/.claude/projects, Codex in ~/.codex/sessions.',
+    noMatch: (query: string) => `No session matches “${query}”.`,
+    tools: { claude: 'Claude Code', codex: 'Codex' },
+    untitled: 'Untitled session',
+    messages: (n: number) => `${n} message${n === 1 ? '' : 's'}`,
+    size: (bytes: number) =>
+      bytes < 1024 * 1024
+        ? `${Math.max(1, Math.round(bytes / 1024))} KB`
+        : `${(bytes / 1024 / 1024).toFixed(1)} MB`,
+    showAll: (n: number) => `Show all ${n}`,
+    importing: 'Importing…',
+    /** Under the list: what importing does, and what it leaves alone. */
+    footnote:
+      'The session is copied into a new chat (secrets hidden, long parts clipped); the original stays where it is.',
+    /** Above the new chat's composer, until its first message. */
+    note: (tool: string, title: string) =>
+      `Continues “${title}” from ${tool}: the crew reads it before your message.`,
+    cancel: 'Start fresh instead',
+    /** The imported transcript, folded at the top of the chat and above the composer. */
+    block: (tool: string) => `Imported from ${tool}`,
+    turns: (n: number) => `${n} message${n === 1 ? '' : 's'}`,
+    omitted: (n: number) => `${n} earlier message${n === 1 ? '' : 's'} left out`,
+    show: 'Show transcript',
+    hide: 'Hide transcript',
+    roles: { user: 'You', assistant: 'Assistant', summary: 'Summary of earlier work' },
+    failedResult: 'Failed',
+    gone: 'The imported transcript is no longer here.',
   },
 
   app: {

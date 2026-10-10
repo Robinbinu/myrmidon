@@ -94,6 +94,7 @@ import {
   ruleGreeting,
   type Schedule,
   type ScheduleStore,
+  type SessionImports,
   type SettingsStore,
   type SileroVad,
   type SkillLibrary,
@@ -198,6 +199,8 @@ export interface ServeOptions {
   readonly schedules?: ScheduleStore
   /** Where the person filed chats: pins, archive, groups, forks (the same store the chat runtime reads). */
   readonly shelf?: ChatShelf
+  /** Claude Code and Codex sessions on this machine, to start chats from (the same store the chat runtime reads). */
+  readonly imports?: SessionImports
   /** Shown in settings so users know whether the shell tool is confined. */
   readonly sandboxKind?: string
   /** The speech detector and end-of-turn model for calls; downloaded into the home unless given (tests stay offline). */
@@ -357,6 +360,11 @@ function sendProblem(raw: unknown): string | undefined {
   return undefined
 }
 
+const importSchema = Schema.object({
+  source: Schema.union(['claude', 'codex']).required(),
+  id: Schema.string().min(1).max(200).required(),
+})
+
 const sendSchema = Schema.object({
   text: Schema.string().min(1).max(MAX_MESSAGE_CHARS).required(),
   chatId: Schema.string().pattern(/^chat-[a-z0-9-]{1,40}$/),
@@ -367,6 +375,8 @@ const sendSchema = Schema.object({
   project: Schema.string().pattern(/^[a-z0-9-]{1,80}$/),
   // A new chat that continues another's conversation (Fork in the chat list).
   forkOf: Schema.string().pattern(/^chat-[a-z0-9-]{1,40}$/),
+  // A new chat that continues an imported Claude Code or Codex session (Import a session).
+  importOf: Schema.string().pattern(/^import-[a-z0-9-]{1,40}$/),
   // A new chat's own permission level, chosen in the composer before its first message (checked by normalizeLevel).
   permissions: Schema.any(),
   // An answer given on a question card: the card shows it, so the chat need not repeat it as a message.
@@ -2406,6 +2416,37 @@ export function startServer(options: ServeOptions): WebServer {
           }
         }),
       },
+      // Other tools' sessions on this machine: listing and importing read their folders, so both need full access.
+      '/api/import-sessions': {
+        GET: guard(async () => {
+          if (!options.imports) return json({ error: 'this server imports no sessions' }, 503)
+          return json({ sessions: await options.imports.list() })
+        }),
+        POST: guard(async (req) => {
+          if (!options.imports) return json({ error: 'this server imports no sessions' }, 503)
+          let body: ReturnType<typeof importSchema>
+          try {
+            body = importSchema((await req.json()) as never)
+          } catch (err) {
+            return json(
+              { error: `invalid request: ${err instanceof Error ? err.message : String(err)}` },
+              400,
+            )
+          }
+          try {
+            return json(await options.imports.import(body.source, body.id))
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 422)
+          }
+        }),
+      },
+      // What a chat started from: already redacted and clipped, so any device that sees the chat may read it.
+      '/api/imported/:importId': {
+        GET: guard(async (req) => {
+          const session = options.imports?.get(req.params.importId ?? '')
+          return session ? json(session) : json({ error: 'no such import' }, 404)
+        }),
+      },
       '/api/chats': {
         GET: guard(async () => json(options.chats ? await options.chats.list() : [])),
         POST: guard(async (req, _url, access) => {
@@ -2440,6 +2481,7 @@ export function startServer(options: ServeOptions): WebServer {
               ...(body.goal ? { goal: true } : {}),
               ...(body.project ? { project: body.project } : {}),
               ...(body.forkOf && !body.chatId ? { forkOf: body.forkOf } : {}),
+              ...(body.importOf && !body.chatId && !body.forkOf ? { importOf: body.importOf } : {}),
               ...(calls ? { context: calls.context } : {}),
               ...(body.answers ? { answers: body.answers } : {}),
               // Like PUT /api/chats/:id/permissions, a chat's own level needs a device with full access.
