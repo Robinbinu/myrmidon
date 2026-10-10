@@ -1562,6 +1562,7 @@ function SignIns(props: { onProviders(p: ProviderInfo[]): void }) {
               <div className="flex flex-wrap items-center gap-3">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 text-reading font-medium">
+                    <ProviderLogo provider={l.id} size={16} className="shrink-0" />
                     {l.name}
                     {l.ready ? <Badge tone="ok">{copy.settings.signIns.signedIn}</Badge> : null}
                   </div>

@@ -148,6 +148,10 @@ const PROVIDERS: Record<string, Logo> = {
   'xiaomi-token-plan-cn': { src: xiaomimimo, mono: true },
   'xiaomi-token-plan-sgp': { src: xiaomimimo, mono: true },
   zai: { src: zai, mono: true },
+  // Sign-in ids that name the same service another way.
+  'zai-coding-plan': { src: zai, mono: true },
+  'openai-codex-device': { src: codex },
+  firepass: { src: fireworks },
   'zhipu-coding-plan': { src: zhipu },
   devin: { src: devin },
   zenmux: { src: zenmux, mono: true },
