@@ -1,11 +1,12 @@
 import { existsSync } from 'node:fs'
-import { win32 } from 'node:path'
+import { join, win32 } from 'node:path'
+import { EMBEDDED_SHELL_COMMAND } from './config.ts'
 
 /**
  * The shells Myrmidon runs commands in, per OS. macOS and Linux use `/bin/sh` for agents' commands and hooks; Windows
  * has no `/bin/sh`, so it uses Git for Windows' `sh` when installed (agents write POSIX commands, and most projects'
- * scripts assume them), else PowerShell, else cmd.exe. Agents are told which one runs their commands (the prompt's
- * environment block), so they write its syntax.
+ * scripts assume them), else the bash Myrmidon carries (embedded-shell.ts), else PowerShell, else cmd.exe. Agents are
+ * told which one runs their commands (the prompt's environment block), so they write its syntax.
  */
 
 /** The syntax a shell's commands are written in. */
@@ -30,6 +31,8 @@ export interface ShellProbe {
   readonly env: Readonly<Record<string, string | undefined>>
   which(name: string): string | null
   exists(path: string): boolean
+  /** Whether the bash Myrmidon carries can run here; only Windows without Git Bash uses it. */
+  readonly embedded?: boolean
 }
 
 export const hostProbe = (): ShellProbe => ({
@@ -37,6 +40,7 @@ export const hostProbe = (): ShellProbe => ({
   env: process.env,
   which: (name) => Bun.which(name),
   exists: existsSync,
+  embedded: true,
 })
 
 const POSIX_SH: CommandShell = {
@@ -95,6 +99,27 @@ export function gitBins(sh: string, probe: ShellProbe): string[] {
   return [win32.join(root, 'usr', 'bin'), win32.join(root, 'mingw64', 'bin')].filter((d) => probe.exists(d))
 }
 
+/** What the prompt and Settings call the bash Myrmidon carries. */
+export const EMBEDDED_SHELL_NAME = 'built-in bash'
+
+const EMBEDDED_WORKER = join(import.meta.dir, 'embedded-shell.ts')
+
+/**
+ * The bash Myrmidon carries (omp's brush, coreutils inside), run in a process of its own: from its file, or by a
+ * compiled Myrmidon, which has no file to run, starting itself (apps/desktop/src/sidecar.ts). It runs outside any OS
+ * sandbox, which Windows does not have yet; macOS and Linux never use it.
+ */
+const EMBEDDED_SHELL: CommandShell = {
+  name: EMBEDDED_SHELL_NAME,
+  syntax: 'posix',
+  argv: (command) => [
+    process.execPath,
+    existsSync(EMBEDDED_WORKER) ? EMBEDDED_WORKER : EMBEDDED_SHELL_COMMAND,
+    command,
+  ],
+  bins: [],
+}
+
 /** PowerShell 7 (`pwsh`) or the Windows PowerShell every Windows has, as a program to run. */
 function powershell(probe: ShellProbe): { path: string; name: string } | undefined {
   const pwsh = probe.which('pwsh')
@@ -117,6 +142,7 @@ export function commandShell(probe: ShellProbe = hostProbe()): CommandShell {
       argv: (command) => [sh, '-c', command],
       bins: gitBins(sh, probe),
     }
+  if (probe.embedded) return EMBEDDED_SHELL
   const ps = powershell(probe)
   if (ps)
     return {
@@ -132,7 +158,7 @@ export function commandShell(probe: ShellProbe = hostProbe()): CommandShell {
       ],
       bins: [],
     }
-  // Only where PowerShell is missing. Arguments reach cmd.exe quoted by C runtime rules, which it does not read, so a
+  // Only where the built-in bash and PowerShell are missing. Arguments reach cmd.exe quoted by C runtime rules, which it does not read, so a
   // command with double quotes in it may arrive changed.
   const cmd = probe.env.ComSpec ?? 'cmd.exe'
   return { name: 'cmd.exe', syntax: 'cmd', argv: (command) => [cmd, '/d', '/s', '/c', command], bins: [] }

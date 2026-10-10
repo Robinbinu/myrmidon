@@ -3157,6 +3157,7 @@ export const copy = {
         setup: ['onboarding', 'first run', 'wizard', 'get started', 'welcome'],
         shortcuts: ['shortcut', 'keyboard', 'hotkey', 'hotkeys', 'keys', 'keybindings', 'key bindings'],
         dataFolder: ['data directory', 'home folder', 'where files are', 'storage', 'myrmidon folder'],
+        shell: ['bash', 'sh', 'git bash', 'powershell', 'command line', 'windows shell'],
         theme: [
           'theme',
           'dark mode',
@@ -4575,6 +4576,9 @@ export const copy = {
       providersReady: 'Providers ready',
       providersReadyHint: 'Through oh-my-pi’s provider code, built into Myrmidon.',
       sandbox: 'Sandbox',
+      shell: 'Command shell',
+      shellHint:
+        'What agents’ commands and hooks run in: sh on macOS and Linux. On Windows, Git Bash when it is installed; otherwise Myrmidon’s built-in bash (common Unix tools included, nothing to install), which runs outside any sandbox. Install Git for Windows to use Git Bash instead.',
       eventLog:
         'Every run is recorded and checkpointed, so project changes can be rewound. Licensed under Apache-2.0.',
       builtOn: 'Built on oh-my-pi (providers, search, readers), pi-agent-core, and Cordis.',

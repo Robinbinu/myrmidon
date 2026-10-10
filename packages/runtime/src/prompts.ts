@@ -34,7 +34,7 @@ import {
   TTS_MAX_CHARS,
   VOICE_GREETING_WORDS,
 } from './config.ts'
-import type { ShellSyntax } from './shell.ts'
+import { EMBEDDED_SHELL_NAME, type ShellSyntax } from './shell.ts'
 import type { WorkKind } from './verifier.ts'
 
 /** A number as tool descriptions write it: 40,000. */
@@ -572,11 +572,13 @@ ${roster}`,
       `Shell: commands start in ${p.start}; use paths relative to it, never guessed absolute ones. Available: ${p.runtimes.join(', ') || 'standard Unix tools'}. To read the web prefer web_search/web_fetch, which return clean text.`,
     /** Which shell runs commands on Windows (shell.ts), so the agent writes its syntax. */
     shellSyntax: (p: { name: string; syntax: ShellSyntax }) =>
-      p.syntax === 'posix'
-        ? `Commands run in ${p.name} on Windows: write POSIX sh; Windows paths work as C:/Users/... or /c/Users/..., and Windows programs (.exe, .cmd) run as usual.`
-        : p.syntax === 'powershell'
-          ? `Commands run in ${p.name} on Windows, not sh: write PowerShell. Separate commands with ';', set variables as $env:NAME = 'value', quote paths with spaces, and run a quoted program with & ("& 'C:/Program Files/x/x.exe' arg").`
-          : `Commands run in cmd.exe on Windows, not sh: write cmd syntax (&& between commands, %NAME% for variables, double quotes only).`,
+      p.name === EMBEDDED_SHELL_NAME
+        ? `Commands run in Myrmidon's ${p.name} on Windows (Git Bash is not installed): write POSIX sh; ls, cat, grep, sed, find, rg and the other common tools are built in (awk is not); write Windows paths as C:/Users/..., and Windows programs (.exe, .cmd) run as usual.`
+        : p.syntax === 'posix'
+          ? `Commands run in ${p.name} on Windows: write POSIX sh; Windows paths work as C:/Users/... or /c/Users/..., and Windows programs (.exe, .cmd) run as usual.`
+          : p.syntax === 'powershell'
+            ? `Commands run in ${p.name} on Windows, not sh: write PowerShell. Separate commands with ';', set variables as $env:NAME = 'value', quote paths with spaces, and run a quoted program with & ("& 'C:/Program Files/x/x.exe' arg").`
+            : `Commands run in cmd.exe on Windows, not sh: write cmd syntax (&& between commands, %NAME% for variables, double quotes only).`,
     shellFull: (p: { start: string; runtimes: readonly string[] }) =>
       `Shell: commands start in ${p.start} and run as the person, with their home, environment and network. Prefer paths relative to where you start, and absolute ones only for files outside it. Available: ${p.runtimes.join(', ') || 'standard Unix tools'}. To read the web prefer web_search/web_fetch, which return clean text.`,
   },
