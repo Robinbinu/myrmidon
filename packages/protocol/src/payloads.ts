@@ -368,6 +368,16 @@ export interface EventPayloads {
   'plugin/event': { plugin: string; type: string; data: Record<string, unknown> }
   /** An agent's context neared its model's window: its older messages were summarized for the model. */
   'agent/compacted': { agent: string; messages: number; tokens: number; summaryChars: number }
+  /**
+   * The prompt an agent starts with, by section: each section's key, the version of its words and a hash of what it
+   * rendered, so two runs can be compared by what their agents were told. `totalTokens` is a rough size.
+   */
+  'agent/prompt': {
+    agent: string
+    sections: { key: string; version: number; hash: string }[]
+    family: string
+    totalTokens: number
+  }
   /** The person switched a running agent to another model; it takes effect on the agent's next step. */
   'agent/model': { agent: string; model: string; previous: string }
   /**
@@ -398,6 +408,8 @@ export interface EventPayloads {
     voice?: boolean
     /** What the agents should know that the chat does not show, e.g. a voice call's transcript. */
     context?: string
+    /** An answer given on a question card: the question's message and what was picked, shown in the card itself. */
+    answers?: QuestionAnswers
   }
   /** `question` marks a reply that waits on the user before the colony can continue. */
   /**
@@ -489,6 +501,19 @@ export interface EventPayloads {
 }
 
 export type EventType = keyof EventPayloads
+
+/** What the person chose for one question: options picked, their own words, or skipped. */
+export interface QuestionPick {
+  readonly picked: readonly string[]
+  readonly other?: string
+  readonly skipped?: boolean
+}
+
+/** An answer to a question card: the message that asked (its seq) and one pick per question, in order. */
+export interface QuestionAnswers {
+  readonly seq: number
+  readonly picks: readonly QuestionPick[]
+}
 
 /** One option of a question an agent asks. */
 export interface QuestionOption {

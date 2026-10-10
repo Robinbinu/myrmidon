@@ -49,7 +49,8 @@ import { ModelPicker, windowLabel } from './chat/ModelPicker.tsx'
 import { usersOf, withoutModel } from './chat/model-list.ts'
 import { SpecialistEditor } from './chat/SpecialistEditor.tsx'
 import { copy } from './copy.ts'
-import { DEFAULT_MASCOT, type MascotLook, SETTINGS_SAVED } from './mascot.ts'
+import { type MascotPatch, SETTINGS_SAVED, withMascotDefaults } from './mascot.ts'
+import { MascotBehaviour, MascotPreview, MiniMascot } from './mascot-settings.tsx'
 import type { CatalogTool } from './permissions/describe.ts'
 import { type GlobalPermissions, PermissionsPage } from './permissions/PermissionsPage.tsx'
 import { PluginSlot, usePluginSlots } from './plugins.tsx'
@@ -67,6 +68,8 @@ import {
 import { baseUrlError, channelSetup, clampNumber, cronError, providerNameError } from './settings-forms.ts'
 import { removeSpecialist, useSpecialists } from './specialists.ts'
 import { useStatus } from './status.tsx'
+import { AppearanceSection } from './themes/AppearanceSection.tsx'
+import type { ImportedTheme } from './themes/vscode.ts'
 import { ChannelLogo } from './ui/ChannelLogo.tsx'
 import { ConfirmButton } from './ui/ConfirmButton.tsx'
 import { desktop } from './ui/desktop.ts'
@@ -75,13 +78,15 @@ import {
   ago,
   day,
   NOTIFY_KEY,
+  SUGGEST_KEY,
+  SUGGEST_MODEL_KEY,
   type ThemeChoice,
   useCopy,
   useMinWidth,
   usePersistentFlag,
 } from './ui/hooks.ts'
 import { FEATURE_ICONS } from './ui/icons.ts'
-import { AgentAvatar, BOW, FLOWER, PixelFace, PixelSprite } from './ui/pixel.tsx'
+import { AgentAvatar } from './ui/pixel.tsx'
 import {
   Badge,
   Banner,
@@ -112,12 +117,23 @@ import {
   AGENT_MIN_WINDOW,
   MASCOT_COLORS,
   SETTINGS_NAV_COLLAPSE_PX,
+  SUGGEST_MODEL_POLL_MS,
   softSpring,
   spring,
   VOICE_POLL_MS,
   VOICE_SPEEDS,
 } from './ui-config.ts'
 import { engineTrouble } from './voice/engine-trouble.ts'
+import type { VoiceEndpointView, VoiceProviderView } from './voice/providers.ts'
+import {
+  AddVoiceProvider,
+  CallModeRow,
+  CloudRows,
+  cloudHint,
+  EnginePicker,
+  RealtimeCard,
+} from './voice/VoiceChoice.tsx'
+import { VoiceProviders } from './voice/VoiceProviders.tsx'
 
 type Api = 'openai-completions' | 'openai-responses' | 'anthropic-messages' | 'google-generative-ai'
 
@@ -159,7 +175,7 @@ export interface ServerSettings {
   /** Folders sandboxed agents may also read, in every chat. Full access is the global preset. */
   sandbox?: { read?: string[]; readHome?: boolean }
   /** Computer use (agents on the person's Mac); absent from older servers. */
-  computerUse?: { enabled: boolean }
+  computerUse?: { enabled: boolean; engine?: 'cua' | 'omp' }
   verification: { threshold: number; rubric?: string; reviewer: 'off' | 'auto' | 'always' }
   instructions: { lead?: string; worker?: string }
   observer: { intervalSeconds: number }
@@ -168,20 +184,28 @@ export interface ServerSettings {
   /** The global level of the permission model: the default preset, rules, who can use what. */
   permissions: GlobalPermissions
   profile?: { name?: string; greeting: 'model' | 'rules'; titles?: 'model' | 'first-message' }
-  mascot?: MascotLook
+  mascot?: MascotPatch
+  /** VS Code themes the person imported; absent from older servers. */
+  appearance?: { imported: ImportedTheme[] }
   voice: {
     enabled: boolean
     callModel?: string
-    stt: { provider: 'phonon' | 'omp' | 'endpoint'; baseUrl?: string; model?: string }
+    /** Pipeline (speech to text, the call model, text to speech) or one realtime model; absent from older servers. */
+    mode?: 'pipeline' | 'realtime'
+    /** `phonon`, `omp`, a voice provider's id, or `endpoint:<id>`. */
+    stt: { provider: string; model?: string }
     tts: {
-      provider: 'kitten' | 'omp' | 'endpoint'
+      provider: string
+      model?: string
+      /** A cloud provider's voice (Kitten's is `voice`). */
+      voiceId?: string
       kittenModel: 'nano' | 'micro' | 'mini'
       voice: string
       speed: number
-      baseUrl?: string
-      model?: string
-      endpointVoice?: string
     }
+    realtime?: { provider?: string; model?: string; voice?: string }
+    regions?: Record<string, string>
+    endpoints?: { id: string; baseUrl: string; keyless?: boolean }[]
     sensitivity: 'low' | 'normal' | 'high'
     /** Phone calls on the SMS channel's Twilio number; absent from older servers. */
     phone?: boolean
@@ -208,6 +232,7 @@ export interface SettingsResponse {
 
 export type Section =
   | 'general'
+  | 'appearance'
   | 'mascot'
   | 'specialists'
   | 'devices'
@@ -323,6 +348,13 @@ export const SECTIONS: { id: Section; group: SectionGroup; label: string; hint: 
       group: 'you',
       label: copy.settings.sections.general.label,
       hint: copy.settings.sections.general.hint,
+      icon: FEATURE_ICONS.general,
+    },
+    {
+      id: 'appearance',
+      group: 'you',
+      label: copy.settings.sections.appearance.label,
+      hint: copy.settings.sections.appearance.hint,
       icon: FEATURE_ICONS.appearance,
     },
     {
@@ -414,11 +446,13 @@ export function Settings(props: {
   onSection.current = props.onSection
   useEffect(() => {
     onSection.current?.(section)
+    if (section !== 'models') setVoiceFocus(false)
   }, [section])
   const [modelsTab, setModelsTab] = useState<'models' | 'providers'>('models')
-  const { data, error, saving, saveError, retry, update, providersChanged, modelsRemoved } = useSettingsData(
-    props.onModelsChanged,
-  )
+  // Settings → Voice's "Add a voice provider" opens the Providers tab at its voice part.
+  const [voiceFocus, setVoiceFocus] = useState(false)
+  const { data, error, saving, saveError, retry, update, saveNow, providersChanged, modelsRemoved } =
+    useSettingsData(props.onModelsChanged)
   const wideNav = useMinWidth(SETTINGS_NAV_COLLAPSE_PX)
   // Hooks are the one section with an explicit Save; leaving it with edits asks first.
   const [hooksDirty, setHooksDirty] = useState(false)
@@ -621,8 +655,6 @@ export function Settings(props: {
               {section === 'general' && (
                 <div className="flex flex-col gap-10">
                   <General
-                    theme={props.theme}
-                    onTheme={props.onTheme}
                     reduceMotion={props.reduceMotion}
                     onReduceMotion={props.onReduceMotion}
                     {...(props.onRunSetup ? { onRunSetup: props.onRunSetup } : {})}
@@ -677,7 +709,12 @@ export function Settings(props: {
                       onAddProvider={() => setModelsTab('providers')}
                     />
                   ) : (
-                    <Providers data={data} onProviders={providersChanged} update={update} />
+                    <Providers
+                      data={data}
+                      onProviders={providersChanged}
+                      update={update}
+                      focusVoice={voiceFocus}
+                    />
                   )}
                 </>
               )}
@@ -690,18 +727,45 @@ export function Settings(props: {
                   onConfig={props.onConfig}
                 />
               )}
+              {section === 'appearance' && (
+                <AppearanceSection
+                  theme={props.theme}
+                  onTheme={props.onTheme}
+                  {...(data ? { imported: data.settings.appearance?.imported ?? [] } : {})}
+                  onSaveImported={(imported) =>
+                    saveNow((s) => ({ ...s, appearance: { ...s.appearance, imported } }))
+                  }
+                />
+              )}
               {section === 'mascot' && data && <MascotSection data={data} update={update} />}
               {section === 'specialists' && <SpecialistsSection models={props.models} />}
               {section === 'devices' && <DevicesSection />}
               {section === 'gateways' && <GatewaysSection />}
               {section === 'channels' && <ChannelsSection initial={props.initialChannel} />}
               {section === 'voice' && data && (
-                <VoiceSection settings={data.settings} update={update} models={props.models} />
+                <VoiceSection
+                  settings={data.settings}
+                  update={update}
+                  models={props.models}
+                  onAddProvider={() =>
+                    leave(() => {
+                      setModelsTab('providers')
+                      setVoiceFocus(true)
+                      setSection('models')
+                    })
+                  }
+                />
               )}
               {section === 'computer' && data && (
                 <ComputerSection
                   enabled={data.settings.computerUse?.enabled === true}
-                  setEnabled={(enabled) => update((s) => ({ ...s, computerUse: { enabled } }), true)}
+                  setEnabled={(enabled) =>
+                    update((s) => ({ ...s, computerUse: { ...s.computerUse, enabled } }), true)
+                  }
+                  engine={data.settings.computerUse?.engine ?? 'cua'}
+                  setEngine={(engine) =>
+                    update((s) => ({ ...s, computerUse: { enabled: false, ...s.computerUse, engine } }), true)
+                  }
                 />
               )}
               {section === 'tools' && data && (
@@ -730,7 +794,7 @@ export function Settings(props: {
               {section === 'plugins' && <PluginsSection />}
               {section === 'hooks' && <HooksSection onDirty={setHooksDirty} />}
               {section === 'schedules' && <SchedulesSection />}
-              {!data && !error && section !== 'general' && (
+              {!data && !error && section !== 'general' && section !== 'appearance' && (
                 <div className="flex items-center gap-2 text-body text-muted">
                   <LoaderCircle className="size-4 animate-spin" /> {copy.settings.page.loading}
                 </div>
@@ -843,6 +907,69 @@ export function useSettingsData(onModelsChanged: () => void) {
   return { data, error, saving, saveError, retry, update, saveNow, providersChanged, modelsRemoved }
 }
 
+/** Ghost-text suggestions in the composer (this browser only). */
+interface SuggestModelStatus {
+  state: 'missing' | 'downloading' | 'ready' | 'failed'
+  bytes: number
+  error?: string
+}
+
+/** Suggestions as the person types, and the small model that adds next words when their history has none. */
+function SuggestToggles() {
+  const toast = useToast()
+  const [on, setOn] = usePersistentFlag(SUGGEST_KEY, true)
+  const [modelOn, setModelOn] = usePersistentFlag(SUGGEST_MODEL_KEY, false)
+  const [status, setStatus] = useState<SuggestModelStatus>()
+  const check = () =>
+    api<SuggestModelStatus>('/api/suggestions/model').then(setStatus, (err: Error) =>
+      toast(err.message, 'error'),
+    )
+  // biome-ignore lint/correctness/useExhaustiveDependencies: load once on mount
+  useEffect(() => {
+    void check()
+  }, [])
+  const downloading = status?.state === 'downloading'
+  // biome-ignore lint/correctness/useExhaustiveDependencies: polls while the download runs
+  useEffect(() => {
+    if (!downloading) return
+    const t = setInterval(() => void check(), SUGGEST_MODEL_POLL_MS)
+    return () => clearInterval(t)
+  }, [downloading])
+  const g = copy.settings.general
+  const mb = Math.round((status?.bytes ?? 0) / 1_000_000)
+  const hint =
+    modelOn && status?.state === 'downloading'
+      ? g.suggestModelDownloading(mb)
+      : modelOn && status?.state === 'failed'
+        ? g.suggestModelFailed(status.error ?? '')
+        : g.suggestModelHint(mb)
+  return (
+    <>
+      <CardRow>
+        <Field label={g.suggest} hint={g.suggestHint} inline>
+          <Switch checked={on} label={g.suggest} onChange={setOn} />
+        </Field>
+      </CardRow>
+      <CardRow>
+        <Field label={g.suggestModel} hint={hint} inline>
+          <Switch
+            checked={on && modelOn}
+            disabled={!on || !status}
+            label={g.suggestModel}
+            onChange={(v) => {
+              setModelOn(v)
+              if (v && status?.state !== 'ready')
+                post<SuggestModelStatus>('/api/suggestions/model', {}).then(setStatus, (err: Error) =>
+                  toast(err.message, 'error'),
+                )
+            }}
+          />
+        </Field>
+      </CardRow>
+    </>
+  )
+}
+
 /** Desktop notifications when a round finishes while Myrmidon is in the background (this browser only). */
 function NotifyToggle() {
   const toast = useToast()
@@ -912,8 +1039,6 @@ export function ThemePicker(props: { theme: ThemeChoice; onTheme(t: ThemeChoice)
 }
 
 function General(props: {
-  theme: ThemeChoice
-  onTheme(t: ThemeChoice): void
   reduceMotion: boolean
   onReduceMotion(v: boolean): void
   onRunSetup?(): void
@@ -923,11 +1048,6 @@ function General(props: {
     <>
       <PageHeader title={copy.settings.general.title}>{copy.settings.general.intro}</PageHeader>
       <Card>
-        <CardRow>
-          <Field label={copy.settings.general.theme} hint={copy.settings.general.themeHint} inline>
-            <ThemePicker theme={props.theme} onTheme={props.onTheme} />
-          </Field>
-        </CardRow>
         <CardRow>
           <Field
             label={copy.settings.general.reduceMotion}
@@ -944,6 +1064,7 @@ function General(props: {
         <CardRow>
           <NotifyToggle />
         </CardRow>
+        <SuggestToggles />
         {props.onRunSetup && (
           <CardRow>
             <Field label={copy.settings.general.setup} hint={copy.settings.general.setupHint} inline>
@@ -1552,6 +1673,8 @@ export function Providers(props: {
   update(p: (s: ServerSettings) => ServerSettings, immediate?: boolean): void
   /** Inside the setup assistant, which has its own heading and says where keys are kept itself. */
   embedded?: boolean
+  /** Scrolled to the voice providers (from Settings → Voice). */
+  focusVoice?: boolean
 }) {
   const off = new Set(props.data.settings.models.hiddenProviders)
   const setOff = (id: string, hide: boolean) =>
@@ -1809,6 +1932,7 @@ export function Providers(props: {
         <span className="font-mono">ANTHROPIC_API_KEY</span>
         {copy.settings.providers.envAfter}
       </p>
+      {!props.embedded && <VoiceProviders focus={props.focusVoice ?? false} />}
     </>
   )
 }
@@ -3387,6 +3511,10 @@ function ChannelSheet(props: {
 export interface VoiceStatusView {
   enabled: boolean
   callModel?: string
+  mode?: 'pipeline' | 'realtime'
+  /** The voice providers and the person's own services; absent from older servers. */
+  providers?: VoiceProviderView[]
+  endpoints?: VoiceEndpointView[]
   stt: {
     provider: ServerSettings['voice']['stt']['provider']
     phonon: { state: string; line?: string; error?: string }
@@ -3420,16 +3548,6 @@ function voiceBusy(s: VoiceStatusView | undefined): boolean {
   )
 }
 
-/** A plain http address to another machine, where a key and audio would travel unencrypted. */
-function plainHttp(url: string | undefined): boolean {
-  if (!url?.startsWith('http://')) return false
-  try {
-    return !['localhost', '127.0.0.1', '[::1]'].includes(new URL(url).hostname)
-  } catch {
-    return false
-  }
-}
-
 /** A speech engine that failed: what went wrong and what to do, with its own message behind details. */
 export function EngineTrouble(props: { engine: 'phonon' | 'kitten'; raw: string }) {
   const t = copy.settings.voice.trouble
@@ -3451,23 +3569,22 @@ export function EngineTrouble(props: { engine: 'phonon' | 'kitten'; raw: string 
 }
 
 /**
- * Voice calls: the call model, speech to text and text to speech (on this Mac by default — Phonon-2 and Kitten TTS,
- * installed from here — or the person's cloud providers, or any OpenAI-compatible endpoint), and how loud speech must
- * be to count.
+ * Voice calls: the call mode, the call model, speech to text and text to speech (on this Mac by default — Phonon-2 and
+ * Kitten TTS, installed from here — omp's speech models, the voice providers set up in Models & providers, or the
+ * person's own services), a realtime model, and how loud speech must be to count.
  */
 function VoiceSection(props: {
   settings: ServerSettings
   update(p: (s: ServerSettings) => ServerSettings): void
   models: ModelOption[]
+  /** Opens Models & providers at its voice providers. */
+  onAddProvider(): void
 }) {
   const t = copy.settings.voice
   const toast = useToast()
   const v = props.settings.voice
   const [status, setStatus] = useState<VoiceStatusView>()
-  const [keys, setKeys] = useState({ stt: '', tts: '' })
   const [trying, setTrying] = useState(false)
-  const [urls, setUrls] = useState({ stt: v.stt.baseUrl ?? '', tts: v.tts.baseUrl ?? '' })
-  const [urlErrors, setUrlErrors] = useState<{ stt?: string; tts?: string }>({})
   // A failing look is said once, not again on every later look that fails the same way.
   const failed = useRef<string>(undefined)
   // Counts finished looks, so each one, answered or failed, can schedule the next.
@@ -3507,6 +3624,9 @@ function VoiceSection(props: {
       : ((t.engine[s.state as keyof typeof t.engine] as string | undefined) ?? s.state)
   const sizes = status?.sizes
   const size = (bytes: number | undefined) => (bytes ? formatSize(bytes) : '')
+  const providers = status?.providers ?? []
+  const endpoints = status?.endpoints ?? []
+  const realtime = v.mode === 'realtime'
   const tryIt = async () => {
     setTrying(true)
     try {
@@ -3520,86 +3640,18 @@ function VoiceSection(props: {
       setTrying(false)
     }
   }
-  const saveKey = (which: 'stt' | 'tts') =>
-    void act(send('PUT', '/api/voice/keys', { [which]: keys[which] })).then(() =>
-      setKeys((k) => ({ ...k, [which]: '' })),
-    )
-  const endpointFields = (which: 'stt' | 'tts') => {
-    const e = v[which]
-    return (
-      <>
-        <CardRow>
-          <Field
-            label={t.baseUrl}
-            hint={plainHttp(urls[which].trim()) ? t.hints.plainHttp : t.hints.endpoint}
-            error={urlErrors[which]}
-          >
-            <TextInput
-              value={urls[which]}
-              placeholder="https://api.groq.com/openai/v1"
-              onChange={(ev) => setUrls((u) => ({ ...u, [which]: ev.target.value }))}
-              onBlur={() => {
-                const baseUrl = urls[which].trim()
-                const error = baseUrlError(baseUrl)
-                setUrlErrors((u) => ({ ...u, [which]: error }))
-                // An address that is not one is not saved; clearing the field is.
-                if (!error || !baseUrl)
-                  set((x) => ({ ...x, [which]: { ...x[which], baseUrl: baseUrl || undefined } }))
-              }}
-              aria-label={t.baseUrl}
-              className="font-mono"
-            />
-          </Field>
-        </CardRow>
-        <CardRow>
-          <Field label={t.model}>
-            <TextInput
-              defaultValue={e.model ?? ''}
-              placeholder={which === 'stt' ? 'whisper-large-v3' : 'tts-1'}
-              onBlur={(ev) => {
-                const model = ev.target.value.trim()
-                set((x) => ({ ...x, [which]: { ...x[which], model: model || undefined } }))
-              }}
-              aria-label={t.model}
-              className="font-mono"
-            />
-          </Field>
-        </CardRow>
-        {which === 'tts' && (
-          <CardRow>
-            <Field label={t.voice}>
-              <TextInput
-                defaultValue={v.tts.endpointVoice ?? ''}
-                placeholder="alloy"
-                onBlur={(ev) => {
-                  const endpointVoice = ev.target.value.trim()
-                  set((x) => ({ ...x, tts: { ...x.tts, endpointVoice: endpointVoice || undefined } }))
-                }}
-                aria-label={t.voice}
-              />
-            </Field>
-          </CardRow>
-        )}
-        <CardRow>
-          <Field label={t.key} hint={status?.[which].keySet ? t.keySet : undefined}>
-            <div className="flex gap-2">
-              <TextInput
-                type="password"
-                autoComplete="off"
-                value={keys[which]}
-                onChange={(ev) => setKeys((k) => ({ ...k, [which]: ev.target.value }))}
-                aria-label={t.key}
-                className="font-mono"
-              />
-              <Button size="sm" disabled={!keys[which].trim()} onClick={() => saveKey(which)}>
-                {t.saveKey}
-              </Button>
-            </div>
-          </Field>
-        </CardRow>
-      </>
-    )
-  }
+  const sttHint =
+    v.stt.provider === 'phonon'
+      ? t.hints.phonon(size(sizes?.phonon))
+      : v.stt.provider === 'omp'
+        ? t.hints.ompStt(status?.stt.omp.join(', ') ?? '')
+        : cloudHint('stt', v.stt.provider, providers, endpoints)
+  const ttsHint =
+    v.tts.provider === 'kitten'
+      ? t.hints.kitten
+      : v.tts.provider === 'omp'
+        ? t.hints.ompTts(status?.tts.omp.join(', ') ?? '')
+        : cloudHint('tts', v.tts.provider, providers, endpoints)
   const onOff = (
     <Card className="mb-6">
       <CardRow>
@@ -3638,44 +3690,47 @@ function VoiceSection(props: {
       <PageHeader title={t.title}>{t.intro}</PageHeader>
       {onOff}
       <Card className="mb-6">
-        <CardRow>
-          <Field label={t.callModel} hint={t.callModelHint}>
-            <div className="flex flex-wrap items-center gap-2">
-              <Segmented
-                id="call-model"
-                value={v.callModel ? 'own' : 'lead'}
-                options={[
-                  { value: 'lead', label: t.sameAsLead },
-                  { value: 'own', label: t.ownModel },
-                ]}
-                onChange={(choice) =>
-                  set((x) => ({
-                    ...x,
-                    callModel: choice === 'lead' ? undefined : (status?.callModel ?? props.models[0]?.ref),
-                  }))
-                }
-              />
-              {v.callModel ? (
-                <ModelPicker
-                  variant="compact"
-                  label={t.callModel}
-                  value={v.callModel}
-                  models={props.models}
-                  placement="down"
-                  onChange={(callModel) => set((x) => ({ ...x, callModel }))}
+        <CallModeRow voice={v} set={set} />
+        {!realtime && (
+          <CardRow>
+            <Field label={t.callModel} hint={t.callModelHint}>
+              <div className="flex flex-wrap items-center gap-2">
+                <Segmented
+                  id="call-model"
+                  value={v.callModel ? 'own' : 'lead'}
+                  options={[
+                    { value: 'lead', label: t.sameAsLead },
+                    { value: 'own', label: t.ownModel },
+                  ]}
+                  onChange={(choice) =>
+                    set((x) => ({
+                      ...x,
+                      callModel: choice === 'lead' ? undefined : (status?.callModel ?? props.models[0]?.ref),
+                    }))
+                  }
                 />
-              ) : (
-                status?.callModel && (
-                  <span className="text-callout text-muted">
-                    {t.leadModel(
-                      props.models.find((m) => m.ref === status.callModel)?.name ?? status.callModel,
-                    )}
-                  </span>
-                )
-              )}
-            </div>
-          </Field>
-        </CardRow>
+                {v.callModel ? (
+                  <ModelPicker
+                    variant="compact"
+                    label={t.callModel}
+                    value={v.callModel}
+                    models={props.models}
+                    placement="down"
+                    onChange={(callModel) => set((x) => ({ ...x, callModel }))}
+                  />
+                ) : (
+                  status?.callModel && (
+                    <span className="text-callout text-muted">
+                      {t.leadModel(
+                        props.models.find((m) => m.ref === status.callModel)?.name ?? status.callModel,
+                      )}
+                    </span>
+                  )
+                )}
+              </div>
+            </Field>
+          </CardRow>
+        )}
         <CardRow>
           <Field label={t.sensitivity} hint={t.sensitivityHint} inline>
             <Select
@@ -3693,31 +3748,27 @@ function VoiceSection(props: {
         </CardRow>
       </Card>
 
-      <SectionHeader as="h3" className="mb-2" title={t.sttTitle} />
+      {realtime && (
+        <>
+          <SectionHeader as="h3" className="mb-2" title={t.realtimeTitle} />
+          <RealtimeCard voice={v} providers={providers} set={set} onAddProvider={props.onAddProvider} />
+        </>
+      )}
+
+      <div className="mb-2 flex items-center justify-between">
+        <SectionHeader as="h3" title={t.sttTitle} note={realtime ? t.directOnly : undefined} />
+        <AddVoiceProvider onClick={props.onAddProvider} />
+      </div>
       <Card className="mb-6">
         <CardRow>
-          <Field
-            label={t.engineLabel}
-            hint={
-              v.stt.provider === 'phonon'
-                ? t.hints.phonon(size(sizes?.phonon))
-                : v.stt.provider === 'omp'
-                  ? t.hints.ompStt(status?.stt.omp.join(', ') ?? '')
-                  : t.hints.endpointStt
-            }
-          >
-            <Select
-              value={v.stt.provider}
-              onChange={(e) =>
-                set((x) => ({ ...x, stt: { ...x.stt, provider: e.target.value as typeof v.stt.provider } }))
-              }
-              aria-label={t.sttTitle}
-            >
-              <option value="phonon">{t.providers.phonon}</option>
-              <option value="omp">{t.providers.omp}</option>
-              <option value="endpoint">{t.providers.endpoint}</option>
-            </Select>
-          </Field>
+          <EnginePicker
+            kind="stt"
+            voice={v}
+            providers={providers}
+            endpoints={endpoints}
+            set={set}
+            hint={sttHint}
+          />
         </CardRow>
         {v.stt.provider === 'phonon' && status && (
           <CardRow>
@@ -3740,34 +3791,20 @@ function VoiceSection(props: {
             </div>
           </CardRow>
         )}
-        {v.stt.provider === 'endpoint' && endpointFields('stt')}
+        <CloudRows kind="stt" voice={v} providers={providers} set={set} />
       </Card>
 
-      <SectionHeader as="h3" className="mb-2" title={t.ttsTitle} />
+      <SectionHeader as="h3" className="mb-2" title={t.ttsTitle} note={realtime ? t.directOnly : undefined} />
       <Card className="mb-6">
         <CardRow>
-          <Field
-            label={t.engineLabel}
-            hint={
-              v.tts.provider === 'kitten'
-                ? t.hints.kitten
-                : v.tts.provider === 'omp'
-                  ? t.hints.ompTts(status?.tts.omp.join(', ') ?? '')
-                  : t.hints.endpointTts
-            }
-          >
-            <Select
-              value={v.tts.provider}
-              onChange={(e) =>
-                set((x) => ({ ...x, tts: { ...x.tts, provider: e.target.value as typeof v.tts.provider } }))
-              }
-              aria-label={t.ttsTitle}
-            >
-              <option value="kitten">{t.providers.kitten}</option>
-              <option value="omp">{t.providers.omp}</option>
-              <option value="endpoint">{t.providers.endpoint}</option>
-            </Select>
-          </Field>
+          <EnginePicker
+            kind="tts"
+            voice={v}
+            providers={providers}
+            endpoints={endpoints}
+            set={set}
+            hint={ttsHint}
+          />
         </CardRow>
         {v.tts.provider === 'kitten' && (
           <>
@@ -3829,7 +3866,7 @@ function VoiceSection(props: {
             </CardRow>
           </>
         )}
-        {v.tts.provider === 'endpoint' && endpointFields('tts')}
+        <CloudRows kind="tts" voice={v} providers={providers} set={set} />
         <CardRow>
           <Field label={t.speed} inline>
             <Select
@@ -4135,35 +4172,6 @@ function Tile(props: { selected: boolean; label: string; onClick(): void; childr
   )
 }
 
-/** The mascot's screen at a size for pickers: its eyes in the chosen style and colour, with its accessory. */
-function MiniMascot(props: { look: MascotLook; cell?: number }) {
-  const cell = props.cell ?? 4
-  return (
-    <span className="relative inline-block rounded-xl bg-screen p-2.5">
-      <PixelFace
-        mood="idle"
-        color={MASCOT_COLORS[props.look.color]}
-        cols={15}
-        rows={8}
-        cell={cell}
-        gap={cell * 0.3}
-        eyes={props.look.eyes}
-        look={[0, 0]}
-      />
-      {props.look.look === 'flower' && (
-        <PixelSprite sprite={FLOWER} cell={cell * 0.85} className="absolute -right-2.5 -top-2.5" />
-      )}
-      {props.look.look === 'bow' && (
-        <PixelSprite
-          sprite={BOW}
-          cell={cell * 0.75}
-          className="absolute -bottom-2.5 left-1/2 -translate-x-1/2"
-        />
-      )}
-    </span>
-  )
-}
-
 export function MascotSection(props: {
   data: SettingsResponse
   update(p: (s: ServerSettings) => ServerSettings, immediate?: boolean): void
@@ -4175,9 +4183,9 @@ export function MascotSection(props: {
 }) {
   const t = copy.settings.mascot
   const profile = props.data.settings.profile ?? { greeting: 'model' as const }
-  const look = { ...DEFAULT_MASCOT, ...props.data.settings.mascot }
-  const set = (patch: Partial<MascotLook>) =>
-    props.update((s) => ({ ...s, mascot: { ...DEFAULT_MASCOT, ...s.mascot, ...patch } }), true)
+  const look = withMascotDefaults(props.data.settings.mascot)
+  const set = (patch: MascotPatch) =>
+    props.update((s) => ({ ...s, mascot: withMascotDefaults(s.mascot, patch) }), true)
   return (
     <>
       {!props.embedded && <PageHeader title={t.title}>{t.intro}</PageHeader>}
@@ -4240,9 +4248,7 @@ export function MascotSection(props: {
       <Card>
         {!props.embedded && (
           <CardRow>
-            <figure className="m-0 grid place-items-center py-4" aria-label={t.preview}>
-              <MiniMascot look={look} cell={9} />
-            </figure>
+            <MascotPreview look={look} />
           </CardRow>
         )}
         <CardRow>
@@ -4306,6 +4312,7 @@ export function MascotSection(props: {
           </Field>
         </CardRow>
       </Card>
+      {!props.embedded && <MascotBehaviour look={look} set={set} />}
     </>
   )
 }

@@ -182,10 +182,15 @@ export class TerminalSession {
     this.ended = undefined
     this.process = null
     // xterm draws on a canvas, so it takes the panel's colours as values and is given them again on a theme change:
-    // the surface and text, and the ANSI palette from the --term-* tokens.
+    // the surface and text, and the ANSI palette: a VS Code theme's own (--ansi-*) when one is chosen, else the
+    // --term-* tokens, which keep every colour readable on Myrmidon's own looks.
     const colours = () => {
       const style = getComputedStyle(el)
-      const token = (name: string) => style.getPropertyValue(`--term-${name}`).trim() || undefined
+      const root = getComputedStyle(document.documentElement)
+      const token = (name: string) =>
+        root.getPropertyValue(`--ansi-${name}`).trim() ||
+        style.getPropertyValue(`--term-${name}`).trim() ||
+        undefined
       const ansi = Object.fromEntries(
         ANSI.flatMap((c) => [
           [c, token(c)],
@@ -214,7 +219,10 @@ export class TerminalSession {
       t.options.theme = colours()
     }
     const themed = new MutationObserver(retheme)
-    themed.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+    themed.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme', 'data-palette'],
+    })
     const system = matchMedia('(prefers-color-scheme: dark)')
     system.addEventListener('change', retheme)
     const fit = new FitAddon()

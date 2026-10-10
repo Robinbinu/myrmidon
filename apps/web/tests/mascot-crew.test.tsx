@@ -2,6 +2,7 @@ import { afterEach, expect, test } from 'bun:test'
 import { MotionConfig } from 'motion/react'
 import { act } from 'react'
 import { copy } from '../src/client/copy.ts'
+import { DEFAULT_MASCOT } from '../src/client/mascot.ts'
 import { MASCOT_CREW, MASCOT_TOUCH } from '../src/client/ui-config.ts'
 import { mount, withDom } from './dom.ts'
 
@@ -210,32 +211,6 @@ test('left alone, the crew finishes what it is doing and stands still', async ()
   expect(crew.every((m) => m.state === 'roam')).toBe(true)
 })
 
-test("the crew is the install's own: the same names every time, picked again only if the list lost one", async () => {
-  const { keptCrew } = await import('../src/client/chat/hero-crew.ts')
-  const kept = new Map<string, string>()
-  const storage = {
-    read: (k: string) => kept.get(k) ?? '',
-    write: (k: string, v: string) => void kept.set(k, v),
-  }
-  const first = keptCrew(3, storage, seeded(1))
-  for (let seed = 2; seed < 10; seed++) expect(keptCrew(3, storage, seeded(seed))).toEqual(first)
-  // A name no longer on the list: a new crew, kept from then on.
-  const names = copy.hero.crewNames.filter((n) => n !== first[0]?.name)
-  const again = keptCrew(3, storage, seeded(4), names)
-  expect(again.map((c) => c.name)).not.toContain(first[0]?.name)
-  expect(keptCrew(3, storage, seeded(5), names)).toEqual(again)
-  // Storage that throws still gives a crew.
-  const broken = {
-    read: () => {
-      throw new Error('blocked')
-    },
-    write: () => {
-      throw new Error('blocked')
-    },
-  }
-  expect(keptCrew(3, broken, seeded(6))).toHaveLength(3)
-})
-
 test('the crew holds still while the window is in the background, and moves again once it is back', async () => {
   const view = await hero('never')
   const spots = () =>
@@ -272,6 +247,7 @@ test('a right-click does not make the next key press a tap, and a cancelled drag
         mood="idle"
         color="#ffffff"
         eyes="round"
+        display={DEFAULT_MASCOT.display}
         onClipEnd={() => {}}
         onTap={() => taps.push('tap')}
         onPress={() => taps.push('press')}

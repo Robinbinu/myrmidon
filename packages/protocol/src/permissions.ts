@@ -58,7 +58,8 @@ export const ACCESS_GROUPS: Readonly<Record<AccessGroup, readonly string[]>> = {
   ],
   // `mcp` stands for every tool of the connected MCP servers.
   mcp: ['mcp'],
-  computer: ['computer'],
+  // Cua Driver's computer tool with the tools that open and list the apps it works in, and omp's desktop engine.
+  computer: ['computer', 'open_app', 'list_apps', 'desktop'],
   messaging: ['message', 'create_group', 'update_group', 'append_note'],
   plugins: ['create_plugin', 'test_plugin', 'propose_plugin'],
 }
@@ -103,6 +104,8 @@ export interface PermissionCall {
   readonly where?: 'project' | 'private' | 'outside'
   readonly edits?: boolean
   readonly readOnly?: boolean
+  /** No preset lets it run on its own: it asks unless a rule allows it (omp's desktop scripts, run outside the sandbox). */
+  readonly asks?: boolean
 }
 
 /** Why a call got its decision: shown on approval cards and in the explainer. */
@@ -212,6 +215,7 @@ export function decide(
 
 /** What a preset does with a call no rule names (the table in the design doc). */
 export function presetDecision(preset: PermissionPreset, call: PermissionCall): RuleDecision {
+  if (call.asks) return 'ask'
   switch (call.kind) {
     case 'read':
     case 'colony':

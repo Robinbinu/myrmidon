@@ -96,6 +96,24 @@ export function trimSilence(
   return pcm.subarray(from, to)
 }
 
+/**
+ * Cuts only the quiet before speech starts, for the first pieces of a sentence that streams in (its end is still to
+ * come).
+ */
+export function trimStart(pcm: Int16Array, sampleRate: number, keepMs = 50): Int16Array {
+  const window = Math.max(1, Math.round(sampleRate / 100))
+  let start = 0
+  for (; start < pcm.length; start += window) {
+    let sum = 0
+    const end = Math.min(pcm.length, start + window)
+    for (let i = start; i < end; i++) sum += (pcm[i] ?? 0) ** 2
+    if (Math.sqrt(sum / Math.max(1, end - start)) >= SILENCE_RMS) break
+  }
+  // A piece that is quiet throughout is dropped: the voice starts in a later one.
+  if (start >= pcm.length) return pcm.subarray(0, 0)
+  return pcm.subarray(Math.max(0, start - Math.round((keepMs / 1000) * sampleRate)))
+}
+
 /** Below this level (RMS of 16-bit samples) a 10 ms stretch of synthesized speech counts as quiet. */
 const SILENCE_RMS = 300
 

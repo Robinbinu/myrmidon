@@ -7,7 +7,17 @@ import { copy } from './copy.ts'
 import { ConfirmButton } from './ui/ConfirmButton.tsx'
 import { DESKTOP_COMPUTER_STOP, DESKTOP_SHORTCUT_EVENT, desktop } from './ui/desktop.ts'
 import { FEATURE_ICONS } from './ui/icons.ts'
-import { Badge, Button, Card, CardRow, cn, PageHeader, SectionHeader, Switch } from './ui/primitives.tsx'
+import {
+  Badge,
+  Button,
+  Card,
+  CardRow,
+  cn,
+  PageHeader,
+  SectionHeader,
+  Segmented,
+  Switch,
+} from './ui/primitives.tsx'
 import { useToast } from './ui/Toast.tsx'
 import { COMPUTER_IDLE_POLL_MS, COMPUTER_POLL_MS, COMPUTER_SETTINGS_POLL_MS } from './ui-config.ts'
 
@@ -24,6 +34,7 @@ export interface ComputerStatus {
   supported: boolean
   enabled: boolean
   controls: { colonyId: string; agent: string; app: string; since: number }[]
+  engine?: 'cua' | 'omp'
   state?: { state: string; received?: number; total?: number; error?: string }
   driver?: { path: string; version?: string; own: boolean }
   version?: string
@@ -57,8 +68,13 @@ interface ChatApps {
   computerApps?: ComputerApp[]
 }
 
-/** Settings → Computer use: its switch, the driver, macOS's grants, the tiers, and apps chats were allowed. */
-export function ComputerSection(props: { enabled: boolean; setEnabled(enabled: boolean): void }) {
+/** Settings → Computer use: its switch, its engine, the driver, macOS's grants, the tiers, and apps chats allowed. */
+export function ComputerSection(props: {
+  enabled: boolean
+  setEnabled(enabled: boolean): void
+  engine: 'cua' | 'omp'
+  setEngine(engine: 'cua' | 'omp'): void
+}) {
   const toast = useToast()
   const [status, setStatus] = useComputerStatus(COMPUTER_SETTINGS_POLL_MS)
   const [chats, setChats] = useState<ChatApps[]>([])
@@ -98,6 +114,7 @@ export function ComputerSection(props: { enabled: boolean; setEnabled(enabled: b
     )
   const state = status?.state?.state ?? 'missing'
   const size = formatSize(status?.downloadBytes ?? 0)
+  const cua = props.engine === 'cua'
   return (
     <>
       <PageHeader title={t.title}>{t.intro}</PageHeader>
@@ -126,45 +143,62 @@ export function ComputerSection(props: { enabled: boolean; setEnabled(enabled: b
         </CardRow>
       </Card>
 
-      <SectionHeader className="mb-2 mt-8" title={t.driverTitle} note={t.driverNote} />
+      <SectionHeader className="mb-2 mt-8" title={t.engineTitle} note={t.engineNote} />
       <Card>
         <CardRow>
-          <div className="flex items-center gap-3">
-            <div className="min-w-0 flex-1 text-body">
-              <div className="font-medium">
-                {t.driverStates[state] ?? state}
-                {state === 'installing' && status?.state?.received !== undefined && (
-                  <span className="text-muted">
-                    {' '}
-                    · {t.progress(formatSize(status.state.received), formatSize(status.state.total ?? 0))}
-                  </span>
-                )}
-              </div>
-              <div className="truncate text-callout text-muted" title={status?.driver?.path}>
-                {status?.driver
-                  ? t.installedAt(status.driver.version, status.driver.own)
-                  : t.installHint(status?.version ?? '', size)}
-              </div>
-              {state === 'error' && status?.state?.error && (
-                <div className="mt-1 text-callout text-bad-ink">{status.state.error}</div>
-              )}
-            </div>
-            {state === 'installing' || state === 'starting' ? (
-              <LoaderCircle className="size-4 animate-spin text-muted" />
-            ) : (
-              (state === 'missing' || state === 'error' || status?.driver?.own) && (
-                <Button
-                  size="sm"
-                  variant="push"
-                  onClick={() => void act(post<ComputerStatus>('/api/computer/install', {}))}
-                >
-                  {status?.driver ? t.reinstall : t.install(size)}
-                </Button>
-              )
-            )}
+          <div className="flex flex-col gap-2">
+            <Segmented
+              id="computer-engine"
+              value={props.engine}
+              options={(['cua', 'omp'] as const).map((value) => ({ value, label: t.engines[value].label }))}
+              onChange={props.setEngine}
+            />
+            <p className="text-callout text-muted">{t.engines[props.engine].hint}</p>
           </div>
         </CardRow>
       </Card>
+
+      {cua && <SectionHeader className="mb-2 mt-8" title={t.driverTitle} note={t.driverNote} />}
+      {cua && (
+        <Card>
+          <CardRow>
+            <div className="flex items-center gap-3">
+              <div className="min-w-0 flex-1 text-body">
+                <div className="font-medium">
+                  {t.driverStates[state] ?? state}
+                  {state === 'installing' && status?.state?.received !== undefined && (
+                    <span className="text-muted">
+                      {' '}
+                      · {t.progress(formatSize(status.state.received), formatSize(status.state.total ?? 0))}
+                    </span>
+                  )}
+                </div>
+                <div className="truncate text-callout text-muted" title={status?.driver?.path}>
+                  {status?.driver
+                    ? t.installedAt(status.driver.version, status.driver.own)
+                    : t.installHint(status?.version ?? '', size)}
+                </div>
+                {state === 'error' && status?.state?.error && (
+                  <div className="mt-1 text-callout text-bad-ink">{status.state.error}</div>
+                )}
+              </div>
+              {state === 'installing' || state === 'starting' ? (
+                <LoaderCircle className="size-4 animate-spin text-muted" />
+              ) : (
+                (state === 'missing' || state === 'error' || status?.driver?.own) && (
+                  <Button
+                    size="sm"
+                    variant="push"
+                    onClick={() => void act(post<ComputerStatus>('/api/computer/install', {}))}
+                  >
+                    {status?.driver ? t.reinstall : t.install(size)}
+                  </Button>
+                )
+              )}
+            </div>
+          </CardRow>
+        </Card>
+      )}
 
       <SectionHeader className="mb-2 mt-8" title={t.grantsTitle} note={t.grantsNote} />
       <Card>
@@ -195,25 +229,27 @@ export function ComputerSection(props: { enabled: boolean; setEnabled(enabled: b
             </CardRow>
           )
         })}
-        <CardRow>
-          <div className="flex items-center gap-3">
-            <p className="min-w-0 flex-1 text-callout text-muted">{t.restartNote}</p>
-            <Button
-              size="sm"
-              variant="push"
-              onClick={() => void act(post<ComputerStatus>('/api/computer/restart', {}), t.restarted)}
-            >
-              {t.restart}
-            </Button>
-          </div>
-        </CardRow>
+        {cua && (
+          <CardRow>
+            <div className="flex items-center gap-3">
+              <p className="min-w-0 flex-1 text-callout text-muted">{t.restartNote}</p>
+              <Button
+                size="sm"
+                variant="push"
+                onClick={() => void act(post<ComputerStatus>('/api/computer/restart', {}), t.restarted)}
+              >
+                {t.restart}
+              </Button>
+            </div>
+          </CardRow>
+        )}
       </Card>
 
       <SectionHeader className="mb-2 mt-8" title={t.tiersTitle} />
       <Card>
         <CardRow>
           <ul className="list-disc space-y-1 pl-5 text-body text-fg-2">
-            {t.tiers.map((line) => (
+            {(cua ? t.tiers : t.ompTiers).map((line) => (
               <li key={line}>{line}</li>
             ))}
           </ul>

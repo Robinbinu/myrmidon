@@ -6,6 +6,7 @@ import {
   type EventPayloads,
   type MyrEvent,
   outsideEffects,
+  type QuestionAnswers,
   roundSlice,
   STOPPED_BY_USER,
 } from '@myrmidon/protocol'
@@ -95,7 +96,7 @@ const enter = { initial: { opacity: 0, y: 10 }, animate: { opacity: 1, y: 0 }, t
  * Shown the moment a request is sent, until the lead's round exists: the message and the lead thinking, with a
  * running clock, as a chat assistant shows it is on it.
  */
-export function PendingRound({ text }: { text: string }) {
+export function PendingRound({ text, bubble = true }: { text: string; bubble?: boolean }) {
   const [elapsed, setElapsed] = useState(0)
   useEffect(() => {
     const started = Date.now()
@@ -104,7 +105,7 @@ export function PendingRound({ text }: { text: string }) {
   }, [])
   return (
     <section className="flex flex-col gap-4" aria-busy="true">
-      <UserMessage text={text} />
+      {bubble && <UserMessage text={text} />}
       <motion.div {...enter} className="flex items-center gap-3">
         <span className="grid size-9 shrink-0 place-items-center rounded-base bg-screen">
           <PixelFace mood="thinking" color={LEAD_COLOR} cols={7} rows={7} cell={3} gap={1} />
@@ -163,8 +164,11 @@ export function RoundView(props: {
   onRetry(text: string): void
   /** Asks for a skill to be learned from this chat's work. */
   onLearn(): void
-  /** Sends the person's answer to the questions the round is waiting on; rejects if it did not get through. */
-  onAnswer(text: string): Promise<unknown>
+  /**
+   * Sends the person's answer to the questions the round is waiting on (with which question it answers and what was
+   * picked, so the card can show it); rejects if it did not get through.
+   */
+  onAnswer(text: string, answers?: QuestionAnswers): Promise<unknown>
   /** Picks a stopped round back up where it left off, optionally on another model. */
   onResume(model?: string): Promise<void>
   models: ModelOption[]
@@ -245,8 +249,10 @@ export function RoundView(props: {
       const v = state.artifacts[name]?.[0]
       return { name, ...(v ? { mediaType: v.mediaType, blob: v.blob, size: v.size } : {}) }
     })
+  // An answer given on a question card shows in the card itself, not as a message of its own.
+  const answerTo = (m: ChatEntry) => colony.state.chatMessages.find((x) => x.answers?.seq === m.seq)
   const message = (m: ChatEntry) =>
-    m.from === 'user' ? (
+    m.answers ? null : m.from === 'user' ? (
       <UserMessage
         key={m.id}
         text={m.text}
@@ -275,7 +281,9 @@ export function RoundView(props: {
               choices={m.choices ?? []}
               {...(m.plan ? { plan: m.plan } : {})}
               open={latest && state.statusReason === AWAITING && m === state.chatMessages.at(-1)}
-              onAnswer={props.onAnswer}
+              {...(answerTo(m)?.answers ? { answered: answerTo(m)?.answers?.picks } : {})}
+              {...(answerTo(m)?.readBy?.length ? { readBy: answerTo(m)?.readBy } : {})}
+              onAnswer={(text, picks) => props.onAnswer(text, picks ? { seq: m.seq, picks } : undefined)}
             />
           </div>
         )}
@@ -309,7 +317,7 @@ export function RoundView(props: {
 
   return (
     <section className="flex flex-col gap-4">
-      {opening && (
+      {opening && !opening.answers && (
         <UserMessage
           text={opening.text}
           to={opening.to}
@@ -379,6 +387,7 @@ export function RoundView(props: {
           metrics={slice.metrics}
           onOpenColony={() => props.onOpenColony(props.colonyId)}
           {...(latest ? { onLearn: props.onLearn } : {})}
+          answered={!latest}
         />
       )}
       {/* A team round that stopped says so on its run card, so the banner would only repeat it. */}
@@ -806,6 +815,8 @@ function LeadActivity(props: {
   onOpenColony(): void
   /** On the chat's latest round: learn a skill from how it was done. */
   onLearn?(): void
+  /** The question this round ended on has been answered (the round after it carries on). */
+  answered?: boolean
 }) {
   const { state, events } = props
   const running = isRunning(state.status)
@@ -833,7 +844,9 @@ function LeadActivity(props: {
     : running
       ? `${doing ? doing[0]?.toUpperCase() + doing.slice(1) : copy.round.lead.thinking}…`
       : awaiting
-        ? copy.round.lead.waiting
+        ? props.answered
+          ? copy.round.lead.asked
+          : copy.round.lead.waiting
         : state.escalated
           ? state.escalated.to === 'team'
             ? copy.round.lead.toTeam

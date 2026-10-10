@@ -195,6 +195,19 @@ export class ChatIndex {
     return hits.slice(0, CHAT_SEARCH_LIMIT)
   }
 
+  /**
+   * What the person has written, most recent first and each message once, up to `limit`: the composer suggests from
+   * it. Agents' messages are left out; they are not the person's words.
+   */
+  said(limit: number): string[] {
+    const rows = this._db
+      .query(
+        "select text from chat_messages where sender = 'user' group by text order by max(at) desc, max(rowid) desc limit ?",
+      )
+      .all(limit) as { text: string }[]
+    return rows.map((r) => r.text)
+  }
+
   /** Indexes a round's messages as it ended, so search finds them before the next listing reads its log. */
   noteMessages(id: string, state: ColonyState) {
     this._db.transaction(() => this._putMessages(id, state))()

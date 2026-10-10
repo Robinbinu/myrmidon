@@ -2,6 +2,7 @@ import {
   Activity,
   AppWindow,
   AudioLines,
+  AudioWaveform,
   BadgeCheck,
   BadgeQuestionMark,
   BadgeX,
@@ -16,6 +17,7 @@ import {
   FileCode,
   FilePen,
   FileSearch,
+  FileUp,
   FishingHook,
   FolderKey,
   FolderTree,
@@ -57,6 +59,7 @@ import {
   UserRoundPlus,
   Users,
   UsersRound,
+  Volume2,
   Waypoints,
   Workflow,
   Wrench,
@@ -159,12 +162,20 @@ export const FEATURE_ICONS = {
   hooks: FishingHook,
   /** Requests that run on a schedule. */
   schedules: CalendarClock,
-  /** How the app looks: Settings → General. */
+  /** How the app feels on this device: Settings → General. */
+  general: AppWindow,
+  /** How the app looks: Settings → Appearance, its themes. */
   appearance: Palette,
+  /** Importing a VS Code theme file. */
+  themeImport: FileUp,
   /** The mascot and the person's name. */
   mascot: Smile,
+  /** The mascot's sounds. */
+  mascotSounds: Volume2,
   /** Voice calls with the crew. */
   voice: AudioLines,
+  /** Voice providers (speech to text, voices, realtime models) and their keys, in Models & providers. */
+  voiceProviders: AudioWaveform,
   /** Phone calls on the SMS channel's Twilio number, and a call card that was one. */
   phoneCalls: PhoneIncoming,
   /** The web: search, fetching pages, a page an agent opened. */

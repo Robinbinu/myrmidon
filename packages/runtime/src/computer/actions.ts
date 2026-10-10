@@ -183,8 +183,6 @@ export const GENERIC_ACTIONS = [
   'wait',
   'zoom',
   'cursor_position',
-  'open_app',
-  'list_apps',
 ] as const
 
 const CLICKS: Record<string, { button: MouseButton; count: 1 | 2 | 3 }> = {
@@ -196,8 +194,9 @@ const CLICKS: Record<string, { button: MouseButton; count: 1 | 2 | 3 }> = {
 }
 
 /**
- * The generic `computer` tool's call (and an Anthropic toolset member, which is the same input without `action`) as a
- * desktop action. `text` carries modifier keys on clicks and scrolls, the text to type, or the combo to press.
+ * The generic `computer` tool's call (and an Anthropic toolset member, or the `open_app` and `list_apps` tools, which
+ * are the same input without `action`) as a desktop action. `text` carries modifier keys on clicks and scrolls, the
+ * text to type, or the combo to press.
  */
 export function fromGeneric(action: string, input: Record<string, unknown>): DesktopAction {
   const click = CLICKS[action]

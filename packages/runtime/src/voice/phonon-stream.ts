@@ -6,6 +6,11 @@ export interface LiveTranscription {
   push(pcm: Int16Array): void
   /** The turn is over (or dropped): what the engine is still decoding for it is not waited for. */
   close(): void
+  /**
+   * The turn is over: the words of everything it was sent, once the engine has finished them, for an engine whose
+   * stream gives the turn's transcript (a cloud provider's). Without it the turn is transcribed whole once it ends.
+   */
+  finish?(): Promise<string>
 }
 
 const TEXT = 0x1

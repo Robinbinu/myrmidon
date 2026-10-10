@@ -1,5 +1,5 @@
-import type { QuestionChoice } from '@myrmidon/protocol'
-import { Check, SkipForward } from 'lucide-react'
+import type { QuestionChoice, QuestionPick } from '@myrmidon/protocol'
+import { Check, CheckCheck, SkipForward } from 'lucide-react'
 import { motion } from 'motion/react'
 import { useRef, useState } from 'react'
 import { copy } from '../copy.ts'
@@ -29,23 +29,44 @@ export function answerText(choices: readonly QuestionChoice[], answers: readonly
     .join('\n')
 }
 
+/** What the server keeps of the answers: only what was said, per question. */
+export const picksOf = (answers: readonly Answer[]): QuestionPick[] =>
+  answers.map((a) => ({
+    picked: a.picked,
+    ...(a.other.trim() ? { other: a.other.trim() } : {}),
+    skipped: a.skipped,
+  }))
+
 /**
  * Questions an agent asked with options, as Claude Code asks them: click an option (several where allowed), type
  * your own answer, or skip a question to leave it to the agent. One send answers them all. Once answered, the card
- * stays as a read-only record of what was asked. A plan the agent asks to have approved sits above the questions.
+ * itself shows what was picked (the chat adds no message of its own) and who has read it. A plan the agent asks to
+ * have approved sits above the questions.
  */
 export function QuestionCard(props: {
   choices: readonly QuestionChoice[]
   plan?: string
   /** The round is waiting on these questions; otherwise they were answered or set aside. */
   open: boolean
+  /** What the person answered, from the chat: shown as picked, after a reload too. */
+  answered?: readonly QuestionPick[]
+  /** Agents that have read the answer. */
+  readBy?: readonly string[]
   /** Settles once the answer reached the server; a rejection leaves the questions open to send again. */
-  onAnswer(text: string): Promise<unknown>
+  onAnswer(text: string, picks?: QuestionPick[]): Promise<unknown>
 }) {
   const [answers, setAnswers] = useState<Answer[]>(() => props.choices.map(() => blank))
   const [sending, setSending] = useState<'no' | 'yes' | 'sent'>('no')
   const others = useRef<(HTMLInputElement | null)[]>([])
-  const live = props.open && sending !== 'sent'
+  const live = props.open && sending !== 'sent' && !props.answered
+  // Once answered, the card shows what the chat recorded; until then (or while sending), what is being picked.
+  const shown: Answer[] =
+    props.answered && !live
+      ? props.choices.map((_, i) => {
+          const p = props.answered?.[i]
+          return p ? { picked: [...p.picked], other: p.other ?? '', skipped: p.skipped === true } : blank
+        })
+      : answers
   const several = props.choices.length > 1
   const set = (i: number, patch: Partial<Answer>) =>
     setAnswers((all) => all.map((a, j) => (j === i ? { ...a, ...patch } : a)))
@@ -72,10 +93,10 @@ export function QuestionCard(props: {
         return option && !typesOwn(option)
       }),
   )
-  const send = (text: string) => {
+  const send = (text: string, picks?: QuestionPick[]) => {
     if (sending !== 'no') return
     setSending('yes')
-    props.onAnswer(text).then(
+    props.onAnswer(text, picks).then(
       () => setSending('sent'),
       () => setSending('no'),
     )
@@ -100,7 +121,7 @@ export function QuestionCard(props: {
         </section>
       )}
       {props.choices.map((q, i) => {
-        const a = answers[i] ?? blank
+        const a = shown[i] ?? blank
         const multi = q.multiSelect === true
         // Typing alongside an "I'll type it" option adds to it rather than replacing the pick.
         const typing = a.picked.some((label) => q.options.some((o) => o.label === label && typesOwn(o)))
@@ -173,12 +194,17 @@ export function QuestionCard(props: {
                   })
                 }
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' && done) send(answerText(props.choices, answers))
+                  if (e.key === 'Enter' && done) send(answerText(props.choices, answers), picksOf(answers))
                 }}
                 placeholder={typing ? copy.questions.typeHere : copy.questions.other}
                 aria-label={copy.questions.otherFor(q.question)}
                 className="h-9 rounded-lg border border-line bg-fill/50 px-3 text-body outline-none placeholder:text-muted focus:border-accent/60 focus:ring-2 focus:ring-accent-soft"
               />
+            )}
+            {!live && a.other.trim() && (
+              <p className="rounded-lg border border-accent bg-accent-soft/60 px-3 py-2 text-body text-fg">
+                {a.other}
+              </p>
             )}
           </fieldset>
         )
@@ -189,14 +215,10 @@ export function QuestionCard(props: {
             size="sm"
             variant="borderless"
             disabled={sending === 'yes'}
-            onClick={() =>
-              send(
-                answerText(
-                  props.choices,
-                  props.choices.map(() => ({ ...blank, skipped: true })),
-                ),
-              )
-            }
+            onClick={() => {
+              const skipped = props.choices.map(() => ({ ...blank, skipped: true }))
+              send(answerText(props.choices, skipped), picksOf(skipped))
+            }}
             icon={<SkipForward className="size-3.5" />}
           >
             {copy.questions.skipAll(props.choices.length)}
@@ -205,10 +227,26 @@ export function QuestionCard(props: {
             size="sm"
             variant="primary"
             disabled={!done || sending === 'yes'}
-            onClick={() => send(answerText(props.choices, answers))}
+            onClick={() => send(answerText(props.choices, answers), picksOf(answers))}
           >
             {sending === 'yes' ? copy.questions.sending : copy.questions.send(props.choices.length)}
           </Button>
+        </div>
+      )}
+      {props.answered && (
+        <div
+          className="flex items-center gap-1.5 border-t border-line pt-3 text-footnote text-muted"
+          aria-live="polite"
+        >
+          <Check className="size-3.5" />
+          {copy.questions.answered}
+          {props.readBy?.length ? (
+            <>
+              <span aria-hidden>·</span>
+              <CheckCheck className="size-3.5 text-ok-ink" />
+              {copy.questions.readBy(props.readBy)}
+            </>
+          ) : null}
         </div>
       )}
       {live && props.plan && props.choices.length === 0 && (
@@ -218,7 +256,7 @@ export function QuestionCard(props: {
             size="sm"
             variant="primary"
             disabled={sending === 'yes'}
-            onClick={() => send(copy.questions.approvePlan.text)}
+            onClick={() => send(copy.questions.approvePlan.text, [])}
           >
             {sending === 'yes' ? copy.questions.sending : copy.questions.approvePlan.button}
           </Button>

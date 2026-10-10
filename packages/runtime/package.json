@@ -9,6 +9,7 @@
   "dependencies": {
     "@deepseek-ai/cordis": "4.0.4",
     "@deepseek-ai/schemastery": "3.18.4",
+    "@huggingface/tokenizers": "0.2.0",
     "@myrmidon/core": "workspace:*",
     "@myrmidon/protocol": "workspace:*",
     "@oh-my-pi/pi-agent-core": "18.6.1",

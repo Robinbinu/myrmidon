@@ -150,3 +150,175 @@ test('removing a model takes it out of every default, hiding it or forgetting it
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('mascot settings from before liveliness, crew, screen and sounds keep their look and gain the defaults', () => {
+  const dir = home()
+  try {
+    writeFileSync(
+      join(dir, 'settings.json'),
+      JSON.stringify({ mascot: { eyes: 'lashes', look: 'bow', color: 'violet', screen: 'clock' } }),
+    )
+    const { mascot, appearance } = new SettingsStore(dir).get()
+    expect(mascot).toEqual({
+      eyes: 'lashes',
+      look: 'bow',
+      color: 'violet',
+      screen: 'clock',
+      idle: 'normal',
+      shows: { pacman: true, life: true, confetti: true, boot: true },
+      temper: 'playful',
+      crew: { show: true, count: 3, names: 'minions', custom: [], boldness: 'curious' },
+      display: { dots: 'led', grid: 'faint', glow: 'soft', eyeColor: 'own', size: 'medium' },
+      sounds: { enabled: false, reactions: true, typing: true, volume: 'quiet' },
+    })
+    expect(appearance).toEqual({ imported: [] })
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('mascot settings are checked: the crew count, its names, and every choice', () => {
+  const dir = home()
+  try {
+    const store = new SettingsStore(dir)
+    expect(() => store.set({ mascot: { crew: { count: 0 } } })).toThrow()
+    expect(() => store.set({ mascot: { crew: { count: 7 } } })).toThrow()
+    expect(() => store.set({ mascot: { display: { dots: 'hexagon' } } })).toThrow()
+    expect(() => store.set({ mascot: { crew: { custom: ['a-name-far-too-long-for-a-tag'] } } })).toThrow()
+    const saved = store.set({ mascot: { crew: { names: 'custom', custom: [' Ada ', 'Ada', 'Grace', ''] } } })
+    expect(saved.mascot.crew.custom).toEqual(['Ada', 'Grace'])
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('imported themes keep only hex colours, under keys and roles that can be colours', () => {
+  const dir = home()
+  try {
+    const store = new SettingsStore(dir)
+    const theme = {
+      id: 'imported-abc123',
+      name: ' Mine ',
+      type: 'dark' as const,
+      colors: { 'editor.background': '#101010', 'editor.foreground': '#eeeeee' },
+      syntax: { keyword: '#ff00ff' },
+    }
+    expect(() =>
+      store.set({ appearance: { imported: [{ ...theme, colors: { 'editor.background': 'url(x)' } }] } }),
+    ).toThrow()
+    expect(() =>
+      store.set({ appearance: { imported: [{ ...theme, colors: { 'editor.background': 'red' } }] } }),
+    ).toThrow()
+    expect(() => store.set({ appearance: { imported: [{ ...theme, id: '../etc' }] } })).toThrow()
+    const saved = store.set({
+      appearance: {
+        imported: [
+          {
+            ...theme,
+            colors: { ...theme.colors, 'bad key!': '#000000' },
+            syntax: { ...theme.syntax, oops: '#000' },
+          },
+          theme,
+        ],
+      },
+    })
+    // The same id twice is one theme, the later one.
+    expect(saved.appearance.imported).toEqual([{ ...theme, name: 'Mine' }])
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('voice settings from before voice providers keep every choice: an old address becomes an endpoint', () => {
+  const dir = home()
+  try {
+    const old = (stt: object, tts: object) => {
+      writeFileSync(join(dir, 'settings.json'), JSON.stringify({ voice: { enabled: true, stt, tts } }))
+      return new SettingsStore(dir).get().voice
+    }
+    // The engines on this machine, as most people had them: nothing changes.
+    expect(
+      old({ provider: 'phonon' }, { provider: 'kitten', kittenModel: 'mini', voice: 'Luna', speed: 1.2 }),
+    ).toEqual({
+      enabled: true,
+      mode: 'pipeline',
+      stt: { provider: 'phonon' },
+      tts: { provider: 'kitten', kittenModel: 'mini', voice: 'Luna', speed: 1.2 },
+      sensitivity: 'normal',
+      phone: false,
+    })
+    expect(old({ provider: 'omp' }, { provider: 'omp' }).stt).toEqual({ provider: 'omp' })
+    // One address for both: one endpoint, both choices naming it, model and voice carried over.
+    const shared = old(
+      { provider: 'endpoint', baseUrl: 'https://api.groq.com/openai/v1/', model: 'whisper-large-v3' },
+      {
+        provider: 'endpoint',
+        baseUrl: 'https://api.groq.com/openai/v1',
+        model: 'tts-1',
+        endpointVoice: 'nova',
+      },
+    )
+    expect(shared.endpoints).toEqual([{ id: 'endpoint', baseUrl: 'https://api.groq.com/openai/v1' }])
+    expect(shared.stt).toEqual({ provider: 'endpoint:endpoint', model: 'whisper-large-v3' })
+    expect(shared.tts).toMatchObject({ provider: 'endpoint:endpoint', model: 'tts-1', voiceId: 'nova' })
+    // Two addresses: two endpoints, named for what each was for.
+    const split = old(
+      { provider: 'endpoint', baseUrl: 'http://localhost:9000/v1', model: 'w' },
+      {
+        provider: 'kitten',
+        baseUrl: 'http://localhost:8880/v1',
+        model: 'kokoro',
+        kittenModel: 'nano',
+        voice: 'Leo',
+        speed: 1,
+      },
+    )
+    expect(split.endpoints).toEqual([
+      { id: 'endpoint-stt', baseUrl: 'http://localhost:9000/v1' },
+      { id: 'endpoint-tts', baseUrl: 'http://localhost:8880/v1' },
+    ])
+    expect(split.stt.provider).toBe('endpoint:endpoint-stt')
+    // Kitten stayed the choice; the address it no longer used is kept as an endpoint, its model left behind.
+    expect(split.tts).toEqual({ provider: 'kitten', kittenModel: 'nano', voice: 'Leo', speed: 1 })
+    // Saved again in the new shape, it reads back the same.
+    const store = new SettingsStore(dir)
+    store.set(store.get())
+    expect(new SettingsStore(dir).get().voice).toEqual(split)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('voice providers, realtime and regions are checked, and only what is set is kept', () => {
+  const dir = home()
+  try {
+    const store = new SettingsStore(dir)
+    const base = store.get()
+    const voice = store.set({
+      ...base,
+      voice: {
+        ...base.voice,
+        mode: 'realtime',
+        stt: { provider: 'deepgram', model: 'nova-3' },
+        tts: { ...base.voice.tts, provider: 'elevenlabs', voiceId: 'v1' },
+        realtime: { provider: 'gemini', model: 'gemini-3.8-live', voice: 'Kore' },
+        regions: { azure: 'westeurope' },
+        endpoints: [{ id: 'kokoro', baseUrl: 'http://localhost:8880/v1/', keyless: true }],
+      },
+    }).voice
+    expect(voice).toMatchObject({
+      mode: 'realtime',
+      stt: { provider: 'deepgram', model: 'nova-3' },
+      realtime: { provider: 'gemini', model: 'gemini-3.8-live', voice: 'Kore' },
+      regions: { azure: 'westeurope' },
+      endpoints: [{ id: 'kokoro', baseUrl: 'http://localhost:8880/v1', keyless: true }],
+    })
+    expect(() => store.set({ ...base, voice: { ...base.voice, mode: 'telepathy' } })).toThrow()
+    expect(() => store.set({ ...base, voice: { ...base.voice, stt: { provider: 'Not One!' } } })).toThrow()
+    expect(() =>
+      store.set({ ...base, voice: { ...base.voice, endpoints: [{ id: 'x', baseUrl: 'ftp://nope' }] } }),
+    ).toThrow()
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

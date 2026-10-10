@@ -3,6 +3,7 @@ import { AnimatePresence, motion, useAnimate, useReducedMotionConfig } from 'mot
 import { type ReactNode, type RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { copy } from '../copy.ts'
 import { MASCOT_LAYOUT_ID, type MascotLook, useGreeting, useMascotLook } from '../mascot.ts'
+import { useSpecialists } from '../specialists.ts'
 import {
   BANG,
   type Clip,
@@ -21,6 +22,7 @@ import { ago, useMinWidth } from '../ui/hooks.ts'
 import { BOW, DotMatrix, eyeCells, FLOWER, LEAD_COLOR, moodFor, PixelSprite } from '../ui/pixel.tsx'
 import { cn, Dot } from '../ui/primitives.tsx'
 import { boot, charge, confetti, equaliser, life, pacman, pop, ripple } from '../ui/shows.ts'
+import { useMascotSounds } from '../ui/sounds.ts'
 import {
   HERO_CREW_MIN_WIDTH,
   HERO_MASCOT_MIN_HEIGHT,
@@ -54,6 +56,28 @@ const SUGGESTIONS = [
 ]
 
 const POKED: Emotion[] = [EMOTIONS.wink, EMOTIONS.love, EMOTIONS.surprised, EMOTIONS.happy]
+/** Reactions that sound let down rather than pleased. */
+const DOWNCAST: ReadonlySet<Emotion> = new Set([
+  EMOTIONS.sad,
+  EMOTIONS.dizzy,
+  EMOTIONS.confused,
+  EMOTIONS.concerned,
+])
+const CALM_CLIPS = IDLE_CLIPS.filter((c) => (MASCOT_IDLE.calmClips as readonly string[]).includes(c.name))
+
+/** The names the crew cursors wear first, as the person chose: none (Minions), their specialists', or their own. */
+function useCrewNames(crew: MascotLook['crew']): readonly string[] {
+  const specialists = useSpecialists()
+  return useMemo(
+    () =>
+      crew.names === 'custom'
+        ? crew.custom
+        : crew.names === 'specialists'
+          ? (specialists ?? []).map((s) => s.name)
+          : [],
+    [crew.names, crew.custom, specialists],
+  )
+}
 /** Call states in which someone can be heard, so the screen shows the equaliser. */
 const CALL_LIVE: ReadonlySet<CallState> = new Set(['listening', 'hearing', 'thinking', 'speaking', 'muted'])
 
@@ -320,6 +344,11 @@ export function Hero(props: {
   // The crew shows only beside a wide enough page; on a narrower one it is not there at all, poking included.
   const crewFits = useMinWidth(HERO_CREW_MIN_WIDTH)
   const mascot = useMascotLook()
+  const mascotRef = useRef(mascot)
+  mascotRef.current = mascot
+  const calm = mascot.temper === 'calm'
+  const sounds = useMascotSounds(mascot.sounds)
+  const crewNames = useCrewNames(mascot.crew)
   const { greeting, name } = useGreeting(props.news)
   const headline = greeting?.headline ?? copy.hero.headline
   const [scope, animate] = useAnimate<HTMLDivElement>()
@@ -334,7 +363,7 @@ export function Hero(props: {
   const [dreaming, setDreaming] = useState(false)
   // The screen switches on with a scanline, unless setup's mascot is settling into its place.
   const [act, setAct] = useState<Act | undefined>(() =>
-    reduce || props.fromSetup ? undefined : { clip: boot(), id: 0 },
+    reduce || props.fromSetup || !mascot.shows.boot ? undefined : { clip: boot(), id: 0 },
   )
   const actRef = useRef(act)
   actRef.current = act
@@ -368,9 +397,9 @@ export function Hero(props: {
     setDreaming(false)
   }, [])
   const bounce = useCallback(() => {
-    if (!reduce && scope.current)
+    if (!reduce && !calm && scope.current)
       void animate(scope.current, { scale: [1, 0.965, 1.012, 1] }, { duration: 0.45, ease: 'easeOut' })
-  }, [animate, reduce, scope])
+  }, [animate, reduce, calm, scope])
   const react = useCallback(
     (r: Emotion) => {
       wake()
@@ -378,13 +407,14 @@ export function Hero(props: {
       setReaction(r)
       busy.current = true
       bounce()
+      sounds.react(DOWNCAST.has(r) ? 'down' : 'up')
       clearTimeout(reactionTimer.current)
       reactionTimer.current = setTimeout(() => {
         setReaction(undefined)
         busy.current = false
       }, MASCOT_REACTIONS.ms)
     },
-    [bounce, wake],
+    [bounce, wake, sounds],
   )
   /** Plays a clip on the screen with an emotion; with reduced motion only the emotion shows, as a plain reaction. */
   const perform = useCallback(
@@ -399,9 +429,12 @@ export function Hero(props: {
       setReaction(a.emotion)
       acts.current += 1
       setAct({ ...a, id: acts.current })
-      if (a.emotion) bounce()
+      if (a.emotion) {
+        bounce()
+        sounds.react(DOWNCAST.has(a.emotion) ? 'down' : 'up')
+      }
     },
-    [bounce, react, reduce, wake],
+    [bounce, react, reduce, wake, sounds],
   )
   const endAct = useCallback(() => {
     const ended = actRef.current
@@ -441,7 +474,8 @@ export function Hero(props: {
       const g = gaze(e.clientX - (r.left + r.width / 2), e.clientY - (r.top + r.height / 2))
       setLook((l) => (l && l[0] === g[0] && l[1] === g[1] ? l : g))
       if (asleepRef.current) reactTo(EMOTIONS.surprised)
-      // Shaking the pointer back and forth makes it dizzy.
+      // Shaking the pointer back and forth makes a playful mascot dizzy.
+      if (mascotRef.current.temper === 'calm') return
       const dt = e.timeStamp - lastMove.current.t
       const dx = e.clientX - lastMove.current.x
       lastMove.current = { x: e.clientX, t: e.timeStamp }
@@ -486,18 +520,25 @@ export function Hero(props: {
       if (quiet > MASCOT_DOZE_MS) {
         asleepRef.current = true
         setAsleep(true)
-      } else if (onStageRef.current && moodRef.current === 'idle' && Math.random() < MASCOT_IDLE.chance) {
-        perform({ clip: Math.random() < MASCOT_IDLE.showShare ? pacman() : pick(IDLE_CLIPS) })
+      } else if (
+        onStageRef.current &&
+        moodRef.current === 'idle' &&
+        Math.random() < MASCOT_IDLE.chance[mascotRef.current.idle]
+      ) {
+        const m = mascotRef.current
+        const playful = m.temper === 'playful'
+        const show = playful && m.shows.pacman && Math.random() < MASCOT_IDLE.showShare
+        perform({ clip: show ? pacman() : pick(playful ? IDLE_CLIPS : CALM_CLIPS) })
       }
     }, MASCOT_IDLE.everyMs)
     return () => clearInterval(t)
   }, [perform, reduce])
 
   useEffect(() => {
-    if (!asleep || reduce) return
+    if (!asleep || reduce || !mascot.shows.life) return
     const t = setTimeout(() => setDreaming(true), MASCOT_SHOWS.life.afterMs)
     return () => clearTimeout(t)
-  }, [asleep, reduce])
+  }, [asleep, reduce, mascot.shows.life])
 
   // A run that finishes while the screen is open gets confetti and star eyes; one that fails, tears.
   const news = props.latest ? `${props.latest.status}@${props.latest.updatedAt}` : ''
@@ -509,7 +550,10 @@ export function Hero(props: {
     if (!status) return
     const mood = moodFor(status)
     if (mood === 'happy')
-      perform({ clip: chain('celebrate', confetti(), starEyes()), emotion: EMOTIONS.proud })
+      perform({
+        clip: mascotRef.current.shows.confetti ? chain('celebrate', confetti(), starEyes()) : starEyes(),
+        emotion: EMOTIONS.proud,
+      })
     else if (mood === 'error') perform({ clip: tears(), emotion: EMOTIONS.sad })
   }, [news, perform, props.latest?.status])
 
@@ -524,7 +568,7 @@ export function Hero(props: {
         clip: { ...spiralEyes(MASCOT_TOUCH.confusedMs), name: 'confused' },
         emotion: EMOTIONS.confused,
       })
-      if (!reduce) setKnocked((n) => n + 1)
+      if (!reduce && !calm) setKnocked((n) => n + 1)
       return
     }
     perform({ clip: ripple(cell[0], cell[1], lookAt(cell[0], cell[1])) })
@@ -555,12 +599,21 @@ export function Hero(props: {
                   hour: new Date(now).getHours(),
                 }))
   const label = emotion.label
-  // The colour the person chose is the mascot's own; its moods still bring theirs.
+  // The colour the person chose is the mascot's own, or the theme's accent if they tied it to the theme (a token, so it
+  // follows a theme change by itself); its moods still bring theirs.
+  const own = mascot.display.eyeColor === 'theme' ? 'var(--accent)' : MASCOT_COLORS[mascot.color]
   const eyes = useMemo(
-    () => (emotion.color === LEAD_COLOR ? MASCOT_COLORS[mascot.color] : resolveColor(emotion.color)),
-    [emotion.color, mascot.color],
+    () => (emotion.color === LEAD_COLOR ? own : resolveColor(emotion.color)),
+    [emotion.color, own],
   )
   const typedColor = useTypingColor(props.draft, eyes)
+  // A soft tick as each change to the draft shows on the screen, when sounds are on.
+  const typedSeen = useRef(typed)
+  useEffect(() => {
+    if (typed === typedSeen.current) return
+    typedSeen.current = typed
+    if (typed !== undefined) sounds.type()
+  }, [typed, sounds])
   moodRef.current = emotion.mood
 
   // What plays on the screen while nothing else does: the equaliser on a call, z's or the Game of Life while it
@@ -643,6 +696,7 @@ export function Hero(props: {
                   mood={emotion.mood}
                   color={typed !== undefined ? typedColor : eyes}
                   eyes={mascot.eyes}
+                  display={mascot.display}
                   {...(look ? { look } : {})}
                   {...(typed !== undefined ? { text: typed } : {})}
                   {...(asking ? { tweak: { mood: 'idle', shape: ['open', 'ask'], look: [-1, -1] } } : {})}
@@ -707,7 +761,7 @@ export function Hero(props: {
               )}
             </motion.div>
 
-            {crewFits && (
+            {crewFits && mascot.crew.show && (
               <motion.div
                 className="pointer-events-none absolute left-1/2 top-1/2 z-10"
                 aria-hidden
@@ -716,6 +770,10 @@ export function Hero(props: {
                 transition={{ delay: 0.4, duration: 0.3 }}
               >
                 <HeroCrew
+                  key={JSON.stringify([mascot.crew.count, crewNames, mascot.crew.boldness])}
+                  count={mascot.crew.count}
+                  names={crewNames}
+                  boldness={mascot.crew.boldness}
                   signal={signal}
                   {...(look ? { look } : {})}
                   typing={typing}

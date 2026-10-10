@@ -19,6 +19,17 @@ export interface ProjectContext {
   readonly checks: ProjectCheck[]
   /** Top-level folders and files, two levels deep, with file counts. */
   readonly layout: string
+  /** The project's git state when the round started; absent outside a repository. */
+  readonly git?: ProjectGit
+}
+
+export interface ProjectGit {
+  /** Absent on a detached HEAD. */
+  readonly branch?: string
+  /** Files with uncommitted changes, untracked ones included. */
+  readonly changed: number
+  /** The latest commit subjects, newest first, at most three. */
+  readonly recent: readonly string[]
 }
 
 const SCRIPT_CHECKS = ['check', 'typecheck', 'lint', 'test', 'build'] as const
@@ -112,11 +123,40 @@ export function projectLayout(root: string): string {
   return lines.slice(0, 40).join('\n')
 }
 
+/**
+ * The project's branch, how many files have uncommitted changes and the last three commit subjects, read once when the
+ * round starts, after Codex's environment context and Claude Code's git status snapshot. A few milliseconds of git;
+ * nothing when the folder is not a repository or git is missing.
+ */
+export function projectGit(root: string): ProjectGit | undefined {
+  const git = (...args: string[]) => {
+    try {
+      const r = Bun.spawnSync(['git', ...args], {
+        cwd: root,
+        stdout: 'pipe',
+        stderr: 'pipe',
+        env: { ...process.env, GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0' },
+      })
+      return r.exitCode === 0 ? r.stdout.toString() : undefined
+    } catch {
+      return undefined
+    }
+  }
+  if (git('rev-parse', '--is-inside-work-tree')?.trim() !== 'true') return undefined
+  const branch = git('branch', '--show-current')?.trim()
+  const changed = (git('status', '--porcelain') ?? '').split('\n').filter(Boolean).length
+  // A repository without commits has no log yet.
+  const recent = (git('log', '-n3', '--pretty=format:%s') ?? '').split('\n').filter(Boolean)
+  return { ...(branch ? { branch } : {}), changed, recent }
+}
+
 export function readProjectContext(root: string): ProjectContext {
   const instructions = readProjectInstructions(root)
+  const git = projectGit(root)
   return {
     ...(instructions ? { instructions } : {}),
     checks: projectChecks(root),
     layout: projectLayout(root),
+    ...(git ? { git } : {}),
   }
 }

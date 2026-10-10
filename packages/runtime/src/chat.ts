@@ -21,6 +21,7 @@ import {
   type PermissionScope,
   type ProjectPermissions,
   projectLevelFrom,
+  type QuestionAnswers,
   type RoundInfo,
   STOPPED_BY_USER,
   withRule,
@@ -32,7 +33,13 @@ import { nameChat } from './chat-titles.ts'
 import type { Checkpoints } from './checkpoints.ts'
 import { type Attachment, ColonyRun, RoundClosingError, type Runtime } from './colony.ts'
 import type { ComputerHub } from './computer/driver.ts'
-import { CHAT_TITLE_ROUNDS, MAX_READ_FOLDERS, MAX_WORKERS, SKILL_REVIEW_CALLS } from './config.ts'
+import {
+  CHAT_TITLE_ROUNDS,
+  MAX_READ_FOLDERS,
+  MAX_WORKERS,
+  SKILL_REVIEW_CALLS,
+  SUGGEST_CORPUS,
+} from './config.ts'
 import type { HookStore } from './hooks.ts'
 import type { ToolLibrary } from './made-tools.ts'
 import type { McpHub } from './mcp.ts'
@@ -145,6 +152,8 @@ export interface SendOptions {
   readonly askAll?: boolean
   /** A new chat's own permission level (its preset, rules), chosen before its first message. */
   readonly permissions?: unknown
+  /** The message answers a question card: which one, and what was picked (the card shows it). */
+  readonly answers?: QuestionAnswers
 }
 
 /** Accepts the current team config or the older `{ mode: 'auto' | 'manual', workers, workerModel }` shape. */
@@ -549,6 +558,19 @@ export class ChatService {
   }
 
   /** Chats with a message (the person's or a reply) containing `text`, each with the words around the match. */
+  /**
+   * What the person has written, most recent first and each once: rounds running now (not indexed until they end),
+   * then the index. The composer suggests from it.
+   */
+  async said(limit = SUGGEST_CORPUS): Promise<string[]> {
+    await this._settle()
+    const live = [...this._live.values()]
+      .flatMap((r) => r.state().chatMessages.filter((m) => m.from === 'user'))
+      .sort((a, b) => b.time.localeCompare(a.time))
+      .map((m) => m.text)
+    return [...new Set([...live, ...this.index.said(limit)])].slice(0, limit)
+  }
+
   async search(text: string): Promise<MessageHit[]> {
     await this._settle()
     return this.index.search(
@@ -590,8 +612,19 @@ export class ChatService {
     config: TeamConfig,
     options: SendOptions,
   ): Promise<{ chatId: string; colonyId: string; started: boolean; round?: number }> {
-    const { delivery = 'steer', attachments = [], planFirst = false, voice = false, context } = options
-    const extra = { ...(voice ? { voice: true } : {}), ...(context ? { context } : {}) }
+    const {
+      delivery = 'steer',
+      attachments = [],
+      planFirst = false,
+      voice = false,
+      context,
+      answers,
+    } = options
+    const extra = {
+      ...(voice ? { voice: true } : {}),
+      ...(context ? { context } : {}),
+      ...(answers ? { answers } : {}),
+    }
     await this._settle()
     const live = this._live.get(id)
     if (live && live.state().status === 'running') {
