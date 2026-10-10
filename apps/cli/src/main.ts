@@ -32,6 +32,7 @@ import {
   MemoryStore,
   ModelResolver,
   ompWebTools,
+  ownerOnly,
   PluginHost,
   PluginStore,
   ProjectStore,
@@ -434,6 +435,7 @@ async function main() {
           mode: 0o600,
         },
       )
+      ownerOnly(serverFile)
       const shutdown = async () => {
         console.log(c.yellow('\nstopping running colonies…'))
         rmSync(serverFile, { force: true })
