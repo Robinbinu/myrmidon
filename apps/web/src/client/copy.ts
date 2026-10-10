@@ -1515,7 +1515,12 @@ export const copy = {
       sandbox: (kind: string) =>
         kind === 'none'
           ? 'No OS sandbox was found on this computer: commands only run with Full access.'
-          : `The sandbox (${kind === 'sandbox-exec' ? 'macOS' : kind}) keeps commands to the project and the agent’s own files in every preset but Full access.`,
+          : `The sandbox (${kind === 'sandbox-exec' ? 'macOS' : kind}) keeps commands to the project and the agent’s own files in every preset but Full access.${
+              // Pasteboard services are denied under sandbox-exec only (sandbox.ts); bubblewrap leaves the clipboard be.
+              kind === 'sandbox-exec'
+                ? ' It also hides the clipboard, so a test that copies and pastes fails there.'
+                : ''
+            }`,
       movedFromTools: 'Presets, rules and who may use what now live in Permissions.',
       openPermissions: 'Open Permissions',
     },

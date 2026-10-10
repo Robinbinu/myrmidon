@@ -45,11 +45,12 @@ framework you wire together yourself. Myrmidon is all four behind a single conve
   plus Myrmidon code and UI. Ask the lead for a Myrmidon feature and it builds one as a plugin.
 - **Safe by default.** Shell commands run under `sandbox-exec` (macOS) or bubblewrap (Linux): agents read the
   project, their own work files and toolchains, write only the project and their work files, and cannot see the
-  rest of your home, other chats or your keys unless you open a folder for reading. Secrets are redacted
-  from logs and transcripts. Fetched web pages are treated as untrusted data. Each tool can be set to Allow, Ask
-  first, or Off. When you want agents to use the computer unrestricted, like Hermes Agent, turn on **full access**
-  for one project or for all your chats; approvals you set still apply, and people other than you who talk to it
-  through a channel always stay sandboxed.
+  rest of your home, other chats or your keys unless you open a folder for reading. On macOS the sandbox also
+  hides the clipboard, so a project test that copies and pastes fails there (give that project full access to run
+  it). Secrets are redacted from logs and transcripts. Fetched web pages are treated as untrusted data. Each tool can
+  be set to Allow, Ask first, or Off. When you want agents to use the computer unrestricted, like Hermes Agent, turn
+  on **full access** for one project or for all your chats; approvals you set still apply, and people other than you
+  who talk to it through a channel always stay sandboxed.
 - **Done means checked.** An independent reviewer (off, auto, or always) can run real tests, rules, and an LLM
   rubric against the output. Agents cannot mark their own work verified.
 - **Yours.** Runs on your machine, stores data in `~/.myrmidon`, Apache-2.0.

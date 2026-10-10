@@ -903,8 +903,9 @@ stay small so they merge cleanly into either.
 - [x] Terminals end on page reload (by design for now); no close-all; a label can show an option's value as the
       argument (`vim -u NONE x` → `vim NONE`). Close all is in the ⋯ menu (asks while a command runs); labels skip
       known options' values (`vim x`), inline code (`python3 -c …` → `python3`) and what follows a secret-named option.
-- [ ] The sandbox now hides the clipboard: a project test that copies and pastes fails inside the sandbox (stated
-      in a code comment; say it in the docs).
+- [x] The sandbox now hides the clipboard: a project test that copies and pastes fails inside the sandbox (stated
+      in a code comment; say it in the docs). Said in the README's "Safe by default" and the Permissions page's
+      sandbox note (macOS only: bubblewrap leaves the clipboard alone).
 ### [decide]
 - [ ] Linux: sandboxed agents can still reach the managed Chrome's DevTools port (bwrap cannot block one port), so
       they could read the person's browser cookies there. Run sandboxed commands in a network namespace, or carry
