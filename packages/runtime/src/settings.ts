@@ -18,8 +18,10 @@ import {
   MAX_IMPORTED_THEMES,
   MAX_READ_FOLDERS,
   MAX_THEME_COLORS,
+  SSH,
 } from './config.ts'
 import { ownerOnly } from './owner-only.ts'
+import type { SshHost } from './ssh.ts'
 
 /** Tool groups a saved specialist can be kept out of (Settings → Specialists). */
 export const TOOL_GROUPS = {
@@ -93,6 +95,18 @@ export interface MyrSettings {
    * Driver (one approved app at a time; the default when absent) or omp's desktop engine (scripts, approved each time).
    */
   computerUse: { enabled: boolean; engine?: 'cua' | 'omp' }
+  /**
+   * Remote hosts agents may reach over SSH (Settings → Tools), each call decided by the permission model's `ssh-host`
+   * rules. Only where to connect is kept: keys stay in the person's ssh agent or keychain, and a host named after an
+   * alias in ~/.ssh/config takes the rest from there.
+   */
+  ssh: { hosts: SshHost[] }
+  /**
+   * Telemetry export over OTLP (telemetry.ts): each finished round's trace and metrics go to the collector at
+   * `endpoint` (a base address such as http://localhost:4318). Off by default; nothing is sent until it is on and has
+   * an address. Its headers (an API key) are in the credential vault, never here.
+   */
+  telemetry: { enabled: boolean; endpoint: string }
   /**
    * `hideSecrets`: keys, tokens and passwords reach model providers as placeholders (provider-secrets.ts). On unless
    * the person turns it off: Myrmidon keeps their data on their machine, and a key read in a .env file should not leave
@@ -286,6 +300,33 @@ export const settingsSchema = Schema.object({
   computerUse: Schema.object({
     enabled: Schema.boolean().default(false),
     engine: Schema.union(['cua', 'omp']).default('cua'),
+  }).default({}),
+  ssh: Schema.object({
+    hosts: Schema.array(
+      Schema.object({
+        // omp's rule for host names (ssh/config-writer.ts validateHostName).
+        name: Schema.string()
+          .pattern(/^[A-Za-z0-9_.-]{1,100}$/)
+          .required(),
+        // ssh reads an argument that starts with "-" as an option: never a host or user (omp's buildSshTarget).
+        host: Schema.string()
+          .pattern(/^[^\s-][^\s]{0,252}$/)
+          .required(),
+        user: Schema.string().pattern(/^[^\s@-][^\s@]{0,63}$/),
+        port: Schema.natural().min(1).max(65535),
+      }),
+    )
+      .max(SSH.maxHosts)
+      .default([]),
+  }).default({}),
+  telemetry: Schema.object({
+    enabled: Schema.boolean().default(false),
+    endpoint: Schema.union([
+      Schema.const(''),
+      Schema.string()
+        .pattern(/^https?:\/\/\S+$/)
+        .max(500),
+    ]).default(''),
   }).default({}),
   privacy: Schema.object({ hideSecrets: Schema.boolean().default(true) }).default({}),
   search: Schema.object({
@@ -548,6 +589,15 @@ function parse(input: unknown): MyrSettings {
     computerUse: {
       enabled: s.computerUse.enabled,
       ...(s.computerUse.engine === 'omp' ? { engine: 'omp' as const } : {}),
+    },
+    telemetry: { enabled: s.telemetry.enabled, endpoint: s.telemetry.endpoint.trim() },
+    ssh: {
+      hosts: [...new Map(s.ssh.hosts.map((h) => [h.name, h])).values()].map((h) => ({
+        name: h.name,
+        host: h.host,
+        ...(h.user ? { user: h.user } : {}),
+        ...(h.port ? { port: h.port } : {}),
+      })),
     },
     privacy: { hideSecrets: s.privacy.hideSecrets },
     search: { provider: s.search.provider },

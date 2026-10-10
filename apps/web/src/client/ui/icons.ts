@@ -13,6 +13,7 @@ import {
   BellRing,
   BookMarked,
   Brain,
+  Cable,
   CalendarClock,
   Compass,
   Container,
@@ -56,6 +57,7 @@ import {
   RadioTower,
   RectangleEllipsis,
   Rocket,
+  SatelliteDish,
   ScreenShare,
   ScrollText,
   SearchCheck,
@@ -185,6 +187,10 @@ export const FEATURE_ICONS = {
   mail: Mail,
   /** MCP servers and their tools. */
   mcp: Plug,
+  /** Remote hosts agents reach over SSH: Settings → Tools, their rules and who may use them. */
+  sshHosts: Cable,
+  /** Sending finished runs to the person's own OTLP collector (Settings → General). */
+  telemetry: SatelliteDish,
   /** Specialists the person keeps. */
   specialists: UserCog,
   /** What agents remember across chats. */

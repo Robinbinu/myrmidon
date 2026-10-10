@@ -30,7 +30,7 @@ const task = Schema.object({
 
 const presetOf = Schema.union(['read-only', 'ask', 'auto', 'full'])
 const ruleTarget = {
-  kind: oneOf('tool', 'edit', 'command', 'mcp-server', 'mcp-tool'),
+  kind: oneOf('tool', 'edit', 'command', 'mcp-server', 'mcp-tool', 'ssh-host'),
   target: str(),
   who: Schema.union(['all', 'lead', 'crew']),
 }
@@ -308,6 +308,48 @@ const defs: EventTypeDefinition[] = [
     version: 1,
     actors: ['system'],
     schema: Schema.object({ agent: str(), kept: Schema.boolean().required() }),
+  },
+  {
+    type: 'experiment/started',
+    version: 1,
+    actors: ['agent'],
+    schema: Schema.object({
+      agent: str(),
+      measure: str(),
+      metric: str(),
+      direction: oneOf('lower', 'higher'),
+      trials: Schema.natural().required(),
+      until: str(),
+      branch: str(),
+    }),
+  },
+  {
+    type: 'experiment/trial',
+    version: 1,
+    actors: ['agent'],
+    schema: Schema.object({
+      agent: str(),
+      trial: Schema.natural().required(),
+      description: Schema.string().default(''),
+      outcome: oneOf('baseline', 'kept', 'reverted', 'failed'),
+      metric: Schema.number(),
+      best: Schema.number(),
+      commit: Schema.string(),
+      ms: Schema.natural().required(),
+    }),
+  },
+  {
+    type: 'experiment/finished',
+    version: 1,
+    actors: ['agent'],
+    schema: Schema.object({
+      agent: str(),
+      trials: Schema.natural().required(),
+      kept: Schema.natural().required(),
+      baseline: Schema.number(),
+      best: Schema.number(),
+      files: strs(),
+    }),
   },
   {
     type: 'approval/requested',

@@ -107,6 +107,8 @@ function abilities(f: PromptFacts): string[] {
     has(f, 'mcp') && `${can.mcp}${has(f, 'browser_open') ? can.mcpBrowser : ''}`,
     has(f, 'computer') && access.computer && `${can.computer}${load('computer', 'computer')}`,
     has(f, 'desktop') && access.computer && `${can.desktop}${load('desktop', 'desktop')}`,
+    has(f, 'ssh') && access.remotes.length > 0 && `${can.ssh(access.remotes)}${load('ssh', 'ssh')}`,
+    has(f, 'autoresearch') && `${can.autoresearch}${load('autoresearch', 'autoresearch')}`,
     has(f, 'create_tool') &&
       access.sandbox !== 'none' &&
       `${can.makeTools}${load('create_tool', 'create_tool')}`,
@@ -217,6 +219,7 @@ function outsideSources(f: PromptFacts): string[] {
     any(f, 'web_search', 'web_fetch') && 'web results and pages saved under web/',
     f.tools.names.some((t) => t.startsWith('browser_')) && 'browser pages',
     has(f, 'mcp') && 'MCP tool results',
+    has(f, 'ssh') && 'what remote hosts return',
   ].filter((s): s is string => typeof s === 'string')
 }
 

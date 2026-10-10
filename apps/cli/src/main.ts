@@ -49,7 +49,9 @@ import {
   SkillLibrary,
   SkillProposalStore,
   SpecialistStore,
+  SshHub,
   StreamRuleStore,
+  TelemetryExport,
   ToolLibrary,
   type VoiceFiles,
 } from '@myrmidon/runtime'
@@ -342,6 +344,13 @@ async function main() {
       const pluginHost = new PluginHost(plugins)
       // Plugin code sees every event as it lands, and adds its own to a colony's log.
       runtime.ctx.on('log/appended', (id, events) => pluginHost.dispatch(id, events))
+      // Each finished round goes to the person's OTLP collector, when Settings → General turns that on.
+      const telemetry = new TelemetryExport({
+        settings: () => settings.get().telemetry,
+        vault: omp.voiceKeys,
+        read: (id) => runtime.ctx.log.read(id as never),
+      })
+      runtime.ctx.on('log/appended', (id, events) => telemetry.appended(id, events))
       pluginHost.attach(async (colonyId, type, data, plugin) => {
         await runtime.ctx.log.appendOne(colonyId as never, {
           type: 'plugin/event',
@@ -362,6 +371,7 @@ async function main() {
         // macOS names the app this server runs in (the desktop app, or the terminal) for the driver's diagnostics.
         ...(process.env.__CFBundleIdentifier ? { hostBundleId: process.env.__CFBundleIdentifier } : {}),
       })
+      const ssh = new SshHub({ controlDir: join(home, 'ssh') })
       const projects = new ProjectStore(home)
       const specialists = new SpecialistStore(home)
       const skillProposals = new SkillProposalStore(home)
@@ -400,6 +410,7 @@ async function main() {
         mcp,
         browser,
         computer,
+        ssh,
         projects,
         specialists,
         skillProposals,
@@ -421,6 +432,8 @@ async function main() {
         mcp,
         browser,
         computer,
+        ssh,
+        telemetry,
         projects,
         specialists,
         skillProposals,
@@ -494,8 +507,11 @@ async function main() {
           console.log(c.yellow('\nstopping running colonies…'))
           rmSync(serverFile, { force: true })
           await chats.stopAll()
+          // The rounds just stopped are on their way to the collector.
+          await telemetry.flush()
           await browser.close().catch(() => {})
           await computer.stop().catch(() => {})
+          await ssh.close().catch(() => {})
           await mcp.close().catch(() => {})
           await server.stop()
           await runtime.dispose()
