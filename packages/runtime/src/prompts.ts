@@ -1368,6 +1368,9 @@ It is ${o.now.weekday}, ${o.now.date}, ${o.now.time} in their time zone (${o.now
     declined: (what: string, note?: string) =>
       `the person did not approve ${what}${note ? `. They said: ${note}` : ''}. Ask them (ask_user) or take another approach`,
     safetyChecks: 'the person did not acknowledge the safety warning for this action; do not repeat it',
+    /** An app whose window has no accessibility tree, seen by screenshot alone. */
+    noTree: (app: string) =>
+      `${app} shows no accessibility tree (Chromium and Electron apps such as Arc, Chrome and Slack build one only for assistive tools), so there are no numbered elements: act by pixel on the screenshot (x, y in its pixels).`,
     shot: (app: string, title: string, width: number, height: number) =>
       `${app}${title ? ` — ${title}` : ''}: screenshot ${width}×${height} (coordinates are pixels in it).`,
     elements: (lines: readonly string[], more: number) =>

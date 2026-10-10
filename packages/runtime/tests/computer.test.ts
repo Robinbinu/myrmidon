@@ -140,7 +140,7 @@ test('Cua Driver runs embedded under Myrmidon, as an internal MCP server agents 
   expect(mcp.internalTool('myrmidon-computer', 'get_window_state')).toBeDefined()
   const r = await hub.call('list_apps', {})
   expect(r.isError).toBe(false)
-  expect((r.structured?.apps as unknown[] | undefined)?.length).toBe(5)
+  expect((r.structured?.apps as unknown[] | undefined)?.length).toBe(6)
   expect(hub.accepts('get_window_state', 'max_dimension')).toBe(true)
   expect(hub.accepts('get_window_state', 'tree_format')).toBe(false)
   await hub.stop()
@@ -621,4 +621,19 @@ test("the person's Stop takes down the round's waiting computer card at once; th
   expect((events[result]?.payload as { output?: string } | undefined)?.output).toContain(
     'stopped computer use',
   )
+})
+
+test('an app with no accessibility tree (Arc, Chrome, Electron) is still seen and acted on by pixel', async () => {
+  // A real chat: Arc opened, then every call failed with ax_window_unresolved and the agent never saw the window.
+  const { host } = fakeHost()
+  const opened = await call(opener(host), { app: 'Arc' })
+  expect(opened.isError).toBe(false)
+  expect(opened.content.some((c) => c.type === 'image')).toBe(true)
+  expect(textOf(opened)).toContain('by pixel')
+  const looked = await call(generic(host), { action: 'screenshot' })
+  expect(looked.isError).toBe(false)
+  expect(looked.content.some((c) => c.type === 'image')).toBe(true)
+  // It asked for the tree once, then only for the screenshot.
+  const looks = asked().filter((c) => c.name === 'get_window_state' && c.args.pid === 106)
+  expect(looks.some((c) => c.args.include_accessibility_tree === false)).toBe(true)
 })
