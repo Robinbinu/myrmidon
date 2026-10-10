@@ -2,6 +2,7 @@ import { afterEach, expect, test } from 'bun:test'
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { chromeCandidates } from '../src/browser.ts'
 import { sandboxHiddenRoots, sandboxSecrets, sandboxSystemBins, sandboxToolchains } from '../src/config.ts'
 import { absoluteFolder, folderParent, isFsRoot, projectSecret, windowsDrives } from '../src/projects.ts'
 import { expandHome, keysAt, readFolder, within } from '../src/read-access.ts'
@@ -143,4 +144,27 @@ test('on Windows a confined command keeps the variables programs need and gets i
     'PATH',
     'TMPDIR',
   ])
+})
+
+test('Chrome is looked for where each system installs it, Edge last on Windows', () => {
+  const win = chromeCandidates(
+    'win32',
+    {
+      ProgramFiles: 'C:\\Program Files',
+      'ProgramFiles(x86)': 'C:\\Program Files (x86)',
+      LOCALAPPDATA: 'C:\\Users\\ada\\AppData\\Local',
+    },
+    'C:\\Users\\ada',
+  )
+  expect(win[0]).toBe('C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe')
+  expect(win).toContain('C:\\Users\\ada\\AppData\\Local\\Google\\Chrome\\Application\\chrome.exe')
+  expect(win.at(-1)).toMatch(/\\msedge\.exe$/)
+  expect(win.findIndex((p) => p.endsWith('msedge.exe'))).toBeGreaterThan(
+    win.findLastIndex((p) => p.endsWith('chrome.exe')),
+  )
+  const linux = chromeCandidates('linux', {}, '/home/ada')
+  expect(linux[0]).toBe('/usr/bin/google-chrome')
+  expect(linux).toContain('/snap/bin/chromium')
+  expect(linux).toContain('/var/lib/flatpak/exports/bin/com.google.Chrome')
+  expect(linux).toContain('/home/ada/.local/share/flatpak/exports/bin/com.google.Chrome')
 })
