@@ -471,6 +471,12 @@ export const PRESET_SETTLE_MS = 700
  */
 export const CONFIRM_ARM_DELAY_MS = 400
 
+/**
+ * How often Settings → Models & providers and the composer ask again how close each account is to its plan's limits.
+ * The gateway reuses one read for a minute (PROVIDER_USAGE_CACHE_MS), so asking more often shows nothing newer.
+ */
+export const PLAN_LIMITS_POLL_MS = 2 * 60_000
+
 /** How often the page asks the gateway how it is doing (the indicator, badges, request notifications). */
 export const STATUS_POLL_MS = 10_000
 /** Voice calls: the rate the mic is sent at (what Phonon-2 takes), and samples per frame sent (20 ms). */

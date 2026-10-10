@@ -163,6 +163,19 @@ export const OMP_UNKNOWN = 128_000
 /** models.dev's catalog of model context windows, and how often the cached copy is refreshed (a day). */
 export const MODELS_DEV_URL = 'https://models.dev/api.json'
 export const MODELS_DEV_REFRESH_MS = 24 * 60 * 60_000
+/**
+ * How long one read of every signed-in account's plan limits is reused. Settings and the composer poll it, and
+ * providers rate-limit their usage endpoints (Anthropic's and OpenAI's answer 429 to a burst), so a page left open
+ * must not reach them more often than this. omp keeps its own per-account cache underneath.
+ */
+export const PROVIDER_USAGE_CACHE_MS = 60_000
+/**
+ * The longest one read of every account's limits may take. omp times out each provider call itself; this bounds the
+ * whole read, so one hanging provider cannot hold every poll waiting on it.
+ */
+export const PROVIDER_USAGE_TIMEOUT_MS = 30_000
+/** The used share of a window from which it counts as near its limit (omp's `usage` command turns yellow at 80%). */
+export const PROVIDER_USAGE_WARN = 0.8
 /** omp provider ids whose models.dev entry goes by another name. */
 export const PROVIDER_ALIASES: Record<string, string> = {
   ark: 'volcengine',

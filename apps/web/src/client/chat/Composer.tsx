@@ -19,6 +19,7 @@ import {
   type TeamConfig,
 } from '../api.ts'
 import { copy } from '../copy.ts'
+import { limitNotice, usePlanLimits } from '../plan-limits.tsx'
 import { PluginSlot, usePluginSlots } from '../plugins.tsx'
 import { settingRow } from '../settings/Setting.tsx'
 import { SUGGEST_KEY, SUGGEST_MODEL_KEY, usePersistentFlag } from '../ui/hooks.ts'
@@ -303,6 +304,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     if (props.draftKey) saveDraft(props.draftKey, text)
   }, [text, props.draftKey])
   const chips = usePluginSlots('composer.chip')
+  const limits = usePlanLimits()
   const [showTeam, setShowTeam] = useState(false)
   // The reviewer mode is a server setting; read it on load and whenever the team panel opens, so a change made in
   // Settings shows here.
@@ -342,6 +344,11 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const wrap = useRef<HTMLDivElement>(null)
   const teamPanel = useRef<HTMLDivElement>(null)
   const { config } = props
+  // omp names a model's provider as it names the account signed in for it (anthropic, openai-codex, …).
+  const leadLimit = limitNotice(
+    limits.snapshot,
+    props.models.find((m) => m.ref === config.leadModel)?.provider ?? config.leadModel.split('/')[0] ?? '',
+  )
 
   // Where the toolbar can't fit every chip, Thinking, Reviewer and Helpers fold into one Team chip, so the model and
   // project chips keep their names. The chips' full width is measured while they are all shown (it changes with the
@@ -694,6 +701,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                 value={config.leadModel}
                 models={props.models}
                 onChange={(leadModel) => props.onConfig({ ...config, leadModel })}
+                {...(leadLimit ? { limitNotice: leadLimit } : {})}
               />
               {narrow ? (
                 <TeamChip

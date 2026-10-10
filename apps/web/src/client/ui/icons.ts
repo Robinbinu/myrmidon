@@ -6,6 +6,7 @@ import {
   BadgeCheck,
   BadgeQuestionMark,
   BadgeX,
+  BatteryMedium,
   BellRing,
   BookMarked,
   Brain,
@@ -125,6 +126,8 @@ export const FEATURE_ICONS = {
   hiddenModels: EyeOff,
   /** Providers and their keys. */
   providers: KeyRound,
+  /** How close each subscription is to its plan's limits (Models & providers, the composer's model chip). */
+  planLimits: BatteryMedium,
   /** Another Myrmidon this window can show. */
   gateway: Server,
   /** Managing gateways. */

@@ -55,6 +55,7 @@ import { type MascotPatch, SETTINGS_SAVED, withMascotDefaults } from './mascot.t
 import { MascotBehaviour, MascotPreview, MiniMascot } from './mascot-settings.tsx'
 import type { CatalogTool } from './permissions/describe.ts'
 import { type GlobalPermissions, PermissionsPage } from './permissions/PermissionsPage.tsx'
+import { PlanLimits } from './plan-limits.tsx'
 import { PluginSlot, usePluginSlots } from './plugins.tsx'
 import {
   cronToRule,
@@ -1784,6 +1785,7 @@ export function Providers(props: {
       )}
 
       <SignIns onProviders={props.onProviders} />
+      {!props.embedded && <PlanLimits />}
 
       <div {...settingRow('providers.list')} className="mb-2 flex items-center justify-between">
         <SectionHeader
