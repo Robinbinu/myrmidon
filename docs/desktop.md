@@ -1,20 +1,28 @@
-# Desktop app (macOS)
+# Desktop app
 
-`apps/desktop` wraps the Myrmidon dashboard in a native macOS window with [Electrobun](https://github.com/blackboardsh/electrobun)
+`apps/desktop` wraps the Myrmidon dashboard in a native window with [Electrobun](https://github.com/blackboardsh/electrobun)
 2.0.2 (pinned exactly in `apps/desktop/package.json`). The main process runs on Bun (`build.mainProcess: "bun"`), the
-page is the same web client a browser gets, and macOS's own WebKit (WKWebView) renders it. Design background:
-`superpowers/specs/2026-10-07-native-ui-design.md`.
+page is the same web client a browser gets, and the system's web view renders it (WebKit on macOS, WebKitGTK on
+Linux, WebView2 on Windows). Design background: `superpowers/specs/2026-10-07-native-ui-design.md`.
+
+**Platforms.** The app is written for macOS, Linux and Windows, but so far it has been built and run on macOS
+(arm64) only. See [Platforms](#platforms) for what differs and what has and has not been tried on each.
 
 What the app adds to the web client:
 
 - **Its own server, or yours.** On launch it reads `<home>/server.json` the way `myrmidon ask` does (home is
   `$MYRMIDON_HOME`, else `~/.myrmidon`). If a server for that home answers, the window opens on it and leaves it
   running on quit. Otherwise the app starts `myrmidon serve` on a free loopback port, shows "Starting Myrmidon…" until
-  it answers, and on quit sends it SIGTERM (it stops running chats first) and waits up to 10 s before killing it.
-- **Native chrome.** A hidden-inset title bar with the traffic lights centered in the client's 52 px toolbar row.
-  Before the page renders, the app sets `data-shell="desktop"` and `--titlebar-inset: 78px` on `<html>`; the toolbars
-  are already drag regions (`app-region: drag`).
-- **App menu.** Myrmidon (About, Settings… ⌘,, Hide, Quit), File (New Chat ⌘N, Close), Edit (the standard roles, so
+  it answers, and on quit asks it to stop (`POST /api/shutdown` with the token from its `server.json`, which works the
+  same on every platform; it stops running chats first), falling back to SIGTERM where there are signals, and after
+  10 s ends it and everything it started. The app tells its own server's `server.json` from another one's by a
+  launch ID it passes in `MYRMIDON_LAUNCH_ID`, which `serve` writes back as `launch`.
+- **Native chrome.** On macOS a hidden-inset title bar with the traffic lights centered in the client's 52 px toolbar
+  row; before the page renders, the app sets `data-shell="desktop"` and `--titlebar-inset: 78px` on `<html>` (the
+  toolbars are already drag regions, `app-region: drag`). On Linux and Windows the window keeps the system's title
+  bar and the inset is 0.
+- **App menu.** Myrmidon (About, Settings… ⌘,, Hide, Quit; Hide, Hide Others, Show All and Window → Bring All to
+  Front are macOS-only and left out elsewhere), File (New Chat ⌘N, Close), Edit (the standard roles, so
   ⌘C/⌘V work in text fields), View (Command Menu ⌘K, Toggle Sidebar ⌘B, Reload ⌘R, Developer Tools ⌥⌘I, Full
   Screen), Window. A menu item sends its shortcut into the page as a `myrmidon:shortcut` event, which runs the same
   handler as the key (`useHotkeys`), so the menu and the keyboard can never disagree. ⌘K currently does what the client
@@ -25,7 +33,8 @@ What the app adds to the web client:
   - **Show in Finder** next to the data folder on the System page;
   - **Notifications** ("Notify me when a run finishes" in Settings) are native ones, posted when the window is not
     focused;
-  - **The Dock badge** shows how many chats need you (the same count as the window title).
+  - **The Dock badge** shows how many chats need you (the same count as the window title); macOS only, as it goes
+    through the Objective-C runtime, which is loaded on the first badge and never on Linux or Windows.
 
 External links (`target=_blank`, `window.open`) open in the default browser.
 
@@ -53,14 +62,30 @@ bun run desktop:build        # = bun run desktop:sidecar, then electrobun build 
 ```
 
 `desktop:sidecar` compiles the server with `bun build --compile` (Tailwind plugin included) into
-`apps/desktop/dist/myrmidon` (about 125 MB) from `apps/desktop/src/sidecar.ts`, which is the CLI and, started as
-`myrmidon kitten-worker <model folder>`, Kitten TTS's worker (a compiled build has no script file to run it from).
-Beside it goes the native code it loads from there: oh-my-pi's addon (`pi_natives.<platform>-<arch>.node`) and
-onnxruntime's (`onnxruntime_binding.node` and `libonnxruntime.1.dylib`, which the speech detector, the turn model and
-Kitten use; the build rewrites onnxruntime-node to load them beside the executable, since the compiled build would
-unpack its addon to a temporary folder without the library it links to). The build hook
-(`apps/desktop/scripts/bundle-hook.ts`) copies them all into the app's `Resources/app/sidecar` and sets the microphone
-usage text. Output: `apps/desktop/artifacts/` (`macos-arm64-Myrmidon.dmg`, the update archive and
+`apps/desktop/dist/<platform>-<arch>/myrmidon` (`myrmidon.exe` on Windows; about 125 MB) from
+`apps/desktop/src/sidecar.ts`, which is the CLI and, started as `myrmidon kitten-worker <model folder>`, Kitten TTS's
+worker (a compiled build has no script file to run it from). Beside it goes the native code it loads from there:
+oh-my-pi's addon (`pi_natives.<platform>-<arch>*.node`) and onnxruntime's (`onnxruntime_binding.node` and the library
+it links to: `libonnxruntime.1.dylib`, `libonnxruntime.so.1`, or `onnxruntime.dll` with the DirectML DLLs; the speech
+detector, the turn model and Kitten use it; the build rewrites onnxruntime-node to load them beside the executable,
+since the compiled build would unpack its addon to a temporary folder without the library it links to).
+
+It builds for the host by default; `bun run desktop:sidecar --target=bun-linux-x64` cross-compiles for another
+platform (`bun-darwin-arm64`, `bun-darwin-x64`, `bun-linux-x64`, `bun-linux-arm64`, `bun-windows-x64`,
+`bun-windows-arm64`). That needs the target's oh-my-pi addon, an optional dependency installed only for the host:
+`bun install --os='*' --cpu='*'` installs all of them. onnxruntime-node 1.30 ships no `darwin-x64` addon, so Intel
+Macs cannot be built for. Cross-compiling has not been tried yet.
+
+The build hook (`apps/desktop/scripts/bundle-hook.ts`) copies the build for Electrobun's OS and architecture into the
+app's `Resources/app/sidecar` (and on macOS sets the microphone usage text). Where `Resources` is:
+
+| Platform | App | Sidecar |
+| --- | --- | --- |
+| macOS | `Myrmidon.app` | `Myrmidon.app/Contents/Resources/app/sidecar/myrmidon` |
+| Linux | `Myrmidon/` (`bin/launcher` beside `Resources/`) | `Myrmidon/Resources/app/sidecar/myrmidon` |
+| Windows | `Myrmidon\` (`bin\` beside `Resources\`) | `Myrmidon\Resources\app\sidecar\myrmidon.exe` |
+
+Output: `apps/desktop/artifacts/` (on macOS `macos-arm64-Myrmidon.dmg`, the update archive and
 `stable-macos-arm64-update.json`). `--env=canary` builds a canary channel that installs beside the stable app.
 `apps/desktop/tests/sidecar.test.ts` builds the sidecar and runs its Kitten worker from outside the repository.
 
@@ -117,9 +142,38 @@ should carry over, but the CEF build has not been tried.
 ## Other known gaps
 
 - **App icon**: `apps/desktop/assets/icon.svg` (the web favicon on Apple's 824/1024 icon grid) is rendered into
-  `assets/icon.iconset` by `bun scripts/icons.ts` (run from `apps/desktop`; needs Chrome); commit the result.
+  `assets/icon.iconset` (macOS; its 1024 px PNG is the Linux icon) and packed into `assets/icon.ico` (Windows: 16,
+  32, 48, 64, 128 and 256 px as PNGs) by `bun scripts/icons.ts` (run from `apps/desktop`; macOS only, needs Chrome and
+  `sips`; `--ico` repacks only the .ico); commit the result, so other platforms never need the script.
 - **PATH from Finder**: an app opened from Finder gets the system's minimal PATH, so agents' shell commands may not
   find tools installed with Homebrew, bun or uv. Started from a terminal it inherits your shell's PATH.
 - **A crash leaves the server running.** The next launch finds it through `server.json` and uses it (but then does not
   stop it on quit).
-- macOS only for now; Electrobun's Windows and Linux builds are untried.
+
+## Platforms
+
+What differs is decided in `apps/desktop/src/platform.ts` as pure functions of the platform, tested on any machine
+(`apps/desktop/tests/platform.test.ts`, and the server start/stop tests run each platform's stop path).
+
+| | macOS | Linux | Windows |
+| --- | --- | --- | --- |
+| Title bar | hidden inset, traffic lights in the toolbar | the system's | the system's |
+| Menu | all roles | without Hide/Hide Others/Show All/Bring All to Front | same as Linux |
+| Dock badge | yes | no | no |
+| Stopping the server | `POST /api/shutdown`, then SIGTERM, then the leash | same | `POST /api/shutdown`, then the leash (a kill there would end only the leash) |
+| Icon | `assets/icon.iconset` (.icns) | the iconset's 1024 px PNG | `assets/icon.ico` |
+| Electrobun builds | arm64 | x64, arm64 | x64 only (Electrobun builds no arm64 Windows app) |
+
+What has been tried, as of 2026-10-10:
+
+- **macOS arm64:** built with `bun run desktop:build`, sidecar in the archive, launched against a scratch home, the
+  window loaded the dashboard, and quitting stopped the server and removed its `server.json`.
+- **Linux (x64, arm64) and Windows (x64):** not built or run yet. The platform logic above is unit-tested on macOS
+  with the platform passed in; the desktop tests (including the sidecar build) are meant to run on Linux and Windows
+  in CI. Whether Electrobun's Linux and Windows bundles have the layout in the table above, and whether the build
+  hook runs there with the same environment, is read from Electrobun's SDK, not seen in a build.
+- **macOS x64 and Windows arm64:** not supported: onnxruntime-node ships no Intel Mac addon, Electrobun's npm
+  bootstrap has no Intel Mac toolchain, and Electrobun builds Windows apps for x64 only (they would run under
+  emulation on arm64).
+- Known gaps beyond the shell on Linux and Windows: the process leash and Windows' command sandbox are separate work
+  (see TODO.md), computer use drives a Mac only, and the microphone prompt in WebKitGTK and WebView2 is untried.

@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { KITTEN_WORKER_COMMAND } from '../../../packages/runtime/src/voice/tts.ts'
+import { asPlatform, executableName } from '../src/platform.ts'
 
 // The real release build of the server, run from outside the repository as the app runs it: what it reads from the
 // source tree at runtime is not there, so only what the build carries works.
@@ -14,7 +15,7 @@ beforeAll(() => {
   const build = Bun.spawnSync([process.execPath, script, dir], { stdout: 'pipe', stderr: 'pipe' })
   if (build.exitCode !== 0)
     throw new Error(`the sidecar did not build: ${build.stderr.toString().slice(-2000)}`)
-  bin = join(dir, 'myrmidon')
+  bin = join(dir, executableName('myrmidon', asPlatform(process.platform)))
 }, 300_000)
 afterAll(() => {
   rmSync(dir, { recursive: true, force: true })

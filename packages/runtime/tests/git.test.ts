@@ -78,6 +78,15 @@ test('stage, unstage, discard and commit act only on the given project paths', a
   await expect(gitFileDiff(dir, '*.ts', 'untracked')).rejects.toThrow('not a new file')
   await expect(gitStage(dir, ['../outside'])).rejects.toThrow('not a project path')
   await expect(gitStage(dir, ['--all'])).rejects.toThrow('not a project path')
+  // Git for Windows reads either separator, so both kinds of escape are refused on every system.
+  for (const outside of [
+    '..\\outside',
+    'a\\..\\..\\outside',
+    'C:\\Windows\\win.ini',
+    'C:win.ini',
+    '\\\\host\\share\\x',
+  ])
+    await expect(gitStage(dir, [outside])).rejects.toThrow('not a project path')
 
   await gitStage(dir, ['a.ts'])
   let status = await gitStatus(dir)

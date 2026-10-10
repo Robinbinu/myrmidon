@@ -35,6 +35,7 @@ import {
   type CustomApi,
   canLeadACrew,
   channelSendTool,
+  childCommands,
   defaultModelRef,
   detectSetup,
   dismissSetup,
@@ -66,11 +67,13 @@ import {
   namingModel,
   normalizeTeamConfig,
   type OmpRuntime,
+  openPersonTerminal,
   PersonBrowser,
   PersonBrowserError,
   type PersonBrowserSettings,
   type PersonInput,
   type PersonTab,
+  type PersonTerminal,
   PHONE_HOOK,
   PHONE_STREAM,
   PhoneLine,
@@ -98,6 +101,7 @@ import {
   setupHave,
   sniffImage,
   startScheduler,
+  TerminalUnavailable,
   TOOL_DEFS,
   type ToolLibrary,
   TWILIO_API,
@@ -197,6 +201,11 @@ export interface ServeOptions {
   readonly suggestModel?: NextWordModel
   /** Where the setup assistant looks for model servers on this computer; Ollama's and LM Studio's ports unless given. */
   readonly setupServers?: readonly LocalServer[]
+  /**
+   * Stops the whole server, for `POST /api/shutdown` with this server's own token on this machine: how the desktop
+   * app stops the server it started, since on Windows a signal cannot let it stop its chats first.
+   */
+  readonly onShutdown?: () => void
 }
 
 export interface WebServer {
@@ -244,8 +253,10 @@ type StreamData = Opened &
         cwd: string
         cols: number
         rows: number
-        proc?: Bun.Subprocess
+        proc?: PersonTerminal
         watch?: ReturnType<typeof setInterval>
+        /** The socket closed, maybe before the shell had started. */
+        closed?: boolean
       }
     /**
      * A voice call: the person's audio in, the call's speech and state out. `refusal`: the call is refused, said as
@@ -1031,6 +1042,26 @@ export function startServer(options: ServeOptions): WebServer {
           remote,
           ...(access.device ? { device: { id: access.device.id, name: access.device.name } } : {}),
         })
+      },
+      '/api/shutdown': {
+        POST: (req: Request) => {
+          // Only the token this server wrote to server.json, from this machine: not a paired device, not dev mode.
+          const stop = options.onShutdown
+          const header = req.headers.get('authorization')
+          const given = header?.startsWith('Bearer ') ? header.slice(7) : undefined
+          if (
+            !stop ||
+            !token ||
+            !given ||
+            !sameOrigin(req) ||
+            !isLoopback(req.headers.get('host') ?? '') ||
+            !tokenEquals(given, token)
+          )
+            return json({ error: 'unauthorized' }, 401)
+          // After this response has gone out: the shutdown closes the listener.
+          setTimeout(stop, 0)
+          return json({ stopping: true }, 202)
+        },
       },
       '/api/devices': {
         GET: guard((req) => {
@@ -3098,40 +3129,51 @@ export function startServer(options: ServeOptions): WebServer {
             ws.close(4429, `Too many terminals are open (${MAX_TERMINALS}). Close one to open another.`)
             return
           }
-          try {
-            data.proc = Bun.spawn([process.env.SHELL || '/bin/zsh', '-l'], {
-              cwd: data.cwd,
-              env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor' },
-              terminal: {
+          void (async () => {
+            try {
+              data.proc = await openPersonTerminal({
+                cwd: data.cwd,
                 cols: data.cols,
                 rows: data.rows,
-                data: (_t, chunk) => ws.send(chunk),
-              },
-            })
-          } catch {
-            // A project folder that was moved or deleted: say so instead of an empty terminal.
-            ws.close(1011, 'Could not start a shell in this folder. Was it moved or deleted?')
-            return
-          }
-          void data.proc.exited.then(() => ws.close(1000, 'shell exited'))
-          // The tab is named by what runs in it, as IDE terminals do. Polling `ps` is cheap and needs no native
-          // module; a JSON text frame tells the page, beside the shell's output in binary frames.
-          const shell = data.proc.pid
-          let shown: string | null = null
-          let looking = false
-          data.watch = setInterval(() => {
-            if (looking) return
-            looking = true
-            void foregroundCommand(shell)
-              .then((name) => {
-                if (name === undefined || name === shown) return
-                shown = name
-                ws.send(JSON.stringify({ type: 'process', name }))
+                env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor' },
+                onData: (chunk) => ws.send(chunk),
               })
-              .finally(() => {
-                looking = false
-              })
-          }, TERMINAL_FOREGROUND_MS)
+            } catch (err) {
+              // A project folder that was moved or deleted, or a Windows without ConPTY: say so instead of an empty
+              // terminal.
+              ws.close(
+                1011,
+                err instanceof TerminalUnavailable
+                  ? 'Terminals are not available on this computer: it needs Windows 10 (1809) or later.'
+                  : 'Could not start a shell in this folder. Was it moved or deleted?',
+              )
+              return
+            }
+            const term = data.proc
+            if (data.closed) {
+              term.close()
+              return
+            }
+            void term.exited.then(() => ws.close(1000, 'shell exited'))
+            // The tab is named by what runs in it, as IDE terminals do. Polling `ps` is cheap and needs no native
+            // module (Windows asks for the shell's children instead); a JSON text frame tells the page, beside the
+            // shell's output in binary frames.
+            let shown: string | null = null
+            let looking = false
+            data.watch = setInterval(() => {
+              if (looking) return
+              looking = true
+              void foregroundCommand(term.pid, { children: childCommands })
+                .then((name) => {
+                  if (name === undefined || name === shown) return
+                  shown = name
+                  ws.send(JSON.stringify({ type: 'process', name }))
+                })
+                .finally(() => {
+                  looking = false
+                })
+            }, TERMINAL_FOREGROUND_MS)
+          })()
           return
         }
         if (ws.data.kind === 'call') {
@@ -3235,9 +3277,9 @@ export function startServer(options: ServeOptions): WebServer {
         if (ws.data.kind === 'ping') return
         if (ws.data.kind === 'terminal') {
           if (!ws.data.refused) terminals -= 1
+          ws.data.closed = true
           clearInterval(ws.data.watch)
-          ws.data.proc?.terminal?.close()
-          ws.data.proc?.kill()
+          ws.data.proc?.close()
           return
         }
         if (ws.data.kind === 'call') {
@@ -3296,7 +3338,7 @@ export function startServer(options: ServeOptions): WebServer {
             cols?: unknown
             rows?: unknown
           }
-          const term = ws.data.proc?.terminal
+          const term = ws.data.proc
           if (msg.type === 'input' && typeof msg.data === 'string') term?.write(msg.data)
           else if (msg.type === 'resize' && typeof msg.cols === 'number' && typeof msg.rows === 'number')
             term?.resize(Math.min(500, Math.max(10, msg.cols)), Math.min(500, Math.max(5, msg.rows)))

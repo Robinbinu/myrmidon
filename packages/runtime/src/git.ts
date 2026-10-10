@@ -1,4 +1,4 @@
-import { join } from 'node:path'
+import { join, posix, win32 } from 'node:path'
 import { MAX_PATCH, MAX_UNTRACKED_BYTES, MAX_UNTRACKED_SHOWN } from './config.ts'
 
 /**
@@ -199,11 +199,21 @@ export async function gitCommit(
 
 /**
  * Paths a git action may touch: relative, inside the project, and never read as an option. Throws on anything else.
+ * Both separators and both systems' absolute forms (`/x`, `C:\x`, `\\server\x`, drive-relative `C:x`) are refused on
+ * every system, as git for Windows reads either separator.
  */
 function checkedPaths(paths: readonly string[]): string[] {
   if (paths.length === 0 || paths.length > 1000) throw new Error('pick between 1 and 1000 files')
   return paths.map((p) => {
-    if (typeof p !== 'string' || !p || p.startsWith('/') || p.startsWith('-') || p.split('/').includes('..'))
+    if (
+      typeof p !== 'string' ||
+      !p ||
+      posix.isAbsolute(p) ||
+      win32.isAbsolute(p) ||
+      /^[a-z]:/i.test(p) ||
+      p.startsWith('-') ||
+      p.split(/[\\/]/).includes('..')
+    )
       throw new Error(`not a project path: ${p}`)
     return p
   })
@@ -220,7 +230,8 @@ export async function gitFileDiff(
     // `--no-index` reads any file: only one git itself lists as new is shown, never an ignored one (a .env, say).
     const listed = await git(path, ['ls-files', '--others', '--exclude-standard', '--', `:(literal)${p}`])
     if (!listed.split('\n').includes(p as string)) throw new Error(`${p} is not a new file in this project`)
-    // `--no-index` exits 1 when the files differ, which they always do against /dev/null.
+    // `--no-index` exits 1 when the files differ, which they always do against /dev/null. Git reads /dev/null as no
+    // file on every system, Git for Windows included, so it needs no NUL there.
     const proc = Bun.spawn(['git', 'diff', '--no-index', '--', '/dev/null', p as string], {
       cwd: path,
       stdout: 'pipe',

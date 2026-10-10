@@ -25,7 +25,12 @@ export default {
       icons: 'assets/icon.iconset',
     },
     linux: {
+      // The 1024 px PNG for desktop entries, window and taskbar.
       icon: 'assets/icon.iconset/icon_512x512@2x.png',
+    },
+    win: {
+      // 16 to 256 px, packed from the iconset by scripts/icons.ts.
+      icon: 'assets/icon.ico',
     },
   },
   scripts: {

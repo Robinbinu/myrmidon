@@ -1,4 +1,5 @@
 import { beforeAll, expect, test } from 'bun:test'
+import { phononUnsupported } from '@myrmidon/runtime'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { copy } from '../src/client/copy.ts'
 import { CallBar, callee, speaker } from '../src/client/voice/CallBar.tsx'
@@ -193,6 +194,7 @@ test('an engine’s raw error becomes a plain cause and fix', () => {
   ).toBe(t.noUv)
   expect(engineTrouble('phonon', 'error: Failed to download mlx==0.29')).toBe(t.phonon)
   expect(engineTrouble('kitten', 'downloading voices.npz failed (502)')).toBe(t.kitten)
+  expect(engineTrouble('phonon', phononUnsupported('win32', 'arm64') ?? '')).toBe(t.unsupported)
 })
 
 test('the call bar shows what is being heard in place of the oldest line, outside what is announced', () => {

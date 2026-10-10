@@ -1,4 +1,4 @@
-import { ArrowUp, Folder, FolderPlus } from 'lucide-react'
+import { ArrowUp, Folder, FolderPlus, HardDrive } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { activeGateway, api, type Project, send } from '../api.ts'
 import { copy } from '../copy.ts'
@@ -12,6 +12,8 @@ interface Listing {
   path: string
   parent?: string
   folders: string[]
+  /** On Windows, the drives, since `..` stops at one. */
+  drives?: string[]
 }
 
 /**
@@ -114,6 +116,15 @@ export function FolderPicker(props: {
             {copy.folderPicker.go}
           </Button>
         </form>
+        {listing?.drives && listing.drives.length > 0 && (
+          <fieldset className="m-0 flex flex-wrap gap-1.5 border-0 p-0" aria-label={copy.folderPicker.drives}>
+            {listing.drives.map((d) => (
+              <Button key={d} size="sm" onClick={() => open(d)} icon={<HardDrive className="size-3.5" />}>
+                {d.replace(/\\$/, '')}
+              </Button>
+            ))}
+          </fieldset>
+        )}
         <div className="max-h-[50vh] overflow-auto rounded-lg border border-line">
           {listing?.parent && (
             <button

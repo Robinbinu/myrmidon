@@ -1343,6 +1343,8 @@ export const copy = {
     useFolder: 'Use this folder',
     path: { placeholder: '~/code/my-app', label: 'Folder path' },
     go: 'Open',
+    /** The Windows drives above the folder list. */
+    drives: 'Drives',
     empty: 'No sub-folders here.',
     added: (name: string) => `Added ${name}`,
     /** On the "Added" toast while a chat is open: that chat stays where it was. */
@@ -3377,6 +3379,11 @@ export const copy = {
         noUv: {
           cause: 'Phonon-2 needs uv, the Python installer, and it is not on this Mac.',
           fix: 'Install uv from docs.astral.sh/uv, then press Install again.',
+        },
+        /** Fermion publishes no Phonon-2 engine for this computer (Windows on Arm). */
+        unsupported: {
+          cause: 'Phonon-2 does not run on this computer.',
+          fix: 'Pick Cloud for speech to text, or a voice provider of your own.',
         },
         phonon: {
           cause: 'Phonon-2 could not install or start.',

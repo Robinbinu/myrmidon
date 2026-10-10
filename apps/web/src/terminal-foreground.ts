@@ -60,12 +60,13 @@ async function ps(args: string[]): Promise<string> {
     const proc = Bun.spawn(['ps', ...args], { stdout: 'pipe', stderr: 'ignore', timeout: PS_TIMEOUT_MS })
     return (await new Response(proc.stdout).text()).trim()
   } catch {
-    // No `ps` here (Windows): the tab keeps showing the folder.
+    // No `ps` here: the tab keeps showing the folder.
     return ''
   }
 }
 
-const fileName = (path: string) => path.split('/').pop() ?? path
+/** A program's name from its path, either slash; on Windows without its extension (`C:\…\node.exe` is `node`). */
+const fileName = (path: string) => (path.split(/[\\/]/).pop() ?? path).replace(/\.(exe|cmd|bat|com)$/i, '')
 
 /**
  * Whether an argument may be a secret: a header or `name=value` naming a password, token, key or secret, or a long
@@ -83,12 +84,13 @@ function secretLike(word: string): boolean {
  * arguments as the shell expanded them, so `mysql -p$DB_PASS` arrives with the password itself: options are never
  * shown, and neither is an argument that looks like a secret or anything after one; a URL loses its `user:password@`.
  */
-export function commandLabel(args: string): string {
-  const [first = '', ...words] = args.trim().split(/\s+/)
+export function commandLabel(args: string | readonly string[]): string {
+  // Windows gives the words themselves, so a path with spaces stays one word.
+  const [first = '', ...words] = typeof args === 'string' ? args.trim().split(/\s+/) : args
   let program = fileName(first)
   let found = argumentsOf(program, words)
   const script = found.plain[0]
-  if (INTERPRETERS.test(program) && !found.inline && script?.word.includes('/')) {
+  if (INTERPRETERS.test(program) && !found.inline && script && /[\\/]/.test(script.word)) {
     program = fileName(script.word)
     found = argumentsOf(program, words.slice(script.at + 1))
   }
@@ -133,9 +135,22 @@ function argumentsOf(
  * What runs in the foreground of the terminal whose shell is `shellPid`: the command line of the terminal's
  * foreground process group, or null while the shell waits at its prompt; undefined when it cannot be told. `ps`
  * reports the group as TPGID (what tcgetpgrp answers for the shell's terminal) on macOS and Linux alike, so this
- * needs no native module.
+ * needs no native module. Windows has no foreground group: there it is the last of the shell's children as the OS
+ * lists them (`children`), or null when it has none.
  */
-export async function foregroundCommand(shellPid: number): Promise<string | null | undefined> {
+export async function foregroundCommand(
+  shellPid: number,
+  options: { platform?: NodeJS.Platform; children?: (pid: number) => string[][] } = {},
+): Promise<string | null | undefined> {
+  if ((options.platform ?? process.platform) === 'win32') {
+    if (!options.children) return undefined
+    // The console host ConPTY starts serves the terminal, not a command typed in it.
+    const running = options
+      .children(shellPid)
+      .filter((args) => args.length && !/^conhost$/i.test(fileName(args[0] ?? '')))
+    const last = running.at(-1)
+    return last ? commandLabel(last) : null
+  }
   const group = Number(await ps(['-o', 'tpgid=', '-p', String(shellPid)]))
   if (!Number.isInteger(group) || group <= 0) return undefined
   if (group === shellPid) return null
