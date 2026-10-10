@@ -285,6 +285,19 @@ export interface EventPayloads {
   }
   'skill/decided': { id: string; kept: boolean }
   /**
+   * One of the person's stream rules stopped an agent's reply as the model wrote it: `source` says what matched (its
+   * prose, its reasoning, or a call to `tool`), and the request went again with the rule's guidance. `path` is the
+   * rule's file, relative to the project or the home folder.
+   */
+  'rule/fired': {
+    agent: string
+    rule: string
+    description?: string
+    source: 'text' | 'thinking' | 'tool'
+    tool?: string
+    path: string
+  }
+  /**
    * One of the person's hooks ran. `outcome`: `blocked` stopped the tool, `asked` sent it to the person,
    * `feedback` told the agent something after the tool, `failed` means the hook itself errored.
    */

@@ -19,6 +19,7 @@ import {
   KEEP_TURNS,
   MODEL_RETRIES,
   QUIET_KEPT,
+  STREAM_RULE_RETRIES,
   TRANSIENT_STATUS,
   TURN_TIMEOUT_MS,
 } from './config.ts'
@@ -40,6 +41,7 @@ import { prompts } from './prompts.ts'
 import { hideInContext, restoreSecrets, secretsHidden } from './provider-secrets.ts'
 import { redactDeep } from './secrets.ts'
 import type { AgentSpec } from './spec.ts'
+import { rulesFor, StreamRuleGuard } from './stream-rules.ts'
 import { buildAgentTools, matchTools } from './tools.ts'
 import { noWebTools } from './web.ts'
 
@@ -108,6 +110,8 @@ export class ColonyAgent {
   /** What this agent's prompt and tool descriptions were built from, and the prompt itself. */
   private readonly _facts: PromptFacts
   private readonly _prompt: AssembledPrompt
+  /** The person's stream rules, enforced on this agent's model calls; each stop is logged as `rule/fired`. */
+  private readonly _rules: StreamRuleGuard
 
   constructor(
     readonly spec: AgentSpec,
@@ -138,6 +142,26 @@ export class ColonyAgent {
       secretsHidden: secretsHidden(),
     })
     this._prompt = assemble(this._facts)
+    this._rules = new StreamRuleGuard({
+      retries: STREAM_RULE_RETRIES,
+      cwd: () => host.workspace.workdir(spec.name),
+      ...(host.spec.chat?.project?.path ? { project: host.spec.chat.project.path } : {}),
+      onFire: (fire) =>
+        void host
+          .append({
+            type: 'rule/fired',
+            actor: SYS,
+            payload: {
+              agent: spec.name,
+              rule: fire.rule.name,
+              ...(fire.rule.description ? { description: fire.rule.description } : {}),
+              source: fire.source,
+              ...(fire.tool ? { tool: fire.tool } : {}),
+              path: fire.path,
+            },
+          })
+          .catch((err) => console.error(`[${spec.name}] failed to log a stream rule:`, err)),
+    })
     const tools = buildAgentTools(spec.name, this._facts.tools.names, host, this._model, this._facts)
     for (const name of preloaded(
       host.spec.chat?.request ?? host.spec.mission,
@@ -172,7 +196,8 @@ export class ColonyAgent {
       // a mid-round model switch reach models that bring their own stream too.
       // On-demand tools stay callable but are left out of the request until loaded (find_tools), so their
       // definitions do not ride along in every model call.
-      streamFn: (model, context, options) => {
+      // The person's stream rules wrap the call, so a reply they stop is sent again through the same hiding.
+      streamFn: this._rules.wrap((model, context, options) => {
         this._streamedWith = model
         const tools = context.tools?.filter((t) => this._shown(t.name))
         // Here, the one place every model call of the agent loop passes, so no request leaves with a secret in it.
@@ -181,7 +206,7 @@ export class ColonyAgent {
           hideInContext(tools ? { ...context, tools } : context),
           withComputerToolset(model, tools, withOllamaContext(model, options)),
         )
-      },
+      }),
       // Only the arguments the tool runs with: the conversation keeps the placeholder the model wrote.
       transformToolCallArguments: (args, tool) =>
         restoreSecrets(tool, args, {
@@ -409,6 +434,9 @@ export class ColonyAgent {
     })
     await this._status('working')
     await this._markDelivered(items)
+    this._rules.newTurn(
+      rulesFor(this.host.streamRules?.() ?? [], this.name, speaksForColony(this.host.spec, this.spec)),
+    )
     const timer = setTimeout(() => this._agent.abort('turn timeout'), TURN_TIMEOUT_MS)
     const from = this._agent.state.messages.length
     try {

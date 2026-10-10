@@ -63,6 +63,7 @@ import { canLead } from './chat/model-list.ts'
 import { ProjectFiles } from './chat/ProjectFiles.tsx'
 import { FullAccessBadge, ProjectPermissions } from './chat/ProjectPermissions.tsx'
 import { isRunning, JumpToLatest, PendingRound, RoundView } from './chat/RoundView.tsx'
+import { RuleSheet } from './chat/RuleSheet.tsx'
 import { ImportedChatBlock, ImportNote, ImportSessions } from './chat/SessionImport.tsx'
 import { Sidebar, type View } from './chat/Sidebar.tsx'
 import { Workspace } from './chat/Workspace.tsx'
@@ -374,6 +375,8 @@ export function App() {
   )
   /** The chats the delete sheet asks about: one, or the sidebar's selection. */
   const [deleting, setDeleting] = useState<readonly ChatSummary[]>()
+  /** `/rule`: the complaint about the open chat's last reply that a rule is being drafted from. */
+  const [ruleFor, setRuleFor] = useState<{ chatId: string; complaint: string; project: boolean }>()
   const deletes = useHeldDeletes({
     remove: (chatId) => request('DELETE', `/api/chats/${chatId}`),
     gone: (chatIds) => {
@@ -962,6 +965,13 @@ export function App() {
     switch (name) {
       case 'learn':
         return learn()
+      case 'rule':
+        if (!activeChat) return toast(copy.rules.noChat, 'info')
+        if (!arg) {
+          toast(copy.rules.usage, 'error')
+          throw new Error('no complaint')
+        }
+        return setRuleFor({ chatId: activeChat, complaint: arg, project: !!chat?.project })
       case 'plan':
         return send(arg, activeChat, 'steer', [], { plan: true })
       case 'goal':
@@ -1791,6 +1801,17 @@ export function App() {
                   onConfirm={confirmDelete}
                 />
               </Sheet>
+            )}
+            {ruleFor && (
+              <RuleSheet
+                key="rule"
+                {...ruleFor}
+                onClose={() => setRuleFor(undefined)}
+                onSaved={(name, where) => {
+                  setRuleFor(undefined)
+                  toast(copy.rules.saved(name, where === 'project'), 'success')
+                }}
+              />
             )}
             {permissionsFor && (
               <ProjectPermissions

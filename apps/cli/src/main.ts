@@ -48,6 +48,7 @@ import {
   SkillLibrary,
   SkillProposalStore,
   SpecialistStore,
+  StreamRuleStore,
   ToolLibrary,
 } from '@myrmidon/runtime'
 import { startServer } from '@myrmidon/web'
@@ -361,6 +362,7 @@ async function main() {
           : console.log(c.dim(`skills archived (unused for a while): ${archived.join(', ')}`)),
       )
       const hooks = new HookStore(home, () => plugins.hooks())
+      const rules = new StreamRuleStore(home)
       const checkpoints = new Checkpoints(join(home, 'checkpoints'))
       // A server that fails to start is reported in Settings; it must not keep Myrmidon from starting.
       void mcp
@@ -386,6 +388,7 @@ async function main() {
         memory,
         skills,
         hooks,
+        rules,
         plugins: pluginHost,
       })
       const server = startServer({

@@ -480,6 +480,7 @@ export const copy = {
     goalMet: 'Goal reached',
     goalNotMet: (check: string) => `Goal not reached yet (check ${check})`,
     advised: 'Got a note from the advisor:',
+    ruleStopped: (rule: string) => `Rule ${rule} stopped a reply and it was written again:`,
     askedJudge: 'Asked the reviewer to check the result',
     judgeApproved: 'Reviewer approved',
     judgeRejected: 'Reviewer asked for changes',
@@ -537,6 +538,7 @@ export const copy = {
       'skill/proposed': 'skill suggested',
       'skill/decided': 'skill kept or discarded',
       'hook/ran': 'hook ran',
+      'rule/fired': 'rule stopped a reply',
       'skill/used': 'skill used',
       'colony/escalated': 'run handed to a bigger crew',
       'agent/joined': 'crewmate joined',
@@ -1028,6 +1030,10 @@ export const copy = {
       attach: { description: 'Attach files to your next message' },
       export: { description: 'Download this chat as Markdown' },
       learn: { description: 'Learn a skill from how this chat did its work' },
+      rule: {
+        args: '<what went wrong>',
+        description: 'Turn a complaint about the last reply into a rule that stops it next time',
+      },
       mcp: { description: 'Manage MCP servers (tool connectors)' },
       settings: { description: 'Open settings' },
       help: { description: 'Show every command' },
@@ -2162,6 +2168,47 @@ export const copy = {
   goal: {
     met: (condition: string) => `Goal reached: ${condition}`,
     notMet: (check: number, why: string) => `Goal not reached yet (check ${check}): ${why}`,
+  },
+
+  /** Stream rules: the `/rule` sheet that drafts one from a complaint, and the line a rule leaves when it stops a reply. */
+  rules: {
+    /** A line in the round: a rule stopped an agent's reply as it was written, and the reply was written again. */
+    stopped: (agent: string, rule: string, where: string) =>
+      `${agent} broke the rule ${rule} ${where}, so it was stopped and wrote it again.`,
+    where: (source: 'text' | 'thinking' | 'tool', tool?: string) =>
+      source === 'tool'
+        ? `in a ${tool ?? 'tool'} call`
+        : source === 'thinking'
+          ? 'while thinking'
+          : 'in its reply',
+    stoppedTitle: (description: string | undefined, path: string) =>
+      `${description ? `${description} · ` : ''}${path}`,
+    sheet: {
+      title: 'New rule',
+      complaint: 'Your complaint',
+      drafting: 'Writing a rule that would have caught it…',
+      matched: 'It catches the reply you complained about.',
+      unconfirmed: 'Couldn’t confirm it catches the reply you complained about:',
+      name: 'Name',
+      pattern: 'Stops a reply when it matches',
+      scope: 'Watches',
+      guidance: 'What the agent is told instead',
+      file: 'The rule’s file',
+      saveMine: 'Save for all my chats',
+      saveProject: 'Save for this project',
+      replace: (name: string) => `Replace ${name}`,
+      exists: (name: string) => `A rule named ${name} is already saved.`,
+      amend: 'Ask for a change',
+      amendPlaceholder: 'e.g. only for TypeScript files written with fs_write',
+      redraft: 'Rewrite',
+      cancel: 'Cancel',
+      failed: (reason: string) => `Couldn’t write a rule: ${reason}`,
+      tryAgain: 'Try again',
+    },
+    saved: (name: string, project: boolean) =>
+      project ? `Rule ${name} saved for this project` : `Rule ${name} saved for all your chats`,
+    noChat: 'Open a chat to make a rule about its last reply',
+    usage: 'Say what the reply got wrong: /rule <complaint>',
   },
 
   outcome: {

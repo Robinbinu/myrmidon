@@ -61,8 +61,12 @@ limitations under the License.
 The rule-file discovery in `packages/runtime/src/rule-files.ts` (which files each tool keeps rules in, how their
 frontmatter decides when a rule applies, and the check that skips a file already contained in another), the github
 tool in `packages/runtime/src/github.ts` (the `gh` operations, their arguments and the Actions run report, after
-omp's `tools/gh*.ts`) and the find tool's search cascade in `packages/runtime/src/find.ts` (after omp's
-`tools/jfind/cascade.ts`) are ported from oh-my-pi 18.8.7 (https://github.com/can1357/oh-my-pi), MIT License:
+omp's `tools/gh*.ts`), the find tool's search cascade in `packages/runtime/src/find.ts` (after omp's
+`tools/jfind/cascade.ts`), and the stream rules (time-traveling stream rules) in `packages/runtime/src/stream-rules.ts`
+and `packages/runtime/src/rule-draft.ts` (the rule-building step of `discovery/helpers.ts`, the stream check and retry
+of `session/ttsr-coordinator.ts`, and the guidance and rule-drafting prompts of `prompts/system/ttsr-interrupt.md` and
+`prompts/system/omfg-user.md`, adapted in `packages/runtime/src/prompts.ts`) are ported from oh-my-pi 18.8.7
+(https://github.com/can1357/oh-my-pi), MIT License:
 
 ```
 MIT License

@@ -182,6 +182,9 @@ test('pairing codes expire after enough wrong guesses, and chat devices are kept
   expect(needsFull('DELETE', '/api/schedules/s1')).toBe(true)
   expect(needsFull('POST', '/api/schedules/s1/run')).toBe(true)
   expect(needsFull('GET', '/api/schedules')).toBe(false)
+  // Saving a stream rule steers every agent; drafting one from a chat (/rule) stays open.
+  expect(needsFull('POST', '/api/rules')).toBe(true)
+  expect(needsFull('POST', '/api/chats/c1/rule')).toBe(false)
 })
 
 /** A port that was free a moment ago, for a fixed preview port. */

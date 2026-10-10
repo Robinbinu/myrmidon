@@ -724,6 +724,21 @@ export const RULES_MAX_FILES = 200
 export const RULE_FILE_MAX_BYTES = 256 * 1024
 export const RULE_MAX_TEXT = 8 * 1024
 export const RULES_MAX_LISTED = 50
+/**
+ * Stream rules (stream-rules.ts): how many replies one agent turn may have stopped and rewritten before the rest of
+ * the turn goes unchecked. Each stop bills the abandoned part of a reply and a second request, and a model that keeps
+ * breaking rules after their guidance would otherwise loop.
+ */
+export const STREAM_RULE_RETRIES = 3
+/**
+ * Drafting a stream rule from a complaint (`/rule`): attempts before the last candidate is shown unconfirmed (omp's
+ * /omfg makes 3), how long each may take, and how much of the reply the drafting model sees: its last outputs, each
+ * cut to a length.
+ */
+export const RULE_DRAFT_ATTEMPTS = 3
+export const RULE_DRAFT_MS = 90_000
+export const RULE_DRAFT_OUTPUTS = 12
+export const RULE_DRAFT_OUTPUT_CHARS = 4_000
 /** The largest diff patch returned, and which untracked files are shown in full: the first 50, up to 256 KB each. */
 export const MAX_PATCH = 512 * 1024
 export const MAX_UNTRACKED_SHOWN = 50

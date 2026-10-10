@@ -92,6 +92,7 @@ type Item =
   | { seq: number; id: string; fallback: EventPayloads['agent/fallback'] }
   | { seq: number; id: string; handoff: EventPayloads['agent/handoff'] }
   | { seq: number; id: string; goal: EventPayloads['verifier/verdict'] }
+  | { seq: number; id: string; rule: EventPayloads['rule/fired'] }
 
 const enter = { initial: { opacity: 0, y: 10 }, animate: { opacity: 1, y: 0 }, transition: softSpring }
 
@@ -238,7 +239,7 @@ export function RoundView(props: {
     // A reply still being written sits where it began, after what was in the log by then.
     ...streaming.map(([agent, live]) => ({ seq: live.since + 0.5, stream: agent, live })),
     // An agent that went on with a fallback model, or handed off to its carry-out model (prewalk), says so where it
-    // happened; so does each check of a goal round's goal.
+    // happened; so does each check of a goal round's goal, and each reply one of the person's rules stopped.
     ...events.flatMap((e): Item[] =>
       e.type === 'agent/fallback'
         ? [{ seq: e.seq, id: e.id, fallback: e.payload as EventPayloads['agent/fallback'] }]
@@ -247,7 +248,9 @@ export function RoundView(props: {
           : e.type === 'verifier/verdict' &&
               (e.payload as EventPayloads['verifier/verdict']).target === 'goal'
             ? [{ seq: e.seq, id: e.id, goal: e.payload as EventPayloads['verifier/verdict'] }]
-            : [],
+            : e.type === 'rule/fired'
+              ? [{ seq: e.seq, id: e.id, rule: e.payload as EventPayloads['rule/fired'] }]
+              : [],
     ),
   ].sort((a, b) => a.seq - b.seq)
   // The run card sits under the latest message sent mid-run, so what the colony did next reads in order.
@@ -313,6 +316,8 @@ export function RoundView(props: {
       <HandoffNote key={i.id} handoff={i.handoff} models={props.models} />
     ) : 'goal' in i ? (
       <GoalNote key={i.id} verdict={i.goal} goal={info?.goal?.condition} />
+    ) : 'rule' in i ? (
+      <RuleNote key={i.id} fired={i.rule} />
     ) : 'approval' in i ? (
       <Approval
         key={i.approval.id}
@@ -523,6 +528,21 @@ function HandoffNote(props: { handoff: EventPayloads['agent/handoff']; models: M
     <motion.p {...enter} className="flex items-center gap-1.5 pl-11 text-callout text-muted">
       <FEATURE_ICONS.prewalk className="size-3.5 shrink-0" />
       <span>{copy.modelFailure.handedOff(h.agent, name(h.previous), name(h.model))}</span>
+    </motion.p>
+  )
+}
+
+/** One quiet line in the round: one of the person's stream rules stopped a reply, which was written again. */
+function RuleNote(props: { fired: EventPayloads['rule/fired'] }) {
+  const f = props.fired
+  return (
+    <motion.p
+      {...enter}
+      title={copy.rules.stoppedTitle(f.description, f.path)}
+      className="flex items-center gap-1.5 pl-11 text-callout text-muted"
+    >
+      <FEATURE_ICONS.streamRules className="size-3.5 shrink-0" />
+      <span>{copy.rules.stopped(f.agent, f.rule, copy.rules.where(f.source, f.tool))}</span>
     </motion.p>
   )
 }

@@ -42,6 +42,7 @@ import {
   MessagesSquare,
   MonitorSmartphone,
   MousePointerClick,
+  OctagonPause,
   Palette,
   PhoneIncoming,
   Plug,
@@ -129,6 +130,8 @@ export const FEATURE_ICONS = {
   prewalk: Footprints,
   /** Goal mode: a round that keeps working until its goal holds (`/goal`, each check's line in the round). */
   goal: Goal,
+  /** Stream rules: the person's rules that stop a reply mid-stream (`/rule`, the line a stop leaves in the round). */
+  streamRules: OctagonPause,
   /** Models removed from pickers, listed under Hidden models in Settings → Models to restore. */
   hiddenModels: EyeOff,
   /** Providers and their keys. */
