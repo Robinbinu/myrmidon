@@ -70,7 +70,16 @@ function fakeController(bridge: (name: string, args: unknown) => Promise<unknown
           { type: 'image', data: PNG, mimeType: 'image/png' },
         ],
         returnValue: value,
-        screenshots: [{ path: join(home, 'none.png'), width: 1280, height: 800, target: '1' }],
+        screenshots: [
+          {
+            path: join(home, 'none.png'),
+            width: 1280,
+            height: 800,
+            coordinateWidth: 1280,
+            coordinateHeight: 800,
+            target: '1',
+          },
+        ],
       }
     },
     async capabilities() {
