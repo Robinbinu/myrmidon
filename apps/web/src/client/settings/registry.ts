@@ -1213,6 +1213,20 @@ export const SETTINGS = {
     label: s.skills.proposedTitle,
     keywords: kw.skills,
   },
+  'skills.registry': {
+    page: 'skills',
+    path: [s.skills.add.title],
+    control: 'text',
+    label: s.skills.add.searchLabel,
+    keywords: ['registry', 'skills.omp.sh', 'skillshare', 'install', 'omp', ...kw.skills],
+  },
+  'skills.add': {
+    page: 'skills',
+    path: [s.skills.add.title],
+    control: 'text',
+    label: s.skills.add.sourceLabel,
+    keywords: ['install', 'git', 'github', 'repository', ...kw.skills],
+  },
   'skills.archived': {
     page: 'skills',
     control: 'list',
@@ -1259,7 +1273,15 @@ export const SETTINGS = {
     page: 'plugins',
     control: 'text',
     label: s.plugins.sourceLabel,
-    keywords: [s.plugins.add, ...kw.plugins],
+    keywords: [s.plugins.add, 'install', 'npm', 'git', ...kw.plugins],
+  },
+  'plugins.marketplaces': {
+    page: 'plugins',
+    path: [s.plugins.marketplaces.title],
+    control: 'text',
+    label: s.plugins.marketplaces.sourceLabel,
+    help: s.plugins.marketplaces.intro,
+    keywords: ['marketplace', 'catalog', 'install', s.plugins.marketplaces.add, ...kw.plugins],
   },
   'hooks.list': {
     page: 'hooks',

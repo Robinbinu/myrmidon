@@ -56,6 +56,7 @@ import {
 import { startServer } from '@myrmidon/web'
 import { channels } from './channels.ts'
 import { setupCopy } from './copy.ts'
+import { plugins, skills } from './installs.ts'
 import { type Call, doctor, key, login, model, type ServerInfo, setup } from './setup.ts'
 import { shutdownSignals } from './shutdown.ts'
 import { style, terminal } from './terminal.ts'
@@ -78,6 +79,11 @@ Usage:
   myrmidon channels [<channel> [on|off|set <name> <value>] | approve <channel> <code> | revoke <channel> <who>]
                Talk to your agents from Telegram and more: set a channel up (secrets hidden or piped), approve
                people, and choose who may write (set dm|groups|mention|per-person|allow|stream)
+  myrmidon plugins [add <source> | update <name> | remove <name> | marketplaces [add|refresh|remove …]]
+               Install plugins from a folder, repository URL, npm:<package> or <plugin>@<marketplace>; you
+               review what runs before anything is installed
+  myrmidon skills [search [query] | add <@scope/name | repository URL> | update <name> | remove <name>]
+               Search omp's skills registry and install skills, after the same review
   myrmidon ask "<request>" [--chat ID] [--project ID] [--wait]
                Send a request to the running server (from \`serve\`); --wait prints the final answer
   myrmidon import-omp          Copy an existing omp setup (keys, logins, models.yml) from ~/.omp
@@ -517,6 +523,10 @@ async function main() {
       return model((await runningServer()).call, terminal(), arg)
     case 'channels':
       return channels((await runningServer()).call, terminal(), positionals.slice(1))
+    case 'plugins':
+      return plugins((await runningServer()).call, terminal(), positionals.slice(1))
+    case 'skills':
+      return skills((await runningServer()).call, terminal(), positionals.slice(1))
     case 'doctor': {
       const server = await runningServer().catch(() => undefined)
       const problems = await withScratch((scratch) =>
