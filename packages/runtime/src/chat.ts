@@ -27,7 +27,7 @@ import {
   withRule,
 } from '@myrmidon/protocol'
 import type { BrowserHub } from './browser.ts'
-import { namingModel } from './catalog.ts'
+import { defaultModelRef, namingModel } from './catalog.ts'
 import { exportDoc, renderChatHtml } from './chat-export.ts'
 import { ChatIndex, type CrewMember, type IndexedRound, type MessageHit } from './chat-index.ts'
 import type { ChatPlace, ChatShelf } from './chat-shelf.ts'
@@ -40,6 +40,9 @@ import {
   GOAL,
   MAX_READ_FOLDERS,
   MAX_WORKERS,
+  MEMORY_EXTRACT_MIN_CHARS,
+  MEMORY_REFLECT_EVERY_MS,
+  MEMORY_REFLECT_OVERLAP,
   SKILL_REVIEW_CALLS,
   SUGGEST_CORPUS,
 } from './config.ts'
@@ -48,7 +51,14 @@ import type { HookStore } from './hooks.ts'
 import type { ToolLibrary } from './made-tools.ts'
 import type { McpHub } from './mcp.ts'
 import type { MediaTools } from './media.ts'
-import { type MemoryStore, memoryLines } from './memory.ts'
+import { type Memory, type MemoryStore, memoryLines, similarity } from './memory.ts'
+import {
+  extractMemories,
+  finalAnswer,
+  type MemorySuggestion,
+  personSaid,
+  reflectMemories,
+} from './memory-review.ts'
 import type { ModelResolver } from './models.ts'
 import { pickName } from './names.ts'
 import { speaksForColony } from './patterns.ts'
@@ -798,8 +808,10 @@ export class ChatService {
     if (this._computerUse(spec.askAll)) spec.computerUse = true
     const fallbacks = this._fallbacks()
     if (fallbacks) spec.fallbacks = fallbacks
-    const memory = this.options.memory?.recall(project?.id) ?? []
+    const memory = this.options.memory?.recall(project?.id, message) ?? []
     if (memory.length && spec.chat) spec.chat.memory = memoryLines(memory)
+    const more = (this.options.memory?.kept(project?.id).length ?? 0) - memory.length
+    if (more > 0 && spec.chat) spec.chat.memoryMore = more
     if (planFirst && spec.tier !== 'answer') spec.planFirst = true
     if (goal) {
       spec.goal = {
@@ -905,6 +917,10 @@ export class ChatService {
         this._reviewForSkill(run.id, config.leadModel, false).catch((err) =>
           console.error(`skill review of ${run.id} failed: ${err instanceof Error ? err.message : err}`),
         )
+      if (final.status === 'completed')
+        this._suggestMemories(run, config.leadModel).catch((err) =>
+          console.error(`memory review of ${run.id} failed: ${err instanceof Error ? err.message : err}`),
+        )
     })
     return { chatId: id, colonyId: run.id, started: true, ...(spec.chat ? { round: spec.chat.round } : {}) }
   }
@@ -982,7 +998,7 @@ export class ChatService {
     if (!store) throw new Error('memory is not available')
     const memory = store.get(id)
     if (!memory) throw new Error('no such memory')
-    if (keep) store.update(id, { status: 'active' })
+    if (keep) store.keep(id)
     else store.remove(id)
     const colony = memory.source.colonyId
     if (!colony || memory.status !== 'proposed') return
@@ -994,6 +1010,131 @@ export class ChatService {
     const live = [...this._live.values()].find((r) => r.id === colony)
     if (live && live.state().status === 'running') await live.append(draft)
     else await this.runtime.ctx.log.appendOne(colony as never, draft)
+  }
+
+  /**
+   * After a finished round, the memory reviewer reads what the person said in it for something worth remembering and
+   * suggests it on the round's card, then maybe tidies kept memories up. Only with Settings → Memory's "Suggest
+   * memories" on, and never for a round a channel member started: their words are not the person's.
+   */
+  private async _suggestMemories(run: ColonyRun, lead: string) {
+    const store = this.options.memory
+    if (!store || !this.options.settings?.get().memory.suggest || run.spec.askAll) return
+    const events = await this.store.read(run.id as never)
+    const state = foldColony(run.id, events)
+    const from = state.rounds.at(-1)?.startSeq ?? 0
+    const said = personSaid(events, from)
+    if (said.join('\n').length >= MEMORY_EXTRACT_MIN_CHARS) {
+      const project = run.spec.chat?.project
+      const known = store.list().filter((m) => !m.project || m.project === project?.id)
+      const answer = finalAnswer(events, from)
+      const suggestions = await this._cheaply(lead, (model) =>
+        extractMemories({
+          resolver: this.options.resolver,
+          model,
+          said,
+          ...(answer ? { answer } : {}),
+          ...(project ? { project: { id: project.id, name: project.name } } : {}),
+          known,
+        }),
+      )
+      const byId = new Map(known.map((m) => [m.id, m]))
+      for (const s of suggestions) {
+        const memory = this._propose(s, {
+          by: 'extract',
+          colonyId: run.id,
+          ...(state.chat ? { chatId: state.chat.chatId } : {}),
+          why: s.why,
+        })
+        // Already kept, or already suggested in another chat: not suggested twice.
+        if (!memory || memory.source.colonyId !== run.id || state.memories[memory.id]) continue
+        const replaces = (memory.replaces ?? []).flatMap((id) => {
+          const old = byId.get(id)
+          return old ? [{ id, text: old.text }] : []
+        })
+        await this._appendTo(run.id, {
+          type: 'memory/proposed',
+          actor: { kind: 'system', id: 'myrmidon' },
+          payload: {
+            id: memory.id,
+            agent: 'myrmidon',
+            text: memory.text,
+            kind: memory.kind,
+            ...(memory.project ? { project: memory.project } : {}),
+            why: s.why,
+            ...(replaces.length ? { replaces } : {}),
+            suggested: true,
+          },
+        })
+      }
+    }
+    // Tidying up runs on its own clock, and only when two kept memories of one scope look alike.
+    if (
+      Date.now() - this._tidiedAt < MEMORY_REFLECT_EVERY_MS ||
+      !overlapping(store.list().filter((m) => m.status === 'active'))
+    )
+      return
+    await this.tidyMemories(lead)
+  }
+
+  /** When memories were last tidied up in this process; the first round after a restart may tidy again. */
+  private _tidiedAt = 0
+
+  /**
+   * Reads the kept memories for ones that repeat, overlap or went stale and suggests merging them; each suggestion
+   * waits in Settings → Memory for the person. `lead`: the model to fall back on, the chat lead's by default. Returns
+   * how many it suggested.
+   */
+  async tidyMemories(lead?: string): Promise<number> {
+    const store = this.options.memory
+    if (!store) throw new Error('memory is not available')
+    const omp = this.options.resolver.omp
+    const model =
+      lead ??
+      this.options.settings?.get().team.leadModel ??
+      (omp ? defaultModelRef(omp, this.options.settings) : undefined)
+    if (!model) throw new Error('no model to tidy memories with: set one up in Settings → Models')
+    this._tidiedAt = Date.now()
+    const all = store.list()
+    const projects = new Map((this.options.projects?.list() ?? []).map((p) => [p.id, p.name]))
+    const suggestions = await this._cheaply(model, (m) =>
+      reflectMemories({
+        resolver: this.options.resolver,
+        model: m,
+        kept: all.filter((x) => x.status === 'active'),
+        waiting: all.filter((x) => x.status === 'proposed'),
+        projects,
+      }),
+    )
+    return suggestions.filter((s) => this._propose(s, { by: 'reflect', why: s.why })?.status === 'proposed')
+      .length
+  }
+
+  /** Records a reviewer's suggestion as a proposal; nothing when memory is full. */
+  private _propose(s: MemorySuggestion, source: Memory['source']): Memory | undefined {
+    try {
+      return this.options.memory?.add({
+        text: s.text,
+        kind: s.kind,
+        ...(s.project ? { project: s.project } : {}),
+        status: 'proposed',
+        replaces: s.replaces,
+        source,
+      })
+    } catch (err) {
+      console.warn(`memory suggestion dropped: ${err instanceof Error ? err.message : err}`)
+      return undefined
+    }
+  }
+
+  /** Runs a small job on the cheapest fast model, or on `lead` when that one fails (a lapsed key, a model gone). */
+  private async _cheaply<T>(lead: string, job: (model: string) => Promise<T>): Promise<T> {
+    const cheap = this._titleModel(lead)
+    if (cheap === lead) return job(lead)
+    return job(cheap).catch((err) => {
+      console.warn(`${cheap} failed, using ${lead}: ${err instanceof Error ? err.message : err}`)
+      return job(lead)
+    })
   }
 
   /** Pins, archives or files a chat in one of the person's groups (`false` and `null` take each back). */
@@ -1875,4 +2016,16 @@ function alive(pid: number): boolean {
   } catch (err) {
     return (err as NodeJS.ErrnoException).code === 'EPERM'
   }
+}
+
+/** Whether two kept memories of one scope share enough words that tidying up may merge them. */
+function overlapping(kept: readonly Memory[]): boolean {
+  return kept.some((a, i) =>
+    kept
+      .slice(i + 1)
+      .some(
+        (b) =>
+          (a.project ?? '') === (b.project ?? '') && similarity(a.text, b.text) >= MEMORY_REFLECT_OVERLAP,
+      ),
+  )
 }

@@ -43,6 +43,7 @@ import {
   toolHidden,
   unreadMailFor,
 } from '@myrmidon/protocol'
+import { formatCurrentTime } from '@oh-my-pi/pi-coding-agent/hindsight/content'
 import { Advisor } from './advisor.ts'
 import { ColonyAgent, type ModelError } from './agent.ts'
 import type { BrowserHub } from './browser.ts'
@@ -63,6 +64,7 @@ import {
   MISSED_CHARS,
   MISSED_SHOWN,
   QUIET_NUDGES,
+  RECALL_TOOL_COUNT,
   SERVER_START_MS,
   SETTLE_QUIET_MS,
   WIND_DOWN_MESSAGES,
@@ -74,7 +76,7 @@ import { agentActor, type ColonyHost, type ReviewDecision, type TodoItem } from 
 import type { ToolLibrary } from './made-tools.ts'
 import type { McpHub } from './mcp.ts'
 import type { MediaTools } from './media.ts'
-import type { MemoryStore } from './memory.ts'
+import { type MemoryStore, sensitive } from './memory.ts'
 import { ModelResolver } from './models.ts'
 import { pickName } from './names.ts'
 import { FactualObserver } from './observer.ts'
@@ -1189,6 +1191,7 @@ export class ColonyRun implements ColonyHost {
               ...(this.spec.chat.project ? { project: this.spec.chat.project } : {}),
               ...(this.spec.chat.escalate?.length ? { escalate: this.spec.chat.escalate } : {}),
               ...(this.spec.chat.memory?.length ? { memory: this.spec.chat.memory } : {}),
+              ...(this.spec.chat.memoryMore ? { memoryMore: this.spec.chat.memoryMore } : {}),
               ...(this.spec.chat.addressed?.length ? { addressed: this.spec.chat.addressed } : {}),
             },
           }
@@ -1427,10 +1430,19 @@ export class ColonyRun implements ColonyHost {
     }
   }
 
-  /** Records an agent's proposal to remember something; it applies only once the person keeps it. */
+  /**
+   * Records an agent's proposal to remember something, maybe in place of kept memories it corrects or merges
+   * (`replaces`); it applies only once the person keeps it. A secret or personal detail is refused outright.
+   */
   async proposeMemory(
     agent: string,
-    input: { text: string; kind: string; scope: 'everywhere' | 'project'; why: string },
+    input: {
+      text: string
+      kind: string
+      scope: 'everywhere' | 'project'
+      why: string
+      replaces?: readonly string[]
+    },
   ): Promise<string> {
     const store = this.options.memory
     if (!store) throw new Error('memory is not available in this run')
@@ -1439,11 +1451,17 @@ export class ColonyRun implements ColonyHost {
     const project = input.scope === 'project' ? this.spec.chat?.project?.id : undefined
     if (input.scope === 'project' && !project)
       throw new Error('this chat has no project; use scope "everywhere"')
+    if (sensitive(input.text)) throw new Error(prompts.colony.memorySensitive)
+    const kept = new Map(store.kept(this.spec.chat?.project?.id).map((m) => [m.id, m]))
+    const ids = [...new Set(input.replaces ?? [])]
+    const unknown = ids.filter((id) => !kept.has(id))
+    if (unknown.length) throw new Error(prompts.colony.memoryUnknown(unknown))
     const memory = store.add({
       text: input.text,
       kind: input.kind,
       ...(project ? { project } : {}),
       status: 'proposed',
+      ...(ids.length ? { replaces: ids } : {}),
       source: {
         by: 'agent',
         agent,
@@ -1454,6 +1472,10 @@ export class ColonyRun implements ColonyHost {
     })
     if (memory.status === 'active') return prompts.colony.memoryKept
     if (this._state.memories[memory.id]) return prompts.colony.memoryPending
+    const replaces = (memory.replaces ?? []).flatMap((id) => {
+      const old = kept.get(id)
+      return old ? [{ id, text: old.text }] : []
+    })
     await this.append({
       type: 'memory/proposed',
       actor: agentActor(agent),
@@ -1464,9 +1486,24 @@ export class ColonyRun implements ColonyHost {
         kind: memory.kind,
         ...(project ? { project } : {}),
         why: input.why,
+        ...(replaces.length ? { replaces } : {}),
       },
     })
     return prompts.colony.memoryProposed
+  }
+
+  /** The kept memories best matching `query` that this chat may use, with the ids remember's `replaces` takes. */
+  recallMemory(query: string): string {
+    const store = this.options.memory
+    if (!store) throw new Error('memory is not available in this run')
+    const found = store.search(query, RECALL_TOOL_COUNT, this.spec.chat?.project?.id)
+    if (!found.length) return prompts.colony.recallNone
+    return prompts.colony.recalled(
+      found.map((m) =>
+        prompts.colony.recalledLine(m.id, m.kind, m.project !== undefined, m.text, m.updatedAt.slice(0, 10)),
+      ),
+      formatCurrentTime(),
+    )
   }
 
   /** Ends the round so the chat can rerun its request at a bigger tier; see ChatService. */

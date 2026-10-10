@@ -2403,9 +2403,21 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       ),
       scope: type("'everywhere' | 'project'").describe(prompts.tools.remember.params.scope),
       why: type('string').describe(prompts.tools.remember.params.why),
+      'replaces?': type('string').array().atMostLength(10).describe(prompts.tools.remember.params.replaces),
     }),
     async run(args, agent, host) {
       return host.proposeMemory(agent, args)
+    },
+  },
+  {
+    name: 'recall',
+    tier: 'read',
+    description: prompts.tools.recall.description,
+    parameters: type({
+      query: type('string').describe(prompts.tools.recall.params.query),
+    }),
+    async run(args, _agent, host) {
+      return host.recallMemory(args.query)
     },
   },
   {

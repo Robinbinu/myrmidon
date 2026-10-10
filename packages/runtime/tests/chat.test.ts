@@ -3085,6 +3085,128 @@ test('an agent proposes a memory, the person keeps it, and the next chat starts 
   await chats.stopAll()
 })
 
+test('after a round the reviewer suggests a memory from what the person said; agents recall it and propose its replacement', async () => {
+  const { MemoryStore } = await import('../src/memory.ts')
+  const { SettingsStore } = await import('../src/settings.ts')
+  const memory = new MemoryStore(home)
+  const settings = new SettingsStore(home)
+  settings.set({ ...settings.get(), profile: { ...settings.get().profile, titles: 'first-message' } })
+  const resolver = new ModelResolver()
+  let recalled = ''
+  let tidied = 0
+  const model = createMockModel({
+    handler: (ctx: LlmContext) => {
+      const system = ctx.systemPrompt?.join('\n') ?? ''
+      const seen = JSON.stringify(ctx.messages)
+      if (system.includes('pick out what is worth remembering'))
+        return {
+          content: [
+            JSON.stringify({
+              memories: [
+                // The person said it: suggested. The crew said it: dropped. A secret: dropped.
+                {
+                  text: 'Prefers pnpm over npm',
+                  kind: 'preference',
+                  scope: 'everywhere',
+                  evidence: 'use pnpm',
+                },
+                { text: 'Likes long answers', kind: 'preference', evidence: 'Here is a long answer' },
+                { text: 'Token ghp_abcdefghijklmnopqrstuvwxyz123456', kind: 'fact', evidence: 'use pnpm' },
+              ],
+            }),
+          ],
+        }
+      if (system.includes('You tidy up the memories')) {
+        tidied++
+        const ids = [...seen.matchAll(/mem-[a-z0-9]+-[a-z0-9]+/g)].map((m) => m[0])
+        return {
+          content: [
+            JSON.stringify({
+              memories: [
+                { text: 'Uses pnpm, never npm or yarn', kind: 'preference', replaces: [...new Set(ids)] },
+              ],
+            }),
+          ],
+        }
+      }
+      if (seen.includes('Which package manager')) {
+        if (!seen.includes('"recall"'))
+          return { content: [tool('recall', { query: 'package manager pnpm' })] }
+        if (!seen.includes('"remember"')) {
+          recalled = seen
+          const id = /mem-[a-z0-9]+-[a-z0-9]+/.exec(seen)?.[0] ?? ''
+          return {
+            content: [
+              tool('remember', {
+                text: 'Uses pnpm, never yarn',
+                kind: 'preference',
+                scope: 'everywhere',
+                why: 'they ruled out yarn',
+                replaces: [id],
+              }),
+            ],
+          }
+        }
+        return {
+          content: seen.includes('reply_user')
+            ? ['done']
+            : [tool('reply_user', { text: 'pnpm.', final: true })],
+        }
+      }
+      return {
+        content: seen.includes('reply_user')
+          ? ['done']
+          : [tool('reply_user', { text: 'Here is a long answer.', final: true })],
+      }
+    },
+  })
+  resolver.register('mock/solo', { model: model.model, streamFn: model.stream })
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), memory, settings })
+  const config = { ...solo('mock/solo'), judgeModel: 'mock/judge' }
+  const first = await chats.send('Please use pnpm for this project', config)
+  const s1 = await waitFor(first.colonyId, (s) => Object.keys(s.memories).length > 0)
+  const suggested = Object.values(s1.memories)
+  expect(suggested).toHaveLength(1)
+  expect(suggested[0]).toMatchObject({
+    agent: 'myrmidon',
+    text: 'Prefers pnpm over npm',
+    why: 'use pnpm',
+    suggested: true,
+  })
+  expect(memory.recall()).toHaveLength(0)
+  await chats.decideMemory(suggested[0]?.id ?? '', true)
+  const kept = memory.get(suggested[0]?.id ?? '')
+  expect(kept).toMatchObject({ status: 'active', source: { by: 'extract' } })
+
+  // An agent searches memory, finds it by its words, and proposes a correction that replaces it.
+  const second = await chats.send('Which package manager, and never yarn?', config)
+  const s2 = await waitFor(second.colonyId, (s) =>
+    Object.values(s.memories).some((m) => m.agent === 'lead' && m.replaces?.length),
+  )
+  expect(recalled).toContain('Prefers pnpm over npm')
+  const correction = Object.values(s2.memories).find((m) => m.agent === 'lead')
+  expect(correction?.replaces).toEqual([{ id: kept?.id ?? '', text: 'Prefers pnpm over npm' }])
+  await chats.decideMemory(correction?.id ?? '', true)
+  expect(memory.kept().map((m) => m.text)).toEqual(['Uses pnpm, never yarn'])
+
+  // Tidying up proposes a merge, which waits for the person.
+  memory.add({
+    text: 'Never use yarn for installs',
+    kind: 'preference',
+    status: 'active',
+    source: { by: 'person' },
+  })
+  expect(await chats.tidyMemories('mock/solo')).toBe(1)
+  expect(tidied).toBe(1)
+  const merge = memory.list().find((m) => m.source.by === 'reflect')
+  expect(merge).toMatchObject({ status: 'proposed', text: 'Uses pnpm, never npm or yarn' })
+  expect(merge?.replaces).toHaveLength(2)
+  await chats.decideMemory(merge?.id ?? '', true)
+  expect(memory.kept().map((m) => m.text)).toEqual(['Uses pnpm, never npm or yarn'])
+  await chats.stopAll()
+})
+
 test('a follow-up continues the same colony, and its agent remembers the earlier round', async () => {
   const resolver = new ModelResolver()
   let followUp = ''
