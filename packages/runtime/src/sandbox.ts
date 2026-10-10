@@ -112,6 +112,10 @@ function tmpSocketDirs(): string[] {
     return []
   }
 }
+
+/** Folders hidden for lying outside the home (and holding other apps' files or sockets), as real paths. */
+const hiddenRoots = () => [...SANDBOX_HIDDEN_ROOTS, ...tmpSocketDirs()].map(realPath)
+
 const depth = (path: string) => path.split(sep).filter(Boolean).length
 
 /**
@@ -124,12 +128,7 @@ export function pathRules(spec: PathSpec, home: string): PathRule[] {
   // one to hide keeps its rule, so a command that could write its parent cannot create it (~/.ssh in a project at ~).
   const real = (paths: readonly string[]) => paths.flatMap((p) => realOrNone(p) ?? [])
   const rules: PathRule[] = [
-    ...[
-      ...(home && home !== sep ? [home] : []),
-      ...SANDBOX_HIDDEN_ROOTS,
-      ...tmpSocketDirs(),
-      ...(spec.hidden ?? []),
-    ].map((path) => ({
+    ...[...(home && home !== sep ? [home] : []), ...hiddenRoots(), ...(spec.hidden ?? [])].map((path) => ({
       path: realPath(path),
       access: 'hide' as const,
     })),
@@ -158,6 +157,17 @@ function ancestors(path: string): string[] {
   return [...out, sep]
 }
 
+/**
+ * Which hidden folders on the way down to an open one may be listed (never their files): bun opens the folders above
+ * a project to find its root, and fails when it cannot. Those inside the folders hidden for lying outside the home
+ * may (a project in the temp folder), unless something hidden for its own sake (a home, the data folder) holds them.
+ */
+function listableIn(rules: readonly PathRule[]): (dir: string) => boolean {
+  const roots = hiddenRoots()
+  const guarded = rules.filter((r) => r.access === 'hide' && !roots.includes(r.path)).map((r) => r.path)
+  return (dir) => roots.some((r) => within(dir, r)) && !guarded.some((g) => within(dir, g))
+}
+
 export function macProfile(spec: PathSpec, home: string): string {
   const rules = pathRules(spec, home)
   const subpath = (r: PathRule) => `(subpath ${sbplPath(r.path)})`
@@ -180,14 +190,7 @@ export function macProfile(spec: PathSpec, home: string): string {
   const opened = rules.filter((r) => r.access !== 'hide').map((r) => r.path)
   const parents = [...new Set(opened.flatMap(ancestors))]
   const above = parents.map((d) => `(literal ${sbplPath(d)})`)
-  // bun opens the folders above a project to find its root, and fails when it cannot: inside the folders hidden
-  // outside the home (a project in the temp folder), those on the way down may be listed, never their files, unless
-  // something hidden for its own sake (a home, the data folder) holds them.
-  const roots = SANDBOX_HIDDEN_ROOTS.map(realPath)
-  const guarded = rules.filter((r) => r.access === 'hide' && !roots.includes(r.path)).map((r) => r.path)
-  const listed = parents
-    .filter((d) => roots.some((r) => within(d, r)) && !guarded.some((g) => within(d, g)))
-    .map((d) => `(literal ${sbplPath(d)})`)
+  const listed = parents.filter(listableIn(rules)).map((d) => `(literal ${sbplPath(d)})`)
   return [
     '(version 1)',
     '(allow default)',
@@ -219,15 +222,58 @@ export function macProfile(spec: PathSpec, home: string): string {
   ].join('\n')
 }
 
-/** The same rules as bubblewrap mounts: an empty tmpfs (or /dev/null, for a file) over what is hidden. */
-export function bwrapMounts(spec: PathSpec, home: string): string[] {
-  return pathRules(spec, home).flatMap((r) => {
-    if (r.access === 'write') return ['--bind', r.path, r.path]
-    if (r.access === 'read') return ['--ro-bind', r.path, r.path]
+/**
+ * The same rules as bubblewrap mounts: an empty tmpfs (or /dev/null, for a file) over what is hidden, made read-only
+ * once what opens inside it is mounted. Its folders (the tmpfs itself and those bubblewrap makes in it on the way to
+ * an open folder) get the modes macOS's rules amount to: 0111 on the way to an open folder (looked up, not listed),
+ * 0555 where macOS lists them too (`listableIn`), 0000 otherwise. A writable 0755 tmpfs would let a command list it
+ * and write into it, a throwaway layer but no denial. The command has no capabilities, so the modes hold even though
+ * it owns the folders, and the read-only mount keeps it from changing them. `chmod` is false for a bubblewrap
+ * without --chmod (before 0.5): its hidden folders can be listed, still empty and read-only.
+ */
+export function bwrapMounts(spec: PathSpec, home: string, options: { chmod?: boolean } = {}): string[] {
+  const rules = pathRules(spec, home)
+  const opened = rules.filter((r) => r.access !== 'hide').map((r) => r.path)
+  const listable = listableIn(rules)
+  // What is mounted so far, deepest last, and the folders inside each tmpfs that the modes apply to.
+  const mounted: { path: string; tmpfs: boolean }[] = []
+  const inTmpfs = new Set<string>()
+  const args = rules.flatMap((r) => {
+    let mount: string[]
+    if (r.access === 'write') mount = ['--bind', r.path, r.path]
+    else if (r.access === 'read') mount = ['--ro-bind', r.path, r.path]
     // A mount needs something to cover.
-    if (!existsSync(r.path)) return []
-    return statSync(r.path).isDirectory() ? ['--tmpfs', r.path] : ['--ro-bind', '/dev/null', r.path]
+    else if (!existsSync(r.path)) return []
+    else if (statSync(r.path).isDirectory()) mount = ['--tmpfs', r.path]
+    else mount = ['--ro-bind', '/dev/null', r.path]
+    const cover = mounted.findLast((m) => within(r.path, m.path))
+    if (cover?.path === r.path) {
+      // Opened again where it was hidden: the tmpfs below is out of sight, and must not make this mount read-only.
+      inTmpfs.delete(r.path)
+      cover.tmpfs = false
+    } else if (cover?.tmpfs)
+      for (const dir of ancestors(r.path)) if (dir !== cover.path && within(dir, cover.path)) inTmpfs.add(dir)
+    if (mount[0] === '--tmpfs') inTmpfs.add(r.path)
+    mounted.push({ path: r.path, tmpfs: mount[0] === '--tmpfs' })
+    return mount
   })
+  const mode = (dir: string) =>
+    !opened.some((p) => p !== dir && within(p, dir)) ? '0000' : listable(dir) ? '0555' : '0111'
+  const modes = options.chmod === false ? [] : [...inTmpfs].flatMap((dir) => ['--chmod', mode(dir), dir])
+  const readOnly = mounted.filter((m) => m.tmpfs).flatMap((m) => ['--remount-ro', m.path])
+  return [...args, ...modes, ...readOnly]
+}
+
+/** Whether this bubblewrap has --chmod (0.5 and later), asked once per binary. */
+const chmodSupport = new Map<string, boolean>()
+function bwrapHasChmod(bwrap: string): boolean {
+  let has = chmodSupport.get(bwrap)
+  if (has === undefined) {
+    const help = Bun.spawnSync([bwrap, '--help'], { stdout: 'pipe', stderr: 'pipe' })
+    has = `${help.stdout}${help.stderr}`.includes('--chmod')
+    chmodSupport.set(bwrap, has)
+  }
+  return has
 }
 
 const HOME_DIR = '.home'
@@ -448,6 +494,7 @@ export function detectSandbox(options: { home?: string } = {}): Sandbox {
   }
   const bwrap = process.platform === 'linux' ? Bun.which('bwrap') : null
   if (bwrap) {
+    const chmod = bwrapHasChmod(bwrap)
     const argv = (spec: Omit<SandboxRun, 'timeoutMs'>) => [
       bwrap,
       '--ro-bind',
@@ -457,7 +504,7 @@ export function detectSandbox(options: { home?: string } = {}): Sandbox {
       '/dev',
       '--proc',
       '/proc',
-      ...bwrapMounts(spec, home),
+      ...bwrapMounts(spec, home, { chmod }),
       '--unshare-pid',
       '--die-with-parent',
       '--chdir',
