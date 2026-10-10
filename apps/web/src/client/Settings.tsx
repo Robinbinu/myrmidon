@@ -220,6 +220,8 @@ export interface ServerSettings {
   sandbox?: { read?: string[]; readHome?: boolean }
   /** Computer use (agents on the person's Mac); absent from older servers. */
   computerUse?: { enabled: boolean; engine?: 'cua' | 'omp' }
+  /** Remote hosts agents reach over SSH; absent from older servers. */
+  ssh?: { hosts: SshHostSetting[] }
   /** Secrets reach model providers as placeholders; absent from older servers, which do not hide them. */
   privacy?: { hideSecrets: boolean }
   verification: { threshold: number; rubric?: string; reviewer: 'off' | 'auto' | 'always' }
@@ -258,6 +260,14 @@ export interface ServerSettings {
     /** Phone calls on the SMS channel's Twilio number; absent from older servers. */
     phone?: boolean
   }
+}
+
+/** A remote host as Settings keeps it: a name for agents and rules, and where ssh connects. */
+export interface SshHostSetting {
+  name: string
+  host: string
+  user?: string
+  port?: number
 }
 
 export interface SettingsResponse {
@@ -736,6 +746,7 @@ export function Settings(props: {
                     onChange={(permissions, immediate) => update((s) => ({ ...s, permissions }), immediate)}
                     tools={data.toolCatalog}
                     servers={data.mcpServers ?? []}
+                    hosts={(data.settings.ssh?.hosts ?? []).map((h) => h.name)}
                     sandbox={data.sandbox}
                     reads={
                       <>
@@ -2570,6 +2581,7 @@ function ToolsSection(props: {
         </Button>
       </Banner>
       <McpServers />
+      <SshHosts data={props.data} update={props.update} />
       <div {...settingRow('tools.library')}>
         <SectionHeader
           className="mb-2 mt-8"
@@ -2860,6 +2872,181 @@ function McpServers() {
             </CardRow>
           ))
         )}
+      </Card>
+    </div>
+  )
+}
+
+/** An alias of ~/.ssh/config, with what the file says it reaches. */
+interface SshConfigHost {
+  name: string
+  hostName?: string
+  user?: string
+  port?: number
+}
+
+const SSH_HOST_NAME = /^[A-Za-z0-9_.-]{1,100}$/
+const NO_SSH_FORM = { name: '', host: '', user: '', port: '' }
+
+/** Where a host connects, as ssh would be told: user@host:port. */
+const sshTarget = (h: SshHostSetting) => `${h.user ? `${h.user}@` : ''}${h.host}${h.port ? `:${h.port}` : ''}`
+
+/** Remote hosts agents reach over SSH: the person's list with a test each, and a form to add one or one from ~/.ssh/config. */
+function SshHosts(props: {
+  data: SettingsResponse
+  update(p: (s: ServerSettings) => ServerSettings, immediate?: boolean): void
+}) {
+  const t = copy.settings.ssh
+  const toast = useToast()
+  const hosts = props.data.settings.ssh?.hosts ?? []
+  const [config, setConfig] = useState<SshConfigHost[]>([])
+  const [form, setForm] = useState(NO_SSH_FORM)
+  const [testing, setTesting] = useState<string>()
+
+  useEffect(() => {
+    api<{ hosts?: SshConfigHost[] }>('/api/ssh/config')
+      .then((r) => setConfig(r.hosts ?? []))
+      .catch(() => setConfig([]))
+  }, [])
+
+  const save = (next: SshHostSetting[]) => props.update((s) => ({ ...s, ssh: { hosts: next } }), true)
+  const name = form.name.trim()
+  const port = Number(form.port)
+  const add = () => {
+    if (!SSH_HOST_NAME.test(name)) return toast(t.badName, 'error')
+    if (hosts.some((h) => h.name === name)) return toast(t.exists(name), 'error')
+    save([
+      ...hosts,
+      {
+        name,
+        host: form.host.trim(),
+        ...(form.user.trim() ? { user: form.user.trim() } : {}),
+        ...(Number.isInteger(port) && port > 0 ? { port } : {}),
+      },
+    ])
+    toast(t.added(name), 'success')
+    setForm(NO_SSH_FORM)
+  }
+  const test = async (host: string) => {
+    setTesting(host)
+    try {
+      const r = await send<{ ok: boolean; error?: string }>('POST', '/api/ssh/test', { name: host })
+      toast(r.ok ? t.testOk(host) : t.testFailed(host, r.error ?? ''), r.ok ? 'success' : 'error')
+    } catch (err) {
+      toast(t.testFailed(host, String((err as Error).message)), 'error')
+    } finally {
+      setTesting(undefined)
+    }
+  }
+  const unused = config.filter((c) => !hosts.some((h) => h.name === c.name))
+
+  return (
+    <div {...settingRow('tools.ssh')}>
+      <SectionHeader
+        className="mb-2 mt-8"
+        icon={<FEATURE_ICONS.sshHosts className="size-4 text-muted" />}
+        title={t.title}
+        note={t.subtitle}
+      />
+      <Card>
+        {hosts.length === 0 ? (
+          <CardRow>
+            <span className="text-body text-muted">{t.empty}</span>
+          </CardRow>
+        ) : (
+          hosts.map((h) => (
+            <CardRow key={h.name}>
+              <div className="flex items-center gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="text-reading font-medium">{h.name}</div>
+                  <div className="truncate font-mono text-footnote text-muted" title={sshTarget(h)}>
+                    {sshTarget(h)}
+                  </div>
+                </div>
+                <Button
+                  size="sm"
+                  variant="borderless"
+                  loading={testing === h.name}
+                  disabled={testing !== undefined}
+                  onClick={() => void test(h.name)}
+                  aria-label={t.testLabel(h.name)}
+                >
+                  {t.test}
+                </Button>
+                <ConfirmButton
+                  icon
+                  label={t.remove(h.name)}
+                  confirm={t.confirmRemove}
+                  onConfirm={() => {
+                    save(hosts.filter((x) => x.name !== h.name))
+                    toast(t.removed(h.name), 'success')
+                  }}
+                />
+              </div>
+            </CardRow>
+          ))
+        )}
+        <CardRow {...settingRow('tools.sshAdd')}>
+          <div className="mb-2 text-reading font-medium">{setting('tools.sshAdd').label}</div>
+          {unused.length > 0 && (
+            <Field label={t.fromConfig}>
+              <Select
+                value=""
+                onChange={(e) => {
+                  const alias = e.target.value
+                  if (alias) setForm({ ...NO_SSH_FORM, name: alias, host: alias })
+                }}
+              >
+                <option value="">{t.fromConfigNone}</option>
+                {unused.map((c) => (
+                  <option key={c.name} value={c.name}>
+                    {c.hostName ? `${c.name} (${c.user ? `${c.user}@` : ''}${c.hostName})` : c.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          )}
+          <div className="mt-2 grid gap-3 sm:grid-cols-4">
+            <Field label={t.name}>
+              <TextInput
+                value={form.name}
+                placeholder="build-box"
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+              />
+            </Field>
+            <Field label={t.host}>
+              <TextInput
+                value={form.host}
+                placeholder="build.example.com"
+                onChange={(e) => setForm({ ...form, host: e.target.value })}
+                className="font-mono"
+              />
+            </Field>
+            <Field label={t.user}>
+              <TextInput
+                value={form.user}
+                placeholder="deploy"
+                onChange={(e) => setForm({ ...form, user: e.target.value })}
+              />
+            </Field>
+            <Field label={t.port}>
+              <TextInput
+                value={form.port}
+                placeholder="22"
+                inputMode="numeric"
+                onChange={(e) => setForm({ ...form, port: e.target.value.replace(/\D/g, '') })}
+              />
+            </Field>
+          </div>
+          <div className="mt-3 flex items-center gap-3">
+            <p className="min-w-0 flex-1 text-callout text-muted">
+              {setting('tools.sshAdd').help} {t.note} {t.rulesHint}
+            </p>
+            <Button size="sm" variant="primary" disabled={!name || !form.host.trim()} onClick={add}>
+              {t.add}
+            </Button>
+          </div>
+        </CardRow>
       </Card>
     </div>
   )

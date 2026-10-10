@@ -98,6 +98,7 @@ import {
   READ_LOG_RESULT_CHARS,
   REVIEW_MAX_CHARS,
   RULE_MAX_TEXT,
+  SSH,
   TTS_MAX_CHARS,
 } from './config.ts'
 import { readFileAs } from './file-read.ts'
@@ -637,12 +638,14 @@ const GUARDED = new Set([
   'run_checks',
   'propose',
   'github',
+  'ssh',
 ])
 /**
  * Guarded tools whose reads are commands too, decided as the commands they run (the github tool's `gh pr view`): the
- * harness leaves all their calls to them, so a rule naming the tool is not asked about twice.
+ * harness leaves all their calls to them, so a rule naming the tool is not asked about twice. A read on a remote host
+ * is decided by its host's rules, like a command there.
  */
-const GUARDS_READS = new Set(['github'])
+const GUARDS_READS = new Set(['github', 'ssh'])
 
 /** Tools that reach the web, in the agent's own fetcher or browser. */
 const WEB_TOOL = (name: string) =>
@@ -927,6 +930,46 @@ async function writeChanges(
   return approved.filter((a) => a.edited).map((a) => a.path)
 }
 
+/**
+ * A call on one of the person's remote hosts, decided by the rules for that host (`ssh-host`) and the preset, which
+ * asks unless the round has full access. When it asks, the person sees the command (and may rewrite it) or the file.
+ * Returns the command to run.
+ */
+async function guardRemote(
+  host: ColonyHost,
+  agent: string,
+  name: string,
+  what: { command: string } | { read: string },
+): Promise<string> {
+  const line = 'command' in what ? what.command.trim() : what.read
+  const call: PermissionCall = {
+    tool: 'ssh',
+    kind: 'ssh',
+    ssh: { host: name },
+    ...('command' in what ? { command: line } : {}),
+    readOnly: false,
+  }
+  const verdict = host.permit(agent, call)
+  const shown = 'command' in what ? line : prompts.reviewCard.read(line)
+  if (verdict.decision === 'deny') throw denied(`${shown} on ${name}`, verdict)
+  if (verdict.decision === 'allow') return line
+  const decision = await host.reviewChange(
+    agent,
+    'ssh',
+    `${name}: ${line.length > 300 ? `${line.slice(0, 300)}…` : line}`,
+    {
+      review: {
+        kind: 'command',
+        title: prompts.reviewCard.ssh(name),
+        fields: [{ key: 'command', label: 'ssh', value: line, format: 'code', editable: 'command' in what }],
+      },
+      permission: { call, verdict },
+    },
+  )
+  if (!decision.approved) throw new Error(prompts.toolResults.declined(`${shown} on ${name}`, decision.note))
+  return decision.edits?.command ?? line
+}
+
 /** POSIX shell quoting, for the command line a language server starts with inside the sandbox. */
 const shQuote = (word: string) => `'${word.replaceAll("'", `'\\''`)}'`
 
@@ -1108,12 +1151,15 @@ const UNTRUSTED = new Set([
   'browser_eval',
   // Issues, pull requests, comments and CI logs are written by anyone who can open one.
   'github',
+  // Another computer's files and logs hold whatever was written to them.
+  'ssh',
 ])
 /** Tools whose command is checked against recent web content before it runs. */
-const COPY_CHECKED = new Set(['shell', 'start_server', 'eval'])
+const COPY_CHECKED = new Set(['shell', 'start_server', 'eval', 'ssh'])
 
 function untrustedSource(tool: string, params: unknown, output: string): string {
-  const args = (params ?? {}) as { url?: unknown; query?: unknown; op?: unknown }
+  const args = (params ?? {}) as { url?: unknown; query?: unknown; op?: unknown; host?: unknown }
+  if (tool === 'ssh' && typeof args.host === 'string') return `ssh ${args.host}`
   if (tool === 'web_fetch' && typeof args.url === 'string') return args.url
   if (tool === 'web_search' && typeof args.query === 'string') return `search: ${args.query}`
   if (tool === 'github' && typeof args.op === 'string') return `github ${args.op}`
@@ -3190,6 +3236,43 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       const r = await cellKernels.run(scope, { ...args, code })
       if (!r.ok) throw new Error(clip(r.text))
       return r.images.length ? { text: clip(r.text), images: r.images } : clip(r.text)
+    },
+  },
+  {
+    name: 'ssh',
+    tier: 'read',
+    tierOf: (args: { command?: unknown }) => (args.command !== undefined ? 'exec' : 'read'),
+    description: prompts.tools.ssh.description([]),
+    describe: (f) => prompts.tools.ssh.description(f.access.remotes),
+    parameters: type({
+      host: type('string').describe(prompts.tools.ssh.params.host),
+      'command?': type('string').describe(prompts.tools.ssh.params.command),
+      'read?': type('string').describe(prompts.tools.ssh.params.read),
+      'timeoutSeconds?': type('number').describe(prompts.tools.ssh.params.timeoutSeconds),
+    }),
+    async run(args, agent, host) {
+      const remotes = host.remotes()
+      if (!remotes) throw new Error(prompts.remote.noHosts)
+      const target = remotes.hosts.find((h) => h.name === args.host)
+      if (!target)
+        throw new Error(
+          prompts.remote.unknownHost(
+            args.host,
+            remotes.hosts.map((h) => h.name),
+          ),
+        )
+      if ((args.command === undefined) === (args.read === undefined)) throw new Error(prompts.remote.oneOf)
+      if (!remotes.hub.available()) throw new Error(prompts.remote.noSsh)
+      const timeoutMs = Math.min(Math.max(1, args.timeoutSeconds ?? SSH.timeoutS), SSH.maxTimeoutS) * 1000
+      if (args.read !== undefined) {
+        const path = await guardRemote(host, agent, target.name, { read: args.read })
+        const file = await remotes.hub.read(target, path, SSH.readBytes, timeoutMs)
+        return clip(prompts.remote.file(target.name, path, file.text, file.truncated))
+      }
+      const command = await guardRemote(host, agent, target.name, { command: args.command })
+      const r = await remotes.hub.run(target, command, timeoutMs)
+      const status = r.timedOut ? prompts.remote.timedOut : prompts.remote.exit(r.code)
+      return clip(prompts.remote.result(target.name, status, r.stdout, r.stderr))
     },
   },
 ]

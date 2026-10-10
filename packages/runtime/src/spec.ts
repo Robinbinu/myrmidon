@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { Schema } from '@myrmidon/core'
 import type { PermissionLevels, ProjectPermissions, RoundGoal } from '@myrmidon/protocol'
+import type { SshHost } from './ssh.ts'
 
 export type AcceptanceCheck =
   | {
@@ -111,6 +112,12 @@ export interface ColonySpec {
    * the chat when Settings → Computer use is on; never while `askAll` holds (see ColonyRun.computer).
    */
   computerUse?: boolean
+  /**
+   * The person's remote hosts agents may reach over SSH (Settings → Tools), each call decided by the permission model.
+   * Taken from the settings each time a round starts or resumes, not logged; never while `askAll` holds (see
+   * ColonyRun.remotes).
+   */
+  remotes?: SshHost[]
   /** Chat rounds: when the reviewer (the judge) runs. Absent means on every final answer. */
   review?: 'off' | 'auto' | 'always'
   /** Chat rounds: how much machinery this request gets (solo unless the lead escalates to a team). */

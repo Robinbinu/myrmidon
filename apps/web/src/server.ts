@@ -89,6 +89,7 @@ import {
   projectSecret,
   RuleExistsError,
   readProjectFile,
+  readSshConfig,
   refuseProjectSecret,
   requestScreenRecording,
   restartSetup,
@@ -103,6 +104,7 @@ import {
   type SmartTurn,
   type SpecialistInput,
   type SpecialistStore,
+  type SshHub,
   setupHave,
   sniffAudio,
   sniffImage,
@@ -184,6 +186,8 @@ export interface ServeOptions {
   readonly browser?: BrowserHub
   /** Computer use: the driver agents control the person's Mac through, its install, grants and Stop. */
   readonly computer?: ComputerHub
+  /** The person's ssh client, for the remote hosts in Settings → Tools (their ~/.ssh/config, a connection test). */
+  readonly ssh?: SshHub
   /** Project folders chats can work in. */
   readonly projects?: ProjectStore
   readonly specialists?: SpecialistStore
@@ -1608,7 +1612,12 @@ export function startServer(options: ServeOptions): WebServer {
             const { setup, composer } = options.settings.get()
             const body = { ...((await req.json()) as Record<string, unknown>), setup, composer }
             const was = options.settings.get().computerUse
+            const hostsWere = options.settings.get().ssh.hosts
             const settings = options.settings.set(body)
+            // A host removed or pointed elsewhere: its shared connection must not carry the next call there.
+            for (const h of hostsWere)
+              if (!settings.ssh.hosts.some((n) => JSON.stringify(n) === JSON.stringify(h)))
+                await options.ssh?.forget(h)
             // Switched off, or to the other engine: agents on the person's Mac stop at once, and the driver with them.
             const engineChanged = (was.engine ?? 'cua') !== (settings.computerUse.engine ?? 'cua')
             if (was.enabled && (!settings.computerUse.enabled || engineChanged) && options.computer) {
@@ -2551,6 +2560,20 @@ export function startServer(options: ServeOptions): WebServer {
           return json({ error: err instanceof Error ? err.message : String(err) }, 400)
         }
       }),
+      // Remote hosts (Settings → Tools): the aliases in the person's ~/.ssh/config to add from, and a connection test.
+      '/api/ssh/config': {
+        GET: guard(() => json({ hosts: readSshConfig() })),
+      },
+      '/api/ssh/test': {
+        POST: guard(async (req) => {
+          if (!options.ssh || !options.settings)
+            return json({ error: 'remote hosts need the chat runtime' }, 503)
+          const { name } = (await req.json().catch(() => ({}))) as { name?: unknown }
+          const host = options.settings.get().ssh.hosts.find((h) => h.name === name)
+          if (!host) return json({ error: `no remote host ${String(name)}` }, 404)
+          return json(await options.ssh.test(host))
+        }),
+      },
       '/api/mcp': {
         GET: guard(() => {
           if (!options.mcp) return json({ error: 'MCP needs the chat runtime' }, 503)

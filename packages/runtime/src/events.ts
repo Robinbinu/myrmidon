@@ -30,7 +30,7 @@ const task = Schema.object({
 
 const presetOf = Schema.union(['read-only', 'ask', 'auto', 'full'])
 const ruleTarget = {
-  kind: oneOf('tool', 'edit', 'command', 'mcp-server', 'mcp-tool'),
+  kind: oneOf('tool', 'edit', 'command', 'mcp-server', 'mcp-tool', 'ssh-host'),
   target: str(),
   who: Schema.union(['all', 'lead', 'crew']),
 }

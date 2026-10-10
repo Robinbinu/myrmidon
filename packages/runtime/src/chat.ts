@@ -69,6 +69,7 @@ import {
 import type { SkillLibrary } from './skills.ts'
 import type { AcceptanceCheck, AgentSpec, ColonySpec, Tier } from './spec.ts'
 import { type SpecialistStore, specialistAgent } from './specialists.ts'
+import type { SshHub } from './ssh.ts'
 import type { StreamRuleScope, StreamRuleStore } from './stream-rules.ts'
 import type { WebTools } from './web.ts'
 
@@ -341,6 +342,8 @@ export class ChatService {
       browser?: BrowserHub
       /** Computer use: agents drive the person's Mac through Cua Driver when Settings → Computer use is on. */
       computer?: ComputerHub
+      /** The person's ssh client, for the remote hosts they add in Settings → Tools. */
+      ssh?: SshHub
       /** What the person keeps across chats: recalled into every round, added to by agents' proposals. */
       memory?: MemoryStore
       /** Skills agents load by name when a task matches. */
@@ -796,6 +799,8 @@ export class ChatService {
     const reads = this._reads(project, spec.askAll)
     if (reads.length) spec.reads = reads
     if (this._computerUse(spec.askAll)) spec.computerUse = true
+    const remotes = this._remotes(spec.askAll)
+    if (remotes) spec.remotes = remotes
     const fallbacks = this._fallbacks()
     if (fallbacks) spec.fallbacks = fallbacks
     const memory = this.options.memory?.recall(project?.id) ?? []
@@ -823,6 +828,7 @@ export class ChatService {
       ...(this.options.library ? { library: this.options.library } : {}),
       ...(this.options.browser ? { browser: this.options.browser } : {}),
       ...(this.options.computer ? { computer: this.options.computer } : {}),
+      ...(this.options.ssh ? { ssh: this.options.ssh } : {}),
       ...(this.options.skills ? { skills: this.options.skills } : {}),
       ...(this.options.hooks ? { hooks: this.options.hooks } : {}),
       ...(this.options.rules ? { rules: this.options.rules } : {}),
@@ -1222,6 +1228,15 @@ export class ChatService {
     return !askAll && !!hub?.enabled && hub.supported
   }
 
+  /**
+   * The remote hosts a round of the person's may reach over SSH, from Settings → Tools. A round someone else started
+   * (`askAll`) never may; one they write into loses them from then on (ColonyRun.remotes).
+   */
+  private _remotes(askAll: boolean | undefined): ColonySpec['remotes'] {
+    const hosts = this.options.settings?.get().ssh.hosts ?? []
+    return !askAll && this.options.ssh && hosts.length ? hosts : undefined
+  }
+
   /** The models agents go on with when theirs fails, from Settings → Crew & budget; none set leaves them out. */
   private _fallbacks(): ColonySpec['fallbacks'] {
     const team = this.options.settings?.get().team
@@ -1422,6 +1437,8 @@ export class ChatService {
     const reads = this._reads(fresh ?? project, spec.askAll)
     if (reads.length) spec.reads = reads
     if (this._computerUse(spec.askAll)) spec.computerUse = true
+    const remotes = this._remotes(spec.askAll)
+    if (remotes) spec.remotes = remotes
     const fallbacks = this._fallbacks()
     if (fallbacks) spec.fallbacks = fallbacks
     const advisor = this.options.settings?.get().team.advisorModel
@@ -1454,6 +1471,7 @@ export class ChatService {
       ...(this.options.library ? { library: this.options.library } : {}),
       ...(this.options.browser ? { browser: this.options.browser } : {}),
       ...(this.options.computer ? { computer: this.options.computer } : {}),
+      ...(this.options.ssh ? { ssh: this.options.ssh } : {}),
       ...(this.options.skills ? { skills: this.options.skills } : {}),
       ...(this.options.hooks ? { hooks: this.options.hooks } : {}),
       ...(this.options.rules ? { rules: this.options.rules } : {}),

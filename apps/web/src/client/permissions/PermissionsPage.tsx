@@ -25,6 +25,8 @@ export function PermissionsPage(props: {
   onChange(next: GlobalPermissions, immediate?: boolean): void
   tools: CatalogTool[]
   servers: string[]
+  /** Remote hosts rules can name (Settings → Tools). */
+  hosts?: string[]
   sandbox: string
   /** The readable-folders section, kept with the rest of Settings' sandbox controls. */
   reads?: ReactNode
@@ -84,7 +86,7 @@ export function PermissionsPage(props: {
         />
         <RulesEditor
           rules={level.rules}
-          catalog={{ tools: props.tools, servers: props.servers }}
+          catalog={{ tools: props.tools, servers: props.servers, hosts: props.hosts ?? [] }}
           onChange={(rules) => props.onChange({ ...level, rules }, true)}
         />
       </div>

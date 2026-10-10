@@ -1272,3 +1272,23 @@ export const CHAT_EXPORT = {
   /** Tool steps listed per run; the count covers all of them. */
   stepsListed: 200,
 } as const
+
+// Remote hosts over SSH (ssh.ts)
+
+export const SSH = {
+  /** Hosts the person may add in Settings → Tools. */
+  maxHosts: 50,
+  /** How long a command runs when the agent names no time, and the longest it may name, in seconds. */
+  timeoutS: 60,
+  maxTimeoutS: 600,
+  /** Connecting (and starting the shared connection) gives up after this, so a dead host cannot hold a step. */
+  connectS: 10,
+  /** How long the shared connection stays open after its last use (OpenSSH's ControlPersist), in seconds. */
+  persistS: 600,
+  /** The most of a remote file one read brings back; the agent is told when a file is longer. */
+  readBytes: 256 * 1024,
+  /** Settings' Test button: the same probe with a short limit. */
+  testS: 15,
+  /** How long output is still read once ssh has exited, before a pipe something else holds is let go. */
+  drainMs: 500,
+} as const

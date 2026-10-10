@@ -27,6 +27,7 @@ import {
   READ_SQL_MAX_ROWS,
   SERVER_START_MS,
   SNAPSHOT_CHARS,
+  SSH,
   TTS_MAX_CHARS,
   VOICE_GREETING_WORDS,
 } from './config.ts'
@@ -492,6 +493,8 @@ ${roster}`,
     mcpBrowser: ', though your own browser_* tools come first for browsing',
     computer: "see and control the apps on the person's Mac (computer), each app once they approve it",
     desktop: "see and control the person's Mac by script (desktop), once they approve it",
+    ssh: (hosts: readonly string[]) =>
+      `run commands and read files on the person's remote hosts (ssh): ${hosts.join(', ')}`,
     makeTools: 'make reusable tools for repeated work (create_tool, then tool_<name>)',
     createTasks: 'create tasks',
     addWorkers: 'add crewmates',
@@ -1593,6 +1596,7 @@ Reply with JSON only: {"lines": ["...", "...", "..."]}.`,
     edit: (path: string) => `Edit ${path}`,
     commit: (project: string) => `Commit to ${project}`,
     command: 'Run a command',
+    ssh: (host: string) => `On ${host}`,
     read: (folder: string, reason?: string) => `read ${folder}${reason?.trim() ? ` (${reason.trim()})` : ''}`,
     content: 'New content',
     message: 'Message',
@@ -1624,7 +1628,11 @@ Reply with JSON only: {"lines": ["...", "...", "..."]}.`,
             ? r.target === '*'
               ? 'every MCP tool'
               : `the ${r.target} MCP server`
-            : r.target
+            : r.kind === 'ssh-host'
+              ? r.target === '*'
+                ? 'every remote host'
+                : `the remote host ${r.target}`
+              : r.target
     return `a rule that ${r.decision === 'deny' ? 'denies' : r.decision === 'ask' ? 'asks first for' : 'allows'} ${what} ${level(source.scope)}`
   },
 
@@ -1892,6 +1900,22 @@ Reply with JSON only: {"lines": ["...", "...", "..."]}.`,
     /** omp's `tool.*`, `agent()` and the like reach its own host, which Myrmidon's cells do not have. */
     noHostTools: (name: string) =>
       `${name} is not available in eval cells here; call Myrmidon's tools directly instead`,
+  },
+
+  /** The ssh tool's refusals and results (ssh.ts, tools.ts). */
+  remote: {
+    noHosts:
+      'no remote hosts are set up for this round: the person adds them in Settings → Tools, and a round they did not start has none',
+    unknownHost: (host: string, hosts: readonly string[]) =>
+      `${host} is not one of the person's remote hosts. Hosts: ${hosts.join(', ') || 'none'}`,
+    oneOf: 'give either command or read, not both and not neither',
+    noSsh: 'ssh is not installed on this computer (OpenSSH is needed)',
+    result: (host: string, status: string, stdout: string, stderr: string) =>
+      `${host}: ${status}\n--- stdout\n${stdout}\n--- stderr\n${stderr}`,
+    file: (host: string, path: string, text: string, truncated: boolean) =>
+      `${host}:${path}\n${text}${truncated ? `\n…[cut at ${n(SSH.readBytes)} bytes: read a part with a command such as sed -n]` : ''}`,
+    timedOut: 'TIMED OUT',
+    exit: (code: number) => `exit ${code}`,
   },
 
   /** What agents read in find's results (find.ts), in omp's report shape: hits strongest first, then the cost. */
@@ -3217,6 +3241,23 @@ Reply with JSON only: {"lines": ["...", "...", "..."]}.`,
         timeoutSeconds: `How long the cell may run, 1-${CELL_MAX_TIMEOUT_S} seconds (default ${CELL_TIMEOUT_S}); past it the runtime is stopped and its state lost`,
         reset:
           "true starts this language's runtime afresh before the cell, dropping everything defined so far (default false)",
+      },
+    },
+    // After omp's ssh tool (one command per call on a named host, through the host's own shell) and its ssh:// read.
+    ssh: {
+      /** `hosts`: the names of the person's hosts this round may reach. */
+      description: (hosts: readonly string[]) =>
+        `Run a command, or read a file, on one of the person's remote hosts over SSH${
+          hosts.length ? `: ${hosts.join(', ')}` : ''
+        }. Give command to run it through the host's login shell, or read to get a file's text (up to ` +
+        `${n(SSH.readBytes)} bytes; POSIX hosts). It returns the exit code, stdout and stderr, cut at ` +
+        `${n(MAX_READ_CHARS)} characters. The person's rules decide each call, so it may wait for their approval. ` +
+        'Another computer is not your sandbox: change nothing there the task did not ask for.',
+      params: {
+        host: 'The host by the name the person gave it, one of those listed',
+        command: 'The command line to run on the host; leave out to read a file instead',
+        read: 'The path of a file on the host to read instead of running a command',
+        timeoutSeconds: `How long to wait for a command, 1-${SSH.maxTimeoutS} seconds (default ${SSH.timeoutS})`,
       },
     },
   },

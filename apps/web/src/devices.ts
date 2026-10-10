@@ -153,7 +153,7 @@ export function needsFull(method: string, path: string): boolean {
   // Other gateways, reached through this one: a chats-only device must not borrow this hub's access to them.
   if (path.startsWith('/gw/')) return true
   if (
-    /^\/api\/(terminal|browser|credentials|providers|logins|devices|gateways|channels|import-omp|import-sessions|folders|mcp-reload|setup)(\/|$)/.test(
+    /^\/api\/(terminal|browser|credentials|providers|logins|devices|gateways|channels|import-omp|import-sessions|folders|mcp-reload|setup|ssh)(\/|$)/.test(
       path,
     )
   )

@@ -57,6 +57,7 @@ const BUILD = [
   'github',
   ...BROWSER,
   'mcp',
+  ...ACCESS_GROUPS.remote,
   ...ACCESS_GROUPS.computer,
 ]
 const USER = ['reply_user', 'check_in', 'ask_user', 'remember']
@@ -201,6 +202,7 @@ const ON_DEMAND = new Set([
   ...CODE_INTEL,
   ...CELLS,
   ...MEDIA,
+  ...ACCESS_GROUPS.remote,
   ...ACCESS_GROUPS.computer,
   ...PLUGIN,
 ])
@@ -248,6 +250,9 @@ export function preloaded(request: string, names: readonly string[]): string[] {
     /\b(my (mac|screen|desktop|computer)|on (my|the) screen|desktop app|native app|the app\b|open (the )?\w+ app|finder|system settings|simulator|xcode|computer use)\b/i.test(
       request,
     )
+  const remote = /\bssh\b|\bremote (host|server|machine|box)s?\b|\bon (the|my|our) (server|vps|box)\b/i.test(
+    request,
+  )
   return names.filter(
     (n) =>
       (browser && (n.startsWith('browser_') || n === 'request_login')) ||
@@ -258,7 +263,8 @@ export function preloaded(request: string, names: readonly string[]): string[] {
       (github && n === 'github') ||
       (picture && n === 'generate_image') ||
       (speech && n === 'tts') ||
-      (computer && ACCESS_GROUPS.computer.includes(n)),
+      (computer && ACCESS_GROUPS.computer.includes(n)) ||
+      (remote && ACCESS_GROUPS.remote.includes(n)),
   )
 }
 
@@ -297,7 +303,9 @@ function withRoleAccess(
 
 export function toolsFor(spec: ColonySpec, agent: AgentSpec): string[] {
   const tools = withRoleAccess(spec, agent, agent.tools ?? roleTools(spec, agent), agent.tools !== undefined)
-  const disabled = new Set([...(spec.disabledTools ?? []), ...(agent.withoutTools ?? [])])
+  // Remote hosts are the person's: only a round of theirs with hosts set up reaches them.
+  const remote = spec.remotes?.length && !spec.askAll ? [] : ACCESS_GROUPS.remote
+  const disabled = new Set([...(spec.disabledTools ?? []), ...(agent.withoutTools ?? []), ...remote])
   const allowed = disabled.size ? tools.filter((t) => !disabled.has(t)) : tools
   // Whoever has tools that load on demand gets the tool that loads them; MCP and made tools are among them.
   return allowed.some((t) => t === 'mcp' || t === 'shell' || onDemand(t))

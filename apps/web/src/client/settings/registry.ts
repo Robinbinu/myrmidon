@@ -1243,6 +1243,23 @@ export const SETTINGS = {
     help: s.mcp.subtitle,
     keywords: kw.mcp,
   },
+  'tools.ssh': {
+    page: 'tools',
+    control: 'list',
+    label: s.ssh.title,
+    help: s.ssh.subtitle,
+    keywords: kw.ssh,
+    keys: ['ssh.hosts'],
+  },
+  'tools.sshAdd': {
+    page: 'tools',
+    path: [s.ssh.title],
+    control: 'form',
+    label: s.ssh.addLabel,
+    help: s.ssh.addHint,
+    keywords: [s.ssh.fromConfig, ...kw.ssh],
+    keys: ['ssh.hosts'],
+  },
   'tools.library': {
     page: 'tools',
     control: 'list',

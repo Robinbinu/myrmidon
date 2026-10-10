@@ -20,6 +20,7 @@ import type { PluginHost } from './plugin-host.ts'
 import type { ProjectContext } from './project-context.ts'
 import type { Sandbox } from './sandbox.ts'
 import type { ColonySpec } from './spec.ts'
+import type { SshHost, SshHub } from './ssh.ts'
 import type { StreamRule } from './stream-rules.ts'
 import type { WebTools } from './web.ts'
 import type { ColonyWorkspace } from './workspace.ts'
@@ -122,6 +123,11 @@ export interface ColonyHost {
    * the person wrote into it. Absent otherwise, so the computer tool is left out or refuses.
    */
   readonly computer?: ComputerHub
+  /**
+   * The person's remote hosts this round may reach over SSH, with what reaches them: set up in Settings → Tools, and
+   * only while the person alone wrote into the round (a channel member's message takes them away at once).
+   */
+  remotes(): { readonly hub: SshHub; readonly hosts: readonly SshHost[] } | undefined
   /** The project's instructions, check commands and layout, read when the round started; absent outside projects. */
   readonly project?: ProjectContext
   /**
