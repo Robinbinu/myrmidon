@@ -26,9 +26,6 @@ export const GAPS = {
   timeoutStopOnWindows:
     'a full-access command past its timeout is not stopped on Windows: run() does not return for the whole sleep ' +
     '(sandbox.ts runLeashed, leash.ts)',
-  worktreesOnWindows:
-    'agent worktrees on Windows: `git add` trips over the linked node_modules ("paths are ignored"), so workers ' +
-    'cannot commit and merge',
 } as const
 
 export type Gap = keyof typeof GAPS
