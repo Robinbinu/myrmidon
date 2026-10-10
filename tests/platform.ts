@@ -35,8 +35,12 @@ export const GAPS = {
     'children.test.ts reads process trees with `ps` and drives sh/sleep/trap and POSIX signals; it needs a ' +
     'Windows port (a test-side change, using processes.ts to list trees)',
   fileToolPathsOnWindows:
-    'file tools (fs_read, grep, glob) on Windows refuse paths inside the project or scratch ("path is outside ' +
-    'your … directory: .")',
+    'file tools refuse files inside scratch or the project on Windows ("path is outside your scratch directory: ' +
+    'notes.txt"): most likely the path is resolved with realpathSync.native to long names (C:\\Users\\runneradmin) ' +
+    'but compared with roots kept as given, in 8.3 short form from %TEMP% (C:\\Users\\RUNNER~1) (read-access.ts)',
+  windowsRoundsStall:
+    'chat rounds that wait on approval cards, crew messages or a resume never reach their expected state on Windows ' +
+    '(colony did not reach the expected state, 25 s); cause not yet isolated, possibly the file-tool refusals above',
   windowsShellPath:
     "commands run through Git's sh.exe with a PATH that lacks Git's usr\\bin, so mkdir, touch and the rest are " +
     "'command not found'",
