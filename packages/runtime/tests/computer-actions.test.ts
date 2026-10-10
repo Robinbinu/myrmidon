@@ -13,9 +13,12 @@ import {
   isOwnApp,
   labelAt,
   parseCombo,
+  pointerOf,
+  screenPoint,
   screenshotEdge,
   sendsOrRuns,
   sensitiveLabel,
+  sessionOf,
   UnsupportedAction,
 } from '../src/index.ts'
 
@@ -317,4 +320,43 @@ test('the toolset is never named in a tool addition or removal, which Anthropic 
   expect(named).toContain('_browser_open')
   expect(named).toContain('_open_app')
   expect(out.messages).toHaveLength(2)
+})
+
+test('an action is placed on the screen from the screenshot it was aimed at, or from the element it used', () => {
+  const desk = {
+    shot: {
+      width: 800,
+      height: 500,
+      window: { x: 100, y: 50, width: 1600, height: 1000 },
+      elements: [{ index: 3, role: 'AXButton', frame: { x: 10, y: 20, w: 30, h: 40 } }],
+    },
+    cursor: [400, 250] as [number, number],
+  }
+  // Screenshot pixels are half the window's points here.
+  expect(screenPoint(desk, [400, 250])).toEqual([900, 550])
+  expect(pointerOf(desk, { kind: 'click', at: [0, 0], button: 'left', count: 1, modifiers: [] })).toEqual({
+    x: 100,
+    y: 50,
+    action: 'click',
+  })
+  expect(pointerOf(desk, { kind: 'click_element', element: 3, button: 'left', count: 1 })).toEqual({
+    x: 25,
+    y: 40,
+    action: 'click',
+  })
+  expect(pointerOf(desk, { kind: 'type', text: 'hi' })).toEqual({ x: 900, y: 550, action: 'type' })
+  expect(pointerOf(desk, { kind: 'drag', from: [0, 0], to: [800, 500] })).toEqual({
+    x: 1700,
+    y: 1050,
+    action: 'drag',
+  })
+  expect(pointerOf(desk, { kind: 'wait', seconds: 1 })).toBeUndefined()
+  expect(pointerOf({ cursor: [1, 1] }, { kind: 'move', at: [1, 1] })).toBeUndefined()
+})
+
+test('a driver session is named for the agent and its round, short and the same every time', () => {
+  expect(sessionOf('colony-mv1abc23-9f8e7d', 'Nova Lee')).toBe('myr-nova-lee-9f8e7d')
+  expect(sessionOf('colony-mv1abc23-9f8e7d', 'Nova Lee')).toBe(
+    sessionOf('colony-mv1abc23-9f8e7d', 'Nova Lee'),
+  )
 })
