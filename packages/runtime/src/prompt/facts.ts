@@ -13,6 +13,7 @@ import {
 } from '../patterns.ts'
 import { levelsOf } from '../permissions.ts'
 import type { ProjectGit } from '../project-context.ts'
+import type { ProjectRule } from '../rule-files.ts'
 import { hostShell, type ShellSyntax } from '../shell.ts'
 import type { AgentSpec, ColonySpec, Tier } from '../spec.ts'
 
@@ -197,6 +198,8 @@ export interface PromptFacts {
     readonly checks: readonly { readonly name: string; readonly command: string }[]
     readonly instructions?: { readonly files: readonly string[]; readonly text: string }
     readonly nested: readonly string[]
+    /** Other tools' rules for some files or tasks only, listed without their text (see rule-files.ts). */
+    readonly rules: readonly Omit<ProjectRule, 'text'>[]
   }
 }
 
@@ -353,6 +356,7 @@ export function factsFor(spec: ColonySpec, agent: AgentSpec, env: Environment): 
       checks: project ? (env.project?.checks ?? []) : [],
       ...(project && guide?.text ? { instructions: { files: guide.files, text: guide.text } } : {}),
       nested: project ? (guide?.nested ?? []) : [],
+      rules: project ? (guide?.rules ?? []).map(({ text: _text, ...rule }) => rule) : [],
     },
   }
 }

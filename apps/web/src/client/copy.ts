@@ -426,6 +426,8 @@ export const copy = {
       `Your “${(copy.settings.hooks.events as Record<string, string>)[event] ?? event}” hook failed (exit code ${code}):`,
     readSkillFile: (file: string) => `Read ${file} from skill`,
     usedSkill: 'Used skill',
+    /** The project's instruction and rule files (AGENTS.md, .cursor/rules, …) the round's agents were given. */
+    followedRules: (n: number) => `Following the project's ${n === 1 ? 'rule file' : `${n} rule files`}:`,
     proposedMemory: 'Proposed to remember:',
     ownBranch: 'Works on its own branch',
     merged: (n: number) => `Merged ${n} file${n === 1 ? '' : 's'} into the project`,

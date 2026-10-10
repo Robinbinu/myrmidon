@@ -218,6 +218,11 @@ export interface EventPayloads {
     resumed?: boolean
     /** Agents switched to another model on resume (agent → model). */
     models?: Record<string, string>
+    /**
+     * The project's instruction and rule files the round's agents were given (AGENTS.md, .cursor/rules/…), relative to
+     * the project; absent when it has none, and on a resume, which reads the same files again.
+     */
+    rules?: string[]
   }
   'colony/stopped': { reason: string }
   /**
