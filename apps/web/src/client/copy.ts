@@ -1600,7 +1600,7 @@ export const copy = {
       crewHint: 'workers, crewmates, an agent alone',
       groups: {
         files: { label: 'Files', hint: 'Read, search and change files' },
-        shell: { label: 'Commands', hint: 'Shell, checks, dev servers, tool making' },
+        shell: { label: 'Commands', hint: 'Shell, code cells, checks, dev servers, tool making' },
         web: { label: 'Web', hint: 'Search and read pages' },
         browser: { label: 'Browser', hint: 'Its own browser: click, type, sign in' },
         mcp: { label: 'MCP tools', hint: 'Tools of your MCP servers' },
@@ -1689,6 +1689,7 @@ export const copy = {
       /** Names people know for the built-in tools; one missing shows its id. */
       names: {
         shell: 'Run a command',
+        eval: 'Run a code cell',
         run_checks: 'Run checks',
         start_server: 'Start a dev server',
         server_logs: 'Read server logs',

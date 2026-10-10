@@ -415,7 +415,7 @@ function startConfined(
  * Signals a process and all its descendants, children first: a dev server is usually a shell running npm running the
  * real server. Windows has no signals, so there the whole tree is ended at once.
  */
-function killTree(pid: number, signal: 'SIGTERM' | 'SIGKILL') {
+export function killTree(pid: number, signal: 'SIGTERM' | 'SIGKILL') {
   // Null when it has already gone.
   Process.fromPid(pid)?.killTree(constants.signals[signal])
 }
