@@ -19,7 +19,7 @@ import {
   type TeamConfig,
 } from '../api.ts'
 import { copy } from '../copy.ts'
-import { limitNotice, usePlanLimits } from '../plan-limits.tsx'
+import { limitNotice, planLevel, usePlanLimits } from '../plan-limits.tsx'
 import { PluginSlot, usePluginSlots } from '../plugins.tsx'
 import { settingRow } from '../settings/Setting.tsx'
 import { SUGGEST_KEY, SUGGEST_MODEL_KEY, usePersistentFlag } from '../ui/hooks.ts'
@@ -345,10 +345,10 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const teamPanel = useRef<HTMLDivElement>(null)
   const { config } = props
   // omp names a model's provider as it names the account signed in for it (anthropic, openai-codex, …).
-  const leadLimit = limitNotice(
-    limits.snapshot,
-    props.models.find((m) => m.ref === config.leadModel)?.provider ?? config.leadModel.split('/')[0] ?? '',
-  )
+  const leadProvider =
+    props.models.find((m) => m.ref === config.leadModel)?.provider ?? config.leadModel.split('/')[0] ?? ''
+  const leadLimit = limitNotice(limits.snapshot, leadProvider)
+  const leadPlan = planLevel(limits.snapshot, leadProvider)
 
   // Where the toolbar can't fit every chip, Thinking, Reviewer and Helpers fold into one Team chip, so the model and
   // project chips keep their names. The chips' full width is measured while they are all shown (it changes with the
@@ -702,6 +702,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                 models={props.models}
                 onChange={(leadModel) => props.onConfig({ ...config, leadModel })}
                 {...(leadLimit ? { limitNotice: leadLimit } : {})}
+                {...(leadPlan ? { plan: leadPlan } : {})}
               />
               {narrow ? (
                 <TeamChip

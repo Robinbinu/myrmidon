@@ -6,7 +6,7 @@ import { ago } from './ui/hooks.ts'
 import { FEATURE_ICONS } from './ui/icons.ts'
 import { ProviderLogo } from './ui/ProviderGlyph.tsx'
 import { Badge, Button, Card, cn, SectionHeader } from './ui/primitives.tsx'
-import { PLAN_LIMITS_POLL_MS } from './ui-config.ts'
+import { PLAN_LEVEL_LEFT, PLAN_LIMITS_POLL_MS } from './ui-config.ts'
 
 /** What `GET /api/usage` answers (the runtime's omp/usage.ts). */
 export type QuotaStatus = 'ok' | 'warning' | 'exhausted' | 'unknown'
@@ -109,6 +109,40 @@ export function limitNotice(
   return tightest.status === 'exhausted'
     ? copy.planLimits.atLimit(tightest.label, resets)
     : copy.planLimits.nearLimit(tightest.label, Math.round(tightest.usedPercent ?? 0), resets)
+}
+
+/** How full the battery on the model chip shows: what is left of the plan, in four steps. */
+export type PlanLevel = 'full' | 'mid' | 'low' | 'empty'
+
+/**
+ * The battery for a model's provider: its roomiest account (omp moves to another when one runs out), read by its
+ * tightest window. Undefined when no account of that provider reports its use (an API key, or a provider omp cannot
+ * ask), so the chip shows no battery rather than a guess.
+ */
+export function planLevel(
+  snapshot: QuotaSnapshot | undefined,
+  provider: string,
+  now = Date.now(),
+): { level: PlanLevel; left: number; text: string } | undefined {
+  const accounts = (snapshot?.accounts ?? []).filter((a) => a.provider === provider && a.windows.length)
+  if (!accounts.length) return undefined
+  const usedOf = (a: AccountQuota) =>
+    a.status === 'exhausted'
+      ? 100
+      : Math.max(...a.windows.map((w) => (w.status === 'exhausted' ? 100 : (w.usedPercent ?? 0))))
+  const roomiest = accounts.reduce((a, b) => (usedOf(b) < usedOf(a) ? b : a))
+  if (roomiest.windows.every((w) => w.usedPercent === undefined && w.status !== 'exhausted')) return undefined
+  const tightest = roomiest.windows.reduce((a, b) =>
+    (b.status === 'exhausted' ? 100 : (b.usedPercent ?? 0)) >
+    (a.status === 'exhausted' ? 100 : (a.usedPercent ?? 0))
+      ? b
+      : a,
+  )
+  const left = Math.max(0, Math.round(100 - usedOf(roomiest)))
+  const [full, mid] = PLAN_LEVEL_LEFT
+  const level: PlanLevel =
+    left <= 0 ? 'empty' : roomiest.status === 'warning' || left < mid ? 'low' : left < full ? 'mid' : 'full'
+  return { level, left, text: copy.planLimits.left(tightest.label, left, resetText(tightest, now)) }
 }
 
 const BAR: Record<QuotaStatus, string> = {

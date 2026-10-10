@@ -6,6 +6,9 @@ import {
   BadgeCheck,
   BadgeQuestionMark,
   BadgeX,
+  Battery,
+  BatteryFull,
+  BatteryLow,
   BatteryMedium,
   BellRing,
   BookMarked,
@@ -143,6 +146,10 @@ export const FEATURE_ICONS = {
   providers: KeyRound,
   /** How close each subscription is to its plan's limits (Models & providers, the composer's model chip). */
   planLimits: BatteryMedium,
+  /** The same battery, as full as the subscription the chosen model runs on (the composer's model chip). */
+  planFull: BatteryFull,
+  planLow: BatteryLow,
+  planEmpty: Battery,
   /** Another Myrmidon this window can show. */
   gateway: Server,
   /** Managing gateways. */
