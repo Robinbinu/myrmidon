@@ -41,7 +41,23 @@ function fakeDesktop() {
     { id: '74', app: 'Notes', title: 'Groceries', bounds: { x: 100, y: 50, width: 1600, height: 1000 } },
     {
       ...input('74'),
-      screenshot: async () => ({ path: '/tmp/w.png', width: 800, height: 500 }),
+      // omp 18.8: input is in the full screenshot's coordinate frame, whatever size the image was sent at.
+      screenshot: async () => ({
+        path: '/tmp/w.png',
+        width: 400,
+        height: 250,
+        coordinateWidth: 800,
+        coordinateHeight: 500,
+      }),
+      zoom: async () => ({
+        path: '/tmp/z.png',
+        width: 300,
+        height: 300,
+        coordinateWidth: 800,
+        coordinateHeight: 500,
+        region: { x: 0, y: 0, width: 100, height: 100 },
+      }),
+      holdMouse: async () => {},
       find: async () => [element],
       ref: async () => element,
       ax: async () => '',
@@ -56,8 +72,19 @@ function fakeDesktop() {
       ...input('desktop'),
       screenshot: async () => ({ path: '/tmp/d.png', width: 2400, height: 900 }),
       displays: async () => [
-        { x: 0, y: 0, width: 1440, height: 900, pixelX: 0, pixelY: 0, pixelWidth: 2880, pixelHeight: 1800 },
         {
+          id: 'd1',
+          x: 0,
+          y: 0,
+          width: 1440,
+          height: 900,
+          pixelX: 0,
+          pixelY: 0,
+          pixelWidth: 2880,
+          pixelHeight: 1800,
+        },
+        {
+          id: 'd2',
           x: 1440,
           y: 0,
           width: 1920,
@@ -68,6 +95,21 @@ function fakeDesktop() {
           pixelHeight: 1080,
         },
       ],
+      // omp 18.8: one display as a target, with its own screenshot frame.
+      display: async () =>
+        handle(
+          { id: 'd2' },
+          {
+            ...input('d2'),
+            screenshot: async () => ({
+              path: '/tmp/s.png',
+              width: 960,
+              height: 540,
+              coordinateWidth: 960,
+              coordinateHeight: 540,
+            }),
+          },
+        ),
       windows: async () => [],
       window: async () => window,
       focusedWindow: async () => window,
@@ -87,13 +129,16 @@ test("a window click is placed on the screen from that window's last screenshot,
   // Before a screenshot the window's typing shows at its middle.
   await w.type('milk')
   await w.screenshot()
+  await w.zoom({ x: 0, y: 0, width: 100, height: 100 })
   await w.click(400, 250)
   await w.type('eggs')
+  await w.holdMouse(0, 0, { duration: 100 })
   expect(calls).toEqual(['74 type milk', '74 click 400,250', '74 type eggs'])
   expect(points).toEqual([
     { x: 900, y: 550, action: 'type' },
     { x: 900, y: 550, action: 'click' },
     { x: 900, y: 550, action: 'type' },
+    { x: 100, y: 50, action: 'click' },
   ])
   // A window the script returns still reads as one.
   expect(JSON.parse(JSON.stringify(w))).toMatchObject({ id: '74', app: 'Notes', title: 'Groceries' })
@@ -175,4 +220,17 @@ test('the engine wraps scripts that act, not ones that only look, and passes the
   expect(ran[1]).toBe('return await desktop.windows()')
   await bridge(DESKTOP_POINT_CALL, { x: 5, y: 6, action: 'scroll' })
   expect(pointed).toEqual([{ colonyId: 'c1', agent: 'nova', x: 5, y: 6, action: 'scroll' }])
+})
+
+test('a display chosen as a target maps its own screenshot onto that display', async () => {
+  const { desktop, calls } = fakeDesktop()
+  const points: Point[] = []
+  const d = pointerFacade(desktop, (p) => points.push(p))
+  await d.screenshot()
+  const right = await d.display('d2')
+  await right.screenshot()
+  await right.click(480, 270)
+  expect(calls).toEqual(['d2 click 480,270'])
+  // The middle of a 960 × 540 frame is the middle of the 1920 × 1080-point display at x 1440.
+  expect(points).toEqual([{ x: 2400, y: 540, action: 'click' }])
 })
