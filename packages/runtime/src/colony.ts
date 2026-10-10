@@ -1,4 +1,3 @@
-import { existsSync, readFileSync } from 'node:fs'
 import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
@@ -60,7 +59,6 @@ import {
   MAX_WORKERS,
   MISSED_CHARS,
   MISSED_SHOWN,
-  PORT_LISTING_MS,
   QUIET_NUDGES,
   SERVER_START_MS,
   SETTLE_QUIET_MS,
@@ -78,6 +76,7 @@ import { FactualObserver } from './observer.ts'
 import { attachedNote, isLead, snapshot, toolsFor } from './patterns.ts'
 import { levelsOf, presetOf, roleOf } from './permissions.ts'
 import type { PluginHost } from './plugin-host.ts'
+import { listeningPorts } from './ports.ts'
 import { type ProjectContext, readProjectContext } from './project-context.ts'
 
 import { prompts } from './prompts.ts'
@@ -198,65 +197,6 @@ async function listening(port: number): Promise<boolean> {
     return true
   } catch {
     return false
-  }
-}
-
-/**
- * Every TCP port something on this machine listens on, or undefined where that cannot be read. Taken before a
- * server starts, it tells the ports the server opened from ones that were already in use (the dashboard's, say).
- */
-function listeningPorts(): Set<number> | undefined {
-  try {
-    if (process.platform === 'linux') {
-      const ports = new Set<number>()
-      for (const table of ['/proc/net/tcp', '/proc/net/tcp6'])
-        for (const line of readFileSync(table, 'utf8').split('\n').slice(1)) {
-          // "sl local_address rem_address st ...": local_address is HEXIP:HEXPORT, state 0A is LISTEN.
-          const [, local, , state] = line.trim().split(/\s+/)
-          if (state === '0A' && local) ports.add(Number.parseInt(local.split(':').at(-1) ?? '', 16))
-        }
-      return ports
-    }
-    if (process.platform === 'darwin') {
-      // netstat sees every user's listeners, but the kernel can hand a process an empty socket table (seen under
-      // `bun test` on macOS 27), and netstat then exits 0 listing none. lsof reads this user's processes directly, so
-      // the dashboard and the person's own apps are seen either way.
-      const netstat = portListing('netstat', ['-an', '-p', 'tcp'])
-      // lsof exits 1, silently, when nothing listens.
-      const lsof = portListing('lsof', ['-nP', '-iTCP', '-sTCP:LISTEN', '-Fn'], true)
-      if (netstat === undefined && lsof === undefined) return undefined
-      const ports = new Set<number>()
-      for (const line of netstat?.split('\n') ?? []) {
-        // "tcp4  0  0  127.0.0.1.4318  *.*  LISTEN": the port is the last dotted part of the local address.
-        const columns = line.trim().split(/\s+/)
-        const port = /\.(\d+)$/.exec(columns[3] ?? '')?.[1]
-        if (columns.at(-1) === 'LISTEN' && port) ports.add(Number(port))
-      }
-      for (const line of lsof?.split('\n') ?? []) {
-        // "n*:5173", "n127.0.0.1:4318", "n[::1]:3000": a name field, the port after its last colon.
-        const port = /^n.*:(\d+)$/.exec(line)?.[1]
-        if (port) ports.add(Number(port))
-      }
-      return ports
-    }
-  } catch {
-    return undefined
-  }
-  return undefined
-}
-
-/**
- * A macOS system tool's output for `listeningPorts`, or undefined when it is missing, fails, or overruns its time (it
- * runs synchronously, and lsof can hang on a network mount). `quietOne`: exit 1 with nothing on stderr is a result.
- */
-function portListing(tool: string, args: string[], quietOne = false): string | undefined {
-  try {
-    const system = `/usr/sbin/${tool}`
-    const out = Bun.spawnSync([existsSync(system) ? system : tool, ...args], { timeout: PORT_LISTING_MS })
-    const ok = out.exitCode === 0 || (quietOne && out.exitCode === 1 && out.stderr.length === 0)
-    return ok ? new TextDecoder().decode(out.stdout) : undefined
-  } catch {
-    return undefined
   }
 }
 
