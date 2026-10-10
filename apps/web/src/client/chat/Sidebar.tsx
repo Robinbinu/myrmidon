@@ -51,6 +51,7 @@ import { needsYou, runPhase } from '../ui/status.ts'
 import { useToast } from '../ui/Toast.tsx'
 import { Toolbar } from '../ui/Toolbar.tsx'
 import { CHAT_GROUP_NAME_MAX, MESSAGE_SEARCH_DELAY_MS, spring } from '../ui-config.ts'
+import type { ExportFormat } from './export.ts'
 import { GatewaySwitcher } from './GatewaySwitcher.tsx'
 import { editorLink } from './open-in.ts'
 import { PermissionMark } from './ProjectPermissions.tsx'
@@ -114,7 +115,11 @@ export function Sidebar(props: {
   /** One chat, or the chats selected together, in list order. */
   onDelete(chats: ChatSummary[]): void
   onRename(chat: ChatSummary, title: string): Promise<void>
-  onExport?(chat: ChatSummary): void
+  onExport?(chat: ChatSummary, format: ExportFormat): void
+  /** Seals the chat into an encrypted file to share (chat menu → Export). */
+  onShare?(chat: ChatSummary): void
+  /** Shows the chat's family: the chat it was forked from and the chats forked from it. */
+  onFamily?(chat: ChatSummary): void
   /** The person's own groups, as headings in the list. */
   groups?: ChatGroup[]
   /** Pins, archives or files chats in a group (`false` and `null` take each back); left out, the menu has none. */
@@ -297,8 +302,8 @@ export function Sidebar(props: {
     setSelected(new Set(shownRows.slice(Math.min(a, b), Math.max(a, b) + 1)))
     anchor.current = from ?? to
   }
-  const exportAll = (chats: readonly ChatSummary[]) => {
-    for (const c of chats) props.onExport?.(c)
+  const exportAll = (chats: readonly ChatSummary[], format: ExportFormat = 'md') => {
+    for (const c of chats) props.onExport?.(c, format)
   }
   /** Rows of one heading's chats: a list the person can pick several from. */
   const rowList = (label: string, chats: readonly ChatSummary[]) =>
@@ -499,6 +504,11 @@ export function Sidebar(props: {
                     icon: Download,
                     run: () => exportAll(chats),
                   },
+                  props.onExport && {
+                    label: s.exportHtml(chats.length),
+                    icon: Download,
+                    run: () => exportAll(chats, 'html'),
+                  },
                   {
                     label: s.delete(chats.length),
                     icon: Trash2,
@@ -525,14 +535,28 @@ export function Sidebar(props: {
                 },
                 { label: m.rename, icon: Pencil, key: 'r', run: () => startRename(c) },
                 props.onFork && { label: m.fork, icon: GitFork, key: 'f', run: () => props.onFork?.(c) },
+                props.onFamily && {
+                  label: m.family,
+                  icon: FEATURE_ICONS.chatFamily,
+                  key: 't',
+                  run: () => props.onFamily?.(c),
+                },
                 'separator',
                 file && { label: m.moveToGroup, icon: FolderInput, submenu: groupMenu(c, file) },
                 'separator',
                 props.onExport && {
                   label: m.export,
                   icon: Download,
-                  key: 'e',
-                  run: () => props.onExport?.(c),
+                  submenu: [
+                    { label: m.exportMarkdown, key: 'm', run: () => props.onExport?.(c, 'md') },
+                    { label: m.exportHtml, key: 'h', run: () => props.onExport?.(c, 'html') },
+                    props.onShare && {
+                      label: m.share,
+                      icon: FEATURE_ICONS.shareFile,
+                      key: 's',
+                      run: () => props.onShare?.(c),
+                    },
+                  ],
                 },
                 {
                   ...copyAction(m.copyLink, link.href, () => toast(m.linkCopied, 'success')),

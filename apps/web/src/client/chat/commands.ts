@@ -136,7 +136,19 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
     when: 'chat',
   },
   { name: 'attach', description: copy.commands.list.attach.description, group: 'Chat' },
-  { name: 'export', description: copy.commands.list.export.description, group: 'Chat', when: 'chat' },
+  {
+    name: 'export',
+    args: 'md | html | share',
+    description: copy.commands.list.export.description,
+    group: 'Chat',
+    when: 'chat',
+    options: (['md', 'html', 'share'] as const).map((value) => ({
+      value,
+      label: copy.commands.list.export.options[value].label,
+      description: copy.commands.list.export.options[value].description,
+    })),
+  },
+  { name: 'family', description: copy.commands.list.family.description, group: 'Chat', when: 'chat' },
   { name: 'learn', description: copy.commands.list.learn.description, group: 'Chat', when: 'chat' },
   {
     name: 'rule',
