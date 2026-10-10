@@ -631,6 +631,26 @@ Open work, in the order it will be done:
       8. Credentials: several keys per provider rotated with backoff; models scoped to a project path.
       9. Memory: compress each finished chat into a short mental model loaded on the next one's first turn.
       10. Reset a provider stream (stale prompt cache) without touching the transcript (omp /fresh).
+12ab. - [ ] **Use more of omp's Rust (pi-natives 18.8.8)** — checked 2026-10-10. We call only grep, glob, Process,
+      PtySession, ShellFilesystem, notebookToEditableText and pdfToMarkdown directly. Already shipped in the addon
+      we bundle, unused:
+      1. Hashline edit engine (pi-edit: `hashline*`, `EditSession`, `EditStore`) — the engine behind 12aa.1.
+      2. Embedded bash (pi-shell `Shell`/`executeShell`: brush fork + in-process coreutils) — a shell on Windows
+         without Git Bash. In-process means outside the OS sandbox, so only where no sandbox applies (full access,
+         Windows until WSL2).
+      3. Workspace isolation (pi-iso `isoStart`/`isoDiff`: APFS clones, btrfs/zfs reflinks, overlayfs, projfs) —
+         crew isolation for projects that are not git repos, and faster than worktrees on big ones.
+      4. Real token counts (`countTokens`, o200k/cl100k) instead of chars/4 in compaction.ts and models.ts.
+      5. Code summaries for reads (pi-ast `summarizeCode`) — fs_read of a big file returns its structure first.
+      6. Vector helpers (`vectorIndexTopK`, `cosineSimilarityPairs`, `mmrRerankIndices`) for memory recall once
+         there are embeddings (12y.1 left: lexical recall misses synonyms).
+      7. Apple on-device model (`appleFmGenerate`, macOS 26+) — free, offline cheap model for chat names and
+         memory suggestions.
+      8. Keep the Mac awake while a round runs (`PowerAssertion`).
+      9. Smaller: `fuzzyFind` for find, `diffLines`/`structuredPatchHunks` for previews, `FileLock` across
+         processes, `watch`, jj repos (`vcsJjDiscover`), `renderMermaidAscii`.
+      Not needed: desktop (Cua Driver covers computer use), terminal keys/sixel/width (no TUI), pi-voice (own stack).
+      Each goes through packages/runtime/src/omp/natives.ts.
 12l. - [x] **Full access, no sandbox** (asked 2026-10-09, like Hermes) — global switch in Settings → Tools (default on)
       and a per-project Full access; lifts the command sandbox, file-path limits and the private-address rule; approvals
       still apply; channel members and read-only projects stay sandboxed. Left: Windows (unconfined commands still use
