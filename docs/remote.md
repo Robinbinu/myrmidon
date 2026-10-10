@@ -40,6 +40,16 @@ It prints a link like `https://box.tail1234.ts.net/#pair=K7QX3MNPRT`, valid for 
 link from **Settings → Devices** on a device that already has full access; that page lists every device, when it was
 last seen, and lets you **Revoke** it, which locks it out at once.
 
+## Sharing a chat live with someone
+
+From a chat's menu, **Share live…** makes an invite link (and code) for one chat, on the gateway's address: open
+for an hour, usable once, and withdrawable. Whoever opens it gives their name and watches the chat as it happens; a
+**can write** link also lets them write into it. Their messages carry their name, and a round they start or write
+into asks you before every step that changes something outside it, as for a channel member. A guest sees that chat's
+conversation only: not what agents ran or read, its files, other chats, Settings, keys or your memory. The same
+sheet shows who is in and lets you remove someone or stop sharing; the auth log records each invite, join and
+removal. Guests are kept in memory, so a restart ends every share. Only a device with full access can share.
+
 ## Option 1: an SSH tunnel (nothing to install)
 
 On the server:

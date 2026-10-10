@@ -1274,3 +1274,21 @@ export const CHAT_EXPORT = {
   /** Tool steps listed per run; the count covers all of them. */
   stepsListed: 200,
 } as const
+
+// Sharing a chat live with another person (chat-shares.ts)
+
+/**
+ * How long an invite to join a chat live stays open. It works once; sharing is for now, so an unused link lapses
+ * rather than waiting in someone's inbox.
+ */
+export const SHARE_INVITE_MS = 60 * 60_000
+/** Invites one chat may have open at once, and people in it besides the person. */
+export const SHARE_MAX_INVITES = 10
+export const SHARE_MAX_GUESTS = 8
+/**
+ * Characters in an invite code. From a 31-letter alphabet that is about 59 bits, so guessing one of a few open codes
+ * is hopeless even without a cap on wrong tries (a cap would let anyone who can reach the gateway withdraw them all).
+ */
+export const SHARE_CODE_LENGTH = 12
+/** A guest's name, as they typed it: cut to this before anyone sees it. */
+export const SHARE_NAME_CHARS = 40

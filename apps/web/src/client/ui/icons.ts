@@ -53,6 +53,7 @@ import {
   PhoneIncoming,
   Plug,
   Puzzle,
+  RadioTower,
   RectangleEllipsis,
   Rocket,
   ScreenShare,
@@ -254,4 +255,6 @@ export const FEATURE_ICONS = {
   chatFamily: ListTree,
   /** Sharing a chat as an encrypted file the person sends, with its key apart. */
   shareFile: Share2,
+  /** Sharing a chat live: inviting someone to watch or write in it (Share live), and the page they join. */
+  liveShare: RadioTower,
 } as const

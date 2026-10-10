@@ -650,11 +650,15 @@ export interface Project {
   permissions?: ProjectPermissions
 }
 
-/** Who this is to the server: whether it is a remote gateway, and this device's scope. 401 when not signed in. */
+/**
+ * Who this is to the server: whether it is a remote gateway, and this device's scope. 401 when not signed in. A guest
+ * of a shared chat is `guest`, and sees that chat alone (GuestChat.tsx).
+ */
 export interface WhoAmI {
-  scope: 'full' | 'chat'
+  scope: 'full' | 'chat' | 'guest'
   remote: boolean
   device?: { id: string; name: string }
+  guest?: { name: string; access: ShareAccess; chatId: string }
 }
 
 /** Who this is to this machine (not to the gateway the window shows): pairing happens here. */
@@ -675,6 +679,67 @@ export async function pairDevice(code: string, name: string): Promise<void> {
   const data = (await res.json().catch(() => ({}))) as { error?: string }
   if (!res.ok) throw new ApiError(data.error ?? copy.api.status(res.status))
 }
+
+/** What a guest of a shared chat may do: watch it, or watch and write in it. */
+export type ShareAccess = 'view' | 'write'
+
+/** A chat shared live, as the person sees it in Share live: open invites and who is in. */
+export interface ChatShare {
+  /** Whether others can reach this Myrmidon at all; on this computer alone, a link opens only here. */
+  remote: boolean
+  invites: { id: string; access: ShareAccess; createdAt: string; expiresAt: string }[]
+  guests: { id: string; name: string; access: ShareAccess; joinedAt: string; online: boolean }[]
+}
+
+export const chatShare = (chatId: string) => api<ChatShare>(`/api/chats/${chatId}/share`)
+/** A single-use invite: the link to send, and its code for typing in. */
+export const inviteGuest = (chatId: string, access: ShareAccess) =>
+  post<{ link: string; code: string; invite: { id: string; expiresAt: string } }>(
+    `/api/chats/${chatId}/share`,
+    {
+      access,
+    },
+  )
+export const withdrawInvite = (chatId: string, id: string) =>
+  send('DELETE', `/api/chats/${chatId}/share/invites/${id}`)
+export const removeGuest = (chatId: string, id: string) =>
+  send('DELETE', `/api/chats/${chatId}/share/guests/${id}`)
+export const stopSharing = (chatId: string) => send('DELETE', `/api/chats/${chatId}/share`)
+
+/** The shared chat as its guest sees it: no project, crew, permissions or filing. */
+export interface GuestView {
+  guest: { id: string; name: string; access: ShareAccess; joinedAt: string }
+  /** The person who shared it. */
+  host: string
+  chat: Pick<ChatSummary, 'chatId' | 'title' | 'updatedAt' | 'status' | 'awaiting' | 'failed' | 'rounds'> & {
+    approving?: boolean
+  }
+}
+
+/**
+ * The shared chat for its guest; undefined once they are no longer in it (removed, sharing stopped, a restart). A
+ * guest's requests go to this machine, never through a gateway.
+ */
+export async function guestView(): Promise<GuestView | undefined> {
+  const res = await call('/api/guest')
+  if (res.status === 401 || res.status === 404) return undefined
+  if (!res.ok) throw failure(res.status, await errorOf(res))
+  return res.json() as Promise<GuestView>
+}
+
+/** Joins a shared chat with an invite's code; the server sets the guest's cookie. */
+export async function joinChat(code: string, name: string): Promise<void> {
+  const res = await fetch('/api/guest/join', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ code, name }),
+  })
+  const data = (await res.json().catch(() => ({}))) as { error?: string }
+  if (!res.ok) throw new ApiError(data.error ?? copy.api.status(res.status))
+}
+
+export const guestSend = (text: string) => hubSend('POST', '/api/guest/messages', { text })
+export const leaveChat = () => hubSend('DELETE', '/api/guest')
 
 /** Another gateway as this machine (the hub) lists it; its token stays here. */
 export interface GatewayInfo {

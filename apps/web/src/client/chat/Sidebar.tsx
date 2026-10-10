@@ -118,6 +118,8 @@ export function Sidebar(props: {
   onExport?(chat: ChatSummary, format: ExportFormat): void
   /** Seals the chat into an encrypted file to share (chat menu → Export). */
   onShare?(chat: ChatSummary): void
+  /** Invites someone into the chat live (Share live…); left out on a device that may not. */
+  onShareLive?(chat: ChatSummary): void
   /** Shows the chat's family: the chat it was forked from and the chats forked from it. */
   onFamily?(chat: ChatSummary): void
   /** The person's own groups, as headings in the list. */
@@ -557,6 +559,12 @@ export function Sidebar(props: {
                       run: () => props.onShare?.(c),
                     },
                   ],
+                },
+                props.onShareLive && {
+                  label: m.shareLive,
+                  icon: FEATURE_ICONS.liveShare,
+                  key: 'v',
+                  run: () => props.onShareLive?.(c),
                 },
                 {
                   ...copyAction(m.copyLink, link.href, () => toast(m.linkCopied, 'success')),

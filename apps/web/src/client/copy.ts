@@ -1110,6 +1110,7 @@ export const copy = {
       export: 'Export this chat as Markdown',
       exportHtml: 'Export this chat as a web page',
       share: 'Share this chat as an encrypted file',
+      shareLive: 'Share this chat live with someone',
       family: 'Show this chat’s family (forks and rounds)',
       crewConsole: 'Open the crew console',
       importSession: 'Import a Claude Code or Codex session',
@@ -1130,6 +1131,7 @@ export const copy = {
       exportMarkdown: 'Markdown (.md)',
       exportHtml: 'Web page (.html)',
       share: 'Encrypted share file…',
+      shareLive: 'Share live…',
       family: 'Show family',
       copyLink: 'Copy link',
       linkCopied: 'Link copied',
@@ -2564,6 +2566,79 @@ export const copy = {
         browser:
           'This browser cannot decrypt the file. Open it in a current Chrome, Safari, Firefox or Edge.',
       },
+    },
+  },
+
+  /** Sharing a chat live (chat menu → Share live…): inviting someone in, seeing who is in, taking them out. */
+  liveShare: {
+    title: 'Share live',
+    intro:
+      'Invite someone to follow this chat as it happens. They open the link, give their name, and see the conversation: ' +
+      'not what agents ran or read, the chat’s files, your other chats, Settings or keys.',
+    localOnly:
+      'This Myrmidon only answers on this computer, so the link opens here alone. To let someone else in, run it as a ' +
+      'gateway they can reach (see Running Myrmidon on another machine).',
+    access: 'They can',
+    accessHint: {
+      view: 'Watch only.',
+      write:
+        'Watch and write. Their messages carry their name, and every step that reaches outside the chat waits for your approval.',
+    },
+    view: 'Watch',
+    write: 'Watch and write',
+    create: 'Create invite link',
+    creating: 'Creating…',
+    linkLabel: 'Invite link',
+    copyLink: 'Copy link',
+    linkCopied: 'Invite link copied',
+    code: (code: string) => `Or enter the code ${code} at this Myrmidon’s address.`,
+    once: (until: string) => `Works once, until ${until}. Send it only to the person you mean.`,
+    invitesTitle: 'Open invites',
+    invite: (access: 'view' | 'write', until: string) =>
+      `${access === 'write' ? 'Watch and write' : 'Watch'} · until ${until}`,
+    withdraw: 'Withdraw',
+    guestsTitle: 'In this chat',
+    noGuests: 'No one has joined yet.',
+    guest: (access: 'view' | 'write', online: boolean) =>
+      `${access === 'write' ? 'Can write' : 'Watching'} · ${online ? 'here now' : 'away'}`,
+    remove: 'Remove',
+    removeLabel: (name: string) => `Remove ${name} from this chat`,
+    stop: 'Stop sharing',
+    stopHint: 'Withdraws every invite and removes everyone.',
+    restart: 'A restart of Myrmidon ends sharing; invite people again after one.',
+    done: 'Done',
+    failed: (reason: string) => `Couldn’t update sharing: ${reason}`,
+  },
+
+  /** The page a guest of a shared chat sees: joining with an invite, the chat, and the end of it. */
+  guest: {
+    join: {
+      title: 'Join a shared chat',
+      intro:
+        'Someone shared a Myrmidon chat with you. Give your name to join; they will see it beside your messages.',
+      code: 'Invite code',
+      codeHint: 'From the link you were sent; it works once.',
+      name: 'Your name',
+      join: 'Join',
+    },
+    sharedBy: (host: string) => `Shared by ${host}`,
+    you: (name: string, access: 'view' | 'write') =>
+      `You are ${name} · ${access === 'write' ? 'you can write' : 'watching'}`,
+    leave: 'Leave',
+    working: 'Working…',
+    approving: (host: string) => `Waiting for ${host} to approve a step`,
+    awaiting: (host: string) => `Waiting for an answer from ${host}`,
+    writing: 'writing…',
+    empty: 'Nothing has been said in this chat yet.',
+    viewOnly: 'You can watch this chat but not write in it.',
+    placeholder: 'Write to the crew…',
+    send: 'Send',
+    asks: (host: string) =>
+      `Anything your message makes the crew do outside the chat waits for ${host}’s approval.`,
+    ended: {
+      title: 'You are no longer in this chat',
+      body: 'The person who shared it stopped sharing or removed you, or Myrmidon restarted. Ask them for a new link to join again.',
+      left: 'You left the chat. Ask for a new link to join again.',
     },
   },
 

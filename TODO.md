@@ -565,7 +565,9 @@ Open work, in the order it will be done:
 12y. - [ ] **omp features Myrmidon lacks** (asked 2026-10-10; reuse omp's modules where they fit):
       1. Long-term memory engine: extraction from chats, recall / reflect / edit (omp hindsight, mnemopi).
       2. Debugger for agents over the Debug Adapter Protocol (omp dap).
-      3. Live session sharing: another person joins a chat live (omp collab).
+      3. Live session sharing: another person joins a chat live (omp collab). Done: Share live… in a chat's menu
+         makes a one-time invite (watch, or watch and write); guests see only that chat's conversation, write
+         under their name with every outside step asking the person, and can be removed (chat-shares.ts).
       4. Autoresearch: an experiment loop on its own branch, measured and kept or dropped (omp autoresearch).
       5. SSH remote hosts agents can work on (omp ssh).
       6. Telemetry export over OTLP (omp telemetry-export-otlp); plus a security-scan tool (omp security-scan).
