@@ -72,6 +72,7 @@ import {
   READ_LOG_RESULT_CHARS,
   REVIEW_MAX_CHARS,
 } from './config.ts'
+import { readFileAs } from './file-read.ts'
 import { gitCommitChanges, gitWorkingChanges } from './git.ts'
 import { agentActor, type ColonyHost, type ReviewDecision } from './host.ts'
 import {
@@ -1528,13 +1529,14 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       path: type('string').describe(prompts.tools.fs_read.params.path),
       'offset?': type('number').describe(prompts.tools.fs_read.params.offset),
       'limit?': type('number').describe(prompts.tools.fs_read.params.limit),
+      'entry?': type('string').describe(prompts.tools.fs_read.params.entry),
+      'sql?': type('string').describe(prompts.tools.fs_read.params.sql),
     }),
     async run(args, agent, host) {
-      return readRange(
-        readFileSync(host.workspace.resolveForRead(agent, args.path), 'utf8'),
-        args.offset,
-        args.limit,
-      )
+      const read = await readFileAs(host.workspace.resolveForRead(agent, args.path), args.path, args)
+      if (read.image) return { text: read.head ?? '', images: [read.image] }
+      const text = readRange(read.text, args.offset, args.limit)
+      return read.head ? { text, images: [], preface: `${read.head}\n` } : text
     },
   },
   {
@@ -3177,9 +3179,11 @@ function harnessTools(
             const hookNote = await host.afterTool(agent, def.name, params, output)
             if (typeof result !== 'string') images = result.images
             const preface = typeof result === 'string' ? '' : (result.preface ?? '')
-            // Long pages are saved under web/ in scratch; reading one back is still outside content.
+            // Long pages are saved under web/ in scratch, and the browser's downloads under downloads/; reading one
+            // back is still outside content.
             const savedPage =
-              def.name === 'fs_read' && /(^|\/)web\//.test(String((params as { path?: unknown })?.path ?? ''))
+              def.name === 'fs_read' &&
+              /(^|[\\/])(web|downloads)[\\/]/.test(String((params as { path?: unknown })?.path ?? ''))
             if (UNTRUSTED.has(def.name) || savedPage) {
               const source = untrustedSource(def.name, params, output)
               host.rememberUntrusted(agent, source, output)
