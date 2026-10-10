@@ -90,6 +90,7 @@ import { adoptDraft, isOwnDraft, testPlugin, writeDraft } from './plugin-builder
 import { type ProjectCheck, scratchChecks } from './project-context.ts'
 import type { PromptFacts } from './prompt/facts.ts'
 import { type Place, prompts } from './prompts.ts'
+import { within } from './read-access.ts'
 import { SANDBOX_DIRS } from './sandbox.ts'
 import { assertArtifactName, SKIP_DIRS } from './workspace.ts'
 
@@ -581,12 +582,12 @@ async function guardProjectEdit(
 ): Promise<{ content: string; edited: boolean }> {
   const unchanged = { content: change.after, edited: false }
   const project = host.spec.chat?.project
-  const within = (root: string) => path === root || path.startsWith(`${root}/`)
+  const inside = (root: string) => within(path, root)
   const scratch = host.workspace.scratch(agent)
-  const inProject = !!project && within(project.path) && !within(scratch)
+  const inProject = !!project && inside(project.path) && !inside(scratch)
   const where = inProject
     ? 'project'
-    : within(scratch) || within(host.workspace.workdir(agent))
+    : inside(scratch) || inside(host.workspace.workdir(agent))
       ? 'private'
       : 'outside'
   const call: PermissionCall = { tool, kind: 'edit', where, readOnly: false }
@@ -1549,7 +1550,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       const walk = (d: string) => {
         for (const entry of readdirSync(d, { withFileTypes: true })) {
           if (SANDBOX_DIRS.has(entry.name) || SKIP_DIRS.has(entry.name) || out.length > 500) continue
-          const full = `${d}/${entry.name}`
+          const full = join(d, entry.name)
           // A readable folder can hold what stays hidden (the person's keys in a home they opened).
           if (!host.workspace.mayRead(agent, full)) continue
           if (entry.isDirectory()) walk(full)

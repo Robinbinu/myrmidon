@@ -1,6 +1,13 @@
 import { expect, test } from 'bun:test'
 import { DESKTOP_COMPUTER_STOP, type DesktopBridge } from '../../web/src/client/ui/desktop.ts'
-import { badgeLabel, parseRequest, preloadScript, replyScript, shortcutScript } from '../src/bridge.ts'
+import {
+  badgeLabel,
+  insetScript,
+  parseRequest,
+  preloadScript,
+  replyScript,
+  shortcutScript,
+} from '../src/bridge.ts'
 
 const ORIGIN = 'http://127.0.0.1:4318'
 const SECRET = 'secret-1'
@@ -37,6 +44,18 @@ test('on its own Myrmidon the page is marked as the desktop shell, with room for
   expect(page.root.dataset.shell).toBe('desktop')
   expect(page.root.style['--titlebar-inset']).toBe('78px')
   expect(typeof page.window.myrmidonDesktop).toBe('object')
+})
+
+test('the toolbar inset follows the window, and only on the dashboard', () => {
+  const page = load(ORIGIN)
+  const set = (p: Page, px: number) => new Function('document', insetScript(px))({ documentElement: p.root })
+  set(page, 0)
+  expect(page.root.style['--titlebar-inset']).toBe('0px')
+  set(page, 78)
+  expect(page.root.style['--titlebar-inset']).toBe('78px')
+  const other = load('https://example.com')
+  set(other, 0)
+  expect(other.root.style['--titlebar-inset']).toBeUndefined()
 })
 
 test('any other page in the window gets neither the bridge nor the marks', () => {

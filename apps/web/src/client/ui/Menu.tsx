@@ -1,6 +1,14 @@
-import { Copy, type LucideIcon } from 'lucide-react'
+import { ChevronRight, Copy, type LucideIcon } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
-import { type MouseEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import {
+  type KeyboardEvent,
+  type MouseEvent,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react'
 import { MENU_EDGE_PX, menuFade } from '../ui-config.ts'
 import { moveMenuFocus, usePopover } from './Popover.tsx'
 import { isMac } from './platform.ts'
@@ -16,10 +24,21 @@ export interface MenuAction {
   /** Removes or discards something: drawn in red, and always placed last. */
   readonly destructive?: boolean
   readonly disabled?: boolean
+  /** A letter that runs it while the menu is open, as in a Claude or Codex chat menu; shown at the row's end. */
+  readonly key?: string
   run(): void
 }
 
-export type MenuEntry = MenuAction | 'separator'
+/** A row that opens a menu of its own to the side: on hover, →, Return or a click. */
+export interface SubMenu {
+  readonly label: string
+  readonly icon?: LucideIcon
+  readonly disabled?: boolean
+  readonly destructive?: undefined
+  readonly submenu: MenuEntries
+}
+
+export type MenuEntry = MenuAction | SubMenu | 'separator'
 
 /** What callers pass: entries, with `false` or `undefined` for ones that do not apply here. */
 export type MenuEntries = readonly (MenuEntry | false | null | undefined)[]
@@ -61,24 +80,66 @@ export function menuPosition(
   return { left: place(at.x, size.width, view.width), top: place(at.y, size.height, view.height) }
 }
 
-/** The rows of a menu. Choosing one closes the menu first, so the command runs with focus back where it was. */
+/** The action a letter pressed in an open menu runs, if one of its rows carries that letter. */
+export function keyedAction(entries: readonly MenuEntry[], key: string): MenuAction | undefined {
+  if (key.length !== 1) return undefined
+  return entries.find(
+    (e): e is MenuAction =>
+      e !== 'separator' && !('submenu' in e) && !e.disabled && e.key?.toLowerCase() === key.toLowerCase(),
+  )
+}
+
+/**
+ * The rows of a menu. Choosing one closes the menu first, so the command runs with focus back where it was. A
+ * submenu row opens its menu beside the row; ← or Escape there comes back to the row.
+ */
 export function MenuRows(props: { entries: readonly MenuEntry[]; onClose(): void }) {
-  return props.entries.map((e, i) =>
-    e === 'separator' ? (
-      // biome-ignore lint/suspicious/noArrayIndexKey: separators have no identity besides their place
-      <hr key={`sep-${i}`} className="mx-2 my-[5px] border-line" />
-    ) : (
+  const [open, setOpen] = useState<{ index: number; top: number; focus: boolean }>()
+  const rows = useRef<(HTMLButtonElement | null)[]>([])
+  const opened = open ? props.entries[open.index] : undefined
+  const show = (index: number, el: HTMLElement, focus: boolean) =>
+    setOpen({ index, top: el.offsetTop, focus })
+  const row = (e: MenuAction | SubMenu, i: number) => {
+    const sub = 'submenu' in e
+    const hint = sub
+      ? undefined
+      : e.key
+        ? e.key.toUpperCase()
+        : e.combo
+          ? comboLabel(e.combo, isMac)
+          : undefined
+    return (
       <button
         key={e.label}
+        ref={(el) => {
+          rows.current[i] = el
+        }}
         type="button"
         role="menuitem"
         tabIndex={-1}
         disabled={e.disabled}
-        aria-keyshortcuts={e.combo ? ariaCombo(e.combo) : undefined}
-        // The pointer and the arrow keys move one highlight, as in a Mac menu.
-        onMouseEnter={(ev) => ev.currentTarget.focus()}
-        onMouseLeave={(ev) => ev.currentTarget.closest<HTMLElement>('[role="menu"]')?.focus()}
-        onClick={() => {
+        aria-haspopup={sub ? 'menu' : undefined}
+        aria-expanded={sub ? open?.index === i : undefined}
+        aria-keyshortcuts={
+          sub ? undefined : e.key ? e.key.toUpperCase() : e.combo ? ariaCombo(e.combo) : undefined
+        }
+        // The pointer and the arrow keys move one highlight, as in a Mac menu; resting on a submenu row opens it.
+        onMouseEnter={(ev) => {
+          ev.currentTarget.focus()
+          if (sub) show(i, ev.currentTarget, false)
+          else setOpen(undefined)
+        }}
+        onMouseLeave={(ev) => {
+          if (!sub) ev.currentTarget.closest<HTMLElement>('[role="menu"]')?.focus()
+        }}
+        onKeyDown={(ev) => {
+          if (!sub || !['ArrowRight', 'Enter', ' '].includes(ev.key)) return
+          ev.preventDefault()
+          ev.stopPropagation()
+          show(i, ev.currentTarget, true)
+        }}
+        onClick={(ev) => {
+          if (sub) return show(i, ev.currentTarget, true)
           props.onClose()
           e.run()
         }}
@@ -88,6 +149,7 @@ export function MenuRows(props: { entries: readonly MenuEntry[]; onClose(): void
           e.destructive
             ? 'text-bad-ink focus:bg-bad-fill focus:text-white'
             : 'text-fg focus:bg-accent focus:text-on-accent',
+          sub && open?.index === i && 'bg-fill-strong',
         )}
       >
         {e.icon ? (
@@ -99,16 +161,100 @@ export function MenuRows(props: { entries: readonly MenuEntry[]; onClose(): void
           <span aria-hidden className="size-3.5 shrink-0" />
         )}
         <span className="min-w-0 flex-1 truncate">{e.label}</span>
-        {e.combo && (
+        {hint && (
           <span
             aria-hidden
             className="pl-4 text-small tabular-nums text-muted group-focus:text-current group-focus:opacity-70"
           >
-            {comboLabel(e.combo, isMac)}
+            {hint}
           </span>
         )}
+        {sub && (
+          <ChevronRight aria-hidden className="size-3.5 shrink-0 text-muted group-focus:text-current" />
+        )}
       </button>
-    ),
+    )
+  }
+  return (
+    <>
+      {props.entries.map((e, i) =>
+        e === 'separator' ? (
+          // biome-ignore lint/suspicious/noArrayIndexKey: separators have no identity besides their place
+          <hr key={`sep-${i}`} className="mx-2 my-[5px] border-line" />
+        ) : (
+          row(e, i)
+        ),
+      )}
+      {open && opened && opened !== 'separator' && 'submenu' in opened && (
+        <SubMenuPanel
+          key={open.index}
+          label={opened.label}
+          entries={arrangeMenu(opened.submenu)}
+          top={open.top}
+          focus={open.focus}
+          onClose={props.onClose}
+          onBack={() => {
+            rows.current[open.index]?.focus()
+            setOpen(undefined)
+          }}
+        />
+      )}
+    </>
+  )
+}
+
+/** A submenu beside its row, flipped to the other side where the window ends. */
+function SubMenuPanel(props: {
+  label: string
+  entries: readonly MenuEntry[]
+  top: number
+  focus: boolean
+  onClose(): void
+  onBack(): void
+}) {
+  const box = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    const el = box.current
+    if (!el) return
+    const r = el.getBoundingClientRect()
+    if (r.right > window.innerWidth - MENU_EDGE_PX) {
+      el.style.left = 'auto'
+      el.style.right = '100%'
+    }
+    const over = r.bottom - (window.innerHeight - MENU_EDGE_PX)
+    if (over > 0) el.style.top = `${props.top - over}px`
+    if (props.focus) el.querySelector<HTMLElement>('[role="menuitem"]:not(:disabled)')?.focus()
+  }, [props.top, props.focus])
+  const keys = (e: KeyboardEvent<HTMLDivElement>) => {
+    e.stopPropagation()
+    if (e.key === 'ArrowLeft') {
+      e.preventDefault()
+      return props.onBack()
+    }
+    if (e.key === 'Tab') {
+      e.preventDefault()
+      return props.onClose()
+    }
+    const keyed = !e.metaKey && !e.ctrlKey && !e.altKey ? keyedAction(props.entries, e.key) : undefined
+    if (keyed) {
+      e.preventDefault()
+      props.onClose()
+      return keyed.run()
+    }
+    moveMenuFocus(e)
+  }
+  return (
+    <div
+      ref={box}
+      role="menu"
+      aria-label={props.label}
+      tabIndex={-1}
+      onKeyDown={keys}
+      style={{ top: props.top - 5 }}
+      className="material-menu absolute left-full z-[81] -ml-1 min-w-[180px] max-w-[320px] rounded-md border border-line p-[5px] outline-none"
+    >
+      <MenuRows entries={props.entries} onClose={props.onClose} />
+    </div>
   )
 }
 
@@ -169,6 +315,12 @@ function ContextMenu(props: OpenMenu & { onClose(): void }) {
       aria-label={props.label}
       tabIndex={-1}
       onKeyDown={(e) => {
+        const keyed = !e.metaKey && !e.ctrlKey && !e.altKey ? keyedAction(props.entries, e.key) : undefined
+        if (keyed) {
+          e.preventDefault()
+          props.onClose()
+          return keyed.run()
+        }
         if (e.key !== 'Tab') return moveMenuFocus(e)
         e.preventDefault()
         props.onClose()

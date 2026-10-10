@@ -58,6 +58,8 @@ test('workers edit their own worktrees and their changes merge into the folder',
   ])
   expect(existsSync(ada.workdir)).toBe(false)
   expect(sh(repo, 'branch', '--list', 'myr/*')).toBe('')
+  // Removing a worktree removes its link to the folder's dependencies (a junction on Windows), not what it points to.
+  expect(readFileSync(join(repo, 'node_modules', 'dep', 'index.js'), 'utf8')).toBe('module.exports = 1\n')
 })
 
 test('a conflict goes back to the worker with markers, and its resolution merges', async () => {

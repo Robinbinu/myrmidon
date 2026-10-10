@@ -16,6 +16,7 @@ import {
   CircleAlert,
   Download,
   Folder,
+  GitFork,
   HeartPulse,
   LoaderCircle,
   MessageCircleQuestion,
@@ -31,6 +32,7 @@ import { AnimatePresence, MotionConfig, motion } from 'motion/react'
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   api,
+  type ChatGroup,
   type ChatRound,
   type ChatSummary,
   CONNECTION_CHANGED,
@@ -404,6 +406,21 @@ export function App() {
   const [globalPreset, setGlobalPreset] = useState<PermissionPreset>(DEFAULT_PRESET)
   /** The project a new chat will work in. */
   const [newProject, setNewProject] = useState<string>()
+  /** The chat a new chat continues (Fork), until its first message is sent. */
+  const [forkOf, setForkOf] = useState<string>()
+  /** The person's own groups in the chat list. */
+  const [chatGroups, setChatGroups] = useState<ChatGroup[]>([])
+  const loadGroups = useCallback(
+    () =>
+      api<{ groups: ChatGroup[] }>('/api/chat-groups')
+        .then((r) => setChatGroups(r.groups))
+        // Without the server's groups their chats show in their project or date, as before.
+        .catch(() => setChatGroups([])),
+    [],
+  )
+  useEffect(() => {
+    void loadGroups()
+  }, [loadGroups])
   /** A new chat's own permission level, chosen in the composer before its first message. */
   const [newPermissions, setNewPermissions] = useState<PermissionLevel>()
   const [picking, setPicking] = useState(false)
@@ -764,10 +781,11 @@ export function App() {
   }, [chats, pending])
 
   const newTask = useCallback(
-    (project?: string) =>
+    (project?: string, fork?: string) =>
       leaveSettings(() => {
         placement.away()
         setNewProject(project)
+        setForkOf(fork)
         setActiveChat(undefined)
         setView('chat')
         setSettingsOpen(false)
@@ -859,13 +877,17 @@ export function App() {
           delivery,
           ...(plan ? { plan: true } : {}),
           ...(!chatId && newProject ? { project: newProject } : {}),
+          ...(!chatId && forkOf ? { forkOf } : {}),
           ...(!chatId && newPermissions ? { permissions: newPermissions } : {}),
           ...(answers ? { answers } : {}),
           ...(files.length ? { attachments: await Promise.all(files.map(encodeFile)) } : {}),
         },
       )
       setActiveChat(r.chatId)
-      if (!chatId) setNewPermissions(undefined)
+      if (!chatId) {
+        setNewPermissions(undefined)
+        setForkOf(undefined)
+      }
       setView('chat')
       if (r.started)
         setPending({
@@ -1049,6 +1071,37 @@ export function App() {
         }
       }}
       chats={chats}
+      groups={chatGroups}
+      onFile={(list, place) =>
+        void Promise.all(list.map((c) => request('PATCH', `/api/chats/${c.chatId}`, place)))
+          .catch((err) => toast(String((err as Error).message ?? err), 'error'))
+          .finally(refreshChats)
+      }
+      onFork={(c) => newTask(c.project?.id, c.chatId)}
+      onNewGroup={async (name) => {
+        try {
+          const group = await request<ChatGroup>('POST', '/api/chat-groups', { name })
+          setChatGroups((list) => [...list, group])
+          return group
+        } catch (err) {
+          toast(String((err as Error).message ?? err), 'error')
+          return undefined
+        }
+      }}
+      onRenameGroup={(g, name) =>
+        void request<ChatGroup>('PATCH', `/api/chat-groups/${g.id}`, { name })
+          .then((renamed) => setChatGroups((list) => list.map((x) => (x.id === g.id ? renamed : x))))
+          .catch((err) => toast(String((err as Error).message ?? err), 'error'))
+      }
+      onDeleteGroup={(g) =>
+        void request('DELETE', `/api/chat-groups/${g.id}`)
+          .then(() => {
+            setChatGroups((list) => list.filter((x) => x.id !== g.id))
+            toast(copy.contextMenu.group.deleted(g.name), 'info')
+            refreshChats()
+          })
+          .catch((err) => toast(String((err as Error).message ?? err), 'error'))
+      }
       loaded={chatsLoaded}
       activeChat={activeChat}
       view={view}
@@ -1635,6 +1688,12 @@ export function App() {
                               onDismiss={dismissSetupNudge}
                             />
                           )}
+                          {forkOf && (
+                            <ForkNote
+                              title={chats.find((c) => c.chatId === forkOf)?.title}
+                              onCancel={() => setForkOf(undefined)}
+                            />
+                          )}
                           {box}
                         </Hero>
                       )
@@ -1977,6 +2036,20 @@ function ComparePane(props: { onOpen(id: string): void }) {
   return (
     <div className="min-h-0 flex-1 overflow-auto">
       <Compare colonies={colonies} onOpen={props.onOpen} />
+    </div>
+  )
+}
+
+/** Above a forked chat's composer: which conversation it continues, and a way to start fresh instead. */
+function ForkNote(props: { title: string | undefined; onCancel(): void }) {
+  if (!props.title) return null
+  return (
+    <div className="mb-2 flex w-full items-center gap-2 rounded-base border border-line bg-fill/60 px-3 py-1.5 text-callout text-fg-2">
+      <GitFork aria-hidden className="size-3.5 shrink-0 text-muted" />
+      <span className="min-w-0 flex-1 truncate">{copy.app.fork.note(props.title)}</span>
+      <button type="button" onClick={props.onCancel} className="shrink-0 text-muted hover:text-fg">
+        {copy.app.fork.cancel}
+      </button>
     </div>
   )
 }

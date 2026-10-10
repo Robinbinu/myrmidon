@@ -46,6 +46,42 @@ test('a local server answers its own token on loopback, and nothing that only re
   ).toBe(401)
 })
 
+test('shutdown: only this server’s own token on loopback stops it, and only when it was given a way to stop', async () => {
+  let stops = 0
+  const { server, call, base } = serve({ onShutdown: () => stops++ })
+  const post = { method: 'POST' }
+  expect((await call('/api/shutdown', post)).status).toBe(401)
+  expect((await call('/api/shutdown', { ...post, headers: bearer('wrong') })).status).toBe(401)
+  expect(
+    (
+      await call('/api/shutdown', {
+        ...post,
+        host: `evil.example:${base.port}`,
+        headers: bearer(server.token),
+      })
+    ).status,
+  ).toBe(401)
+  expect(
+    (await call('/api/shutdown', { ...post, origin: 'https://evil.example', headers: bearer(server.token) }))
+      .status,
+  ).toBe(401)
+  await Bun.sleep(10)
+  expect(stops).toBe(0)
+  expect((await call('/api/shutdown', { ...post, headers: bearer(server.token) })).status).toBe(202)
+  await Bun.sleep(10)
+  expect(stops).toBe(1)
+
+  const plain = serve()
+  expect((await plain.call('/api/shutdown', { ...post, headers: bearer(plain.server.token) })).status).toBe(
+    401,
+  )
+  // Dev mode has no token to prove who is asking.
+  const dev = serve({ noAuth: true, onShutdown: () => stops++ })
+  expect((await dev.call('/api/shutdown', post)).status).toBe(401)
+  await Bun.sleep(10)
+  expect(stops).toBe(1)
+})
+
 test('a remote gateway refuses to run without auth', () => {
   expect(() => serve({ publicUrl: 'https://box.example.ts.net', noAuth: true })).toThrow('--dev')
 })

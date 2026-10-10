@@ -13,6 +13,7 @@ import {
 } from '../patterns.ts'
 import { levelsOf } from '../permissions.ts'
 import type { ProjectGit } from '../project-context.ts'
+import { hostShell, type ShellSyntax } from '../shell.ts'
 import type { AgentSpec, ColonySpec, Tier } from '../spec.ts'
 
 /**
@@ -172,6 +173,8 @@ export interface PromptFacts {
     /** The person's zone by its current IANA name, with its offset, e.g. "Asia/Kolkata (UTC+05:30)". */
     readonly zone: string
     readonly platform: string
+    /** The shell that runs commands (shell.ts): `sh` on macOS and Linux, Git Bash or PowerShell on Windows. */
+    readonly shell?: { readonly name: string; readonly syntax: ShellSyntax }
     readonly runtimes: readonly string[]
     /** This round's marker for untrusted content blocks. */
     readonly boundary?: string
@@ -335,6 +338,7 @@ export function factsFor(spec: ColonySpec, agent: AgentSpec, env: Environment): 
       now,
       zone: `${canonicalZone()} (${zoneOffset(now)})`,
       platform: process.platform,
+      shell: { name: hostShell().name, syntax: hostShell().syntax },
       runtimes: RUNTIMES,
       ...(env.boundary ? { boundary: env.boundary } : {}),
       budget: { wallMs: spec.budget.wallMs, maxTurns: spec.budget.maxTurns },

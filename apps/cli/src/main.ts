@@ -16,10 +16,12 @@ import {
   roundSlice,
 } from '@myrmidon/protocol'
 import {
+  alive,
   BrowserHub,
   bootOmp,
   bootRuntime,
   ChatService,
+  ChatShelf,
   Checkpoints,
   ColonyRun,
   ComputerHub,
@@ -32,6 +34,7 @@ import {
   MemoryStore,
   ModelResolver,
   ompWebTools,
+  ownerOnly,
   PluginHost,
   PluginStore,
   ProjectStore,
@@ -48,6 +51,7 @@ import { startServer } from '@myrmidon/web'
 import { channels } from './channels.ts'
 import { setupCopy } from './copy.ts'
 import { type Call, doctor, key, login, model, type ServerInfo, setup } from './setup.ts'
+import { shutdownSignals } from './shutdown.ts'
 import { style, terminal } from './terminal.ts'
 
 const HELP = `myrmidon — run and watch colonies of collaborating agents
@@ -301,6 +305,10 @@ async function main() {
       if (!arg) throw new Error('usage: myrmidon run <colony.yaml>')
       return run(arg)
     case 'serve': {
+      // The desktop app names the server it starts with this (apps/desktop/src/server.ts), to tell its server.json
+      // from another server's for the same home. Taken out first, so nothing this server starts inherits it.
+      const launch = process.env.MYRMIDON_LAUNCH_ID
+      delete process.env.MYRMIDON_LAUNCH_ID
       const runtime = await bootRuntime(home)
       await recover(runtime)
       const settings = new SettingsStore(home)
@@ -349,8 +357,10 @@ async function main() {
       void mcp
         .start()
         .catch((err) => console.error(c.yellow(`MCP: ${err instanceof Error ? err.message : err}`)))
+      const shelf = new ChatShelf(home)
       const chats = new ChatService(runtime, {
         resolver,
+        shelf,
         settings,
         web: ompWebTools(omp, () => settings.get().search.provider),
         unsafeNoSandbox: values['unsafe-no-sandbox'],
@@ -387,6 +397,7 @@ async function main() {
         plugins,
         pluginHost,
         schedules: new ScheduleStore(home),
+        shelf,
         sandboxKind: sandbox.kind,
         noAuth: values.dev,
         ...(values.host ? { host: values.host } : {}),
@@ -395,6 +406,8 @@ async function main() {
         ...(values['preview-port'] ? { previewPort: Number(values['preview-port']) } : {}),
         ...(values['preview-url'] ? { previewUrl: values['preview-url'] } : {}),
         debug: values.debug,
+        // The desktop app stops the server it started this way: Windows has no SIGTERM for it to send.
+        onShutdown: () => void shutdown(),
       })
       console.log(`${c.bold('Myrmidon')} ${server.url}`)
       // Speech engines load in the background now, so the first call does not wait on them.
@@ -426,6 +439,7 @@ async function main() {
           url: server.url.replace(/#.*$/, ''),
           token: server.token,
           pid: process.pid,
+          ...(launch ? { launch } : {}),
           remote: server.remote,
           ...(server.publicUrl ? { publicUrl: server.publicUrl } : {}),
           ...(server.previewUrl ? { previewUrl: server.previewUrl } : {}),
@@ -434,20 +448,25 @@ async function main() {
           mode: 0o600,
         },
       )
-      const shutdown = async () => {
-        console.log(c.yellow('\nstopping running colonies…'))
-        rmSync(serverFile, { force: true })
-        await chats.stopAll()
-        await browser.close().catch(() => {})
-        await computer.stop().catch(() => {})
-        await mcp.close().catch(() => {})
-        await server.stop()
-        await runtime.dispose()
-        process.exit(0)
-      }
-      process.on('SIGINT', shutdown)
-      // systemd stops a service with SIGTERM.
-      process.on('SIGTERM', shutdown)
+      ownerOnly(serverFile)
+      // Also on an exit no handler below sees (an uncaught error); a kill leaves it, and readers check its pid.
+      process.on('exit', () => rmSync(serverFile, { force: true }))
+      // Once, however many ways the stop arrives (the desktop app's request, then its signal if that is slow).
+      let stopping: Promise<void> | undefined
+      const shutdown = () =>
+        (stopping ??= (async () => {
+          console.log(c.yellow('\nstopping running colonies…'))
+          rmSync(serverFile, { force: true })
+          await chats.stopAll()
+          await browser.close().catch(() => {})
+          await computer.stop().catch(() => {})
+          await mcp.close().catch(() => {})
+          await server.stop()
+          await runtime.dispose()
+          process.exit(0)
+        })())
+      // SIGINT and SIGTERM (systemd) everywhere; Windows adds Ctrl+Break and closing the console window.
+      for (const sig of shutdownSignals(process.platform)) process.on(sig, shutdown)
       return
     }
     case 'ask':
@@ -531,7 +550,12 @@ main().catch((err) => {
 async function runningServer(): Promise<{ call: Call; info: ServerInfo }> {
   const file = join(home, 'server.json')
   if (!existsSync(file)) throw new Error(setupCopy.noServer(home))
-  const info = JSON.parse(readFileSync(file, 'utf8')) as ServerInfo & { token: string }
+  const info = JSON.parse(readFileSync(file, 'utf8')) as ServerInfo & { token: string; pid?: number }
+  // Left by a server that was killed (on Windows, any server stopped from outside).
+  if (info.pid !== undefined && !alive(info.pid)) {
+    rmSync(file, { force: true })
+    throw new Error(setupCopy.noServer(home))
+  }
   const call: Call = async <T>(method: string, path: string, body?: unknown): Promise<T> => {
     const res = await fetch(new URL(path, info.url), {
       method,

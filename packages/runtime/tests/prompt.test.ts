@@ -370,6 +370,33 @@ test('a renamed chat: the title reaches no agent in later rounds, and the colony
   await chats.stopAll()
 })
 
+test('on Windows an agent with a shell is told which shell runs its commands, and the prompts stay clean', () => {
+  const shells = [
+    { name: 'Git Bash', syntax: 'posix' as const, says: 'write POSIX sh' },
+    { name: 'PowerShell 7', syntax: 'powershell' as const, says: 'write PowerShell' },
+    { name: 'cmd.exe', syntax: 'cmd' as const, says: 'write cmd syntax' },
+  ]
+  for (const shell of shells) {
+    let told = 0
+    const found = views.flatMap(({ label, view }) => {
+      const facts = { ...view.facts, env: { ...view.facts.env, platform: 'win32', shell } }
+      const windows = viewOf(facts)
+      const environment = windows.sections.find((x) => x.text.includes('<environment>'))?.text ?? ''
+      const says = environment.includes(shell.says)
+      const shown = environment.includes('Shell: commands start')
+      if (says) told++
+      return [
+        ...lint(windows).map((f) => `${label} (${f.where}): ${f.check} ${f.text}`),
+        ...(says === shown ? [] : [`${label}: shell line ${shown} but syntax line ${says}`]),
+      ]
+    })
+    expect(found).toEqual([])
+    expect(told).toBeGreaterThan(0)
+  }
+  // macOS and Linux prompts say nothing of it: sh is what agents assume.
+  for (const { view } of views) expect(view.system.join('\n')).not.toContain('Commands run in')
+})
+
 test('every prompt stays within its word budgets', () => {
   const found = views.flatMap(({ label, view }) =>
     lint(view)

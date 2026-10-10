@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve, sep } from 'node:path'
 import { freePort, myrmidonHome, pageUrl, runningServer, startServer } from '../src/server.ts'
 
 const FAKE = [process.execPath, join(import.meta.dir, 'fake-cli.ts')]
@@ -32,6 +32,15 @@ test('a server.json left by a crash does not count as a running server', async (
   expect(await runningServer(home)).toBeUndefined()
 })
 
+test('a server.json whose server has gone is removed, so nothing takes it for a running server', async () => {
+  const gone = Bun.spawn([process.execPath, '-e', ''])
+  await gone.exited
+  const file = join(home, 'server.json')
+  writeFileSync(file, JSON.stringify({ url: `http://127.0.0.1:${freePort()}/`, token: 't', pid: gone.pid }))
+  expect(await runningServer(home)).toBeUndefined()
+  expect(existsSync(file)).toBe(false)
+})
+
 test('a server that exits while starting is reported, not waited on', async () => {
   await expect(
     startServer({ command: [...FAKE, '--crash'], home, port: freePort(), pollMs: 20 }),
@@ -53,34 +62,28 @@ test('the page URL carries the token in its hash, and a dev server without one g
 })
 
 test('the home is the CLI’s: MYRMIDON_HOME, else ~/.myrmidon', () => {
-  expect(myrmidonHome({ MYRMIDON_HOME: '/data/myr' })).toBe('/data/myr')
-  expect(myrmidonHome({}).endsWith('/.myrmidon')).toBe(true)
+  expect(myrmidonHome({ MYRMIDON_HOME: '/data/myr' })).toBe(resolve('/data/myr'))
+  expect(myrmidonHome({}).endsWith(`${sep}.myrmidon`)).toBe(true)
 })
 
-/** Running processes (not zombies) and their parents. */
-function processes(): Map<number, number> {
-  const out = new Map<number, number>()
-  const ps = new TextDecoder().decode(Bun.spawnSync(['ps', '-Ao', 'pid=,ppid=,stat=']).stdout)
-  for (const line of ps.trim().split('\n')) {
-    const [pid, ppid, stat] = line.trim().split(/\s+/)
-    if (pid && ppid && !stat?.startsWith('Z')) out.set(Number(pid), Number(ppid))
+/** Whether a process is running: signal 0 only checks, on every platform. */
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === 'EPERM'
   }
-  return out
 }
 
-function below(root: number): number[] {
-  const all = processes()
-  const found = new Set([root])
-  for (let grew = true; grew; ) {
-    grew = false
-    for (const [pid, ppid] of all)
-      if (found.has(ppid) && !found.has(pid)) {
-        found.add(pid)
-        grew = true
-      }
-  }
-  found.delete(root)
-  return [...found]
+async function gone(pids: readonly number[]): Promise<number[]> {
+  for (let i = 0; i < 50 && pids.some(alive); i++) await Bun.sleep(100)
+  return pids.filter(alive)
+}
+
+/** The pids the fake server wrote down: its own and its parent's, the leash. */
+function serverPids(home: string): { pid: number; ppid: number } {
+  return JSON.parse(readFileSync(join(home, 'server.json'), 'utf8'))
 }
 
 test('the server the app started stops when the app is killed, and removes server.json', async () => {
@@ -91,14 +94,11 @@ test('the server the app started stops when the app is killed, and removes serve
   try {
     const reader = app.stdout.getReader()
     expect(new TextDecoder().decode((await reader.read()).value)).toContain('started')
-    // The leash and the server under it.
-    children = below(app.pid)
-    expect(children.length).toBe(2)
-    expect(existsSync(join(home, 'server.json'))).toBe(true)
+    const { pid, ppid } = serverPids(home)
+    children = [ppid, pid]
+    expect(children.every(alive)).toBe(true)
     app.kill('SIGKILL')
-    const left = () => children.filter((pid) => processes().has(pid))
-    for (let i = 0; i < 50 && left().length; i++) await Bun.sleep(100)
-    expect(left()).toEqual([])
+    expect(await gone(children)).toEqual([])
     expect(existsSync(join(home, 'server.json'))).toBe(false)
   } finally {
     for (const pid of [app.pid, ...children])
@@ -107,5 +107,40 @@ test('the server the app started stops when the app is killed, and removes serve
       } catch {
         // Already gone.
       }
+  }
+})
+
+for (const platform of ['darwin', 'linux', 'win32'] as const)
+  test(`on ${platform} quitting asks the server to stop over its API, and it removes server.json`, async () => {
+    const server = await startServer({ command: FAKE, home, port: freePort(), pollMs: 20, platform })
+    const { pid, ppid } = serverPids(home)
+    await server.stop()
+    expect(await gone([pid, ppid])).toEqual([])
+    expect(existsSync(join(home, 'server.json'))).toBe(false)
+    expect(readFileSync(join(home, 'stopped-by'), 'utf8')).toBe('api')
+  })
+
+for (const platform of ['darwin', 'linux', 'win32'] as const)
+  test(`on ${platform} a server that does not take the request is still stopped, with all it started`, async () => {
+    const command = [...FAKE, '--no-shutdown']
+    const server = await startServer({ command, home, port: freePort(), pollMs: 20, platform })
+    const { pid, ppid } = serverPids(home)
+    await server.stop()
+    expect(await gone([pid, ppid])).toEqual([])
+    // Where there are signals, SIGTERM lets it stop its chats; Windows goes straight to the leash's firm stop.
+    if (platform !== 'win32') expect(readFileSync(join(home, 'stopped-by'), 'utf8')).toBe('SIGTERM')
+  })
+
+test('another server writing server.json for the same home is not taken for the one the app started', async () => {
+  const otherPort = freePort()
+  const other = Bun.spawn([...FAKE, '--port', String(otherPort), '--home', home], { stdout: 'ignore' })
+  try {
+    for (let i = 0; i < 100 && !existsSync(join(home, 'server.json')); i++) await Bun.sleep(20)
+    const port = freePort()
+    const server = await startServer({ command: [...FAKE, '--delay', '300'], home, port, pollMs: 20 })
+    expect(server.pageUrl).toBe(`http://127.0.0.1:${port}/#token=fake-token`)
+    await server.stop()
+  } finally {
+    other.kill('SIGKILL')
   }
 })
