@@ -588,6 +588,30 @@ Open work, in the order it will be done:
       boundary for each omp area we use; (3) a weekly CI job that bumps omp on a branch, runs the 3-OS suite and opens
       a PR with omp's changelog; (4) vendor small internal pieces (MIT, with provenance); (5) list internals to ask
       upstream to export.
+      Done 2026-10-10 (branch omp-boundary): (1) every @oh-my-pi import is in packages/runtime/src/omp/ — one thin
+      facade per area (ai, mock, agent-core, catalog, natives, snapcompact, utils, lsp, dap, jfind, github, ssh, rules,
+      eval, eval-worker, readers, mcp, sessions, computer, plugins, memory, security, autoresearch) re-exporting only
+      the names used, lazy modules behind load* functions; tests go through it too, and apps/web dropped its pi-ai
+      dependency. omp-boundary.test.ts fails on an import elsewhere (allowed with a reason: build-sidecar.ts copies the
+      native addon by path, oauth-page.test.ts reads the patched page) and on any other package depending on omp.
+      (2) omp-contract.test.ts: one test per area (loads, cast shapes like MCPManager, behaviour we build on).
+      (3) .github/workflows/omp-bump.yml + .github/scripts/omp-bump.ts, weekly and by hand: pins all omp packages to
+      the latest release (patch renamed), install, typecheck, Linux tests, PR to develop with the changelog (draft
+      when something failed); the PR's CI runs the 3-OS suite only with an OMP_BUMP_TOKEN secret (docs/ci.md). Not
+      run on GitHub yet. Bumped to 18.8.8 with it.
+      Left: (4) vendoring — candidates, each a few lines and pure: utils/shell-quote, ssh/utils (buildSshTarget,
+      wrapInPosixShell), ssh/config-writer validateHostName, omfg-rule sanitizeRuleName, autoresearch/helpers
+      parseMetricLines, hindsight/content, extensibility/plugins/git-url, secrets/patterns (data). (5) Upstream asks:
+      a documented, versioned library surface for what we reach by deep path: lsp/{client,config,diagnostics,edits,
+      utils,types}; dap/{client,config,types}; tools/jfind/*; tools/gh-*; ssh/*; capability/rule, export/ttsr,
+      session/ttsr-outputs, modes/controllers/omfg-rule; session/{claude,codex,foreign}-session-store and
+      session-entries; tools/computer/{supervisor,protocol}; eval/js/{worker-core,worker-protocol}, eval/py/prelude and
+      runner.py as an export (imported by file path today); markit, utils/image-resize, tools/sqlite-reader,
+      utils/tools-manager; mcp/manager with a typed public interface (we cast it) and custom-tools/wrapper;
+      extensibility/plugins/{marketplace,git-url}, skillshare/tar; memory-backend/redact, hindsight/content,
+      secrets/patterns, autoresearch/helpers, slash-commands/helpers/usage-accounts; and for omp/runtime.ts:
+      config/{settings,model-registry,model-resolver}, sdk discoverAuthStorage, session/agent-storage, web/search,
+      tools/fetch.
 12l. - [x] **Full access, no sandbox** (asked 2026-10-09, like Hermes) — global switch in Settings → Tools (default on)
       and a per-project Full access; lifts the command sandbox, file-path limits and the private-address rule; approvals
       still apply; channel members and read-only projects stay sandboxed. Left: Windows (unconfined commands still use

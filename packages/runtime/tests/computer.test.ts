@@ -12,10 +12,6 @@ import {
   type PermissionCall,
   type PermissionRule,
 } from '@myrmidon/protocol'
-import type { AgentTool, AgentToolResult } from '@oh-my-pi/pi-agent-core'
-import type { Model } from '@oh-my-pi/pi-ai'
-import { createMockModel, type MockContent } from '@oh-my-pi/pi-ai/providers/mock'
-import { AssistantMessageEventStream } from '@oh-my-pi/pi-ai/utils/event-stream'
 import { bunShim, pendingOn } from '../../../tests/platform.ts'
 import {
   appTool,
@@ -34,6 +30,10 @@ import {
   sessionOf,
   type TeamConfig,
 } from '../src/index.ts'
+import type { AgentTool, AgentToolResult } from '../src/omp/agent-core.ts'
+import type { Model } from '../src/omp/ai.ts'
+import { AssistantMessageEventStream } from '../src/omp/ai.ts'
+import { createMockModel, type MockContent } from '../src/omp/mock.ts'
 
 const FIXTURE = join(import.meta.dir, 'fixtures', 'fake-cua-driver.ts')
 

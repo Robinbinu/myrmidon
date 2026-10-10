@@ -7,8 +7,7 @@
  * member's round, macOS grants present, the app approved for the chat at a tier that allows the action, and
  * consequential steps approved by the person.
  */
-import type { AgentTool, AgentToolResult } from '@oh-my-pi/pi-agent-core'
-import { type ComputerToolCallMetadata, type Model, type } from '@oh-my-pi/pi-ai'
+
 import {
   COMPUTER_ELEMENTS_SHOWN,
   COMPUTER_ELEMENTS_WALKED,
@@ -20,6 +19,8 @@ import {
   COMPUTER_SENSITIVE_LABEL,
 } from '../config.ts'
 import { agentActor, type ColonyHost } from '../host.ts'
+import type { AgentTool, AgentToolResult } from '../omp/agent-core.ts'
+import { type ComputerToolCallMetadata, type Model, type } from '../omp/ai.ts'
 import { prompts } from '../prompts.ts'
 import { redactSecrets } from '../secrets.ts'
 import { spotlight } from '../tools.ts'

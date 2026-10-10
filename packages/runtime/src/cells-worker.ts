@@ -7,8 +7,7 @@
  * (process.stdout, `Bun.$`, a child process) reads as its output rather than as a frame. stdin reaching its end
  * means the parent has gone: the runtime exits with it.
  */
-import { WorkerCore } from '@oh-my-pi/pi-coding-agent/eval/js/worker-core'
-import type { WorkerInbound, WorkerOutbound } from '@oh-my-pi/pi-coding-agent/eval/js/worker-protocol'
+import { WorkerCore, type WorkerInbound, type WorkerOutbound } from './omp/eval-worker.ts'
 
 const marker = process.env.MYR_CELL_FRAME ?? ''
 // Cells and what they start never see it.

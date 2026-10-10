@@ -3,7 +3,6 @@ import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from '
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { type ColonyState, type EventPayloads, foldColony, type MyrEvent } from '@myrmidon/protocol'
-import { createMockModel, type MockContent } from '@oh-my-pi/pi-ai/providers/mock'
 import { better, experimentFrom, metricOf } from '../src/autoresearch.ts'
 import {
   bootRuntime,
@@ -15,6 +14,7 @@ import {
   SettingsStore,
   type TeamConfig,
 } from '../src/index.ts'
+import { createMockModel, type MockContent } from '../src/omp/mock.ts'
 
 test('the metric is the METRIC line named, or the only one printed', () => {
   const out = 'building…\nMETRIC ms=12.5\nMETRIC bytes=300\n'

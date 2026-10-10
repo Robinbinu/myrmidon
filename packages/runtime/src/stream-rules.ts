@@ -10,25 +10,24 @@ import {
 } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, relative, sep } from 'node:path'
-import type { StreamFn } from '@oh-my-pi/pi-agent-core'
-import type { AssistantMessage, AssistantMessageEvent, Message, ToolCall } from '@oh-my-pi/pi-ai'
-import { AssistantMessageEventStream } from '@oh-my-pi/pi-ai/utils/event-stream'
+import { RULE_FILE_MAX_BYTES, RULES_MAX_FILES } from './config.ts'
+import type { StreamFn } from './omp/agent-core.ts'
+import type { AssistantMessage, AssistantMessageEvent, Message, ToolCall } from './omp/ai.ts'
+import { AssistantMessageEventStream } from './omp/ai.ts'
 import {
   parseRuleAgents,
   parseRuleConditionAndScope,
   type Rule,
   type RuleFrontmatter,
   ruleAppliesToAgent,
-} from '@oh-my-pi/pi-coding-agent/capability/rule'
-import {
+  sanitizeRuleName,
   type TtsrCheckOptions,
   TtsrManager,
   type TtsrMatchContext,
-} from '@oh-my-pi/pi-coding-agent/export/ttsr'
-import { sanitizeRuleName } from '@oh-my-pi/pi-coding-agent/modes/controllers/omfg-rule'
-import { type TtsrTool, TtsrToolInspector } from '@oh-my-pi/pi-coding-agent/session/ttsr-outputs'
-import { parseFrontmatter } from '@oh-my-pi/pi-utils/frontmatter'
-import { RULE_FILE_MAX_BYTES, RULES_MAX_FILES } from './config.ts'
+  type TtsrTool,
+  TtsrToolInspector,
+} from './omp/rules.ts'
+import { parseFrontmatter } from './omp/utils.ts'
 import { prompts } from './prompts.ts'
 import { readProjectStreamRules } from './rule-files.ts'
 

@@ -1,5 +1,4 @@
 import { expect, test } from 'bun:test'
-import { createMockModel } from '@oh-my-pi/pi-ai/providers/mock'
 import {
   type GreetingFacts,
   GreetingWriter,
@@ -7,6 +6,7 @@ import {
   parseGreeting,
   ruleGreeting,
 } from '../src/index.ts'
+import { createMockModel } from '../src/omp/mock.ts'
 
 const at = (iso: string) => new Date(iso)
 const chat = (id: string, title: string, status: string, updatedAt: string, awaiting = false) => ({

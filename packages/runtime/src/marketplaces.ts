@@ -1,15 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import {
-  classifySource,
-  parseMarketplaceCatalog,
-} from '@oh-my-pi/pi-coding-agent/extensibility/plugins/marketplace/fetcher'
-import {
-  isValidNameSegment,
-  type MarketplaceCatalog,
-  type MarketplacePluginEntry,
-} from '@oh-my-pi/pi-coding-agent/extensibility/plugins/marketplace/types'
-import {
   download,
   type FetchFn,
   fetchGit,
@@ -17,6 +8,13 @@ import {
   type InstallOrigin,
   isWithin,
 } from './install-sources.ts'
+import {
+  classifySource,
+  isValidNameSegment,
+  type MarketplaceCatalog,
+  type MarketplacePluginEntry,
+  parseMarketplaceCatalog,
+} from './omp/plugins.ts'
 import { expandHome } from './read-access.ts'
 
 /**

@@ -1,5 +1,5 @@
 import type { EventPayloads, MyrEvent } from '@myrmidon/protocol'
-import { parseMetricLines } from '@oh-my-pi/pi-coding-agent/autoresearch/helpers'
+import { parseMetricLines } from './omp/autoresearch.ts'
 
 /**
  * Autoresearch, after omp's (pi-coding-agent/src/autoresearch): an agent improves one measured number on its own branch

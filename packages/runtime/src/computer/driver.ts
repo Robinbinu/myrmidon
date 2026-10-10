@@ -11,7 +11,6 @@ import { createHash } from 'node:crypto'
 import { chmodSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import type { AgentToolResult } from '@oh-my-pi/pi-agent-core'
 import {
   COMPUTER_CALL_MS,
   COMPUTER_LOCK_WAIT_MS,
@@ -26,6 +25,7 @@ import {
 } from '../config.ts'
 import { spawnLeashed } from '../leashed.ts'
 import type { McpHub } from '../mcp.ts'
+import type { AgentToolResult } from '../omp/agent-core.ts'
 import { socketPath } from '../voice/stt.ts'
 import { DESKTOP_GRANT, DesktopEngine } from './desktop.ts'
 

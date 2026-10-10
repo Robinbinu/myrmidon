@@ -1,9 +1,9 @@
 import { expect, test } from 'bun:test'
 import type { CompactionMethod } from '@myrmidon/protocol'
-import type { AgentMessage } from '@oh-my-pi/pi-agent-core'
-import type { Model } from '@oh-my-pi/pi-ai'
-import { createMockModel } from '@oh-my-pi/pi-ai/providers/mock'
 import { type Compacted, ContextCompactor } from '../src/compaction.ts'
+import type { AgentMessage } from '../src/omp/agent-core.ts'
+import type { Model } from '../src/omp/ai.ts'
+import { createMockModel } from '../src/omp/mock.ts'
 
 const text = (role: 'user' | 'assistant', body: string, contextTokens?: number) =>
   ({
