@@ -240,6 +240,35 @@ export const LSP_PROJECT_CHECK_MS = 300_000
 /** Most references and workspace symbols lsp lists; the rest are counted. */
 export const LSP_LIST_LIMIT = 100
 
+// Code cells (cells.ts): eval
+
+/**
+ * The argument that makes a compiled Myrmidon run the JavaScript cell runtime it carries (apps/desktop/src/sidecar.ts),
+ * here rather than in cells.ts so the sidecar can pick the worker without loading the server's modules into it.
+ */
+export const CELL_WORKER_COMMAND = 'cell-worker'
+
+/**
+ * How long one cell may run when the agent names no limit, and the most it may name. A cell past it is stopped with
+ * its runtime (a JavaScript loop cannot be interrupted any other way), so its state is lost.
+ */
+export const CELL_TIMEOUT_S = 30
+export const CELL_MAX_TIMEOUT_S = 300
+/** How long a runtime may take to start in the sandbox (bun or python3, and omp's prelude) before the call fails. */
+export const CELL_START_MS = 20_000
+/** The most of a cell's output the agent reads back; the rest is counted, not kept. */
+export const CELL_OUTPUT_CHARS = 20_000
+/** Pictures one cell may hand back (a chart it displayed), and the largest one, in base64 characters. */
+export const CELL_IMAGES = 2
+export const CELL_IMAGE_CHARS = 2_000_000
+/**
+ * The longest line a runtime may write without a line break (a frame with a picture is one line): past it the runtime
+ * is stopped as runaway rather than held whole in memory.
+ */
+export const CELL_LINE_MAX = 16 * 1024 * 1024
+/** How long a runtime's last output may still arrive after it exits, for the message saying why it stopped. */
+export const CELL_EXIT_DRAIN_MS = 500
+
 // Browser (browser.ts)
 
 /** The longest page snapshot an agent gets; past it, the agent scrolls or evaluates the part it needs. */

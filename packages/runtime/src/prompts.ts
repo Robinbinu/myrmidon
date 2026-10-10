@@ -5,6 +5,10 @@ import {
   AST_GREP_LIMIT,
   BROWSER_LOG_LIMIT,
   BROWSER_VIEWPORT,
+  CELL_LINE_MAX,
+  CELL_MAX_TIMEOUT_S,
+  CELL_OUTPUT_CHARS,
+  CELL_TIMEOUT_S,
   FETCH_SHOWN_CHARS,
   FIND_TOOLS_LIMIT,
   GLOB_LIMIT,
@@ -1632,6 +1636,34 @@ Reply with JSON only: {"lines": ["...", "...", "..."]}.`,
     checked: (command: string, ok: boolean) => `${ok ? 'PASS' : 'FAIL'} \`${command}\``,
   },
 
+  /** What eval tells the agent about its runtimes (cells.ts). A lost runtime is said plainly, so setup is redone. */
+  cells: {
+    language: (lang: 'js' | 'py') => (lang === 'js' ? 'JavaScript' : 'Python'),
+    needsSandbox: 'code cells need the OS sandbox, which this computer does not have',
+    noPython:
+      'Python cells need python3, which is not installed on this computer (Myrmidon installs none). Use language "js" instead.',
+    startFailed: (language: string, why: string) => `the ${language} runtime could not start: ${why}`,
+    slowStart: (seconds: number) => `it did not start within ${seconds}s`,
+    lost: (language: string, why: string) =>
+      `[The ${language} runtime had stopped (${why}), so everything earlier cells defined is gone: redo the setup this cell needs.]`,
+    reset: (language: string) => `[The ${language} runtime was started afresh.]`,
+    timedOut: (seconds: number) =>
+      `The cell ran past ${seconds}s and was stopped with its runtime, so everything earlier cells defined is gone; the next cell starts fresh. Split long work into smaller cells or raise timeoutSeconds.`,
+    crashed: (why: string) =>
+      `The runtime stopped while the cell ran (${why}), so everything earlier cells defined is gone; the next cell starts fresh.`,
+    stopped: 'The cell was stopped: the round ended or you were dismissed.',
+    looser: 'it ran with access this round no longer has',
+    runaway: `it wrote more than ${n(CELL_LINE_MAX)} characters without a line break`,
+    exited: (code: number | null, stderr: string) =>
+      `${code === null ? 'killed' : `exit ${code}`}${stderr ? `: ${stderr}` : ''}`,
+    noOutput: '(no output)',
+    cut: (chars: number) => `\n…[${n(chars)} more characters of output left out]`,
+    imagesLeft: (count: number) => `[${count} more picture${count === 1 ? '' : 's'} left out]`,
+    /** omp's `tool.*`, `agent()` and the like reach its own host, which Myrmidon's cells do not have. */
+    noHostTools: (name: string) =>
+      `${name} is not available in eval cells here; call Myrmidon's tools directly instead`,
+  },
+
   /** Computer use: what agents read in the computer tool's results, and what the person reads on its cards. */
   computer: {
     halted: 'Not executed: an earlier computer action in this turn failed.',
@@ -2750,6 +2782,40 @@ Reply with JSON only: {"lines": ["...", "...", "..."]}.`,
       params: {
         command: 'The command line, run by sh; chain dependent steps with &&',
         timeoutSeconds: 'How long to wait before stopping it, 1-300 seconds (default 60)',
+      },
+    },
+    // After omp's eval (one cell per call, top-level state persists, retry only the failed step, a lost kernel means
+    // redoing setup, never repeat setup that worked) and OpenHands' IPython cell (define and import before use; the
+    // kernel's variables are not in the terminal).
+    eval: {
+      /** `fullAccess`: the round runs without the sandbox. `python`: python3 is installed. */
+      description: (fullAccess: boolean, python: boolean) =>
+        `Run a cell of ${python ? 'JavaScript (Bun) or Python' : 'JavaScript (Bun)'} code in a runtime that lasts for ` +
+        'the rest of this round: variables, functions and imports from earlier cells are still there, so each call is ' +
+        'one step that builds on the last. Use it to explore data, compute, or try an API or a parser step by step ' +
+        'without redoing setup each time; for one-off commands, builds and tests use shell. ' +
+        `${
+          fullAccess
+            ? "It runs on the person's computer with full access, like shell."
+            : 'It runs in the same OS sandbox as shell: it starts in your working directory and may write only there and in your scratch directory.'
+        } JavaScript: top-level await works, as do Bun's APIs (Bun.file, Bun.write, Bun.$). ` +
+        `${
+          python
+            ? 'Python: a plain python3 process, not IPython; top-level await works, and !cmd runs a shell command. '
+            : 'Python is not installed on this computer, so only JavaScript runs. '
+        }` +
+        "The last expression's value is shown, with whatever the cell prints or passes to display(). Cell state is " +
+        'invisible to shell and to other agents: write a file to share a result. A cell may run ' +
+        `${CELL_TIMEOUT_S}s unless you give timeoutSeconds (at most ${CELL_MAX_TIMEOUT_S}); its output is cut at ` +
+        `${n(CELL_OUTPUT_CHARS)} characters. A cell that runs out of time or crashes stops its runtime and everything ` +
+        'defined so far is lost, as the result says: then redo the setup. On an error, fix and rerun only the step ' +
+        'that failed, since earlier cells took effect; never repeat setup that worked.',
+      params: {
+        language: '"js" (JavaScript on Bun) or "py" (Python 3); each keeps its own runtime and state',
+        code: 'The cell: statements, ending in an expression whose value you want shown; top-level await works',
+        timeoutSeconds: `How long the cell may run, 1-${CELL_MAX_TIMEOUT_S} seconds (default ${CELL_TIMEOUT_S}); past it the runtime is stopped and its state lost`,
+        reset:
+          "true starts this language's runtime afresh before the cell, dropping everything defined so far (default false)",
       },
     },
   },
