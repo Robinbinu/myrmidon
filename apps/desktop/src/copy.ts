@@ -32,11 +32,16 @@ export const desktopCopy = {
 
   /** What the build hooks (scripts/) print. */
   build: {
-    sidecarMissing: (path: string) =>
-      `${path} is missing: run \`bun run desktop:sidecar\` before a release build`,
-    addonMissing: (name: string) => `${name} not found under node_modules: run \`bun install\``,
+    sidecarMissing: (path: string, target: string) =>
+      `${path} is missing: run \`bun run desktop:sidecar --target=${target}\` before a release build`,
+    addonMissing: (name: string) =>
+      `${name} not found under node_modules: run \`bun install\` (\`bun install --os='*' --cpu='*'\` for another platform's)`,
+    ortMissing: (tag: string) =>
+      `onnxruntime-node ships no addon for ${tag}, so the voice engines cannot be built for it`,
     ortChanged: (path: string) =>
       `${path} no longer requires its addon the way scripts/build-sidecar.ts rewrites: update the rewrite`,
+    bundleMissing: (path: string) =>
+      `${path} is not where Electrobun's build left the app: update src/platform.ts appBundle`,
     patched: (path: string) => `set the microphone usage description in ${path}`,
     copied: (path: string) => `copied the Myrmidon server into ${path}`,
   },
