@@ -1465,6 +1465,9 @@ Reply with JSON only: {"lines": ["...", "...", "..."]}.`,
     declined: (what: string, note?: string) =>
       `the person did not approve ${what}${note ? `. They said: ${note}` : ''}. Ask them (ask_user) or take another approach`,
     safetyChecks: 'the person did not acknowledge the safety warning for this action; do not repeat it',
+    /** The driver gave no screenshot of the app's window, and why. */
+    noCapture: (app: string, why: string) =>
+      `no screenshot of ${app}'s window could be taken (${why}). Take a screenshot again in a moment; if it keeps failing, the window may be minimised, on another Space or closed, so open_app it again.`,
     /** An app whose window has no accessibility tree, seen by screenshot alone. */
     noTree: (app: string) =>
       `${app} shows no accessibility tree (Chromium and Electron apps such as Arc, Chrome and Slack build one only for assistive tools), so there are no numbered elements: act by pixel on the screenshot (x, y in its pixels).`,
