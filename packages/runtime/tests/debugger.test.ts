@@ -3,9 +3,9 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { ACCESS_GROUPS, type PermissionCall } from '@myrmidon/protocol'
-import { selectLaunchAdapter } from '@oh-my-pi/pi-coding-agent/dap/config'
 import { type DebugArgs, type DebugScope, DebugSessions, debugSessions } from '../src/debugger.ts'
 import type { ColonyHost } from '../src/host.ts'
+import { loadDap } from '../src/omp/dap.ts'
 import { onDemand, preloaded } from '../src/patterns.ts'
 import { prompts } from '../src/prompts.ts'
 import type { Sandbox, SandboxRun } from '../src/sandbox.ts'
@@ -20,6 +20,7 @@ if (noDebugpy)
   console.warn('debugger tests: skipping Python, debugpy is not installed for python3 (pip install debugpy)')
 
 let dir: string
+const { selectLaunchAdapter } = (await loadDap()).config
 const sessions = new DebugSessions()
 
 beforeEach(() => {

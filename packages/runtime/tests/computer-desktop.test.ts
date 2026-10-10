@@ -12,13 +12,6 @@ import {
   type PermissionCall,
   type PermissionRule,
 } from '@myrmidon/protocol'
-import type { AgentToolResult } from '@oh-my-pi/pi-agent-core'
-import { createMockModel } from '@oh-my-pi/pi-ai/providers/mock'
-import type { ComputerRunOk } from '@oh-my-pi/pi-coding-agent/tools/computer/protocol'
-import {
-  ComputerSupervisor,
-  type ComputerWorkerHandle,
-} from '@oh-my-pi/pi-coding-agent/tools/computer/supervisor'
 import {
   bootRuntime,
   ChatService,
@@ -34,6 +27,9 @@ import {
   SettingsStore,
   type TeamConfig,
 } from '../src/index.ts'
+import type { AgentToolResult } from '../src/omp/agent-core.ts'
+import { type ComputerRunOk, type ComputerWorkerHandle, loadComputerSupervisor } from '../src/omp/computer.ts'
+import { createMockModel } from '../src/omp/mock.ts'
 
 // omp's worker never runs here: a stand-in controller answers each script, and the person's answers come from `decide`.
 
@@ -257,6 +253,7 @@ test('each engine refuses the other’s tool, and Stop ends the round’s script
 })
 
 test("omp's own supervisor carries a script's tool.open_app to Myrmidon and its answer back", async () => {
+  const { ComputerSupervisor } = await loadComputerSupervisor()
   // A stand-in for omp's worker: on a run it asks for open_app, then reports what the host answered.
   const worker = (): ComputerWorkerHandle => {
     const handlers: ((m: never) => void)[] = []

@@ -1,8 +1,8 @@
 import { readFileSync, statSync } from 'node:fs'
 import { basename, isAbsolute, relative, resolve, sep } from 'node:path'
-import { CREDENTIAL_PATTERNS } from '@oh-my-pi/pi-coding-agent/secrets/patterns'
-import * as natives from '@oh-my-pi/pi-natives'
 import { OSV, SCAN_FINDINGS, SCAN_MAX_FILE_BYTES, SCAN_MAX_FILES } from './config.ts'
+import * as natives from './omp/natives.ts'
+import { CREDENTIAL_PATTERNS } from './omp/security.ts'
 import { prompts } from './prompts.ts'
 import { SKIP_DIRS } from './workspace.ts'
 

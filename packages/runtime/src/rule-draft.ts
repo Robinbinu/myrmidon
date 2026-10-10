@@ -1,14 +1,14 @@
 import type { EventPayloads, MyrEvent } from '@myrmidon/protocol'
-import type { AssistantMessage, ToolCall } from '@oh-my-pi/pi-ai'
-import { completeSimple } from '@oh-my-pi/pi-ai'
-import type { TtsrOutput } from '@oh-my-pi/pi-coding-agent/export/ttsr'
+import { RULE_DRAFT_ATTEMPTS, RULE_DRAFT_MS, RULE_DRAFT_OUTPUT_CHARS, RULE_DRAFT_OUTPUTS } from './config.ts'
+import type { ModelResolver } from './models.ts'
+import type { AssistantMessage, ToolCall } from './omp/ai.ts'
+import { completeSimple } from './omp/ai.ts'
+import type { TtsrOutput } from './omp/rules.ts'
 import {
   extractGeneratedRuleJson,
   parseGeneratedRule,
   validateParsedRuleAgainstAssistantHistory,
-} from '@oh-my-pi/pi-coding-agent/modes/controllers/omfg-rule'
-import { RULE_DRAFT_ATTEMPTS, RULE_DRAFT_MS, RULE_DRAFT_OUTPUT_CHARS, RULE_DRAFT_OUTPUTS } from './config.ts'
-import type { ModelResolver } from './models.ts'
+} from './omp/rules.ts'
 import { prompts } from './prompts.ts'
 import { hideInContext } from './provider-secrets.ts'
 import { enforceable, parseStreamRule, replyOutputs, type StreamRule } from './stream-rules.ts'

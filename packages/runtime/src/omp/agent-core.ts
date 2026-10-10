@@ -1,0 +1,25 @@
+/** omp's agent loop (pi-agent-core): the Agent, its tools and messages, and the compaction helpers it ships. */
+export {
+  Agent,
+  type AgentEvent,
+  type AgentMessage,
+  type AgentState,
+  type AgentTool,
+  type AgentToolResult,
+  applyShakeRegions,
+  type CompactionSettings,
+  calculateContextTokens,
+  collectShakeRegions,
+  DEFAULT_COMPACTION_SETTINGS,
+  DEFAULT_RESERVE_TOKENS,
+  DEFAULT_SHAKE_CONFIG,
+  generateSummary,
+  resolveBudgetReserveTokens,
+  resolveThresholdTokens,
+  type SessionEntry,
+  type StreamFn,
+  shouldCompact,
+  Tokenizer,
+  type ToolResultShakeRegion,
+} from '@oh-my-pi/pi-agent-core'
+export { estimateImageContentTokens } from '@oh-my-pi/pi-agent-core/image-tokens'

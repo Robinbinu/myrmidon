@@ -1,0 +1,145 @@
+# Keeps omp current: once a week it moves every @oh-my-pi package to omp's latest release on a branch, runs the
+# checks, and opens a pull request to develop with omp's changelog. See docs/ci.md.
+name: omp bump
+
+on:
+  schedule:
+    # Mondays 06:00 UTC.
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+concurrency:
+  group: omp-bump
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      # No token is left in the checkout: the install and the tests run omp's code and its dependencies' scripts.
+      - uses: actions/checkout@v7
+        with:
+          ref: develop
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Find omp's latest release
+        id: version
+        env:
+          REMOTE: https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git
+        run: |
+          current=$(bun .github/scripts/omp-bump.ts current)
+          latest=$(npm view @oh-my-pi/pi-coding-agent version)
+          # The registry's answer becomes a branch name and a command argument: only a plain version is taken.
+          if ! [[ "$latest" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::npm gave '$latest' as omp's latest version"
+            exit 1
+          fi
+          branch="omp-bump-$latest"
+          echo "current=$current" >> "$GITHUB_OUTPUT"
+          echo "latest=$latest" >> "$GITHUB_OUTPUT"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          # A branch already pushed for this release has its pull request; a release is proposed once.
+          if [ "$current" = "$latest" ]; then
+            echo "omp is at its latest release, $current"
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+          elif git ls-remote --exit-code --heads "$REMOTE" "$branch" > /dev/null; then
+            echo "$branch is already proposed"
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "needed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Pin omp to its latest release
+        if: steps.version.outputs.needed == 'true'
+        env:
+          LATEST: ${{ steps.version.outputs.latest }}
+        run: bun .github/scripts/omp-bump.ts set "$LATEST"
+
+      # The checks go on when one fails, so the pull request says everything that broke.
+      - name: Install
+        id: install
+        if: steps.version.outputs.needed == 'true'
+        continue-on-error: true
+        run: bun install
+
+      - name: Typecheck
+        id: typecheck
+        if: steps.version.outputs.needed == 'true' && steps.install.outcome == 'success'
+        continue-on-error: true
+        run: bun run typecheck
+
+      # As in ci.yml: the command sandbox on Linux is bubblewrap, which Ubuntu 24.04's AppArmor blocks by default.
+      - name: Install bubblewrap and allow unprivileged user namespaces
+        if: steps.version.outputs.needed == 'true' && steps.install.outcome == 'success'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      - name: Test
+        id: test
+        if: steps.version.outputs.needed == 'true' && steps.install.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 25
+        run: bun test --timeout 30000
+
+      - name: Open the pull request
+        if: steps.version.outputs.needed == 'true'
+        env:
+          # A pull request opened with the workflow's own token starts no other workflow, so CI's three-OS run on it
+          # needs a person's or an app's token (secret OMP_BUMP_TOKEN, contents and pull-requests write); without
+          # one the PR still opens, and CI runs once someone pushes to it.
+          GH_TOKEN: ${{ secrets.OMP_BUMP_TOKEN || github.token }}
+          REPOSITORY: ${{ github.repository }}
+          CURRENT: ${{ steps.version.outputs.current }}
+          LATEST: ${{ steps.version.outputs.latest }}
+          BRANCH: ${{ steps.version.outputs.branch }}
+          INSTALL: ${{ steps.install.outcome }}
+          TYPECHECK: ${{ steps.typecheck.outcome }}
+          TEST: ${{ steps.test.outcome }}
+        run: |
+          body="$RUNNER_TEMP/body.md"
+          {
+            echo "Moves every \`@oh-my-pi\` package from $CURRENT to $LATEST."
+            echo
+            echo "| Check | Result |"
+            echo "| --- | --- |"
+            echo "| bun install | $INSTALL |"
+            echo "| typecheck | ${TYPECHECK:-skipped} |"
+            echo "| bun test (Linux) | ${TEST:-skipped} |"
+            echo
+            if [ "$INSTALL" != success ]; then
+              echo "The install failed: if it names \`patches/\`, the pi-ai patch no longer applies to $LATEST and"
+              echo "has to be made again (\`bun patch @oh-my-pi/pi-ai\`)."
+              echo
+            fi
+            echo "Fix what broke in \`packages/runtime/src/omp/\` (the only place that imports omp) and its contract"
+            echo "test, \`packages/runtime/tests/omp-contract.test.ts\`; CI runs the three-OS suite on this PR."
+            echo
+            echo "## omp's changelog"
+            echo
+            if [ "$INSTALL" = success ]; then
+              bun .github/scripts/omp-bump.ts changelog "$CURRENT"
+            else
+              echo "Not read, as the install failed: see https://github.com/can1357/oh-my-pi/releases."
+            fi
+          } > "$body"
+          draft=""
+          if [ "$INSTALL" != success ] || [ "$TYPECHECK" != success ] || [ "$TEST" != success ]; then draft="--draft"; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$BRANCH"
+          git add package.json bun.lock patches packages/*/package.json apps/*/package.json
+          git commit -m "Bump omp to $LATEST" -m "omp's weekly release, pinned exactly as every omp package is."
+          git push "https://x-access-token:$GH_TOKEN@github.com/$REPOSITORY.git" "$BRANCH"
+          gh pr create --repo "$REPOSITORY" --base develop --head "$BRANCH" --title "Bump omp to $LATEST" \
+            --body-file "$body" $draft

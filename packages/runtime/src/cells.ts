@@ -13,6 +13,7 @@ import {
   CELL_WORKER_COMMAND,
 } from './config.ts'
 import { leashRunning } from './leashed.ts'
+import { loadPythonPrelude, loadPythonRunner } from './omp/eval.ts'
 import { prompts } from './prompts.ts'
 import { killTree } from './sandbox.ts'
 
@@ -398,14 +399,14 @@ class PyCells extends Runtime {
 
   async boot(cwd: string): Promise<void> {
     this._cwd = cwd
-    const { PYTHON_PRELUDE } = await import('@oh-my-pi/pi-coding-agent/eval/py/prelude')
+    const prelude = await loadPythonPrelude()
     // As omp's kernel starts: in the working directory, which imports also look in, then its helpers.
     const init = [
       'import os, sys',
       `os.chdir(${JSON.stringify(cwd)})`,
       `if ${JSON.stringify(cwd)} not in sys.path:\n    sys.path.insert(0, ${JSON.stringify(cwd)})`,
     ].join('\n')
-    for (const code of [init, PYTHON_PRELUDE]) {
+    for (const code of [init, prelude]) {
       const out = new Output()
       const ending = await this.exec(code, CELL_START_MS, out, true)
       if (ending.kind === 'ok') continue
@@ -494,11 +495,7 @@ async function jsProgram(dir: string): Promise<string[]> {
 
 /** omp's runner script, loaded on the first Python cell; a compiled Myrmidon carries it. */
 async function pyRunner(dir: string): Promise<string> {
-  // runner.py is not among the package's exports, so it is imported by path, as text.
-  const { default: text } = await import('../node_modules/@oh-my-pi/pi-coding-agent/src/eval/py/runner.py', {
-    with: { type: 'text' },
-  })
-  return staged(dir, 'py-cells.py', text)
+  return staged(dir, 'py-cells.py', await loadPythonRunner())
 }
 
 /** Starts a runtime's process, confined as the scope says (its boot comes next), or says why it cannot. */

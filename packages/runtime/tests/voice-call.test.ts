@@ -1,8 +1,8 @@
 import { expect, test } from 'bun:test'
 import type { MyrEvent } from '@myrmidon/protocol'
-import type { Context as LlmContext } from '@oh-my-pi/pi-ai'
-import { createMockModel, type MockContent } from '@oh-my-pi/pi-ai/providers/mock'
 import { ModelResolver } from '../src/models.ts'
+import type { Context as LlmContext } from '../src/omp/ai.ts'
+import { createMockModel, type MockContent } from '../src/omp/mock.ts'
 import {
   type CallChats,
   type CallOptions,

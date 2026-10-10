@@ -1,21 +1,5 @@
 import { existsSync, statSync } from 'node:fs'
 import { isAbsolute, relative, sep } from 'node:path'
-import type { DapClient } from '@oh-my-pi/pi-coding-agent/dap/client'
-import type {
-  DapBreakpoint,
-  DapCapabilities,
-  DapEvaluateResponse,
-  DapExitedEventBody,
-  DapInitializeArguments,
-  DapOutputEventBody,
-  DapResolvedAdapter,
-  DapScope,
-  DapStackFrame,
-  DapStartDebuggingArguments,
-  DapStoppedEventBody,
-  DapThread,
-  DapVariable,
-} from '@oh-my-pi/pi-coding-agent/dap/types'
 import type { CellAccess } from './cells.ts'
 import {
   DEBUG_END_MS,
@@ -29,6 +13,23 @@ import {
   DEBUG_VARIABLES,
   DEBUG_WAIT_S,
 } from './config.ts'
+import type {
+  DapBreakpoint,
+  DapCapabilities,
+  DapClient,
+  DapEvaluateResponse,
+  DapExitedEventBody,
+  DapInitializeArguments,
+  DapOutputEventBody,
+  DapResolvedAdapter,
+  DapScope,
+  DapStackFrame,
+  DapStartDebuggingArguments,
+  DapStoppedEventBody,
+  DapThread,
+  DapVariable,
+} from './omp/dap.ts'
+import { type Dap, loadDap } from './omp/dap.ts'
 import { prompts } from './prompts.ts'
 import { killTree } from './sandbox.ts'
 
@@ -115,16 +116,10 @@ export interface DebugScope {
  * omp's DAP modules, loaded on the first debug call: its adapter config reads omp's config folders, which must not
  * load before omp has been pointed at Myrmidon's folder, and most rounds never debug.
  */
-interface Omp {
-  readonly client: typeof import('@oh-my-pi/pi-coding-agent/dap/client')
-  readonly config: typeof import('@oh-my-pi/pi-coding-agent/dap/config')
-}
+type Omp = Dap
 let ompModules: Promise<Omp> | undefined
 function ompDap(): Promise<Omp> {
-  ompModules ??= Promise.all([
-    import('@oh-my-pi/pi-coding-agent/dap/client'),
-    import('@oh-my-pi/pi-coding-agent/dap/config'),
-  ]).then(([client, config]) => ({ client, config }))
+  ompModules ??= loadDap()
   return ompModules
 }
 

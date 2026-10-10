@@ -4,6 +4,7 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join, resolve, sep } from 'node:path'
 import { FETCH_MAX_REDIRECTS, READER_PAGE_MAX_BYTES, READER_PROGRAM_TIMEOUT_MS } from './config.ts'
+import { loadToolsManager } from './omp/readers.ts'
 import type { OmpRuntime, ReadResult } from './omp/runtime.ts'
 import { prompts } from './prompts.ts'
 
@@ -346,7 +347,7 @@ export type ReaderPrograms = Partial<Record<ReaderName, string>>
  * for lynx), so a program is counted installed exactly when omp would run it.
  */
 export async function findReaderPrograms(): Promise<ReaderPrograms> {
-  const { getToolPath } = await import('@oh-my-pi/pi-coding-agent/utils/tools-manager')
+  const { getToolPath } = await loadToolsManager()
   const found: ReaderPrograms = {}
   const ytDlp = getToolPath('yt-dlp')
   if (ytDlp) found['yt-dlp'] = ytDlp

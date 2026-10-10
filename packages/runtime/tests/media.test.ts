@@ -4,8 +4,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { BlobStore } from '@myrmidon/core'
 import { applyEvent, type EventDraft, emptyColonyState, type MyrEvent } from '@myrmidon/protocol'
-import type { Context as LlmContext } from '@oh-my-pi/pi-ai'
-import { createMockModel } from '@oh-my-pi/pi-ai/providers/mock'
 import type { ColonyHost } from '../src/host.ts'
 import {
   bootRuntime,
@@ -22,6 +20,8 @@ import {
   toolsFor,
   VoiceHub,
 } from '../src/index.ts'
+import type { Context as LlmContext } from '../src/omp/ai.ts'
+import { createMockModel } from '../src/omp/mock.ts'
 import { prompts } from '../src/prompts.ts'
 import { mediaName, sniffAudio, TOOL_DEFS } from '../src/tools.ts'
 import { wav } from '../src/voice/audio.ts'

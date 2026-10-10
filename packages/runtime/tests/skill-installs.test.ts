@@ -3,8 +3,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { writeTar } from '@oh-my-pi/pi-coding-agent/skillshare/tar'
 import { integrityOf } from '../src/install-sources.ts'
+import { writeTar } from '../src/omp/plugins.ts'
 import { parseSkillSpec, resolveSkillVersion, SkillRegistryClient } from '../src/skill-registry.ts'
 import { SkillLibrary } from '../src/skills.ts'
 

@@ -1,14 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { isAbsolute, join } from 'node:path'
-import type { ImageContent, Message, TextContent } from '@oh-my-pi/pi-ai'
-import { ClaudeSessionStore } from '@oh-my-pi/pi-coding-agent/session/claude-session-store'
-import { CodexSessionStore } from '@oh-my-pi/pi-coding-agent/session/codex-session-store'
-import type {
-  ForeignSessionInfo,
-  ForeignSessionStore,
-} from '@oh-my-pi/pi-coding-agent/session/foreign-session-store'
-import type { SessionEntry } from '@oh-my-pi/pi-coding-agent/session/session-entries'
 import {
   IMPORT_HISTORY_CHARS,
   IMPORT_LIST_MAX,
@@ -20,6 +12,9 @@ import {
   IMPORT_TOOL_RESULT_CHARS,
   IMPORT_TURN_CHARS,
 } from './config.ts'
+import type { ImageContent, Message, TextContent } from './omp/ai.ts'
+import type { ForeignSessionInfo, ForeignSessionStore, SessionEntry } from './omp/sessions.ts'
+import { ClaudeSessionStore, CodexSessionStore } from './omp/sessions.ts'
 import type { ProjectStore } from './projects.ts'
 import { prompts } from './prompts.ts'
 import { realPath, within } from './read-access.ts'

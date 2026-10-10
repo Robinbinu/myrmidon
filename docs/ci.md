@@ -95,3 +95,21 @@ whether a fix closes their gap and how they fail if it does not; `bun` runs with
 The repository is private, so minutes count: a macOS minute costs 10, a Windows minute 2, a Linux minute 1. A full
 run takes about 7 minutes on macOS and Linux and about 10 on Windows. Prefer a single-OS manual run while working
 on one platform.
+
+## The weekly omp bump
+
+`.github/workflows/omp-bump.yml` keeps omp current. Mondays at 06:00 UTC (or by hand, **Actions → omp bump → Run
+workflow**) it asks npm for omp's latest release and, when it is newer than the pinned one and not proposed yet:
+
+1. pins every `@oh-my-pi/*` package to it, exactly, and renames the pi-ai patch to match
+   (`bun .github/scripts/omp-bump.ts set <version>`; `current` and `changelog <from>` are the script's other
+   commands, which work locally too);
+2. runs `bun install`, `bun run typecheck` and `bun test` on Linux, each going on when one before it fails;
+3. pushes `omp-bump-<version>` and opens a pull request to `develop` with what passed and omp's changelog since the
+   pinned version, a draft when something failed. CI then runs the three-OS suite on it.
+
+omp is imported only in `packages/runtime/src/omp/` (`omp-boundary.test.ts` fails on an import anywhere else), and
+`omp-contract.test.ts` checks what Myrmidon relies on from each part of omp, so a bump that breaks something shows
+there first. The install and tests run without a token in the checkout. A pull request opened with the workflow's
+own token starts no CI run; with a repository secret `OMP_BUMP_TOKEN` (a token with contents and pull-requests
+write) it does. Linux minutes only: about 10 a week.

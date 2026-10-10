@@ -1,16 +1,6 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { type AgentStatus, type EventId, recipientsOf } from '@myrmidon/protocol'
-import {
-  Agent,
-  type AgentEvent,
-  type AgentMessage,
-  type AgentState,
-  type StreamFn,
-} from '@oh-my-pi/pi-agent-core'
-import { type AssistantMessage, type Model, streamSimple } from '@oh-my-pi/pi-ai'
-import { isContextOverflow } from '@oh-my-pi/pi-ai/error'
-import { getModelPricingStatus } from '@oh-my-pi/pi-catalog'
 import { ContextCompactor } from './compaction.ts'
 import { ANTHROPIC_MEMBERS, anthropicToolsetPayload, computerProtocol } from './computer/actions.ts'
 import { COMPUTER_TOOL, computerMember } from './computer/tool.ts'
@@ -25,6 +15,15 @@ import {
 } from './config.ts'
 import { agentActor, type ColonyHost } from './host.ts'
 import { type ModelResolver, withOllamaContext } from './models.ts'
+import {
+  Agent,
+  type AgentEvent,
+  type AgentMessage,
+  type AgentState,
+  type StreamFn,
+} from './omp/agent-core.ts'
+import { type AssistantMessage, isContextOverflow, type Model, streamSimple } from './omp/ai.ts'
+import { getModelPricingStatus } from './omp/catalog.ts'
 import {
   kickoff,
   onDemand,

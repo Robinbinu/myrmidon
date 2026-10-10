@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import type { UsageReport } from '@oh-my-pi/pi-ai'
+import type { UsageReport } from '../src/omp/ai.ts'
 import { createQuotaReader, shapeQuota, type UsageSource } from '../src/omp/usage.ts'
 
 const HOUR = 3_600_000

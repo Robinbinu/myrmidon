@@ -2,8 +2,8 @@ import { expect, test } from 'bun:test'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { Model } from '@oh-my-pi/pi-ai'
 import { withOllamaContext } from '../src/models.ts'
+import type { Model } from '../src/omp/ai.ts'
 import { ContextWindows, normalizeModelId, windowFromName } from '../src/windows.ts'
 
 const API = {
