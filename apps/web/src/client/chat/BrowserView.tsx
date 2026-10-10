@@ -75,7 +75,8 @@ interface BrowserState {
 type LiveEvent =
   | { type: 'frame'; data: string; width: number; height: number }
   | { type: 'tabs'; tabs: BrowserTab[] }
-  | { type: 'blocked'; site: string }
+  | { type: 'refused'; site: string; from: string; local: boolean }
+  | { type: 'copied'; text: string }
   | { type: 'error'; message: string }
 
 /** Something the browser would not do, said in the view; a blocked port comes with Allow. */
@@ -92,6 +93,8 @@ const VIEWPORTS: { value: Viewport; icon: ReactNode }[] = [
   { value: 'desktop', icon: <Monitor className="size-4 text-muted" /> },
 ]
 const COOKIE_MODES: CookieMode[] = ['quit', 'always', 'never']
+/** ⌘ (or Ctrl) shortcuts the page gets: select all, undo and redo; copy, cut and paste are handled apart. */
+const PAGE_SHORTCUTS = new Set(['a', 'z', 'y'])
 
 /** The tab last shown, so coming back to the view (or to another chat) shows it again. The tabs live on the server. */
 let shownTab: string | undefined
@@ -307,7 +310,12 @@ export function BrowserView(props: {
           }
           onClear={() =>
             void run(async () => {
-              await post('/api/browser/clear', {})
+              // The tabs open again under new ids; the one shown stays the one in its place.
+              const at = state.tabs.findIndex((t) => t.id === current?.id)
+              const next = await post<BrowserState>('/api/browser/clear', {})
+              for (const t of next.tabs) known.current.add(t.id)
+              setState((s) => s && { ...s, tabs: next.tabs })
+              setActive(next.tabs[Math.max(0, at)]?.id)
             })
           }
           onProblem={setProblem}
@@ -348,11 +356,12 @@ export function BrowserView(props: {
             key={`page-${current.id}`}
             tab={current}
             onTabs={onTabs}
-            onBlocked={(site) =>
+            // What a page asked for is said, never offered to allow: only what the person typed is.
+            onRefused={(e) =>
               setProblem({
-                text: copy.browser.blocked(site),
-                site,
-                retry: () => void go({ action: 'reload' }),
+                text: e.local
+                  ? copy.browser.pageRefusedLocal(e.from, e.site)
+                  : copy.browser.pageRefusedNetwork(e.from, e.site),
               })
             }
             onError={(text) => setProblem({ text })}
@@ -381,6 +390,13 @@ export function TabStrip(props: {
 }) {
   const list = useRef<HTMLUListElement>(null)
   const move = (e: KeyboardEvent) => {
+    // Delete closes the focused tab, so every tab can be closed from the keyboard, as in the terminal's tabs.
+    const focused = (e.target as HTMLElement).dataset.tab
+    if (focused && (e.key === 'Delete' || e.key === 'Backspace')) {
+      e.preventDefault()
+      props.onClose(focused)
+      return
+    }
     const at = props.tabs.findIndex((t) => t.id === props.active)
     const next =
       e.key === 'ArrowRight'
@@ -421,6 +437,7 @@ export function TabStrip(props: {
               type="button"
               data-tab={t.id}
               aria-current={on}
+              aria-keyshortcuts="Delete"
               tabIndex={on ? 0 : -1}
               title={title}
               onClick={() => props.onPick(t.id)}
@@ -523,7 +540,7 @@ function AddressBar(props: {
 function PageScreen(props: {
   tab: BrowserTab
   onTabs(tabs: BrowserTab[]): void
-  onBlocked(site: string): void
+  onRefused(e: { site: string; from: string; local: boolean }): void
   onError(text: string): void
 }) {
   const [frame, setFrame] = useState<{ data: string; width: number; height: number }>()
@@ -531,7 +548,7 @@ function PageScreen(props: {
   const [focused, setFocused] = useState(false)
   const socket = useRef<WebSocket>(undefined)
   const box = useRef<HTMLDivElement>(null)
-  const screen = useRef<HTMLDivElement>(null)
+  const keyboard = useRef<HTMLTextAreaElement>(null)
   const handlers = useRef(props)
   handlers.current = props
 
@@ -556,7 +573,8 @@ function PageScreen(props: {
       const e = JSON.parse(String(msg.data)) as LiveEvent
       if (e.type === 'frame') setFrame(e)
       else if (e.type === 'tabs') handlers.current.onTabs(e.tabs)
-      else if (e.type === 'blocked') handlers.current.onBlocked(e.site)
+      else if (e.type === 'refused') handlers.current.onRefused(e)
+      else if (e.type === 'copied') void navigator.clipboard?.writeText(e.text).catch(() => {})
       else if (e.type === 'error') handlers.current.onError(e.message)
     }
     return () => ws.close()
@@ -585,52 +603,95 @@ function PageScreen(props: {
     const r = e.currentTarget.getBoundingClientRect()
     return { x: (e.clientX - r.left) / fit, y: (e.clientY - r.top) / fit }
   }
-  const button = (e: MouseEvent) => (e.button === 2 ? 'right' : 'left')
+  const button = (e: MouseEvent) => (e.button === 2 ? 'right' : e.button === 1 ? 'middle' : 'left')
+
+  const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    // An input method is composing: its keys are its own, and the text comes with compositionend.
+    if (e.nativeEvent.isComposing || e.key === 'Process') return
+    if (matchCombo(LEAVE_PAGE, e)) {
+      e.preventDefault()
+      keyboard.current?.blur()
+      return
+    }
+    const mod = isMac ? e.metaKey : e.ctrlKey
+    const key = e.key.toLowerCase()
+    // Paste comes as the paste event below; copy and cut take the page's selection out to the clipboard.
+    if (mod && key === 'v') return
+    if (mod && (key === 'c' || key === 'x')) {
+      e.preventDefault()
+      send({ type: 'copy', ...(key === 'x' ? { cut: true } : {}) })
+      return
+    }
+    const char = [...e.key].length === 1
+    // Other ⌘ (or Ctrl) shortcuts stay this app's (⌘J, ⌘K); the page gets its editing ones.
+    if (mod && !KEYS.has(e.key) && !PAGE_SHORTCUTS.has(key)) return
+    // AltGr reports Ctrl and Alt too on Windows, but it types a character, which goes to the page as text.
+    const altGraph = e.getModifierState('AltGraph')
+    const modifiers = [
+      ...(e.shiftKey ? ['Shift'] : []),
+      ...(e.altKey && !altGraph ? ['Alt'] : []),
+      ...(e.ctrlKey && !altGraph ? ['Control'] : []),
+      ...(e.metaKey ? ['Meta'] : []),
+    ]
+    if (KEYS.has(e.key)) {
+      e.preventDefault()
+      send({ type: 'key', key: e.key, ...(modifiers.length ? { modifiers } : {}) })
+    } else if (char) {
+      e.preventDefault()
+      // A shortcut goes as a key with its modifiers; a typed character (Shift or AltGr included) as text.
+      if (modifiers.some((m) => m !== 'Shift')) send({ type: 'key', key: e.key, modifiers })
+      else send({ type: 'text', text: e.key })
+    }
+  }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div ref={box} className="relative grid min-h-0 flex-1 place-items-center overflow-hidden bg-fill">
         <div
-          ref={screen}
           data-page
-          // biome-ignore lint/a11y/noNoninteractiveTabindex: the page is a remote surface (role application) that takes the keyboard
-          tabIndex={0}
           role="application"
           aria-label={copy.browser.pageLabel(tabTitle(props.tab))}
-          className="relative overflow-hidden bg-white outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          className={cn('relative overflow-hidden bg-white outline-none', focused && 'ring-2 ring-accent')}
           style={
             frame
               ? { width: frame.width * fit, height: frame.height * fit }
               : { width: '100%', height: '100%' }
           }
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
           onMouseMove={(e) => send({ type: 'mouse', action: 'move', ...point(e) })}
           onMouseDown={(e) => {
-            e.currentTarget.focus()
+            // The page's keyboard takes focus; the middle button's autoscroll is the page's to do.
+            e.preventDefault()
+            keyboard.current?.focus()
             send({ type: 'mouse', action: 'down', ...point(e), button: button(e) })
           }}
           onMouseUp={(e) => send({ type: 'mouse', action: 'up', ...point(e), button: button(e) })}
           onContextMenu={(e) => e.preventDefault()}
           onWheel={(e) => send({ type: 'wheel', ...point(e), deltaX: e.deltaX, deltaY: e.deltaY })}
-          onKeyDown={(e) => {
-            if (matchCombo(LEAVE_PAGE, e)) {
-              e.preventDefault()
-              screen.current?.blur()
-              return
-            }
-            // ⌘ and Ctrl shortcuts stay this app's (paste, below); AltGr types a character, which goes to the page.
-            if ((e.metaKey || e.ctrlKey) && !e.getModifierState('AltGraph')) return
-            e.preventDefault()
-            if (KEYS.has(e.key)) send({ type: 'key', key: e.key })
-            else if (e.key.length === 1) send({ type: 'text', text: e.key })
-          }}
-          onPaste={(e) => {
-            e.preventDefault()
-            const text = e.clipboardData.getData('text/plain')
-            if (text) send({ type: 'paste', text })
-          }}
         >
+          {/* The page's keyboard: a field so input methods (Japanese, Chinese, dictation) work; it stays empty. */}
+          <textarea
+            ref={keyboard}
+            aria-label={copy.browser.keyboardLabel(tabTitle(props.tab))}
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
+            className="absolute left-0 top-0 size-px resize-none opacity-0"
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
+            onKeyDown={onKey}
+            onCompositionEnd={(e) => {
+              if (e.data) send({ type: 'text', text: e.data })
+              e.currentTarget.value = ''
+            }}
+            onChange={(e) => {
+              if (!(e.nativeEvent as InputEvent).isComposing) e.currentTarget.value = ''
+            }}
+            onPaste={(e) => {
+              e.preventDefault()
+              const text = e.clipboardData.getData('text/plain')
+              if (text) send({ type: 'paste', text })
+            }}
+          />
           {frame ? (
             <img
               alt=""
@@ -727,7 +788,7 @@ export function BrowserMenu(props: {
             label={page === 'sites' ? copy.browser.sites.title : copy.browser.options}
             onClose={close}
             within={within}
-            className="material-menu absolute right-0 top-[calc(100%+4px)] z-50 max-h-[min(80vh,640px)] w-72 overflow-y-auto rounded-lg border border-line p-1.5 shadow-pop"
+            className="material-menu absolute right-0 top-[calc(100%+4px)] z-50 max-h-[calc(100dvh-7rem)] w-72 overflow-y-auto rounded-lg border border-line p-1.5 shadow-pop"
           >
             {page === 'sites' ? (
               <AllowedSites
@@ -770,7 +831,6 @@ export function BrowserMenu(props: {
                       key={v.value}
                       icon={v.icon}
                       title={m.viewports[v.value]}
-                      detail={m.viewportDetail[v.value]}
                       checked={props.state.settings.viewport === v.value}
                       onSelect={() => void props.onSettings({ viewport: v.value })}
                     />
@@ -802,6 +862,8 @@ export function BrowserMenu(props: {
                       icon={<Cookie className="size-4 text-muted" />}
                       title={m.cookieModes[mode]}
                       detail={m.cookieDetail[mode]}
+                      // The Always warning is worth reading whole.
+                      multiline
                       checked={props.state.settings.cookies === mode}
                       onSelect={() => void props.onSettings({ cookies: mode })}
                     />

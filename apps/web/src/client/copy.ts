@@ -2170,6 +2170,8 @@ export const copy = {
     maximise: 'Maximise',
     restore: 'Restore',
     pageLabel: (title: string) => `Page: ${title}`,
+    /** The field that carries the person's typing into the page. */
+    keyboardLabel: (title: string) => `Type into ${title}`,
     connecting: 'Opening the page…',
     unavailable: 'No browser on this Myrmidon',
     unavailableBody:
@@ -2185,9 +2187,15 @@ export const copy = {
       size: 'That file is too large to open here.',
       full: 'Close a tab first: the browser has as many open as it can hold.',
       missing: 'That tab was closed.',
+      private: 'Addresses on your local network (a router, another computer) don’t open in this browser.',
     },
     blocked: (site: string) =>
       `${site} is a port on this computer that isn’t one of your allowed sites, so the browser didn’t open it.`,
+    /** A page itself (a link, a script, a redirect) tried to open a local address; `from` is its host. */
+    pageRefusedLocal: (from: string, site: string) =>
+      `${from || 'This page'} tried to open ${site}, a port on this computer that isn’t one of your allowed sites. If you meant to open it, type it in the address bar.`,
+    pageRefusedNetwork: (from: string, site: string) =>
+      `${from || 'This page'} tried to open ${site} on your local network, which this browser doesn’t open.`,
     allowAndOpen: 'Allow and open',
     allow: 'Allow',
     menu: {
@@ -2201,15 +2209,9 @@ export const copy = {
       viewport: 'Viewport',
       viewports: {
         responsive: 'Responsive',
-        phone: 'Phone',
-        tablet: 'Tablet',
-        desktop: 'Desktop',
-      },
-      viewportDetail: {
-        responsive: 'Fits the panel',
-        phone: '390 × 844',
-        tablet: '820 × 1180',
-        desktop: '1440 × 900',
+        phone: 'Phone · 390 × 844',
+        tablet: 'Tablet · 820 × 1180',
+        desktop: 'Desktop · 1440 × 900',
       },
       linksHere: 'Open links in built-in browser',
       linksHereDetail: 'Links in chats open in a tab here',
@@ -2222,7 +2224,7 @@ export const copy = {
       },
       cookieDetail: {
         quit: 'Forgotten when Myrmidon quits',
-        always: 'Kept across restarts, on this computer',
+        always: 'Kept across restarts in a file on this computer, which agents with full access could read',
         never: 'Forgotten when you close the last tab',
       },
       clear: 'Clear browsing data',
@@ -2232,7 +2234,7 @@ export const copy = {
     },
     sites: {
       title: 'Allowed sites',
-      body: 'Pages here reach the internet, this Myrmidon and its agent-built pages. Other servers on this computer open only once you allow their port; agents never use this list or this browser.',
+      body: 'Pages here reach the internet, this Myrmidon and its agent-built pages. Other servers on this computer open only once you allow their port. Agents’ browsers keep their own tabs and cookies. Agents with full access run as you and could still reach this browser, as could sandboxed agents on Linux, whose sandbox can’t shut out one port.',
       empty: 'No other ports allowed yet.',
       add: 'Add',
       addLabel: 'Port or address on this computer',

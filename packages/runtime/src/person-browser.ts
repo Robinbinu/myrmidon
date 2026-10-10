@@ -1,8 +1,11 @@
 import { mkdirSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
-import type { Browser, BrowserContext, CDPSession, CookieData, Page } from 'puppeteer-core'
-import { type BrowserProxy, type LiveInput, pressInput, startBrowserProxy } from './browser.ts'
+import type { Browser, BrowserContext, CDPSession, CookieData, HTTPRequest, Page } from 'puppeteer-core'
+import { type BrowserProxy, pressInput, REFUSED_HEADER, startBrowserProxy } from './browser.ts'
 import {
+  BROWSER_PASTE_MAX_CHARS,
+  PERSON_BROWSER_COOKIE_SAVE_MS,
+  PERSON_BROWSER_COPY_MAX_CHARS,
   PERSON_BROWSER_FAVICON_MAX_BYTES,
   PERSON_BROWSER_HTML_MAX_BYTES,
   PERSON_BROWSER_MAX_SCALE,
@@ -17,7 +20,9 @@ import { quickRefusal, urlPort } from './web.ts'
  * agents, but in a browser context of its own (Target.createBrowserContext), so its cookies, storage and cache are
  * never visible to an agent's tab and an agent's never to it. Its connections go through a proxy of its own with the
  * agents' rule (the public internet, plus only the ports on this computer the person allows), so a page the person
- * opens cannot reach the other services on this computer either.
+ * opens cannot reach the other services on this computer either. Chrome's DevTools port, through which anything on
+ * this computer could reach every context, is kept from sandboxed commands (see BrowserHub); full-access agents run
+ * as the person and are not kept from it.
  */
 
 /** How long cookies last: until Myrmidon quits (the context lives in memory), across restarts, or only while a tab is open. */
@@ -51,23 +56,114 @@ export interface PersonTab {
 export type PersonEvent =
   | { type: 'frame'; data: string; width: number; height: number }
   | { type: 'tabs'; tabs: PersonTab[] }
-  /** A page asked for a port on this computer that is not allowed, as `localhost:3000`. */
-  | { type: 'blocked'; site: string }
+  /**
+   * The page itself (a link, a script, a redirect) tried to open a local address in the tab. `site` is a port on this
+   * computer as `localhost:3000` when `local`, else a host on the local network; `from` is the page's host. The
+   * person may allow a port only from the address bar, never from what a page asked for.
+   */
+  | { type: 'refused'; site: string; from: string; local: boolean }
+  /** What a copy (or cut) took out of the page, for the person's clipboard. */
+  | { type: 'copied'; text: string }
 
-/** Input to a watched tab: the mouse and keyboard as in an agent's tab, and the size of the panel it shows in. */
+export type Modifier = 'Alt' | 'Control' | 'Meta' | 'Shift'
+
+/** Input to a watched tab, in the page's CSS pixels, and the size of the panel it shows in. */
 export type PersonInput =
-  | Exclude<LiveInput, { type: 'navigate' }>
+  | {
+      type: 'mouse'
+      action: 'move' | 'down' | 'up'
+      x: number
+      y: number
+      button?: 'left' | 'right' | 'middle'
+    }
+  | { type: 'wheel'; x: number; y: number; deltaX: number; deltaY: number }
+  | { type: 'key'; key: string; modifiers?: Modifier[] }
+  | { type: 'text'; text: string }
+  /** Clipboard text, inserted at once like a paste: newlines do not press Enter. */
+  | { type: 'paste'; text: string }
+  /** Copies the page's selection out to the person; a cut also deletes it. */
+  | { type: 'copy'; cut?: boolean }
   | { type: 'resize'; width: number; height: number; scale: number }
+
+/** Keys sent by name; any other key is a single character (an emoji included). */
+const KEY_NAMES = new Set([
+  'Enter',
+  'Backspace',
+  'Delete',
+  'Tab',
+  'Escape',
+  'ArrowUp',
+  'ArrowDown',
+  'ArrowLeft',
+  'ArrowRight',
+  'Home',
+  'End',
+  'PageUp',
+  'PageDown',
+])
+const MODIFIERS = new Set<string>(['Alt', 'Control', 'Meta', 'Shift'])
+/** ⌘ or Ctrl with these keys: Chrome edits on a command sent with the key, not on the key alone. */
+const EDIT_COMMANDS: Record<string, string> = { a: 'selectAll', z: 'undo', y: 'redo' }
+/** Coordinates and wheel deltas past this are no page's; they are refused rather than passed on. */
+const MAX_COORDINATE = 20_000
+
+/**
+ * Input from the dashboard's socket, checked field by field: anything malformed, a key Chrome has no name for, or text
+ * longer than a paste, is undefined and dropped.
+ */
+export function personInput(raw: unknown): PersonInput | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const m = raw as Record<string, unknown>
+  const num = (v: unknown, max = MAX_COORDINATE): v is number =>
+    typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= max
+  const text = (v: unknown): v is string => typeof v === 'string' && v.length <= BROWSER_PASTE_MAX_CHARS
+  switch (m.type) {
+    case 'mouse': {
+      const action = (['move', 'down', 'up'] as const).find((a) => a === m.action)
+      const button = (['left', 'right', 'middle'] as const).find((b) => b === m.button)
+      if (!action || !num(m.x) || !num(m.y) || (m.button !== undefined && !button)) return undefined
+      return { type: 'mouse', action, x: m.x, y: m.y, ...(button ? { button } : {}) }
+    }
+    case 'wheel':
+      return num(m.x) && num(m.y) && num(m.deltaX) && num(m.deltaY)
+        ? { type: 'wheel', x: m.x, y: m.y, deltaX: m.deltaX, deltaY: m.deltaY }
+        : undefined
+    case 'key': {
+      const key = m.key
+      if (typeof key !== 'string' || !(KEY_NAMES.has(key) || [...key].length === 1)) return undefined
+      const modifiers = m.modifiers ?? []
+      if (!Array.isArray(modifiers) || !modifiers.every((x) => typeof x === 'string' && MODIFIERS.has(x)))
+        return undefined
+      return {
+        type: 'key',
+        key,
+        ...(modifiers.length ? { modifiers: [...new Set(modifiers)] as Modifier[] } : {}),
+      }
+    }
+    case 'text':
+    case 'paste':
+      return text(m.text) ? { type: m.type, text: m.text } : undefined
+    case 'copy':
+      return { type: 'copy', ...(m.cut === true ? { cut: true } : {}) }
+    case 'resize':
+      return num(m.width) && num(m.height) && num(m.scale, 16)
+        ? { type: 'resize', width: m.width, height: m.height, scale: m.scale }
+        : undefined
+    default:
+      return undefined
+  }
+}
 
 /**
  * Why the person's browser did not do something: `scheme` an address that is not a web page (file:, javascript:,
  * chrome:), `address` text that is not an address, `blocked` a port on this computer that is not allowed (`site`
- * names it), `full` the tab limit, `missing` a tab that is gone, `size` an HTML file too large.
+ * names it, and the person may allow it), `private` an address on the local network (never opened here), `full` the
+ * tab limit, `missing` a tab that is gone, `size` an HTML file too large.
  */
 export class PersonBrowserError extends Error {
   override readonly name = 'PersonBrowserError'
   constructor(
-    readonly code: 'scheme' | 'address' | 'blocked' | 'full' | 'missing' | 'size',
+    readonly code: 'scheme' | 'address' | 'blocked' | 'private' | 'full' | 'missing' | 'size',
     message: string,
     readonly site?: string,
   ) {
@@ -131,6 +227,8 @@ interface Entry {
 interface Context {
   readonly context: BrowserContext
   readonly proxy: BrowserProxy
+  /** Saves cookies kept Always while the context is open. */
+  readonly saver: ReturnType<typeof setInterval>
 }
 
 export class PersonBrowser {
@@ -140,13 +238,10 @@ export class PersonBrowser {
   readonly #adopting = new Map<Page, Promise<Entry | undefined>>()
   /** Everyone watching any tab: they all hear when the tabs change. */
   readonly #listeners = new Set<(e: PersonEvent) => void>()
-  /** Sites the pages have been on, whose storage Clear browsing data clears. */
-  readonly #origins = new Set<string>()
   #settings: PersonBrowserSettings
   /** The panel's size, which a Responsive viewport follows. */
   #panel = { width: 1280, height: 800, scale: 1 }
   #next = 0
-  #saving?: ReturnType<typeof setTimeout>
 
   constructor(
     private readonly launch: () => Promise<Browser>,
@@ -205,7 +300,10 @@ export class PersonBrowser {
     if (this.#tabs.size >= this.maxTabs)
       throw new PersonBrowserError('full', `at most ${this.maxTabs} tabs can be open`)
     const file = typeof what === 'object' ? this.#fileUrl(what) : undefined
-    const url = file?.url ?? browserAddress(typeof what === 'string' ? what : '')
+    return this.#openAt(file?.url ?? browserAddress(typeof what === 'string' ? what : ''), file)
+  }
+
+  async #openAt(url: string, file?: { url: string; name: string }): Promise<PersonTab> {
     this.#assertAllowed(url)
     const { context } = await this.#ctx()
     const entry = await this.#adopt(await context.newPage())
@@ -262,15 +360,61 @@ export class PersonBrowser {
     }
   }
 
-  async input(id: string, e: PersonInput): Promise<void> {
+  /** Input to a tab; a copy answers with what it took out of the page. */
+  async input(id: string, e: PersonInput): Promise<PersonEvent | undefined> {
     const entry = this.#entry(id)
-    if (e.type !== 'resize') return pressInput(entry.page, e)
-    this.#panel = {
-      width: Math.round(clamp(e.width, 200, 3840)),
-      height: Math.round(clamp(e.height, 150, 2400)),
-      scale: Math.round(clamp(e.scale, 1, PERSON_BROWSER_MAX_SCALE) * 100) / 100,
+    const { keyboard } = entry.page
+    switch (e.type) {
+      case 'resize':
+        this.#panel = {
+          width: Math.round(clamp(e.width, 200, 3840)),
+          height: Math.round(clamp(e.height, 150, 2400)),
+          scale: Math.round(clamp(e.scale, 1, PERSON_BROWSER_MAX_SCALE) * 100) / 100,
+        }
+        if (this.#settings.viewport === 'responsive') await this.#size(entry)
+        return
+      case 'copy': {
+        const text = await this.#selection(entry)
+        if (e.cut && text) await keyboard.press('Delete')
+        return { type: 'copied', text }
+      }
+      case 'key': {
+        const modifiers = e.modifiers ?? []
+        const mod = modifiers.includes('Meta') || modifiers.includes('Control')
+        const lower = e.key.toLowerCase()
+        const command = !mod
+          ? undefined
+          : lower === 'z' && modifiers.includes('Shift')
+            ? 'redo'
+            : EDIT_COMMANDS[lower]
+        for (const m of modifiers) await keyboard.down(m)
+        try {
+          await keyboard.press(e.key as never, command ? { commands: [command] } : undefined)
+        } finally {
+          for (const m of [...modifiers].reverse()) await keyboard.up(m)
+        }
+        return
+      }
+      default:
+        await pressInput(entry.page, e)
     }
-    if (this.#settings.viewport === 'responsive') await this.#size(entry)
+  }
+
+  /** What is selected in the page: in the focused field, else in the document. */
+  async #selection(entry: Entry): Promise<string> {
+    const text = await entry.page
+      .evaluate(() => {
+        const field = document.activeElement
+        if (
+          (field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) &&
+          field.selectionStart !== null &&
+          field.selectionEnd !== null
+        )
+          return field.value.slice(field.selectionStart, field.selectionEnd)
+        return String(window.getSelection() ?? '')
+      })
+      .catch(() => '')
+    return typeof text === 'string' ? text.slice(0, PERSON_BROWSER_COPY_MAX_CHARS) : ''
   }
 
   /** The tab's viewport as a PNG. */
@@ -278,17 +422,30 @@ export class PersonBrowser {
     return this.#entry(id).page.screenshot({ type: 'png' })
   }
 
-  /** Clear browsing data: every cookie, the cache, and each site's storage, kept cookies included. */
+  /**
+   * Clear browsing data: the whole context goes (every cookie, the cache, every site's storage, frames' included, and
+   * the kept cookies), and the tabs open again where they were in a fresh one, under new ids and without their history.
+   */
   async clear(): Promise<void> {
     rmSync(this.#file('cookies.json'), { force: true })
-    const entry = this.#tabs.values().next().value
-    if (!entry) return this.#dispose()
-    const { context } = await this.#ctx()
-    await context.deleteCookie(...(await context.cookies()))
-    await entry.session.send('Network.clearBrowserCache').catch(() => {})
-    for (const origin of this.#origins)
-      await entry.session.send('Storage.clearDataForOrigin', { origin, storageTypes: 'all' }).catch(() => {})
-    this.#origins.clear()
+    const open = [...this.#tabs.values()].map((e) => {
+      const url = e.page.url()
+      return { url: /^(https?|data):|^about:blank$/.test(url) ? url : 'about:blank', file: e.file }
+    })
+    this.#tabs.clear()
+    this.#adopting.clear()
+    await this.#dispose()
+    for (const tab of open)
+      await this.#openAt(tab.url, tab.file && tab.file.url === tab.url ? tab.file : undefined).catch(() => {})
+    this.#changed()
+  }
+
+  /** Saves the kept cookies and closes the context and its proxy, before Chrome or Myrmidon stops. */
+  async shutdown(): Promise<void> {
+    await this.#saveCookies().catch(() => {})
+    this.#tabs.clear()
+    this.#adopting.clear()
+    await this.#dispose()
   }
 
   #entry(id: string): Entry {
@@ -334,11 +491,24 @@ export class PersonBrowser {
     const parsed = new URL(url)
     if (!quickRefusal(parsed, () => this.#ports())) return
     const site = `${parsed.hostname}:${urlPort(parsed)}`
-    throw new PersonBrowserError(
-      'blocked',
-      `${site} is not one of the allowed sites`,
-      allowedSite(site) ?? site,
-    )
+    const port = allowedSite(site)
+    if (port) throw new PersonBrowserError('blocked', `${site} is not one of the allowed sites`, port)
+    throw new PersonBrowserError('private', `${parsed.hostname} is on the local network`, parsed.hostname)
+  }
+
+  /** The page itself tried to open a local address in its tab (the proxy refused it): its watchers are told. */
+  #refusedNavigation(entry: Entry, url: string) {
+    let target: URL
+    let from = ''
+    try {
+      target = new URL(url)
+      from = new URL(entry.page.url()).host
+    } catch {
+      return
+    }
+    const port = allowedSite(`${target.hostname}:${urlPort(target)}`)
+    const event: PersonEvent = { type: 'refused', site: port ?? target.hostname, from, local: !!port }
+    for (const fn of entry.watchers) fn(event)
   }
 
   #fileUrl(file: { html: string; name: string }): { url: string; name: string } {
@@ -358,14 +528,7 @@ export class PersonBrowser {
   #ctx(): Promise<Context> {
     this.#context ??= (async () => {
       const browser = await this.launch()
-      const proxy = await startBrowserProxy({
-        localPorts: () => this.#ports(),
-        sayWhy: false,
-        onRefused: (_reason, host, port) => {
-          const site = allowedSite(`${host}:${port}`) ?? `${host}:${port}`
-          for (const fn of this.#listeners) fn({ type: 'blocked', site })
-        },
-      })
+      const proxy = await startBrowserProxy({ localPorts: () => this.#ports(), sayWhy: false })
       try {
         const context = await browser.createBrowserContext({
           proxyServer: `http://127.0.0.1:${proxy.port}`,
@@ -383,7 +546,13 @@ export class PersonBrowser {
             if (entry) await this.#refresh(entry)
           })
         })
+        const saver = setInterval(
+          () => void this.#saveCookies().catch(() => {}),
+          PERSON_BROWSER_COOKIE_SAVE_MS,
+        )
+        saver.unref?.()
         browser.once('disconnected', () => {
+          clearInterval(saver)
           proxy.close()
           this.#context = undefined
           this.#tabs.clear()
@@ -392,7 +561,7 @@ export class PersonBrowser {
         })
         const kept = this.#settings.cookies === 'always' ? this.#keptCookies() : []
         if (kept.length) await context.setCookie(...kept)
-        return { context, proxy }
+        return { context, proxy, saver }
       } catch (err) {
         proxy.close()
         throw err
@@ -407,9 +576,9 @@ export class PersonBrowser {
   async #dispose(): Promise<void> {
     const pending = this.#context
     this.#context = undefined
-    this.#origins.clear()
     const ctx = await pending?.catch(() => undefined)
     if (!ctx) return
+    clearInterval(ctx.saver)
     await ctx.context.close().catch(() => {})
     ctx.proxy.close()
   }
@@ -424,7 +593,6 @@ export class PersonBrowser {
   }
 
   async #saveCookies(): Promise<void> {
-    clearTimeout(this.#saving)
     if (this.#settings.cookies !== 'always' || !this.#context) return
     const { context } = await this.#context
     const cookies = await context.cookies().catch(() => undefined)
@@ -479,12 +647,22 @@ export class PersonBrowser {
         if (frameId !== entry.mainFrame) return
         entry.loading = false
         void this.#refresh(entry).then(() => this.#findFavicon(entry))
-        this.#scheduleSave()
+      })
+      // A refused navigation of the tab's own: a page served in its place over http, or a tunnel refused for https.
+      const ownNavigation = (r: HTTPRequest) => r.isNavigationRequest() && r.frame() === page.mainFrame()
+      page.on('response', (r) => {
+        if (r.headers()[REFUSED_HEADER] && ownNavigation(r.request())) this.#refusedNavigation(entry, r.url())
+      })
+      page.on('requestfailed', (r) => {
+        // One answered by the proxy's refusal page was told above, when it answered.
+        if (!ownNavigation(r) || r.response()) return
+        try {
+          if (quickRefusal(new URL(r.url()), () => this.#ports())) this.#refusedNavigation(entry, r.url())
+        } catch {}
       })
       page.on('framenavigated', (frame) => {
         if (frame !== page.mainFrame()) return
         const url = page.url()
-        if (/^https?:/.test(url)) this.#origins.add(new URL(url).origin)
         if (entry.file && url !== entry.file.url) entry.file = undefined
         entry.favicon = undefined
         void this.#refresh(entry)
@@ -540,12 +718,6 @@ export class PersonBrowser {
   #changed() {
     const tabs = this.tabs()
     for (const fn of this.#listeners) fn({ type: 'tabs', tabs })
-  }
-
-  #scheduleSave() {
-    if (this.#settings.cookies !== 'always') return
-    clearTimeout(this.#saving)
-    this.#saving = setTimeout(() => void this.#saveCookies().catch(() => {}), 1_000)
   }
 
   /** The site's own small icon, read by the page itself (same origin), as a data: URL checked to be an image. */

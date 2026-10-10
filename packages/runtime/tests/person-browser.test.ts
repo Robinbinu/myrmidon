@@ -3,12 +3,14 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { BrowserHub, findChrome } from '../src/browser.ts'
+import { BROWSER_PASTE_MAX_CHARS } from '../src/config.ts'
 import {
   allowedSite,
   browserAddress,
   PersonBrowser,
   PersonBrowserError,
   type PersonEvent,
+  personInput,
 } from '../src/person-browser.ts'
 
 const dirs: string[] = []
@@ -169,6 +171,21 @@ test.skipIf(!findChrome())(
     // An HTML file from the person's computer opens as a page of its own, named after the file.
     const file = await person.open({ html: '<p>report</p>', name: 'report.html' })
     expect(person.tabs().find((t) => t.id === file.id)).toMatchObject({ file: 'report.html' })
+
+    // The keyboard with its modifiers: select all, a selection by Shift+arrow, copy out, an emoji in.
+    await person.page(tab.id)?.focus('#q')
+    await person.input(tab.id, { type: 'key', key: 'a', modifiers: ['Meta'] })
+    expect(await person.input(tab.id, { type: 'copy' })).toEqual({
+      type: 'copied',
+      text: 'typed by a person',
+    })
+    await person.input(tab.id, { type: 'key', key: 'End' })
+    await person.input(tab.id, { type: 'key', key: 'ArrowLeft', modifiers: ['Shift'] })
+    expect(await person.input(tab.id, { type: 'copy', cut: true })).toEqual({ type: 'copied', text: 'n' })
+    await person.input(tab.id, { type: 'text', text: '😀' })
+    expect(await person.page(tab.id)?.$eval('#q', (el) => (el as HTMLInputElement).value)).toBe(
+      'typed by a perso😀',
+    )
     unwatch()
   },
   60_000,
@@ -207,8 +224,78 @@ test.skipIf(!findChrome())(
     await again.go(fresh.id, { url: `${page.url}/?set=temp=1` })
     await again.page(fresh.id)?.evaluate(() => localStorage.setItem('k', 'v'))
     await again.clear()
-    expect(await again.page(fresh.id)?.evaluate(() => document.cookie)).toBe('')
-    expect(await again.page(fresh.id)?.evaluate(() => localStorage.getItem('k'))).toBeNull()
+    // The tab opens again where it was, in a fresh context: under a new id, with nothing kept.
+    const [cleared] = again.tabs()
+    expect(cleared?.id).not.toBe(fresh.id)
+    expect(cleared?.url).toBe(`${page.url}/?set=temp=1`)
+    const reopened = again.page(cleared?.id ?? '')
+    // The page set its cookie again on loading; the storage it wrote before is gone.
+    expect(await reopened?.evaluate(() => localStorage.getItem('k'))).toBeNull()
+
+    // A cookie a page's script sets (a sign-in by fetch) is saved too, at the latest when Myrmidon stops.
+    again.updateSettings({ cookies: 'always' })
+    await reopened?.evaluate((u) => fetch(u).then(() => {}), `${page.url}/api?set=spa=1`)
+    await again.shutdown()
+    expect(readFileSync(saved, 'utf8')).toContain('spa')
+    expect(again.tabs()).toEqual([])
+  },
+  60_000,
+)
+
+test('socket input is checked field by field before it reaches the page', () => {
+  expect(personInput({ type: 'mouse', action: 'down', x: 3, y: 4, button: 'middle' })).toEqual({
+    type: 'mouse',
+    action: 'down',
+    x: 3,
+    y: 4,
+    button: 'middle',
+  })
+  expect(personInput({ type: 'key', key: 'Tab', modifiers: ['Shift'] })).toEqual({
+    type: 'key',
+    key: 'Tab',
+    modifiers: ['Shift'],
+  })
+  expect(personInput({ type: 'key', key: '😀' })).toEqual({ type: 'key', key: '😀' })
+  for (const bad of [
+    { type: 'mouse', action: 'down', x: Number.NaN, y: 0 },
+    { type: 'mouse', action: 'down', x: 1e9, y: 0 },
+    { type: 'mouse', action: 'drag', x: 0, y: 0 },
+    { type: 'key', key: 'F13' },
+    { type: 'key', key: 'ab' },
+    { type: 'key', key: 'a', modifiers: ['Hyper'] },
+    { type: 'text', text: 'x'.repeat(BROWSER_PASTE_MAX_CHARS + 1) },
+    { type: 'navigate', url: 'file:///etc/passwd' },
+    'mouse',
+    null,
+  ])
+    expect(personInput(bad)).toBeUndefined()
+})
+
+test.skipIf(!findChrome())(
+  'a page that opens a local address itself is refused and named, with no way to allow it from the page',
+  async () => {
+    const page = site()
+    const other = site()
+    const { person } = setup([page.port])
+    const tab = await person.open(`${page.url}/`)
+    const events: PersonEvent[] = []
+    const unwatch = await person.watch(tab.id, (e) => events.push(e))
+    const refused = () => events.filter((e) => e.type === 'refused')
+    await person.page(tab.id)?.evaluate((u) => {
+      location.href = u
+    }, `http://127.0.0.1:${other.port}/`)
+    for (let i = 0; i < 60 && refused().length === 0; i++) await Bun.sleep(50)
+    expect(refused()).toEqual([
+      { type: 'refused', site: `localhost:${other.port}`, from: `127.0.0.1:${page.port}`, local: true },
+    ])
+    // A fetch to another port is refused quietly: only the tab's own navigations are reported.
+    await person.go(tab.id, { url: `${page.url}/` })
+    await person.page(tab.id)?.evaluate((u) => fetch(u).catch(() => {}), `http://127.0.0.1:${other.port}/`)
+    await Bun.sleep(300)
+    expect(refused()).toHaveLength(1)
+    // The local network is never opened, and is not offered as a site to allow.
+    expect(await code(person.go(tab.id, { url: 'http://192.168.1.1/' }))).toBe('private')
+    unwatch()
   },
   60_000,
 )

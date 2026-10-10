@@ -76,6 +76,7 @@ import {
   type PluginStore,
   PRIVACY_PANES,
   type ProjectStore,
+  personInput,
   projectSecret,
   readProjectFile,
   refuseProjectSecret,
@@ -276,8 +277,6 @@ function cookie(req: Request, name: string): string | undefined {
 
 /** Interactive shells open at once; each is a real login shell with the person's own permissions. */
 const MAX_TERMINALS = 8
-/** What the person's browser socket accepts; anything else is dropped. */
-const PERSON_INPUTS = new Set(['mouse', 'wheel', 'key', 'text', 'paste', 'resize'])
 
 const POLL_MS = 400
 /** How long stopping waits for Bun to report the server stopped (see `stop`). */
@@ -814,11 +813,21 @@ export function startServer(options: ServeOptions): WebServer {
           [server.port, preview.port].filter((p): p is number => typeof p === 'number'),
       })
     : undefined
+  // Kept cookies are saved, and the context closed, while Chrome still runs: the CLI closes Chrome before the server.
+  if (personBrowser) options.browser?.beforeClose(() => personBrowser.shutdown())
   /** A refusal from the person's browser, with what the Browser view needs to say why (and offer to allow a site). */
   const browserFailure = (err: unknown) => {
     if (!(err instanceof PersonBrowserError))
       return json({ error: err instanceof Error ? err.message : String(err) }, 502)
-    const status = { scheme: 400, address: 400, size: 413, blocked: 403, full: 429, missing: 404 }[err.code]
+    const status = {
+      scheme: 400,
+      address: 400,
+      size: 413,
+      blocked: 403,
+      private: 403,
+      full: 429,
+      missing: 404,
+    }[err.code]
     return json({ error: err.message, code: err.code, ...(err.site ? { site: err.site } : {}) }, status)
   }
   const browserState = ():
@@ -3054,24 +3063,25 @@ export function startServer(options: ServeOptions): WebServer {
         }
         if (ws.data.kind === 'person-browser') {
           const data = ws.data
-          let msg: PersonInput
+          let msg: PersonInput | undefined
           try {
-            msg = JSON.parse(String(raw)) as PersonInput
+            msg = personInput(JSON.parse(String(raw)))
           } catch {
             return
           }
-          if (!PERSON_INPUTS.has(msg?.type)) return
+          if (!msg) return
+          const input = msg
           // One at a time, in the order they came: a button's release must not overtake its press.
-          data.inputs = (data.inputs ?? Promise.resolve()).then(() =>
-            personBrowser?.input(data.tab, msg).catch((err) => {
+          data.inputs = (data.inputs ?? Promise.resolve()).then(async () => {
+            try {
+              const answer = await personBrowser?.input(data.tab, input)
+              if (answer) ws.send(JSON.stringify(answer))
+            } catch (err) {
               ws.send(
-                JSON.stringify({
-                  type: 'error',
-                  message: err instanceof Error ? err.message : String(err),
-                }),
+                JSON.stringify({ type: 'error', message: err instanceof Error ? err.message : String(err) }),
               )
-            }),
-          )
+            }
+          })
           return
         }
         if (ws.data.kind !== 'browser' || !options.browser) return
@@ -3134,6 +3144,7 @@ export function startServer(options: ServeOptions): WebServer {
     token,
     warmVoice: () => voice?.warm() ?? Promise.resolve(),
     async stop() {
+      await personBrowser?.shutdown()
       stopScheduler?.()
       clearInterval(poll)
       stopStreaming?.()
