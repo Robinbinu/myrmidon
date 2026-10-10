@@ -11,6 +11,7 @@ import {
   whoami,
 } from './api.ts'
 import { copy } from './copy.ts'
+import { GuestChat, JoinScreen, joinCode } from './GuestChat.tsx'
 import { FEATURE_ICONS } from './ui/icons.ts'
 import { Logo } from './ui/Logo.tsx'
 import { isMac } from './ui/platform.ts'
@@ -58,17 +59,20 @@ export const useScope = () => useContext(ScopeContext)
 /**
  * Before the app: on a remote gateway, a device that is not paired yet pairs here, with the link (or code) from
  * `myrmidon pair` or Settings → Devices. On this machine, and for a paired device, the app opens straight away. A
- * device whose pairing ends while the app is open (revoked, or the gateway forgot it) comes back here.
+ * device whose pairing ends while the app is open (revoked, or the gateway forgot it) comes back here. Someone invited
+ * into a shared chat (`#join=…`) joins here instead, and then sees that chat alone, never the app.
  */
 export function DeviceGate(props: { children: ReactNode }) {
-  const [state, setState] = useState<'checking' | 'open' | 'pair'>(pairCode() ? 'pair' : 'checking')
+  const [state, setState] = useState<'checking' | 'open' | 'pair' | 'join' | 'guest'>(
+    joinCode() ? 'join' : pairCode() ? 'pair' : 'checking',
+  )
   const [scope, setScope] = useState<WhoAmI['scope']>('full')
   useEffect(() => {
     if (state !== 'checking') return
     whoami()
       .then((r) => {
         if (r.ok) setScope(r.me.scope)
-        setState(!r.ok && r.remote ? 'pair' : 'open')
+        setState(r.ok && r.me.scope === 'guest' ? 'guest' : !r.ok && r.remote ? 'pair' : 'open')
       })
       // Unreachable: let the app show its own error.
       .catch(() => setState('open'))
@@ -93,6 +97,8 @@ export function DeviceGate(props: { children: ReactNode }) {
     return () => window.removeEventListener(SIGNED_OUT, recheck)
   }, [state])
   if (state === 'checking') return null
+  if (state === 'join') return <JoinScreen onJoined={() => setState('checking')} />
+  if (state === 'guest') return <GuestChat />
   if (state === 'open') {
     if (activeGateway()) return <GatewayGate>{props.children}</GatewayGate>
     return <ScopeContext.Provider value={scope}>{props.children}</ScopeContext.Provider>
