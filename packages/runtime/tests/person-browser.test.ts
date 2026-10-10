@@ -1,7 +1,8 @@
 import { afterEach, expect, test } from 'bun:test'
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { expectOwnerOnly } from '../../../tests/platform.ts'
 import { BrowserHub, findChrome } from '../src/browser.ts'
 import { BROWSER_PASTE_MAX_CHARS } from '../src/config.ts'
 import {
@@ -205,7 +206,7 @@ test.skipIf(!findChrome())(
     await first.person.close(tab.id)
     const saved = join(first.dir, 'person', 'cookies.json')
     expect(readFileSync(saved, 'utf8')).toContain('kept')
-    expect(statSync(saved).mode & 0o777).toBe(0o600)
+    expectOwnerOnly(saved)
 
     // A new Chrome with the same folder (as after quitting) brings them back.
     const hub = new BrowserHub(join(first.dir, 'profile2'), undefined, {

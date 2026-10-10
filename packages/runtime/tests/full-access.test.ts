@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { type ColonyState, type EventPayloads, foldColony } from '@myrmidon/protocol'
 import { createMockModel, type MockContent } from '@oh-my-pi/pi-ai/providers/mock'
+import { pendingOn } from '../../../tests/platform.ts'
 import {
   bootRuntime,
   ChatService,
@@ -94,7 +95,11 @@ function sandboxOff(store: SettingsStore) {
   store.set({ ...store.get(), sandbox: { enabled: false } })
 }
 
-test.skipIf(detectSandbox().kind === 'none')(
+pendingOn(
+  'linux',
+  'bwrapHiddenFolders',
+  detectSandbox().kind === 'none',
+)(
   'with the sandbox off a chat runs commands and file tools anywhere; with it on they stay in scratch',
   async () => {
     const settings = new SettingsStore(home)
