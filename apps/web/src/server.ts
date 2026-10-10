@@ -87,6 +87,7 @@ import {
   type ProjectStore,
   personInput,
   projectSecret,
+  RuleExistsError,
   readProjectFile,
   refuseProjectSecret,
   requestScreenRecording,
@@ -2113,6 +2114,60 @@ export function startServer(options: ServeOptions): WebServer {
             const proposal = await options.chats.learnNow(req.params.chatId ?? '')
             return json({ proposal: proposal ?? null })
           } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
+        }),
+      },
+      // `/rule`: the lead's model drafts a stream rule from the person's complaint about the last reply.
+      '/api/chats/:chatId/rule': {
+        POST: guard(async (req) => {
+          if (!options.chats) return json({ error: 'this server was started without the chat runtime' }, 503)
+          const body = (await req.json().catch(() => ({}))) as {
+            complaint?: unknown
+            amend?: { previous?: unknown; change?: unknown }
+          }
+          const complaint = typeof body.complaint === 'string' ? body.complaint.trim() : ''
+          if (!complaint) return json({ error: 'say what the reply got wrong' }, 400)
+          const amend =
+            typeof body.amend?.previous === 'string' &&
+            typeof body.amend.change === 'string' &&
+            body.amend.change.trim()
+              ? { previous: body.amend.previous, change: body.amend.change.trim() }
+              : undefined
+          try {
+            const draft = await options.chats.draftRule(req.params.chatId ?? '', complaint, amend)
+            return json({ draft })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
+        }),
+      },
+      // Saving a stream rule steers every agent from then on, as a setting does: full-access devices only.
+      '/api/rules': {
+        POST: guard(async (req) => {
+          if (!options.chats) return json({ error: 'this server was started without the chat runtime' }, 503)
+          const body = (await req.json().catch(() => ({}))) as {
+            name?: unknown
+            text?: unknown
+            where?: unknown
+            chatId?: unknown
+            replace?: unknown
+          }
+          if (typeof body.name !== 'string' || typeof body.text !== 'string')
+            return json({ error: 'a rule needs a name and its file' }, 400)
+          if (body.where !== 'person' && body.where !== 'project')
+            return json({ error: 'where is person or project' }, 400)
+          try {
+            const saved = await options.chats.saveRule({
+              name: body.name,
+              text: body.text,
+              where: body.where,
+              ...(typeof body.chatId === 'string' ? { chatId: body.chatId } : {}),
+              ...(body.replace === true ? { replace: true } : {}),
+            })
+            return json(saved)
+          } catch (err) {
+            if (err instanceof RuleExistsError) return json({ error: err.message, exists: err.rule }, 409)
             return json({ error: err instanceof Error ? err.message : String(err) }, 400)
           }
         }),

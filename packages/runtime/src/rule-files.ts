@@ -14,7 +14,8 @@ import { RULE_FILE_MAX_BYTES, RULES_MAX_FILES } from './config.ts'
  * - `always`: its text joins the project's instructions in every agent's prompt.
  * - `glob`: it comes with a file whose path matches one of its globs, when an agent reads or edits that file.
  * - `requested`: listed by name and description; the agent reads it when its task fits.
- * A rule that says none of these (Cursor's "manual" rules) is left out, as omp leaves it out.
+ * A rule that says none of these (Cursor's "manual" rules) is left out, as omp leaves it out. One with a stream
+ * trigger (`condition`…) never joins the prompt: it watches what agents write (stream-rules.ts).
  */
 
 export type RuleMode = 'always' | 'glob' | 'requested'
@@ -60,6 +61,8 @@ type Classified = { mode: RuleMode | 'skip'; globs?: string[]; description?: str
  * they are read here by their own tools' rules.
  */
 const SOURCES: readonly RuleSource[] = [
+  // Myrmidon's own project rules, of any kind; `/rule` saves the project's stream rules here (stream-rules.ts).
+  { dir: '.myrmidon/rules', extensions: ['md', 'mdc'], priority: 110, plain: 'skip' },
   // omp's sticky RULES.md: always applied, whatever its frontmatter says (builtin.ts loadStickyRulesFile).
   {
     file: '.omp/RULES.md',
@@ -182,32 +185,52 @@ function filesIn(base: string, source: RuleSource): string[] {
   return found
 }
 
+/** A rule file whose frontmatter makes it a stream rule (stream-rules.ts): it watches output, not the prompt. */
+export interface StreamRuleFile {
+  readonly name: string
+  /** Absolute and symlink-resolved. */
+  readonly path: string
+  /** The whole file, frontmatter included: omp's parser reads its trigger and scope from it. */
+  readonly source: string
+}
+
 /**
- * Every rule a project's tools define, at most `RULES_MAX_FILES` files, in omp's priority order. Rules are named by
- * their file, and of two with one name the higher-priority tool's wins (omp's `ruleCapability.key`), so a rule copied
- * into several tools' folders is read once.
+ * omp's rule buckets (capability/rule-buckets.ts) send a rule with a `condition`, `astCondition` or `question` (or
+ * the legacy `ttsr_trigger`) to its stream-rule manager and never into the prompt, whatever else it says.
  */
-export function readProjectRules(root: string): ProjectRule[] {
+function streamTrigger(fm: Frontmatter): boolean {
+  return ['condition', 'ttsr_trigger', 'ttsrTrigger', 'astCondition', 'question'].some((key) => {
+    const value = fm[key]
+    return Array.isArray(value)
+      ? value.some((v) => typeof v === 'string' && v.trim())
+      : typeof value === 'string' && value.trim() !== ''
+  })
+}
+
+function scan(root: string): { rules: ProjectRule[]; stream: StreamRuleFile[] } {
   const base = realpathSync(root)
   const rules: ProjectRule[] = []
+  const stream: StreamRuleFile[] = []
   const names = new Set<string>()
   let read = 0
   for (const source of [...SOURCES].sort((a, b) => b.priority - a.priority)) {
     for (const path of filesIn(base, source)) {
-      if (read >= RULES_MAX_FILES) return rules
+      if (read >= RULES_MAX_FILES) return { rules, stream }
       const real = inside(base, path)
       if (!real) continue
       read++
-      const { frontmatter, body } = parseFrontmatter(readFileSync(real, 'utf8'), {
-        source: real,
-        level: 'off',
-      })
+      const raw = readFileSync(real, 'utf8')
+      const { frontmatter, body } = parseFrontmatter(raw, { source: real, level: 'off' })
       const ext = source.extensions?.find((x) => path.endsWith(`.${x}`))
       const name = source.name ?? (ext ? basename(path).slice(0, -(ext.length + 1)) : basename(path))
       const text = body.trim()
       // A switched-off or empty file is not loaded at all; a manual rule is, and its name shadows a lower tool's.
       if (!text || frontmatter.enabled === false || names.has(name)) continue
       names.add(name)
+      if (!source.read && streamTrigger(frontmatter)) {
+        stream.push({ name, path: real, source: raw })
+        continue
+      }
       const kind = source.read ? source.read(frontmatter) : classify(frontmatter, source.plain)
       if (kind.mode === 'skip') continue
       rules.push({
@@ -220,7 +243,21 @@ export function readProjectRules(root: string): ProjectRule[] {
       })
     }
   }
-  return rules
+  return { rules, stream }
+}
+
+/**
+ * Every rule a project's tools define, at most `RULES_MAX_FILES` files, in omp's priority order. Rules are named by
+ * their file, and of two with one name the higher-priority tool's wins (omp's `ruleCapability.key`), so a rule copied
+ * into several tools' folders is read once. Stream rules are not among them: see `readProjectStreamRules`.
+ */
+export function readProjectRules(root: string): ProjectRule[] {
+  return scan(root).rules
+}
+
+/** The project's stream rules, in any tool's rule folder, named and ranked as `readProjectRules` names its rules. */
+export function readProjectStreamRules(root: string): StreamRuleFile[] {
+  return scan(root).stream
 }
 
 /**
