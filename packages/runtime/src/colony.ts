@@ -69,6 +69,7 @@ import {
   SETTLE_QUIET_MS,
   WIND_DOWN_MESSAGES,
 } from './config.ts'
+import { debugSessions } from './debugger.ts'
 import { registerColonyEvents } from './events.ts'
 import { chatJudge } from './find.ts'
 import { type HookEvent, type HookOutcome, type HookStore, hookToolInput, runHooks } from './hooks.ts'
@@ -833,6 +834,7 @@ export class ColonyRun implements ColonyHost {
   private async _stopLooserServers() {
     const readOnly = presetOf(this.spec) === 'read-only'
     cellKernels.stopLooser(this.id, cellAccess(this))
+    debugSessions.stopLooser(this.id, cellAccess(this))
     const stopped: string[] = []
     const byAgent = new Map<string, string[]>()
     for (const [name, proc] of [...this._servers]) {
@@ -1733,6 +1735,7 @@ export class ColonyRun implements ColonyHost {
     await this.append({ type: 'agent/dismissed', actor: SYSTEM, payload: { agent: name, by, reason } })
     this._agents.get(name)?.stop()
     cellKernels.close(this.id, name)
+    void debugSessions.close(this.id, name)
     const held = Object.values(this._state.tasks).filter(
       (t) => t.status === 'in_progress' && t.owner === name,
     )
@@ -2693,8 +2696,9 @@ export class ColonyRun implements ColonyHost {
     }).catch((err) => console.error('Stop hooks failed:', err))
     for (const name of [...this._servers.keys()])
       await this.stopServer(name, 'the round ended').catch(() => {})
-    // Code cells' state lasts a round, not a chat: each round's runtimes stop with it.
+    // Code cells' state lasts a round, not a chat: each round's runtimes stop with it, and so do its debug sessions.
     cellKernels.close(this.id)
+    await debugSessions.close(this.id)
     for (const { agent, kept } of (await this._worktrees?.close()) ?? [])
       await this.append({ type: 'worktree/closed', actor: SYSTEM, payload: { agent, kept } }).catch(() => {})
     for (const agent of [...this._logins.keys()]) await this.finishLogin(agent, 'stopped').catch(() => false)

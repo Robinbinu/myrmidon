@@ -569,13 +569,14 @@ Open work, in the order it will be done:
          memories from what the person said after a round (quoting them, never secrets) and merges for repeats or
          stale ones (Tidy up, or daily when two overlap); agents correct one with remember's `replaces`; all wait for
          the person. Left: embeddings (lexical recall misses synonyms); memory for channel members' rounds.
-      2. Debugger for agents over the Debug Adapter Protocol (omp dap).
+      2. Debugger for agents over the Debug Adapter Protocol (omp dap). Done: the debug tool (debugger.ts).
       3. Live session sharing: another person joins a chat live (omp collab). Done: Share live… in a chat's menu
          makes a one-time invite (watch, or watch and write); guests see only that chat's conversation, write
          under their name with every outside step asking the person, and can be removed (chat-shares.ts).
       4. Autoresearch: an experiment loop on its own branch, measured and kept or dropped (omp autoresearch).
       5. SSH remote hosts agents can work on (omp ssh).
-      6. Telemetry export over OTLP (omp telemetry-export-otlp); plus a security-scan tool (omp security-scan).
+      6. Telemetry export over OTLP (omp telemetry-export-otlp); plus a security-scan tool (omp security-scan). Done:
+         security_scan (secrets by omp's credential shapes, dependencies by OSV.dev).
 12z. - [ ] **Contain the omp dependency** (asked 2026-10-10: "we are heavily dependent on omp and omp keeps updating")
       — pinned exactly today (18.8.7; 18.8.8 out), but 33 files outside packages/runtime/src/omp/ import omp, ~20 of
       them omp internals (session stores, computer supervisor, eval worker, marketplace fetcher…). Do, after the 12y

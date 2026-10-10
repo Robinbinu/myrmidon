@@ -46,9 +46,11 @@ const BUILD = [
   'ast_grep',
   'ast_edit',
   'lsp',
+  'security_scan',
   'request_read',
   'shell',
   'eval',
+  'debug',
   'run_checks',
   'start_server',
   'server_logs',
@@ -64,6 +66,8 @@ const USER = ['reply_user', 'check_in', 'ask_user', 'remember', 'recall']
 const CODE_INTEL = ['ast_grep', 'ast_edit', 'lsp']
 /** Code cells whose state lasts the round: loaded on demand, as omp marks its eval discoverable. */
 const CELLS = ['eval']
+/** A debugger and a security scan: loaded on demand, as omp marks its debug and security_scan discoverable. */
+const CHECKING = ['debug', 'security_scan']
 /** Pictures and speech, published like files: loaded on demand, as omp marks generate_image and tts discoverable. */
 const MEDIA = ['generate_image', 'tts']
 /** Delivering files to the person: written ones, and pictures and speech made for them. */
@@ -200,6 +204,7 @@ const ON_DEMAND = new Set([
   'read_docs',
   ...CODE_INTEL,
   ...CELLS,
+  ...CHECKING,
   ...MEDIA,
   ...ACCESS_GROUPS.computer,
   ...PLUGIN,
@@ -232,6 +237,11 @@ export function preloaded(request: string, names: readonly string[]): string[] {
     /\b(repl|notebook|jupyter|pandas|numpy|dataframes?|data ?analysis|analy[sz]e (the )?data|crunch|interactive(ly)?)\b/i.test(
       request,
     )
+  const debug = /\b(debug(ger|ging)?|breakpoints?|step through)\b/i.test(request)
+  const security =
+    /\b(security (scan|audit|review|check)|leaked (secrets?|keys?|tokens?)|secret scan\w*|vulnerab\w*|CVEs?|npm audit|pip-audit)\b/i.test(
+      request,
+    )
   const github =
     /\bgithub\b|\bpull requests?\b|\bPRs?\b|\bPR ?#?\d+|\bissue ?#\d+|\bCI\b|\bworkflow runs?\b|\bactions? runs?\b/i.test(
       request,
@@ -255,6 +265,8 @@ export function preloaded(request: string, names: readonly string[]): string[] {
       (plugin && (PLUGIN.includes(n) || n === 'read_docs')) ||
       (code && CODE_INTEL.includes(n)) ||
       (cells && CELLS.includes(n)) ||
+      (debug && n === 'debug') ||
+      (security && n === 'security_scan') ||
       (github && n === 'github') ||
       (picture && n === 'generate_image') ||
       (speech && n === 'tts') ||
