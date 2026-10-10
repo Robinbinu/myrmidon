@@ -152,6 +152,8 @@ export interface PromptFacts {
     readonly worktree?: { readonly path: string; readonly branch: string }
     /** Folders the person opened for reading beyond the defaults. */
     readonly reads: readonly string[]
+    /** Secrets in what the agent reads reach its model as placeholders. */
+    readonly secretsHidden?: boolean
   }
   readonly review: {
     /** What happens to the speaker's final answer. */
@@ -334,6 +336,7 @@ export function factsFor(spec: ColonySpec, agent: AgentSpec, env: Environment): 
         ? { worktree: { path: env.worktree.workdir, branch: env.worktree.branch } }
         : {}),
       reads: spec.askAll ? [] : (spec.reads ?? []),
+      secretsHidden: env.secretsHidden === true,
     },
     review: reviewOf(spec),
     audience: { owner: !spec.askAll, voice: spec.chat?.voice ?? false },

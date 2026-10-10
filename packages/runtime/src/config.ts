@@ -1047,3 +1047,17 @@ export const CHAT_TITLE_MIN_WINDOW = 16_000
  * how chats are named when no available model has a known price.
  */
 export const CHAT_TITLE_TIERS = ['haiku', 'flash', 'mini', 'nano', 'lite', 'small', 'fast']
+
+// Secrets kept from model providers (provider-secrets.ts)
+
+/** The shortest credential Myrmidon holds that is hidden wherever its value appears: shorter ones would hide words. */
+export const MIN_KNOWN_SECRET = 8
+/**
+ * How long the credentials Myrmidon holds (vault keys, channel tokens) are read once for every model call: many
+ * agents calling at once read them once, and a key added in Settings is hidden at most this much later.
+ */
+export const KNOWN_SECRETS_FRESH_MS = 2_000
+/** A placeholder's tag, in base32 characters: 12 carry 60 bits of a keyed hash, so two secrets never share one. */
+export const SECRET_TAG_CHARS = 12
+/** Texts kept already hidden for the next model call (each step resends the conversation); past it they start over. */
+export const HIDDEN_TEXTS_KEPT = 4_000

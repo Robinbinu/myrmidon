@@ -166,6 +166,12 @@ export const prompts = {
       /** After Gemini CLI's credential protection and OpenHands' secrets rules. `login`: the agent has request_login. */
       credentials: (login: boolean) =>
         `- Never copy secret values you come across (passwords, private keys, tokens) into replies, notes, messages or files; file names, fingerprints and public keys are fine.${login ? ' Never type a password: request_login lets the person sign in.' : ''}`,
+      /**
+       * Secrets reach the model as placeholders (provider-secrets.ts). After omp's <redacted-content> block: opaque,
+       * not errors, never decoded; plus where Myrmidon puts the value back, so the agent keeps them intact in edits.
+       */
+      placeholders:
+        '- Secrets in what you read (keys, tokens, passwords) show as placeholders such as [[secret:api-key:7KQ2M4ZP9XRA]]. They are intentional, not errors: never try to decode them or report them as problems, and copy them exactly. Myrmidon puts the real value back where a placeholder is written into a file in your working folder, a sandboxed command or a search; anywhere else (messages, replies, web requests, other files) it stays a placeholder.',
       limits: '- You cannot change your models or permissions, or install plugins into Myrmidon.',
       /** After Codex's sandbox_mode templates. `writes`: where commands may write. */
       sandbox: (p: {
@@ -1010,6 +1016,14 @@ Reply with ONLY a JSON object: {"note": null} when there is nothing to send, or 
 
   /** The one-line request that checks a model answers before a round relies on it. */
   probe: { system: 'Reply with OK.', message: 'ping' },
+
+  /**
+   * What a model provider sees in place of a secret (provider-secrets.ts): the kind says what it was, the tag tells
+   * secrets apart. After omp's `$$NAME_HASH$$`, in brackets because `$$` is the shell's process id.
+   */
+  secrets: {
+    placeholder: (kind: string, tag: string) => `[[secret:${kind}:${tag}]]`,
+  },
 
   /** The reviewer that reads a finished round for a skill worth keeping (after Qwen Code's skill review). */
   skillReview: {

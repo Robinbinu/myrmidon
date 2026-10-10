@@ -289,6 +289,8 @@ export interface Environment {
   readonly skills?: readonly { name: string; description: string }[]
   /** Sections the person's plugins add for this agent. */
   readonly plugins?: readonly string[]
+  /** Secrets reach the model as placeholders (Settings → Permissions; provider-secrets.ts). */
+  readonly secretsHidden?: boolean
 }
 
 type Effort = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'

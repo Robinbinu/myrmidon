@@ -22,6 +22,7 @@ import {
 } from '@myrmidon/protocol'
 import {
   accountName,
+  addKnownSecrets,
   type BrowserHub,
   BUILT_IN_CHANNELS,
   buildCatalog,
@@ -53,6 +54,7 @@ import {
   gitUnstage,
   gitWorkingChanges,
   guardedPaths,
+  guardSecrets,
   type HookStore,
   importFromOmp,
   type LiveInput,
@@ -694,6 +696,22 @@ export function startServer(options: ServeOptions): WebServer {
     .catch((err) => console.error(`channels: ${err instanceof Error ? err.message : err}`))
   // A plugin that adds or drops a platform is picked up without a restart.
   const offPlugins = options.pluginHost?.onChange(() => void channels?.refresh())
+  // What reaches model providers is kept free of secrets as the person chose (Settings → Permissions), the credentials
+  // this server holds included, whatever their shape: its token, gateways', channels' and the vault's.
+  let secretsHidden = settingsStore?.get().privacy.hideSecrets ?? true
+  const offSecretsSetting = settingsStore?.onChange((next) => {
+    secretsHidden = next.privacy.hideSecrets
+  })
+  // A dashboard without settings (`myrmidon run --ui`) leaves the choice to the process that has them.
+  const unguardSecrets = settingsStore
+    ? guardSecrets({ enabled: () => secretsHidden, keyFile: join(options.home, 'secret-placeholder.key') })
+    : undefined
+  const offKnownSecrets = addKnownSecrets(() => [
+    token,
+    ...gateways.list().map((g) => g.token),
+    ...(channels?.secretValues() ?? []),
+    ...(options.omp?.secretValues() ?? []),
+  ])
   // Agents can message the owner on a channel (OpenClaw's core `message` tool), e.g. when long work is done.
   if (channels) options.pluginHost?.addBuiltIn('channels', [channelSendTool(channels)])
   /** Starts a schedule's round as a new chat; with `deliver`, the channel follows it and sends the answer. */
@@ -3534,6 +3552,9 @@ export function startServer(options: ServeOptions): WebServer {
       await channels?.stop()
       offVoiceSettings?.()
       voice?.stop()
+      offKnownSecrets()
+      unguardSecrets?.()
+      offSecretsSetting?.()
       store.close()
     },
   }

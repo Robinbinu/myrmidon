@@ -37,6 +37,7 @@ import {
 import { type AssembledPrompt, assemble } from './prompt/assemble.ts'
 import { factsFor, type PromptFacts } from './prompt/facts.ts'
 import { prompts } from './prompts.ts'
+import { hideInContext, restoreSecrets, secretsHidden } from './provider-secrets.ts'
 import { redactDeep } from './secrets.ts'
 import type { AgentSpec } from './spec.ts'
 import { buildAgentTools, matchTools } from './tools.ts'
@@ -134,6 +135,7 @@ export class ColonyAgent {
       scratch: host.workspace.scratch(spec.name),
       skills: host.skills(),
       plugins: host.pluginPrompts(speaksForColony(host.spec, spec) ? 'lead' : 'worker'),
+      secretsHidden: secretsHidden(),
     })
     this._prompt = assemble(this._facts)
     const tools = buildAgentTools(spec.name, this._facts.tools.names, host, this._model, this._facts)
@@ -173,12 +175,19 @@ export class ColonyAgent {
       streamFn: (model, context, options) => {
         this._streamedWith = model
         const tools = context.tools?.filter((t) => this._shown(t.name))
+        // Here, the one place every model call of the agent loop passes, so no request leaves with a secret in it.
         return (this._stream ?? streamSimple)(
           model,
-          tools ? { ...context, tools } : context,
+          hideInContext(tools ? { ...context, tools } : context),
           withComputerToolset(model, tools, withOllamaContext(model, options)),
         )
       },
+      // Only the arguments the tool runs with: the conversation keeps the placeholder the model wrote.
+      transformToolCallArguments: (args, tool) =>
+        restoreSecrets(tool, args, {
+          inside: (path) => host.workspace.keepsInside(spec.name, path),
+          confined: !host.fullAccess && host.sandbox.kind !== 'none',
+        }),
     })
     this._agent.subscribe((e) => this._onEvent(e))
     // A signed-off agent stops before its next model call; aborting once pi has sent it would bill a request and

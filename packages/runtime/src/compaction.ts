@@ -28,6 +28,7 @@ import {
   SHAKE_MIN_TOKENS,
 } from './config.ts'
 import { prompts } from './prompts.ts'
+import { hideInMessages, hideSecrets } from './provider-secrets.ts'
 
 /**
  * Keeps an agent's context inside its model's window, like omp's and Claude Code's auto-compaction. Before each
@@ -248,13 +249,13 @@ export class ContextCompactor {
           (await stream(m, context, options)).result()
       : undefined
     return generateSummary(
-      messages,
+      hideInMessages(messages),
       model,
       reserve,
       apiKey as never,
       signal,
       prompts.compaction.focus,
-      previous,
+      previous === undefined ? undefined : hideSecrets(previous),
       {
         ...(completeImpl ? { completeImpl: completeImpl as never } : {}),
       },
@@ -366,9 +367,11 @@ export class ContextCompactor {
     settled: number,
   ): Promise<{ fold: Fold; after: number; frames: number } | undefined> {
     const previous = this._fold
+    // Before the text is drawn into images: a secret in a picture could not be hidden from the provider afterwards.
+    const hidden = hideInMessages(folded)
     const preparation: snapcompact.CompactionPreparation<AgentMessage> = {
       firstKeptEntryId: String(cut),
-      messagesToSummarize: folded,
+      messagesToSummarize: hidden,
       turnPrefixMessages: [],
       tokensBefore: Math.round(base),
       ...(previous?.method === 'summary' ? { previousSummary: previous.text } : {}),
@@ -377,7 +380,7 @@ export class ContextCompactor {
     }
     // Reasoning stays out: it is the least needed part of the history, and Claude refuses its own reasoning played
     // back to it as text (omp issue #6093).
-    const serialized = snapcompact.serializeConversation(folded as Message[], { includeThinking: false })
+    const serialized = snapcompact.serializeConversation(hidden as Message[], { includeThinking: false })
     const probe = snapcompact.renderabilityProbeText(
       serialized,
       previous?.archive,

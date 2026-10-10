@@ -42,6 +42,7 @@ import {
   PhoneIncoming,
   Plug,
   Puzzle,
+  RectangleEllipsis,
   Rocket,
   ScreenShare,
   ScrollText,
@@ -96,6 +97,8 @@ export const FEATURE_ICONS = {
   fileTools: FilePen,
   /** Folders sandboxed agents may read beyond the defaults: in Settings, a project's permissions, a chat's grants. */
   readAccess: FolderKey,
+  /** Secrets kept from model providers: they see placeholders, never the keys (Settings → Permissions). */
+  hiddenSecrets: RectangleEllipsis,
   /** The sandbox shell commands run in. */
   sandbox: Container,
   /** The Full access preset: agents run without the sandbox (its choice at any level, the badge on its chats). */

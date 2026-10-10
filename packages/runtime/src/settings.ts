@@ -88,6 +88,13 @@ export interface MyrSettings {
    * Driver (one approved app at a time; the default when absent) or omp's desktop engine (scripts, approved each time).
    */
   computerUse: { enabled: boolean; engine?: 'cua' | 'omp' }
+  /**
+   * `hideSecrets`: keys, tokens and passwords reach model providers as placeholders (provider-secrets.ts). On unless
+   * the person turns it off: Myrmidon keeps their data on their machine, and a key read in a .env file should not leave
+   * it by accident, while the model still sees that a secret is there and Myrmidon writes the value back into the
+   * agent's own files. Off is for when the model must read the value itself (a key that looks malformed).
+   */
+  privacy: { hideSecrets: boolean }
   /** An omp search provider id (e.g. `brave`, `exa`, `duckduckgo`) or `auto` for omp's fallback chain. */
   search: { provider: string }
   /** `reviewer`: off never reviews; auto lets the speaking agent ask (request_review); always reviews every final answer. */
@@ -261,6 +268,7 @@ export const settingsSchema = Schema.object({
     enabled: Schema.boolean().default(false),
     engine: Schema.union(['cua', 'omp']).default('cua'),
   }).default({}),
+  privacy: Schema.object({ hideSecrets: Schema.boolean().default(true) }).default({}),
   search: Schema.object({
     provider: Schema.string()
       .pattern(/^[a-z][a-z0-9-]{1,30}$/)
@@ -520,6 +528,7 @@ function parse(input: unknown): MyrSettings {
       enabled: s.computerUse.enabled,
       ...(s.computerUse.engine === 'omp' ? { engine: 'omp' as const } : {}),
     },
+    privacy: { hideSecrets: s.privacy.hideSecrets },
     search: { provider: s.search.provider },
     verification: s.verification,
     instructions: s.instructions,
