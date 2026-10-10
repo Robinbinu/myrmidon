@@ -68,13 +68,18 @@ export function notOn(on: Pending | readonly Pending[], why: keyof typeof OTHER_
 
 const announced = new Set<Gap>()
 
+/** MYR_RUN_PENDING=1 runs pending tests too, to see whether a fix closes their gap and how they fail if not. */
+const runPending = process.env.MYR_RUN_PENDING === '1'
+
 function pendingHere(on: Pending | readonly Pending[], gap: Gap): boolean {
   const here = (typeof on === 'string' ? [on] : on).some((p) => p === process.platform)
   if (here && !announced.has(gap)) {
     announced.add(gap)
-    console.warn(`pending on ${process.platform}: ${gap}: ${GAPS[gap]}`)
+    console.warn(
+      `${runPending ? 'running, though pending' : 'pending'} on ${process.platform}: ${gap}: ${GAPS[gap]}`,
+    )
   }
-  return here
+  return here && !runPending
 }
 
 /**
