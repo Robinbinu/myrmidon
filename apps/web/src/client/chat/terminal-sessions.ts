@@ -322,6 +322,14 @@ export function closeTerminal(project: string | undefined, id: number) {
   changed()
 }
 
+/** Ends every terminal of a project's set, leaving the set empty. */
+export function closeAllTerminals(project: string | undefined) {
+  const set = terminalSet(project)
+  for (const session of set.sessions.splice(0)) session.close()
+  set.active = undefined
+  changed()
+}
+
 export function showTerminal(project: string | undefined, id: number) {
   const set = terminalSet(project)
   if (set.active === id) return

@@ -1901,6 +1901,13 @@ export const copy = {
     /** Asked before closing a terminal with a command still running in it. */
     stillRunning: (name: string, command: string) => `${command} is still running in ${name}.`,
     confirmClose: 'Yes, close terminal',
+    /** The ⋯ menu's item that closes every terminal of the project, and its question while commands run. */
+    closeAll: 'Close all terminals',
+    stillRunningAll: (commands: string[]) =>
+      `${commands.length > 1 ? `${commands.slice(0, -1).join(', ')} and ${commands.at(-1)}` : commands[0]} ${
+        commands.length > 1 ? 'are' : 'is'
+      } still running.`,
+    confirmCloseAll: 'Yes, close all',
     cancel: 'Cancel',
     add: 'New terminal',
     addTitle: (keys: string) => `New terminal (${keys})`,

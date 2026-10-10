@@ -900,8 +900,9 @@ stay small so they merge cleanly into either.
       approvals in colony.ts).
 - [ ] Browser view follow-ups: pick element, auto-verify changes, split layout, handing a tab to an agent (with a
       site list for that), downloads (denied now), LAN hosts in Allowed sites.
-- [ ] Terminals end on page reload (by design for now); no close-all; a label can show an option's value as the
-      argument (`vim -u NONE x` → `vim NONE`).
+- [x] Terminals end on page reload (by design for now); no close-all; a label can show an option's value as the
+      argument (`vim -u NONE x` → `vim NONE`). Close all is in the ⋯ menu (asks while a command runs); labels skip
+      known options' values (`vim x`), inline code (`python3 -c …` → `python3`) and what follows a secret-named option.
 - [ ] The sandbox now hides the clipboard: a project test that copies and pastes fails inside the sandbox (stated
       in a code comment; say it in the docs).
 ### [decide]
