@@ -764,6 +764,48 @@ describe('what the shell does that a quick read would miss', () => {
     expect(offersFor(shell('python3 scripts/gen.py'))[0]).toMatchObject({ projectCode: true })
     expect(offersFor(shell('ls -la'))[0]).toEqual({ kind: 'command', target: 'ls' })
   })
+
+  // An interpreter fed code through a here-string or an input redirect runs it like `sh -c`; the operand is the
+  // redirection's target, never a script argument, so it must not look read-only or escape a deny.
+  test('a here-string or input redirect into an interpreter is code, not a filename argument', () => {
+    for (const line of [
+      'sh <<< "rm -rf ~"',
+      'sh <<<rm',
+      'bash <<< "git push"',
+      'python3 <<< "import os"',
+      'bash < script.sh',
+    ]) {
+      expect([line, verdict(level('auto'), line)]).toEqual([line, 'ask'])
+      expect([line, splitCommand(line).simple]).toEqual([line, false])
+    }
+    expect(verdict(deny('rm'), 'sh <<< "rm -rf ~"')).toBe('ask')
+    expect(verdict(deny('git push'), 'bash <<< "git push"')).toBe('ask')
+    // A plain file redirect still drops only its target: the rest of the command reads as before.
+    expect(splitCommand('echo hi > out.txt').segments).toEqual(['echo hi'])
+    expect(readOnlyCommand('cat f > out.txt')).toBe(false)
+  })
+
+  // What a dispatching program (git, bun, npm…) does turns on its subcommand; an expansion there could be `push`,
+  // `reset --hard`, anything, so it is unknowable and must ask, while an unknown argument to a fixed subcommand is fine.
+  test('an expansion in the subcommand slot of a dispatching program is unknowable', () => {
+    for (const line of [
+      'p=push; git $p',
+      'git $SUB',
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter syntax, not a template
+      'git ${SUB}',
+      'git `echo push`',
+      's=rm; bun $s',
+      'npm $x',
+      'git {push,pull}',
+    ]) {
+      expect([line, verdict(level('auto'), line)]).toEqual([line, 'ask'])
+      expect([line, verdict(deny('git push'), line) === 'allow']).toEqual([line, false])
+    }
+    // A known subcommand with an unknown argument stays allowed, as does any read-only program's unknown argument.
+    expect(verdict(level('auto'), 'git log $REF')).toBe('allow')
+    expect(verdict(level('auto'), 'bun test $FILE')).toBe('allow')
+    expect(verdict(level('auto'), 'ls $HOME *.ts')).toBe('allow')
+  })
 })
 
 test("git's abbreviated long options are read as git reads them", () => {
