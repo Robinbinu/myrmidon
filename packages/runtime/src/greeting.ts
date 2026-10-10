@@ -3,6 +3,7 @@ import type { ChatSummary } from './chat.ts'
 import { GREETING_AWAY_MS, GREETING_MS } from './config.ts'
 import type { ModelResolver } from './models.ts'
 import { prompts } from './prompts.ts'
+import { hideInContext } from './provider-secrets.ts'
 
 /**
  * The entry page's greeting: one short line in the mascot's own voice, about what actually happened (something
@@ -179,8 +180,10 @@ export class GreetingWriter<F extends GreetingFacts = GreetingFacts, G = Greetin
     }
     const abort = AbortSignal.timeout(GREETING_MS)
     const reply = resolved.streamFn
-      ? await (await resolved.streamFn(resolved.model, context, { apiKey, signal: abort })).result()
-      : await completeSimple(resolved.model, context, { apiKey, signal: abort })
+      ? await (
+          await resolved.streamFn(resolved.model, hideInContext(context), { apiKey, signal: abort })
+        ).result()
+      : await completeSimple(resolved.model, hideInContext(context), { apiKey, signal: abort })
     if (reply.stopReason === 'aborted')
       throw new Error(`${ref} did not answer within ${GREETING_MS / 1000} s; the rules' line stands`)
     if (reply.stopReason === 'error') throw new Error(reply.errorMessage ?? 'the model failed')

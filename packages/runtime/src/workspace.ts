@@ -117,6 +117,20 @@ export class ColonyWorkspace {
     return this._resolve(agent, path, true)
   }
 
+  /**
+   * Whether a path a file tool would change stays in the agent's working directory or scratch, whatever access the
+   * round has (with full access `resolveInWorkdir` takes any path): a hidden secret is written back only there.
+   */
+  keepsInside(agent: string, path: string): boolean {
+    const roots = [...new Set([this.workdir(agent), this.scratch(agent)])].map(realPath)
+    const named = expandHome(path, this._access.home ?? homedir())
+    return reachable(
+      realPath(isAbsolute(named) ? named : resolve(roots[0] as string, named)),
+      roots,
+      this.hidden(),
+    )
+  }
+
   /** Whether the read-only file tools may read this absolute path: listings and searches leave out what they may not. */
   mayRead(agent: string, path: string): boolean {
     try {

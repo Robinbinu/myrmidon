@@ -429,6 +429,11 @@ export const SECTIONS: readonly Section[] = [
     },
     { key: 'credentials', guard: () => true, render: (f) => say.safety.credentials(has(f, 'request_login')) },
     {
+      key: 'secret-placeholders',
+      guard: (f) => f.access.secretsHidden === true,
+      render: () => say.safety.placeholders,
+    },
+    {
       key: 'sandbox',
       version: 2,
       guard: (f) => !f.access.fullAccess && any(f, 'shell', 'fs_read'),

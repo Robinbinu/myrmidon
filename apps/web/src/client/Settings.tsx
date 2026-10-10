@@ -207,6 +207,8 @@ export interface ServerSettings {
   sandbox?: { read?: string[]; readHome?: boolean }
   /** Computer use (agents on the person's Mac); absent from older servers. */
   computerUse?: { enabled: boolean; engine?: 'cua' | 'omp' }
+  /** Secrets reach model providers as placeholders; absent from older servers, which do not hide them. */
+  privacy?: { hideSecrets: boolean }
   verification: { threshold: number; rubric?: string; reviewer: 'off' | 'auto' | 'always' }
   instructions: { lead?: string; worker?: string }
   observer: { intervalSeconds: number }
@@ -718,7 +720,12 @@ export function Settings(props: {
                     tools={data.toolCatalog}
                     servers={data.mcpServers ?? []}
                     sandbox={data.sandbox}
-                    reads={<SandboxReads data={data} update={update} />}
+                    reads={
+                      <>
+                        <SandboxReads data={data} update={update} />
+                        <HideSecrets data={data} update={update} />
+                      </>
+                    }
                     computerUse={data.settings.computerUse?.enabled === true}
                     onSetUpComputer={() => setSection('computer')}
                   />
@@ -2468,6 +2475,34 @@ function SandboxReads(props: {
           </Field>
           {guarded.length > 0 && <p className="mt-2 text-callout text-warn-ink">{t.guarded(guarded)}</p>}
         </CardRow>
+      </Card>
+    </>
+  )
+}
+
+/** Whether secrets reach model providers as placeholders (the runtime's provider-secrets.ts). */
+function HideSecrets(props: {
+  data: SettingsResponse
+  update(p: (s: ServerSettings) => ServerSettings, immediate?: boolean): void
+}) {
+  const t = copy.settings.tools.secrets
+  const on = props.data.settings.privacy?.hideSecrets ?? true
+  return (
+    <>
+      <SectionHeader
+        className="mb-2"
+        icon={<FEATURE_ICONS.hiddenSecrets className="size-4 text-muted" />}
+        title={t.title}
+        note={t.subtitle}
+      />
+      <Card className="mb-6">
+        <SettingField id="permissions.hideSecrets" hint={on ? t.hideHint : t.offHint} inline>
+          <Switch
+            checked={on}
+            label={t.hide}
+            onChange={(v) => props.update((s) => ({ ...s, privacy: { hideSecrets: v } }), true)}
+          />
+        </SettingField>
       </Card>
     </>
   )

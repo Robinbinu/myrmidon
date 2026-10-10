@@ -23,6 +23,7 @@ import {
 } from '../config.ts'
 import type { ModelResolver } from '../models.ts'
 import { prompts } from '../prompts.ts'
+import { hideInContext } from '../provider-secrets.ts'
 import { trimSilence, trimStart } from './audio.ts'
 import type { LiveTranscription } from './phonon-stream.ts'
 import type { TurnJudge } from './smart-turn.ts'
@@ -847,8 +848,8 @@ export class CallSession {
         tools: VOICE_TOOLS,
       }
       const stream: AssistantMessageEventStream = resolved.streamFn
-        ? await resolved.streamFn(resolved.model, context, { apiKey, signal })
-        : streamSimple(resolved.model, context, { apiKey, signal })
+        ? await resolved.streamFn(resolved.model, hideInContext(context), { apiKey, signal })
+        : streamSimple(resolved.model, hideInContext(context), { apiKey, signal })
       // Spoken as it is written: each sentence once it ends, the first clause sooner.
       const split = new SpeechSplitter({ firstClause: true })
       let written = ''

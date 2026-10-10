@@ -2949,6 +2949,17 @@ export const copy = {
         access: ['tool groups', 'lead tools', 'crew tools', 'allow tools', 'disable tools'],
         rules: ['allow', 'deny', 'ask', 'allowlist', 'blocklist', 'command rules', 'tool rules'],
         readFolders: ['read access', 'folders', 'home folder', 'documents', 'files agents can read'],
+        secrets: [
+          'redact',
+          'redaction',
+          'api keys',
+          'tokens',
+          'passwords',
+          'privacy',
+          'leak',
+          'placeholder',
+          'mask',
+        ],
         instructions: ['system prompt', 'prompt', 'house rules', 'custom instructions', 'rules for agents'],
         memory: ['remember', 'memories', 'facts', 'preferences', 'knowledge'],
         skills: ['skill', 'playbook', 'playbooks', 'skill.md', 'agent skills'],
@@ -3208,6 +3219,16 @@ export const copy = {
         foldersPlaceholder: '~/Documents/notes\n~/code/shared-libs',
         guarded: (paths: readonly string[]) =>
           `Careful: ${paths.join(', ')} ${paths.length === 1 ? 'holds' : 'hold'} keys, sign-ins or every chat’s data. Agents in all your chats can read ${paths.length === 1 ? 'it' : 'them'}, and anything they read can leave over the network.`,
+      },
+      /** Secrets kept from model providers (the runtime's provider-secrets.ts). */
+      secrets: {
+        title: 'Secrets and model providers',
+        subtitle: 'what leaves this machine with each model call',
+        hide: 'Hide secrets from model providers',
+        hideHint:
+          'API keys, tokens and passwords in what agents read, and the keys Myrmidon holds, reach the model as placeholders. Agents can still use them: Myrmidon puts the real value back in files in their own folder and in sandboxed commands.',
+        offHint:
+          'Off: a key in a file or a command’s output goes to the model provider as it is. Turn this off only when an agent must read a key itself.',
       },
       libraryTitle: 'Your tool library',
       librarySubtitle: 'tools agents made that you kept; every new run starts with them',

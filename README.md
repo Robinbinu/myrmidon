@@ -47,7 +47,9 @@ framework you wire together yourself. Myrmidon is all four behind a single conve
   project, their own work files and toolchains, write only the project and their work files, and cannot see the
   rest of your home, other chats or your keys unless you open a folder for reading. On macOS the sandbox also
   hides the clipboard, so a project test that copies and pastes fails there (give that project full access to run
-  it). Secrets are redacted from logs and transcripts. Fetched web pages are treated as untrusted data. Each tool can
+  it). Secrets are redacted from logs and transcripts, and reach model providers as placeholders that Myrmidon
+  turns back into the real value only in the agent's own files and sandboxed commands (Settings → Permissions).
+  Fetched web pages are treated as untrusted data. Each tool can
   be set to Allow, Ask first, or Off. When you want agents to use the computer unrestricted, like Hermes Agent, turn
   on **full access** for one project or for all your chats; approvals you set still apply, and people other than you
   who talk to it through a channel always stay sandboxed.
