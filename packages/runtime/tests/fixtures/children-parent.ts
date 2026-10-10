@@ -36,9 +36,10 @@ switch (kind) {
     break
   }
   case 'sibling': {
-    // A child started after the leash, not leashed: it must not hold the leash's stdin open.
+    // A child started after the leash, not leashed: it must not hold the leash's stdin open. Detached on Windows,
+    // where Bun's job object would otherwise end it with this process, so it could not outlive it as it must here.
     const proc = spawnLeashed(sleeper(), { stdout: 'ignore' })
-    const other = Bun.spawn(sleeper(), { stdout: 'ignore' })
+    const other = Bun.spawn(sleeper(), { stdout: 'ignore', detached: process.platform === 'win32' })
     keep.push(proc, other)
     await descendants(proc.pid, 1)
     extra = ` ${other.pid}`

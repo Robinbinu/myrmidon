@@ -9,6 +9,13 @@ const SOURCE = existsSync(SCRIPT)
   ? undefined
   : ((await import('./leash.ts', { with: { type: 'text' } })) as unknown as { default: string }).default
 
+/**
+ * On Windows every child Bun starts joins a job object that ends it the moment its parent dies: a leash there would
+ * be gone before it could stop its command's tree, and what the command started (anything not Bun's own child) would
+ * outlive it. Detached, the leash is left out of that job and outlives its parent long enough to stop the tree.
+ */
+const OUTSIDE_JOB = process.platform === 'win32'
+
 function leash(args: readonly string[]): string[] {
   return [
     process.execPath,
@@ -34,6 +41,7 @@ export function spawnLeashed<
   return stopsByStdin(
     Bun.spawn(leash(argv), {
       windowsHide: true,
+      detached: OUTSIDE_JOB,
       ...options,
       env: { ...(options.env ?? process.env), BUN_BE_BUN: '1' },
       stdin: 'pipe',
@@ -63,6 +71,7 @@ export function stopsByStdin<
 export function leashRunning(pid: number): Bun.Subprocess<'pipe', 'ignore', 'ignore'> {
   return stopsByStdin(
     Bun.spawn(leash([`--pid=${pid}`]), {
+      detached: OUTSIDE_JOB,
       env: { ...process.env, BUN_BE_BUN: '1' },
       stdin: 'pipe',
       stdout: 'ignore',
