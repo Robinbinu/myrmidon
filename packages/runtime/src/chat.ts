@@ -31,7 +31,7 @@ import { namingModel } from './catalog.ts'
 import { ChatIndex, type CrewMember, type IndexedRound, type MessageHit } from './chat-index.ts'
 import { nameChat } from './chat-titles.ts'
 import type { Checkpoints } from './checkpoints.ts'
-import { type Attachment, ColonyRun, RoundClosingError, type Runtime } from './colony.ts'
+import { type Attachment, ColonyRun, RoundClosingError, type Runtime, SETTLE_MS } from './colony.ts'
 import type { ComputerHub } from './computer/driver.ts'
 import {
   CHAT_TITLE_ROUNDS,
@@ -636,9 +636,11 @@ export class ChatService {
       } catch (err) {
         // The round closed as the message came in: it opens the next round once that one has ended.
         if (!(err instanceof RoundClosingError)) throw err
-        await live.done
       }
     }
+    // A round logged as ended may still be shutting down (its agents stopping, its mirror written), listening to its
+    // colony's log; the next round in that colony starts once it is done, so the old one never acts on the new one.
+    if (live) await live.done
     const previous = await this.rounds(id)
     const history = conversation(previous)
     // Written to crew members directly (@name): the round starts with them, and they answer.
@@ -1247,6 +1249,7 @@ export class ChatService {
   async resume(chatId: string, model?: string): Promise<{ chatId: string; colonyId: string }> {
     await this._settle()
     if (this._live.get(chatId)?.state().status === 'running') throw new Error('this chat is already running')
+    await this._live.get(chatId)?.done
     const last = (await this.rounds(chatId)).at(-1)
     if (!last) throw new Error('no such chat')
     if (last.round.status === 'completed')
@@ -1468,10 +1471,21 @@ export class ChatService {
     void work.finally(() => this._wrapUps.delete(work))
   }
 
-  /** Stops every round, a crew still winding down included, and waits until nothing of theirs runs any more. */
+  /**
+   * Stops every round, a crew still winding down included, and waits until nothing of theirs runs any more, or
+   * SETTLE_MS at most: one round that cannot wrap up must not keep the server from shutting down.
+   */
   async stopAll(): Promise<void> {
-    await Promise.all([...this._live.values()].map((r) => r.stop('server shutting down', true)))
-    await Promise.allSettled([...this._wrapUps])
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const late = new Promise<'late'>((resolve) => {
+      timer = setTimeout(() => resolve('late'), SETTLE_MS)
+    })
+    const stopped = Promise.all(
+      [...this._live.values()].map((r) => r.stop('server shutting down', true)),
+    ).then(() => Promise.allSettled([...this._wrapUps]))
+    const outcome = await Promise.race([stopped, late]).finally(() => clearTimeout(timer))
+    if (outcome === 'late')
+      console.error(`shutting down with ${this._wrapUps.size} round wrap-ups unfinished after ${SETTLE_MS}ms`)
   }
 
   private buildSpec(
