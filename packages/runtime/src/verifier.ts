@@ -1,8 +1,9 @@
 import { join } from 'node:path'
-import type { ActorRef, ColonyState, EventId, EventPayloads, MyrEvent } from '@myrmidon/protocol'
+import type { ActorRef, ColonyState, EventId, EventPayloads, MyrEvent, RoundGoal } from '@myrmidon/protocol'
 import { completeSimple, type Context as LlmContext } from '@oh-my-pi/pi-ai'
 import { localDate } from './clock.ts'
 import {
+  GOAL,
   MAX_DIFF_CHARS,
   MAX_JUDGE_CHARS,
   MAX_SOURCES,
@@ -13,6 +14,7 @@ import {
 } from './config.ts'
 import type { ColonyHost } from './host.ts'
 import type { ModelResolver } from './models.ts'
+import { scratchChecks } from './project-context.ts'
 import { prompts } from './prompts.ts'
 import { hideInContext } from './provider-secrets.ts'
 import type { AcceptanceCheck } from './spec.ts'
@@ -165,6 +167,75 @@ export class Verifier {
       lines.push(`${outcome.pass ? 'PASS' : 'FAIL'} ${verifierId}: ${outcome.evidence}`)
     }
     return { pass, verdicts, report: lines.join('\n') }
+  }
+
+  /**
+   * Checks a goal round's condition in the work as it stands (goal mode), where `by` works: in a project, the folder
+   * with every crewmate's changes merged. Logged as a `goal` verdict numbered by `check`. `broken`: the condition
+   * itself cannot be checked, so going on would loop on a check that can never pass.
+   */
+  async verifyGoal(goal: RoundGoal, check: number, by: string): Promise<CheckOutcome & { broken: boolean }> {
+    let outcome: CheckOutcome & { broken: boolean }
+    try {
+      outcome = await this._goalOutcome(goal, by)
+    } catch (err) {
+      outcome = {
+        pass: false,
+        broken: false,
+        evidence: `verifier error: ${err instanceof Error ? err.message : String(err)}`,
+      }
+    }
+    await this.host.append({
+      type: 'verifier/verdict',
+      actor: actor('goal'),
+      payload: {
+        target: 'goal',
+        verifierId: `goal#${check}`,
+        pass: outcome.pass,
+        ...score(outcome),
+        evidence: outcome.evidence,
+      },
+    })
+    return outcome
+  }
+
+  private async _goalOutcome(goal: RoundGoal, by: string): Promise<CheckOutcome & { broken: boolean }> {
+    // A project's folder holds every crewmate's merged changes; without one, the work is in the speaker's own folder.
+    const path = this.host.workspace.workdir(this.host.project ? 'verifier' : by)
+    const writable = [path, this.host.workspace.scratch('verifier')]
+    const sandboxed = this.host.sandbox.kind !== 'none' || this.host.unsafeNoSandbox
+    if (goal.check.kind === 'command') {
+      if (!sandboxed) return { pass: false, broken: true, evidence: prompts.judge.goalNeedsSandbox }
+      const run = goal.check.run
+      const r = await this.host.sandbox.run({
+        command: run,
+        cwd: path,
+        writable,
+        ...this.host.workspace.confinement(),
+        timeoutMs: GOAL.commandMs,
+      })
+      const tail = `${r.stdout}\n${r.stderr}`.trim().split('\n').slice(-60).join('\n')
+      const status = r.timedOut ? 'timed out' : `exit ${r.code}`
+      // After omp's /loop --until: 126 (not executable) and 127 (not found) are the condition breaking, not answering.
+      // Any other failing status is an answer: test runners and type checkers fail with 1, 2 and more.
+      return {
+        pass: !r.timedOut && r.code === 0,
+        broken: !r.timedOut && (r.code === 126 || r.code === 127),
+        evidence: `\`${run}\` ${status}\n${tail}`.trim(),
+      }
+    }
+    if (goal.check.kind === 'checks' && sandboxed) {
+      const picked = pickChecks(this.host.project?.checks ?? scratchChecks(path))
+      if (picked.length > 0) {
+        const r = await runProjectChecks(this.host, path, writable, picked)
+        return { pass: r.ok, broken: false, evidence: r.report }
+      }
+    }
+    // Judged, and so also a "tests pass" goal where there are no checks to run: the reviewer reads the work for it.
+    return {
+      ...(await this.judge(goal.judge, prompts.judge.goal(goal.condition), goal.threshold)),
+      broken: false,
+    }
   }
 
   private async runCheck(check: AcceptanceCheck, index: number): Promise<CheckOutcome> {

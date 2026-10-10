@@ -1016,6 +1016,15 @@ export const SETTINGS = {
     keywords: kw.advisor,
     keys: ['team.advisorModel'],
   },
+  'team.carryOutModel': {
+    page: 'team',
+    path: [s.team.prewalkTitle],
+    control: 'button',
+    label: s.team.carryOut,
+    help: s.team.carryOutHint,
+    keywords: kw.prewalk,
+    keys: ['team.carryOutModel'],
+  },
   'team.leadFallbacks': {
     page: 'team',
     path: [s.team.fallbacksTitle],

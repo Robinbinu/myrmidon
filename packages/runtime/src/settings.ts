@@ -60,6 +60,11 @@ export interface MyrSettings {
      */
     advisorModel?: string
     /**
+     * Prewalk's carry-out model: the lead of a work round plans on its own model, then hands off once to this cheaper
+     * one to carry the plan out (after omp's prewalk). Unset: the lead keeps its model, the default.
+     */
+    carryOutModel?: string
+    /**
      * Models to go on with, in order, when the lead's model fails in a way another model could get past (an outage,
      * a rate limit retries did not clear, an expired sign-in, a model taken down); `workerFallbacks` the same for
      * crewmates and swarm peers. Empty: the round pauses on the error for the person, as before.
@@ -249,6 +254,7 @@ export const settingsSchema = Schema.object({
     workerModel: Schema.string(),
     judgeModel: Schema.string(),
     advisorModel: Schema.string().max(200),
+    carryOutModel: Schema.string().max(200),
     leadFallbacks: Schema.array(Schema.string().max(200)).max(MAX_FALLBACKS).default([]),
     workerFallbacks: Schema.array(Schema.string().max(200)).max(MAX_FALLBACKS).default([]),
     wallMinutes: Schema.number().min(1).max(240).default(30),
@@ -655,6 +661,8 @@ export function withoutModel(
   // A fallback is not a default the person is told about: the chain just goes on without it.
   // Nor is the advisor, which is optional help: the crew just works unadvised.
   if (next.team.advisorModel === ref) delete next.team.advisorModel
+  // Nor is the carry-out model: the lead just keeps its own.
+  if (next.team.carryOutModel === ref) delete next.team.carryOutModel
   next.team.leadFallbacks = next.team.leadFallbacks.filter((r) => r !== ref)
   next.team.workerFallbacks = next.team.workerFallbacks.filter((r) => r !== ref)
   if (next.voice.callModel === ref) {

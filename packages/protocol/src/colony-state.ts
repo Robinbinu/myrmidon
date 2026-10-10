@@ -9,6 +9,7 @@ import type {
   NoteSection,
   QuestionAnswers,
   QuestionChoice,
+  RoundGoal,
   SignalKind,
   TaskSnapshot,
 } from './payloads.ts'
@@ -40,6 +41,8 @@ export interface RoundInfo {
   readonly request: string
   readonly tier?: EventPayloads['colony/created']['tier']
   readonly swarm: boolean
+  /** Goal mode: the condition the round's work is checked against until it holds. */
+  readonly goal?: RoundGoal
   /** The round's first event (colony/created or round/started). */
   readonly startSeq: number
   readonly startedAt: string
@@ -248,6 +251,7 @@ function roundOf(p: EventPayloads['colony/created'], event: MyrEvent): RoundInfo
     request: p.chat?.request ?? p.mission,
     ...(p.tier ? { tier: p.tier } : {}),
     swarm: p.team?.mode === 'swarm' && p.tier === 'team',
+    ...(p.goal ? { goal: p.goal } : {}),
     startSeq: event.seq,
     startedAt: event.time,
     status: 'created',
@@ -480,6 +484,16 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
       if (view) {
         view.info = { ...view.info, model: p.model }
         // The person's choice is the agent's model now, not a stand-in for the one it fell back from.
+        delete view.fellBackFrom
+      }
+      break
+    }
+    case 'agent/handoff': {
+      const p = event.payload as EventPayloads['agent/handoff']
+      const view = state.agents[p.agent]
+      // The carry-out model is the agent's own now, as a model the person picked would be.
+      if (view) {
+        view.info = { ...view.info, model: p.model }
         delete view.fellBackFrom
       }
       break

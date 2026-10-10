@@ -475,6 +475,10 @@ export const copy = {
     switchedFrom: (model?: string) => `from ${model}, by you`,
     fellBackTo: 'Went on with',
     fellBackFrom: (model?: string) => `after ${model} failed`,
+    handedOffTo: 'Handed off to',
+    handedOffFrom: (model?: string) => `from ${model}, to carry out the plan`,
+    goalMet: 'Goal reached',
+    goalNotMet: (check: string) => `Goal not reached yet (check ${check})`,
     advised: 'Got a note from the advisor:',
     askedJudge: 'Asked the reviewer to check the result',
     judgeApproved: 'Reviewer approved',
@@ -564,6 +568,7 @@ export const copy = {
       'agent/prompt': 'prompt assembled',
       'agent/model': 'model switched',
       'agent/fallback': 'went on with a fallback model',
+      'agent/handoff': 'handed off to the carry-out model',
       'agent/advised': 'advisor note',
       'tool/created': 'tool made',
       'chat/user': 'message from you',
@@ -981,6 +986,11 @@ export const copy = {
     fromPlugin: (plugin: string) => `From the ${plugin} plugin`,
     list: {
       plan: { args: '<request>', description: 'Plan first: see the plan and approve it before any work' },
+      goal: {
+        args: '<condition>: <request>',
+        description:
+          'Keep working until a condition holds: "the tests pass", a `command` that must exit 0, or anything the reviewer can check',
+      },
       steer: { args: '<message>', description: 'Send now: the crew reads it at its next step' },
       queue: {
         args: '<message>',
@@ -2138,6 +2148,15 @@ export const copy = {
     fellBackRefused: (agent: string, previous: string, model: string) =>
       `${previous} declined to continue, so ${agent} went on with ${model}.`,
     fellBackTitle: (message: string) => `Provider message: ${message}`,
+    /** A line in the round: prewalk handed the lead from the model it planned on to the cheaper one. */
+    handedOff: (agent: string, previous: string, model: string) =>
+      `${agent} planned on ${previous} and handed off to ${model} to carry out the plan.`,
+  },
+
+  /** Goal mode's lines in the round: each check of the goal, as it happens. */
+  goal: {
+    met: (condition: string) => `Goal reached: ${condition}`,
+    notMet: (check: number, why: string) => `Goal not reached yet (check ${check}): ${why}`,
   },
 
   outcome: {
@@ -2954,6 +2973,16 @@ export const copy = {
           'mistakes',
           'notes',
         ],
+        prewalk: [
+          'prewalk',
+          'carry out',
+          'cheaper model',
+          'plan then execute',
+          'hand off',
+          'handoff',
+          'save money',
+          'executor',
+        ],
         helpers: ['crewmates', 'workers', 'helpers', 'subagents', 'team size', 'parallel'],
         budget: ['budget', 'cost', 'money', 'dollars', 'price', 'spend', 'limit'],
         time: ['timeout', 'duration', 'minutes', 'how long'],
@@ -3227,6 +3256,12 @@ export const copy = {
         'A second model reads each agent’s steps as it works and, when it spots a concrete problem (the wrong file, an ignored error, going in circles), sends the agent a short note. Off by default: each look is a model call, with a cap per run, and it stops as the run nears its spend or token limit.',
       chooseAdvisor: 'Choose a model',
       advisorOff: (model: string) => `Turn off the advisor (${model})`,
+      prewalkTitle: 'Prewalk',
+      carryOut: 'Carry-out model',
+      carryOutHint:
+        'The lead plans on its own model, then hands off once to this cheaper one to carry the plan out: at its first change (a file edit or a task), after you approve the plan in plan mode. Off by default. The chat shows the hand-off.',
+      chooseCarryOut: 'Choose a model',
+      carryOutOff: (model: string) => `Turn off prewalk (${model})`,
     },
     tools: {
       title: 'Tools',
