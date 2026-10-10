@@ -101,5 +101,24 @@ jobs:
         env:
           TESTS: ${{ inputs.tests }}
           MYR_RUN_PENDING: ${{ inputs.pending && '1' || '' }}
-        # TESTS is deliberately unquoted: it is a list of path filters.
-        run: bun test --timeout 30000 $TESTS
+        # TESTS is deliberately unquoted: it is a list of path filters. A run still going after 25 minutes is stuck
+        # (a whole run takes about 12): it is stopped, saying what was running, instead of holding the job to 45.
+        run: |
+          bun test --timeout 30000 $TESTS &
+          tests=$!
+          (
+            for _ in $(seq 150); do
+              sleep 10
+              kill -0 $tests 2>/dev/null || exit 0
+            done
+            echo "::error::the tests were still running after 25 minutes; what was running:"
+            if [ "$RUNNER_OS" = Windows ]; then
+              powershell -NoProfile -Command "Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,CommandLine | Format-Table -AutoSize -Wrap | Out-String -Width 400"
+            else
+              ps -Ao pid,ppid,etime,command
+            fi
+            kill $tests
+          ) &
+          code=0
+          wait $tests || code=$?
+          exit $code
