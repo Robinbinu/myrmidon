@@ -1,0 +1,29 @@
+diff --git a/src/lsp/client.ts b/src/lsp/client.ts
+index bc7dbf5ac571d1660270380abda7ed5c9b5b933e..a7ca8b8268ba8f50877a1cb63d19dbfa29b0b6c7 100644
+--- a/src/lsp/client.ts
++++ b/src/lsp/client.ts
+@@ -1150,7 +1150,7 @@ export async function getOrCreateClient(
+ 				client,
+ 				"initialize",
+ 				{
+-					processId: process.pid,
++					processId: config.processId === undefined ? process.pid : config.processId,
+ 					rootUri: fileToUri(cwd),
+ 					rootPath: cwd,
+ 					capabilities: CLIENT_CAPABILITIES,
+diff --git a/src/lsp/types.ts b/src/lsp/types.ts
+index 1a53442e09aa885bce7641cc7150f301f605af1f..0d534f8499e207653653a547176fb10c3f181961 100644
+--- a/src/lsp/types.ts
++++ b/src/lsp/types.ts
+@@ -359,6 +359,11 @@ export interface ServerConfig {
+ 	isLinter?: boolean;
+ 	/** Resolved absolute path to the command binary (set during config loading) */
+ 	resolvedCommand?: string;
++	/**
++	 * The process id sent in `initialize`, which a server watches to exit once its client is gone. `null` for a
++	 * server that cannot see this process (started in a PID namespace of its own); this process's pid when omitted.
++	 */
++	processId?: number | null;
+ 	/**
+ 	 * Custom linter client factory. If provided, creates a custom client instead of using LSP.
+ 	 * The client handles format/lint operations. Useful for tools with buggy LSP implementations.
