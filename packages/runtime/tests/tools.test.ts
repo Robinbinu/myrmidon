@@ -55,6 +55,45 @@ test('the fs_read tool passes offset and limit through to the file it resolves',
   }
 })
 
+test('run_checks outside a project runs the checks its scratch folder defines, and says plainly when there are none', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'myr-checks-'))
+  try {
+    const ran: string[] = []
+    const host = {
+      sandbox: {
+        kind: 'sandbox-exec',
+        run: async (spec: { command: string }) => {
+          ran.push(spec.command)
+          return { code: 0, stdout: '', stderr: '', timedOut: false }
+        },
+      },
+      unsafeNoSandbox: false,
+      spec: { agents: [] },
+      permit: () => ({ decision: 'allow' }),
+      workspace: {
+        workdir: () => dir,
+        scratch: () => dir,
+        confinement: () => ({ readable: [], hidden: [] }),
+      },
+    } as unknown as ColonyHost
+    const checks = TOOL_DEFS.find((d) => d.name === 'run_checks')
+    await expect(checks?.run({}, 'kai', host)).rejects.toThrow('nothing to check in your scratch folder')
+    writeFileSync(join(dir, 'tsconfig.json'), '{}')
+    expect(await checks?.run({}, 'kai', host)).toContain('PASS typecheck')
+    expect(ran.at(-1)).toContain('tsc --noEmit')
+    writeFileSync(
+      join(dir, 'package.json'),
+      JSON.stringify({ scripts: { typecheck: 'tsc', test: 'bun test' } }),
+    )
+    ran.length = 0
+    const report = await checks?.run({}, 'kai', host)
+    expect(ran).toEqual(['npm run typecheck', 'npm run test'])
+    expect(report).toContain('PASS test')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('task dedupe catches rewordings but not numbered siblings', () => {
   expect(similar('Research Flask in depth', 'Research Flask in depth: stats and features')).toBeGreaterThan(
     0.3,

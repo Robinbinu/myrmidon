@@ -564,6 +564,38 @@ test('crewmates on call: a lead working alone asks them for work and gets their 
   await chats.stopAll()
 })
 
+test('ask_crewmate refuses a name not on call, listing who is, and list_agents shows them before they join', async () => {
+  const resolver = new ModelResolver()
+  const seen: { results?: string } = {}
+  scripted(resolver, 'mock/lead', [
+    [
+      tool('list_agents', {}),
+      tool('ask_crewmate', { to: 'rune', job: 'Write a test for the parser module.' }),
+    ],
+    (ctx) => {
+      seen.results = JSON.stringify(ctx.messages.filter((m) => m.role === 'toolResult'))
+      return [tool('reply_user', { text: 'Done.', final: true })]
+    },
+  ])
+  scripted(resolver, 'mock/researcher', [['ok']])
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), quietMs: QUIET_MS })
+  const { colonyId } = await chats.send('Test the parser', {
+    mode: 'orchestrated',
+    leadModel: 'mock/lead',
+    roster: [{ role: 'researcher', model: 'mock/researcher' }],
+    judgeModel: 'mock/judge',
+  })
+  const s = await waitFor(colonyId)
+  const onCall = /\b([a-z]+) \(researcher\) on call/.exec(seen.results ?? '')?.[1]
+  expect(onCall).toBeDefined()
+  expect(seen.results).toContain(`rune is not one of your crewmates on call`)
+  expect(seen.results).toContain(`${onCall} (researcher)`)
+  // Nobody joined under the unknown name, or at all.
+  expect(Object.values(s.agents).map((a) => a.info.name)).toEqual(['lead'])
+  await chats.stopAll()
+})
+
 test('a round that took real work is reviewed for a skill; kept, it is learned, and /learn can improve it', async () => {
   const { SkillLibrary } = await import('../src/skills.ts')
   const { SkillProposalStore, parseReview } = await import('../src/skill-learning.ts')
