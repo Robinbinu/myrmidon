@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve, sep } from 'node:path'
-import { freePort, myrmidonHome, pageUrl, runningServer, startServer } from '../src/server.ts'
+import { freePort, myrmidonHome, overlayUrl, pageUrl, runningServer, startServer } from '../src/server.ts'
 
 const FAKE = [process.execPath, join(import.meta.dir, 'fake-cli.ts')]
 let home: string
@@ -86,7 +86,7 @@ function serverPids(home: string): { pid: number; ppid: number } {
   return JSON.parse(readFileSync(join(home, 'server.json'), 'utf8'))
 }
 
-test('the server the app started stops when the app is killed, and removes server.json', async () => {
+test('the server the app started stops when the app is killed, and its server.json goes with it', async () => {
   const app = Bun.spawn([process.execPath, join(import.meta.dir, 'server-parent.ts'), home], {
     stdout: 'pipe',
   })
@@ -99,6 +99,9 @@ test('the server the app started stops when the app is killed, and removes serve
     expect(children.every(alive)).toBe(true)
     app.kill('SIGKILL')
     expect(await gone(children)).toEqual([])
+    // Where there are signals the server removes server.json as it stops; Windows can only end it, so there the next
+    // reader finds its pid gone and removes the file. Either way nothing takes it for a running server.
+    expect(await runningServer(home)).toBeUndefined()
     expect(existsSync(join(home, 'server.json'))).toBe(false)
   } finally {
     for (const pid of [app.pid, ...children])
@@ -127,8 +130,10 @@ for (const platform of ['darwin', 'linux', 'win32'] as const)
     const { pid, ppid } = serverPids(home)
     await server.stop()
     expect(await gone([pid, ppid])).toEqual([])
-    // Where there are signals, SIGTERM lets it stop its chats; Windows goes straight to the leash's firm stop.
-    if (platform !== 'win32') expect(readFileSync(join(home, 'stopped-by'), 'utf8')).toBe('SIGTERM')
+    // Where there are signals, SIGTERM lets it stop its chats; Windows goes straight to the leash's firm stop. A
+    // Windows host cannot deliver a SIGTERM the server could catch, whichever system's path it takes.
+    if (platform !== 'win32' && process.platform !== 'win32')
+      expect(readFileSync(join(home, 'stopped-by'), 'utf8')).toBe('SIGTERM')
   })
 
 test('another server writing server.json for the same home is not taken for the one the app started', async () => {
@@ -143,4 +148,10 @@ test('another server writing server.json for the same home is not taken for the 
   } finally {
     other.kill('SIGKILL')
   }
+})
+
+test("the overlay windows load the dashboard's page at /overlay, with its token", () => {
+  expect(overlayUrl('http://127.0.0.1:4318/?chat=a#token=t0k')).toBe(
+    'http://127.0.0.1:4318/overlay#token=t0k',
+  )
 })

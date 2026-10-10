@@ -265,7 +265,11 @@ export const channelCopy = {
                 ? r.target === '*'
                   ? 'every MCP tool'
                   : `every ${r.target} tool`
-                : r.target,
+                : r.kind === 'ssh-host'
+                  ? r.target === '*'
+                    ? 'every remote host'
+                    : `everything on ${r.target}`
+                  : r.target,
         )
         .join(' and '),
     deny: 'Deny',
@@ -353,9 +357,13 @@ export const channelCopy = {
     read: (path: string) => `reading ${path}`,
     edit: (path: string) => `editing ${path}`,
     search: (query: string) => `searching “${query}”`,
+    find: (query: string) => `looking for “${query}” in the code`,
+    github: (op: string) => `on GitHub (${op})`,
     fetch: 'reading a page',
     browser: 'using the browser',
     publish: (name: string) => `publishing ${name}`,
+    picture: (prompt: string) => `drawing “${prompt}”`,
+    speech: 'recording audio',
     crewmate: 'bringing in a crewmate',
     askCrewmate: (name: string) => `asking ${name}`,
     tasks: 'planning tasks',

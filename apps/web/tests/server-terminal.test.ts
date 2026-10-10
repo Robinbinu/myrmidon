@@ -39,23 +39,30 @@ function openTerminal(server: WebServer, project: string) {
     headers: { origin: base.origin, authorization: `Bearer ${server.token}` },
   } as never)
   ws.binaryType = 'arraybuffer'
+  const type = (data: string) => ws.send(JSON.stringify({ type: 'input', data }))
   const seen = { text: '', controls: [] as { type: string; name?: string | null }[] }
   const decoder = new TextDecoder()
   ws.onmessage = (e) => {
-    if (typeof e.data === 'string') seen.controls.push(JSON.parse(e.data))
-    else seen.text += decoder.decode(new Uint8Array(e.data as ArrayBuffer), { stream: true })
+    if (typeof e.data === 'string') {
+      seen.controls.push(JSON.parse(e.data))
+      return
+    }
+    const text = decoder.decode(new Uint8Array(e.data as ArrayBuffer), { stream: true })
+    seen.text += text
+    // Windows' ConPTY asks where the cursor is before it takes input, as the page's terminal would answer.
+    if (text.includes('\x1b[6n')) type('\x1b[1;1R')
   }
   const opened = new Promise<void>((resolve) => {
     ws.onopen = () => resolve()
   })
-  const type = (data: string) => ws.send(JSON.stringify({ type: 'input', data }))
   return { ws, seen, opened, type }
 }
 
-async function until(check: () => boolean, ms = 20_000) {
+/** Waits for `check`; on timing out, says what `shown` gives (what the terminals showed). */
+async function until(check: () => boolean, shown: () => unknown = () => '', ms = 20_000) {
   const end = Date.now() + ms
   while (!check()) {
-    if (Date.now() > end) throw new Error('timed out')
+    if (Date.now() > end) throw new Error(`timed out; ${JSON.stringify(shown())}`)
     await Bun.sleep(50)
   }
 }
@@ -73,17 +80,21 @@ test('several terminals run their own shells, and each says what runs in its for
   try {
     await Promise.all([one.opened, two.opened])
     // The arithmetic is done by the shell, so the typed line's echo alone never satisfies the check.
-    one.type('echo first-$((20+1))\n')
-    two.type('echo second-$((40+2))\n')
-    await until(() => one.seen.text.includes('first-21') && two.seen.text.includes('second-42'))
+    one.type('echo first-$((20+1))\r')
+    two.type('echo second-$((40+2))\r')
+    const seen = () => ({ one: one.seen, two: two.seen })
+    await until(() => one.seen.text.includes('first-21') && two.seen.text.includes('second-42'), seen)
     expect(one.seen.text).not.toContain('second-42')
     expect(two.seen.text).not.toContain('first-21')
 
-    one.type('sleep 30\n')
-    await until(() => one.seen.controls.some((c) => c.type === 'process' && c.name === 'sleep 30'))
+    // A program, not PowerShell's own sleep (Start-Sleep), which runs inside the shell and is no process to name.
+    // Under ConPTY PowerShell drops the first key of the line after a command, typed this way: a space goes first.
+    await until(() => /first-21\s*\S/.test(one.seen.text), seen)
+    one.type(process.platform === 'win32' ? ' sleep.exe 30\r' : 'sleep 30\r')
+    await until(() => one.seen.controls.some((c) => c.type === 'process' && c.name === 'sleep 30'), seen)
     // Back at the prompt the shell is idle again: no command runs in the foreground.
     one.type('\x03')
-    await until(() => one.seen.controls.at(-1)?.name === null)
+    await until(() => one.seen.controls.at(-1)?.name === null, seen)
     // The idle terminal never had anything to report.
     expect(two.seen.controls).toEqual([])
   } finally {

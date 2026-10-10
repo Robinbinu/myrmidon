@@ -5,8 +5,10 @@ import {
   mkdirSync,
   readdirSync,
   realpathSync,
+  rmdirSync,
   rmSync,
   symlinkSync,
+  unlinkSync,
 } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { SKIP_DIRS } from './workspace.ts'
@@ -56,6 +58,13 @@ async function run(
   return { code, out, err }
 }
 
+/** Removes a link to a folder, never what it points to: a junction on Windows is removed as an empty folder is. */
+function unlink(path: string) {
+  if (!lstatSync(path, { throwIfNoEntry: false })?.isSymbolicLink()) return
+  if (process.platform === 'win32') rmdirSync(path)
+  else unlinkSync(path)
+}
+
 async function git(cwd: string, args: string[], env: Record<string, string> = {}, input?: string) {
   const r = await run(cwd, args, env, input)
   if (r.code !== 0) throw new Error(`git ${args[0]} failed: ${r.err.trim() || `exit ${r.code}`}`)
@@ -101,7 +110,7 @@ export class ProjectWorktrees {
     const top = await run(project, ['rev-parse', '--show-toplevel'])
     if (top.code !== 0) return undefined
     const prefix = (await git(project, ['rev-parse', '--show-prefix'])).trim()
-    return new ProjectWorktrees(realpathSync(top.out.trim()), prefix, root, colony)
+    return new ProjectWorktrees(realpathSync.native(top.out.trim()), prefix, root, colony)
   }
 
   get(agent: string): { workdir: string; branch: string } | undefined {
@@ -123,7 +132,7 @@ export class ProjectWorktrees {
       await git(this.top, ['worktree', 'add', '-q', '-B', branch, path, base])
       await git(this.top, ['update-ref', baseRef, base])
     }
-    const real = realpathSync(path)
+    const real = realpathSync.native(path)
     const links = this.linkDependencies(real)
     const tree: Tree = { agent, branch, path: real, workdir: join(real, this.prefix), baseRef, links }
     this._trees.set(agent, tree)
@@ -219,6 +228,24 @@ export class ProjectWorktrees {
     }
   }
 
+  /** Commits the worktree's changes as one kept trial of an experiment (autoresearch) and returns the commit. */
+  async keep(agent: string, message: string): Promise<string> {
+    const tree = this._trees.get(agent)
+    if (!tree) throw new Error(`${agent} has no worktree`)
+    return this.commitWork(tree, message)
+  }
+
+  /**
+   * Drops the worktree's changes since its last commit (an experiment's trial that did not improve), new files
+   * included; the linked dependency folders stay.
+   */
+  async revert(agent: string): Promise<void> {
+    const tree = this._trees.get(agent)
+    if (!tree) throw new Error(`${agent} has no worktree`)
+    await git(tree.path, ['reset', '-q', '--hard', 'HEAD'])
+    await git(tree.path, ['clean', '-fdq', '--', '.', ...tree.links.map((l) => `:(exclude)${l}`)])
+  }
+
   /**
    * Removes worktrees whose changes are all in the project folder; one holding unmerged changes stays, with its
    * branch, so nothing is lost.
@@ -232,6 +259,8 @@ export class ProjectWorktrees {
         const base = (await git(this.top, ['rev-parse', tree.baseRef])).trim()
         kept = (await this.treeOf(tip)) !== (await this.treeOf(base))
         if (!kept) {
+          // The links go first, as links: Git for Windows leaves a worktree's folder behind when a junction is in it.
+          for (const link of tree.links) unlink(join(tree.path, link))
           await git(this.top, ['worktree', 'remove', '--force', tree.path])
           await git(this.top, ['branch', '-D', tree.branch])
           await git(this.top, ['update-ref', '-d', tree.baseRef])
@@ -247,7 +276,15 @@ export class ProjectWorktrees {
 
   /** Commits everything in the worktree (except linked dependencies) and returns the branch tip. */
   private async commitWork(tree: Tree, message: string): Promise<string> {
-    await git(tree.path, ['add', '-A', '--', '.', ...tree.links.map((l) => `:(exclude)${l}`)])
+    // Only links git does not ignore already are excluded: `git add` refuses a pathspec naming an ignored path, and
+    // Git for Windows takes a junction for the folder it points to, which `node_modules/` ignores.
+    const ignored = tree.links.length
+      ? new Set(
+          (await run(tree.path, ['check-ignore', '--', ...tree.links])).out.split(/\r?\n/).filter(Boolean),
+        )
+      : new Set<string>()
+    const excluded = tree.links.filter((l) => !ignored.has(l)).map((l) => `:(exclude)${l}`)
+    await git(tree.path, ['add', '-A', '--', '.', ...excluded])
     const staged = await git(tree.path, ['diff', '--cached', '--name-only'])
     if (staged.trim()) await git(tree.path, ['commit', '-q', '--no-verify', '-m', message], IDENTITY)
     return (await git(tree.path, ['rev-parse', 'HEAD'])).trim()

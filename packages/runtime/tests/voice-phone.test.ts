@@ -3,11 +3,11 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { MyrEvent } from '@myrmidon/protocol'
-import type { Context as LlmContext } from '@oh-my-pi/pi-ai'
-import { createMockModel, type MockContent } from '@oh-my-pi/pi-ai/providers/mock'
 import { channelCopy } from '../src/channels/copy.ts'
 import { twilioSignature } from '../src/channels/index.ts'
 import { ModelResolver } from '../src/models.ts'
+import type { Context as LlmContext } from '../src/omp/ai.ts'
+import { createMockModel, type MockContent } from '../src/omp/mock.ts'
 import { SettingsStore } from '../src/settings.ts'
 import { mulawDecode, mulawEncode, Resampler, resample, wav } from '../src/voice/audio.ts'
 import type { CallChats } from '../src/voice/call.ts'
@@ -327,9 +327,9 @@ test('a phone call: the caller speaks, the call model answers, and its speech go
   const ticket = await ticketIn(await ring({ From: ME }))
   const twilio = twilioSocket(line)
   twilio.start(ticket)
-  // The greeting, by the owner's name.
+  // The greeting, by the owner's name (drawn from the moment, so its words vary).
   await until(() => twilio.media().length === 1)
-  expect(said[0]).toBe("Hi Robin, I'm listening.")
+  expect(said[0]).toContain('Robin')
   heard.push('what time is it')
   twilio.speak()
   await until(() => twilio.media().length === 2)
@@ -353,7 +353,7 @@ test('a phone call: the caller speaks, the call model answers, and its speech go
   expect(saved).toHaveLength(1)
   expect(saved[0]?.phone).toBe(ME)
   expect(saved[0]?.turns.map((t) => [t.who, t.text])).toEqual([
-    ['voice', "Hi Robin, I'm listening."],
+    ['voice', said[0] ?? ''],
     ['person', 'what time is it'],
     ['voice', 'It is half past four.'],
   ])

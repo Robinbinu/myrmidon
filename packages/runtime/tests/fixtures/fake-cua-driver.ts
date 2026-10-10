@@ -35,6 +35,12 @@ const APPS = [
   { name: 'Terminal', bundle_id: 'com.apple.Terminal', pid: 103 },
   { name: 'Messages', bundle_id: 'com.apple.MobileSMS', pid: 104 },
   { name: 'Myrmidon', bundle_id: 'dev.myrmidon.app', pid: 105 },
+  // A Chromium browser: macOS gives its windows no accessibility tree unless an assistive tool asked for one.
+  { name: 'Arc', bundle_id: 'company.thebrowser.Browser', pid: 106 },
+  // A window the driver cannot capture (minimised, on another Space, or capture refused).
+  { name: 'Figma', bundle_id: 'com.figma.Desktop', pid: 107 },
+  // An Electron app, like Arc without a tree, but one agents may click in.
+  { name: 'Slack', bundle_id: 'com.tinyspeck.slackmacgap', pid: 108 },
 ]
 const window = (pid: number) => ({
   window_id: pid * 10,
@@ -50,7 +56,7 @@ const tool = (name: string, properties: Record<string, unknown> = {}) => ({
   description: name,
   inputSchema: { type: 'object', properties },
 })
-const tools = [
+const base = [
   tool('list_apps'),
   tool('launch_app', { bundle_id: {} }),
   tool('list_windows', { pid: {} }),
@@ -60,20 +66,32 @@ const tools = [
     max_dimension: {},
     max_elements: {},
     include_screenshot: {},
+    include_accessibility_tree: {},
     query: {},
   }),
-  tool('click'),
-  tool('double_click'),
-  tool('right_click'),
+  // As in Cua Driver 0.28: input tools can be told to bring the window forward first.
+  tool('click', { delivery_mode: {} }),
+  tool('double_click', { delivery_mode: {} }),
+  tool('right_click', { delivery_mode: {} }),
   tool('move_cursor'),
-  tool('drag'),
-  tool('scroll'),
-  tool('type_text'),
-  tool('press_key'),
-  tool('hotkey'),
+  tool('drag', { delivery_mode: {} }),
+  tool('scroll', { delivery_mode: {} }),
+  tool('type_text', { delivery_mode: {} }),
+  tool('press_key', { delivery_mode: {} }),
+  tool('hotkey', { delivery_mode: {} }),
   tool('zoom'),
   tool('check_permissions'),
 ]
+// FAKE_CUA_SESSIONS=1 stands in for a driver with sessions: one cursor per session, which can be hidden.
+const tools = process.env.FAKE_CUA_SESSIONS
+  ? [
+      ...base.map((t) => ({
+        ...t,
+        inputSchema: { ...t.inputSchema, properties: { ...t.inputSchema.properties, session: {} } },
+      })),
+      tool('set_agent_cursor_enabled', { session: {}, enabled: {} }),
+    ]
+  : base
 
 function answer(name: string, args: Record<string, unknown>) {
   const ok = (text: string, structuredContent?: unknown) => ({
@@ -98,9 +116,16 @@ function answer(name: string, args: Record<string, unknown>) {
         { element_index: 0, role: 'AXTextArea', label: 'Body', frame: { x: 100, y: 100, w: 1600, h: 800 } },
         { element_index: 1, role: 'AXButton', label: 'Send', frame: { x: 1500, y: 950, w: 100, h: 40 } },
       ]
+      // As Cua Driver 0.28 answered for Arc in a real chat: not an error, but an empty tree with `degraded_reason` and,
+      // that time, no screenshot either; asked for the screenshot alone, it gives one.
+      const unresolved = (args.pid === 106 || args.pid === 108) && args.include_accessibility_tree !== false
+      // A window it cannot capture: no image, and why in `screenshot_error`.
+      const uncaptured = args.pid === 107
       return {
         content: [
-          ...(args.include_screenshot === false ? [] : [{ type: 'image', data: PNG, mimeType: 'image/png' }]),
+          ...(args.include_screenshot === false || uncaptured || unresolved
+            ? []
+            : [{ type: 'image', data: PNG, mimeType: 'image/png' }]),
           { type: 'text', text: `window_id=${args.window_id}` },
         ],
         structuredContent: {
@@ -110,7 +135,19 @@ function answer(name: string, args: Record<string, unknown>) {
           screenshot_width: width,
           screenshot_height: height,
           snapshot_id: 's0000abcd',
-          elements,
+          elements: args.include_accessibility_tree === false || unresolved ? [] : elements,
+          ...(unresolved
+            ? {
+                degraded: true,
+                degraded_reason: `ax_window_unresolved: window_id ${args.window_id} exists and is owned by pid ${args.pid}, but none of the 0 AXWindow element(s) under that pid reports this CGWindowID.`,
+              }
+            : {}),
+          ...(uncaptured
+            ? {
+                screenshot_frame_valid: false,
+                screenshot_error: { code: 'px_capture_unavailable', reason: 'the window is not on screen' },
+              }
+            : {}),
         },
       }
     }

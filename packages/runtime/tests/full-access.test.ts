@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { type ColonyState, type EventPayloads, foldColony } from '@myrmidon/protocol'
-import { createMockModel, type MockContent } from '@oh-my-pi/pi-ai/providers/mock'
+import { pendingOn } from '../../../tests/platform.ts'
 import {
   bootRuntime,
   ChatService,
@@ -18,6 +18,7 @@ import {
   SettingsStore,
   type TeamConfig,
 } from '../src/index.ts'
+import { createMockModel, type MockContent } from '../src/omp/mock.ts'
 import type { OmpRuntime } from '../src/omp/runtime.ts'
 
 let home: string
@@ -27,7 +28,7 @@ let runtime: Runtime
 beforeEach(async () => {
   home = mkdtempSync(join(tmpdir(), 'myr-full-'))
   // A folder that is neither the project nor any agent's scratch: only full access reaches it.
-  outside = realpathSync(mkdtempSync(join(tmpdir(), 'myr-outside-')))
+  outside = realpathSync.native(mkdtempSync(join(tmpdir(), 'myr-outside-')))
   runtime = await bootRuntime(home)
 })
 
@@ -145,8 +146,8 @@ test.skipIf(detectSandbox().kind === 'none')(
 test('a project set to full access has it with the sandbox on; a read-only project never does', async () => {
   const settings = new SettingsStore(home)
   const projects = new ProjectStore(home)
-  const folder = realpathSync(mkdtempSync(join(tmpdir(), 'myr-full-project-')))
-  const viewing = realpathSync(mkdtempSync(join(tmpdir(), 'myr-read-project-')))
+  const folder = realpathSync.native(mkdtempSync(join(tmpdir(), 'myr-full-project-')))
+  const viewing = realpathSync.native(mkdtempSync(join(tmpdir(), 'myr-read-project-')))
   try {
     const full = projects.setPermissions(projects.add(folder).id, { mode: 'full', allow: [] })
     const readOnly = projects.setPermissions(projects.add(viewing).id, { mode: 'read-only', allow: [] })
@@ -218,7 +219,7 @@ test('full access keeps the approvals the person set: per-tool ask rules, and As
   // write in the project waits for the person.
   settings.set({ ...settings.get(), permissions: { preset: 'full', rules: [] } })
   const projects = new ProjectStore(home)
-  const folder = realpathSync(mkdtempSync(join(tmpdir(), 'myr-ask-project-')))
+  const folder = realpathSync.native(mkdtempSync(join(tmpdir(), 'myr-ask-project-')))
   try {
     const project = projects.setPermissions(projects.add(folder).id, { mode: 'ask', allow: [] })
     const careful = models([
@@ -321,6 +322,7 @@ test('on a computer with no sandbox, commands are refused unless the round has f
     start: () => {
       throw new Error('confined start on a machine with no sandbox')
     },
+    env: () => ({}),
   }
   const spec = (fullAccess: boolean) =>
     ({

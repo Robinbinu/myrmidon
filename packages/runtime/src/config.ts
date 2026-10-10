@@ -1,3 +1,5 @@
+import type { CompactionMethod } from '@myrmidon/protocol'
+
 /**
  * The runtime's tunable limits, timeouts and retry counts, in one place so they can be read and changed together.
  * Some texts state a value too (an error saying "over 64 KB", say); change those with it.
@@ -9,6 +11,13 @@
 export const TURN_TIMEOUT_MS = 15 * 60_000
 /** Retries for a transient model failure (rate limit, overload, timeout) before the person is asked. */
 export const MODEL_RETRIES = 2
+/** The most fallback models the person may line up after the lead's model, and after the crew's. */
+export const MAX_FALLBACKS = 5
+/**
+ * How long a model that failed stays out of an agent's fallbacks: past it, the model (the configured one first) is
+ * tried again when the one the agent fell back to fails too.
+ */
+export const FALLBACK_COOLDOWN_MS = 5 * 60_000
 /** HTTP statuses that make a model failure transient (worth a retry): timeouts, conflicts, rate limits, overloads. */
 export const TRANSIENT_STATUS = new Set([408, 409, 425, 429, 500, 502, 503, 504, 529])
 /** Turns kept word for word when a new round of the chat starts; older tool output is elided. */
@@ -19,6 +28,27 @@ export const KEEP_TURNS = 4
 /** The recent part kept word for word: this share of the usable window, at least `KEEP_MIN` tokens. */
 export const KEEP_SHARE = 0.25
 export const KEEP_MIN = 2_000
+/**
+ * How a context over the threshold is made to fit, cheapest first (after omp's `compaction.methodOrder`): each method
+ * runs only when the ones before it left the context over the threshold. `shake` elides old bulky tool output, which
+ * the round log keeps; `snapcompact` archives the older part as dense text images, without a model call, for models
+ * that read images (others skip it); `summary` has a model summarize it, and always fits.
+ */
+export const COMPACTION_ORDER: readonly CompactionMethod[] = ['shake', 'snapcompact', 'summary']
+/**
+ * A method settles a pass only if it leaves the context under this share of the threshold, so the next call does not
+ * cross it again at once and redo the work (omp's recovery band).
+ */
+export const COMPACTION_SETTLED = 0.8
+/** Tool results shake leaves alone below this size (text and images): small ones often carry the step's outcome. */
+export const SHAKE_MIN_TOKENS = 250
+/**
+ * Shake skips a pass that frees less than this share of the threshold (at most omp's 4k tokens), since every elision
+ * also invalidates the provider's cached prompt from that message on.
+ */
+export const SHAKE_MIN_SHARE = 0.05
+/** Tool output shake keeps: skill instructions the agent is following, and read_log, which reads elided output back. */
+export const SHAKE_KEPT_TOOLS: readonly string[] = ['use_skill', 'read_log']
 
 // Rounds (colony.ts)
 
@@ -41,6 +71,22 @@ export const BOOTSTRAP_MS = 60_000
 export const HUDDLE_MS = 90_000
 /** Failed final verifications before a round gives up. */
 export const MAX_VERIFY_ROUNDS = 3
+/**
+ * Goal mode (`/goal <condition>: <request>`, after omp's goal mode and `/loop --until`): a goal round checks its
+ * condition on every final answer and goes on while it fails, so it needs caps of its own. The round's spend and token
+ * limits (Settings → Crew & budget) apply as to any round.
+ */
+export const GOAL = {
+  /** Checks before the round gives up on the goal (omp's attempt cap): each failed one costs a full pass of work. */
+  maxChecks: 8,
+  /**
+   * The least time a goal round gets: working until a check passes outlasts one answer's wall. A longer wall set in
+   * Settings still applies.
+   */
+  wallMinutes: 120,
+  /** How long one run of the condition's command may take, like a project check. */
+  commandMs: 300_000,
+} as const
 
 // Prompts (prompt/lint.ts)
 
@@ -50,7 +96,8 @@ export const MAX_VERIFY_ROUNDS = 3
  * (docs/research/2026-10-09-harness-prompts.md §4.3) are you ~150, finish ~80, safety ~200, method ~300, others
  * ~200, person ~200; these sit above them where a heading stacks parts some agents need: the delivery contract under
  * "How you finish", full access or an ask-first project under "Safety", and project rules (or, for a lead with
- * hands-on tools, the lead's method too) under "How to work".
+ * hands-on tools, the lead's method too) under "How to work", and the count of memories left for recall under the
+ * person's instructions.
  */
 export const PROMPT_HEADING_WORDS = {
   you: 210,
@@ -59,7 +106,7 @@ export const PROMPT_HEADING_WORDS = {
   method: 710,
   others: 230,
   person: 210,
-  instructions: 90,
+  instructions: 100,
   environment: 260,
 } as const
 /**
@@ -133,6 +180,19 @@ export const OMP_UNKNOWN = 128_000
 /** models.dev's catalog of model context windows, and how often the cached copy is refreshed (a day). */
 export const MODELS_DEV_URL = 'https://models.dev/api.json'
 export const MODELS_DEV_REFRESH_MS = 24 * 60 * 60_000
+/**
+ * How long one read of every signed-in account's plan limits is reused. Settings and the composer poll it, and
+ * providers rate-limit their usage endpoints (Anthropic's and OpenAI's answer 429 to a burst), so a page left open
+ * must not reach them more often than this. omp keeps its own per-account cache underneath.
+ */
+export const PROVIDER_USAGE_CACHE_MS = 60_000
+/**
+ * The longest one read of every account's limits may take. omp times out each provider call itself; this bounds the
+ * whole read, so one hanging provider cannot hold every poll waiting on it.
+ */
+export const PROVIDER_USAGE_TIMEOUT_MS = 30_000
+/** The used share of a window from which it counts as near its limit (omp's `usage` command turns yellow at 80%). */
+export const PROVIDER_USAGE_WARN = 0.8
 /** omp provider ids whose models.dev entry goes by another name. */
 export const PROVIDER_ALIASES: Record<string, string> = {
   ark: 'volcengine',
@@ -156,10 +216,191 @@ export const FETCH_SHOWN_CHARS = 16_000
 export const FIND_TOOLS_LIMIT = 12
 /** The most characters a tool result carries into the conversation before it is cut. */
 export const MAX_READ_CHARS = 40_000
+/**
+ * The largest PDF, office document, notebook or image fs_read loads to convert: each is read whole into memory, and
+ * a bigger one is better taken apart with the shell.
+ */
+export const READ_DOCUMENT_MAX_BYTES = 50 * 1024 * 1024
+/** Most members an archive may hold for fs_read to open it; the index is built in memory. */
+export const READ_ARCHIVE_MAX_ENTRIES = 200_000
+/** Most bytes a stream archive (tar.gz and the like) decompresses to in memory before fs_read refuses it. */
+export const READ_ARCHIVE_MAX_BYTES = 256 * 1024 * 1024
+/** The largest archive member fs_read extracts to read, so a small zip cannot unpack into gigabytes. */
+export const READ_ARCHIVE_ENTRY_MAX_BYTES = 16 * 1024 * 1024
+/** Most rows an fs_read SQL query returns; a LIMIT and OFFSET in the query page through the rest. */
+export const READ_SQL_MAX_ROWS = 200
 /** How much of each tool result read_log shows under its call; read_log(entry) shows one in full. */
 export const READ_LOG_RESULT_CHARS = 400
 /** Consecutive failures after which an MCP server's tools are refused for the rest of the round. */
 export const MCP_FAILURE_LIMIT = 3
+
+// Media (media.ts): generate_image and tts
+
+/**
+ * The largest picture or sound file generate_image and tts publish: a 1536px PNG or a few minutes of WAV is well past
+ * what an agent writes by hand (MAX_ARTIFACT_BYTES), and the person opens these in the chat.
+ */
+export const MAX_MEDIA_BYTES = 32 * 1024 * 1024
+/** Most images one generate_image call makes; each one is billed. */
+export const MAX_IMAGES_PER_CALL = 4
+/** Most input images one generate_image call edits from (omp's image models take up to a handful). */
+export const MAX_IMAGE_INPUTS = 5
+/** How long one image request may take before it is given up (omp's generate_image allows three minutes). */
+export const IMAGE_TIMEOUT_MS = 3 * 60_000
+/** Most characters tts turns into speech in one call: about ten minutes of speech. */
+export const TTS_MAX_CHARS = 10_000
+/**
+ * Silence between the sentences of a tts file. Each sentence is spoken on its own (local Kitten speaks one at a time)
+ * and trimmed, so without a pause they would run into each other.
+ */
+export const TTS_SENTENCE_GAP_MS = 180
+
+// Code intelligence (code-intel.ts): ast_grep, ast_edit, lsp
+
+/** Most structural matches ast_grep returns; `skip` pages on from there. */
+export const AST_GREP_LIMIT = 50
+/**
+ * Most files one ast_edit may change, and most replacements in all: past either it is refused whole, since a codemod
+ * that big is better narrowed (and in Ask, every file is a card the person reads).
+ */
+export const AST_EDIT_MAX_FILES = 40
+export const AST_EDIT_MAX_REPLACEMENTS = 400
+/** How long one structural search or rewrite may scan before it gives up. */
+export const AST_TIMEOUT_MS = 20_000
+/** How long one lsp call waits on its language server, starting and indexing included. */
+export const LSP_CALL_MS = 60_000
+/** How long a file's diagnostics may take to arrive after it is opened or changed. */
+export const LSP_DIAGNOSTICS_MS = 10_000
+/** A language server nobody asked anything for this long is stopped; the next call starts it again. */
+export const LSP_IDLE_MS = 10 * 60_000
+/** How long a project-wide type check (tsc, cargo check, go vet, pyright) may run. */
+export const LSP_PROJECT_CHECK_MS = 300_000
+/** Most references and workspace symbols lsp lists; the rest are counted. */
+export const LSP_LIST_LIMIT = 100
+
+/**
+ * find (find.ts): omp's cascade, which ranks files by their words, then has a model judge their names, sketches of
+ * their passages and finally the passages whole. omp sizes it for a native judge that is cheap per question; here the
+ * judge is a prompted chat model (the cheapest the person has), so every budget is smaller than omp's (128
+ * candidates, 20 files, 40 passages) to keep one call to a few requests.
+ */
+export const FIND = {
+  /** Files ranked by their words that the judge then ranks by name. */
+  candidates: 64,
+  /** Files per name-ranking request. */
+  nameBatch: 64,
+  /** Files read and cut into passages. */
+  files: 12,
+  /** Passages kept per file read, its best by words. */
+  windows: 12,
+  /** Bytes per passage, as omp cuts them. */
+  windowBytes: 8_192,
+  /** Bytes of each passage's sketch, and of sketches sent in one request. */
+  sketchBytes: 384,
+  sketchStateBytes: 18_000,
+  /** Passages verified whole, across all files, and their bytes per request. */
+  verified: 16,
+  verifyStateBytes: 24 * 1024,
+  /** Sketch score under which a passage is not verified, and passage score from which a file is a hit (omp's). */
+  cutoff: 0.45,
+  threshold: 0.2,
+  /** Judge requests in flight at once. */
+  parallel: 6,
+  /** Hits listed, and line ranges shown per hit. */
+  hits: 10,
+  ranges: 3,
+  /** Most bytes of one file read; the rest of a bigger file is not searched. */
+  readBytes: 4 * 1024 * 1024,
+  /** Wall-clock budget for one call; a stalled judge fails the call instead of holding the turn. */
+  timeoutMs: 60_000,
+} as const
+
+/**
+ * The github tool (github.ts), which runs the GitHub CLI where the agent's commands run. Bounds on how long one `gh`
+ * call and one run_watch may take, and how often run_watch asks: GitHub's API allows 5,000 calls an hour per person.
+ */
+export const GITHUB = {
+  commandMs: 60_000,
+  watchMs: 10 * 60_000,
+  pollMs: 10_000,
+  /** How long the person's GitHub token is kept in memory before gh is asked for it again. */
+  tokenMs: 60_000,
+  /** Items an issue, pull request or run list shows, by default and at most. */
+  listLimit: 20,
+  listMax: 100,
+} as const
+
+// Code cells (cells.ts): eval
+
+/**
+ * The argument that makes a compiled Myrmidon run the JavaScript cell runtime it carries (apps/desktop/src/sidecar.ts),
+ * here rather than in cells.ts so the sidecar can pick the worker without loading the server's modules into it.
+ */
+export const CELL_WORKER_COMMAND = 'cell-worker'
+
+/**
+ * How long one cell may run when the agent names no limit, and the most it may name. A cell past it is stopped with
+ * its runtime (a JavaScript loop cannot be interrupted any other way), so its state is lost.
+ */
+export const CELL_TIMEOUT_S = 30
+export const CELL_MAX_TIMEOUT_S = 300
+/** How long a runtime may take to start in the sandbox (bun or python3, and omp's prelude) before the call fails. */
+export const CELL_START_MS = 20_000
+/** The most of a cell's output the agent reads back; the rest is counted, not kept. */
+export const CELL_OUTPUT_CHARS = 20_000
+/** Pictures one cell may hand back (a chart it displayed), and the largest one, in base64 characters. */
+export const CELL_IMAGES = 2
+export const CELL_IMAGE_CHARS = 2_000_000
+/**
+ * The longest line a runtime may write without a line break (a frame with a picture is one line): past it the runtime
+ * is stopped as runaway rather than held whole in memory.
+ */
+export const CELL_LINE_MAX = 16 * 1024 * 1024
+/** How long a runtime's last output may still arrive after it exits, for the message saying why it stopped. */
+export const CELL_EXIT_DRAIN_MS = 500
+
+// Debugger (debugger.ts): debug
+
+/** How long one request to a debug adapter may take (starting, a breakpoint, a stack, an evaluation). */
+export const DEBUG_REQUEST_MS = 30_000
+/**
+ * How long launch, continue and the steps wait for the program to stop or end when the agent names no limit, and the
+ * most it may name. Past it the program keeps running and the call says so; pause or output reach it later.
+ */
+export const DEBUG_WAIT_S = 30
+export const DEBUG_MAX_WAIT_S = 300
+/** How long ending a session waits for the adapter to stop its program before both are killed. */
+export const DEBUG_END_MS = 2_000
+/** The program's output kept per session (its tail), and the most of what is new that one call shows. */
+export const DEBUG_OUTPUT_CHARS = 64_000
+export const DEBUG_OUTPUT_SHOWN = 4_000
+/** Stack frames listed by default and at most, and variables listed per scope or expanded value. */
+export const DEBUG_FRAMES = 20
+export const DEBUG_MAX_FRAMES = 100
+export const DEBUG_VARIABLES = 100
+/** The longest value shown for one variable or evaluation; the rest is cut. */
+export const DEBUG_VALUE_CHARS = 400
+
+// Security scan (security-scan.ts): security_scan
+
+/** Most files one scan reads for secrets, and the largest it reads; past either the rest is counted, not read. */
+export const SCAN_MAX_FILES = 20_000
+export const SCAN_MAX_FILE_BYTES = 1024 * 1024
+/** Findings listed per check; the rest are counted. */
+export const SCAN_FINDINGS = 100
+/**
+ * OSV.dev, the open vulnerability database (Google's, which npm, PyPI, crates.io and Go advisories feed): packages
+ * are looked up in batches, then the details of each vulnerability listed (at most `perPackage` per package), up to a
+ * limit per scan.
+ */
+export const OSV = {
+  batchUrl: 'https://api.osv.dev/v1/querybatch',
+  vulnUrl: 'https://api.osv.dev/v1/vulns/',
+  batch: 1000,
+  perPackage: 10,
+  details: 40,
+  timeoutMs: 30_000,
+} as const
 
 // Browser (browser.ts)
 
@@ -203,6 +444,13 @@ export const PERSON_BROWSER_VIEWPORTS = {
 
 /** Redirect hops one agent fetch follows, each one checked before anything is sent to it. */
 export const FETCH_MAX_REDIRECTS = 10
+/**
+ * The longest one page reader program (yt-dlp, trafilatura, lynx) may run before it is stopped. omp gives the whole
+ * read its own budget; this bounds a program that ignores it.
+ */
+export const READER_PROGRAM_TIMEOUT_MS = 60_000
+/** The most of a page handed to trafilatura or lynx on stdin; past it the page is cut, as converters cope with. */
+export const READER_PAGE_MAX_BYTES = 10 * 1024 * 1024
 
 // Reviewer (verifier.ts)
 
@@ -218,10 +466,43 @@ export const MAX_DIFF_CHARS = 40_000
 export const OBSERVED_CALLS = 12
 export const OBSERVED_CHARS = 1_500
 
+// Advisor (advisor.ts)
+
+/**
+ * The advisor: a second model that reads an agent's latest steps and steers it with a short note when it sees a
+ * concrete problem. Every number here bounds what it costs, since it runs beside every agent of the round.
+ */
+export const ADVISOR = {
+  /** Review every Nth step that called tools, per agent (omp's review interval); 1 is every such step. */
+  every: 1,
+  /** Model calls per round across all agents; past it the round goes on unadvised. */
+  callsPerRound: 20,
+  /**
+   * The share of the round's spend or token limit past which the advisor stops: what is left belongs to the agents
+   * finishing the work, not to commentary on it.
+   */
+  budgetShare: 0.8,
+  /** The latest assistant steps the advisor reads (with their tool calls and results). */
+  steps: 4,
+  /** How much of each piece it reads: the agent's text, one tool call's arguments, one tool result, the goal. */
+  textChars: 1_200,
+  argsChars: 400,
+  resultChars: 800,
+  goalChars: 2_000,
+  /** The longest note it may send; a note is meant to be read in a glance. */
+  noteChars: 400,
+  /** Output tokens for its reply: a JSON line with one short note. */
+  maxTokens: 400,
+  /** A review slower than this is dropped: by then the agent has moved past what it saw. */
+  timeoutMs: 60_000,
+} as const
+
 // Sandbox and hooks (sandbox.ts, hooks.ts)
 
 /** The most output a sandboxed command returns, so a noisy build cannot flood the agent. */
 export const SANDBOX_MAX_OUTPUT = 64 * 1024
+/** How long a command stopped for running too long may still take to close its output before the run ends. */
+export const SANDBOX_TIMED_OUT_READ_MS = 1_000
 /**
  * Toolchain folders in the person's home (relative to it) that sandboxed commands may read, never write: where
  * bun, node version managers, rustup, uv, pyenv and the like install the programs on PATH. Commands get a private
@@ -417,10 +698,13 @@ export function sandboxSystemBins(
 export const SANDBOX_SYSTEM_BINS = sandboxSystemBins()
 /**
  * Folders outside the home that sandboxed commands may not read either: other disks, the folder all accounts share,
- * and the per-user temp and cache folders where other apps (and other chats) leave files; on Linux the person's
- * runtime folder too, which holds their session's sockets (D-Bus, the keyring's, gpg's and ssh's agents). Folders a
- * command may read or write inside them (a project in the temp folder, or on a disk in /mnt) open again. Windows has
- * no confinement of its own for these to apply to: there commands run in WSL, under Linux's rules.
+ * and the per-user temp and cache folders where other apps (and other chats) leave files. On Linux also every
+ * account's home, the X server's sockets (the screen, input and the clipboard, which macOS keeps from commands by
+ * denying the window server and the pasteboard), and the person's runtime folder, which holds their session's
+ * sockets: D-Bus, Wayland's, the keyring's, gpg's and ssh's agents (sandbox.ts adds `XDG_RUNTIME_DIR` when it is
+ * elsewhere). Folders a command may read or write inside them (a project in the temp folder, or on a disk in /mnt)
+ * open again. Windows has no confinement of its own for these to apply to: there commands run in WSL, under Linux's
+ * rules.
  */
 export function sandboxHiddenRoots(
   platform: NodeJS.Platform = process.platform,
@@ -428,7 +712,14 @@ export function sandboxHiddenRoots(
 ): readonly string[] {
   if (platform === 'darwin') return ['/Volumes', '/Users/Shared', '/private/var/folders']
   if (platform === 'linux')
-    return ['/mnt', '/media', '/run/media', ...(uid === undefined ? [] : [`/run/user/${uid}`])]
+    return [
+      '/mnt',
+      '/media',
+      '/run/media',
+      '/home',
+      '/tmp/.X11-unix',
+      ...(uid === undefined ? [] : [`/run/user/${uid}`]),
+    ]
   return []
 }
 export const SANDBOX_HIDDEN_ROOTS = sandboxHiddenRoots()
@@ -491,6 +782,30 @@ export const SETUP_ENV_KEYS: Readonly<Record<string, string>> = {
 export const INSTRUCTIONS_MAX_TEXT = 24 * 1024
 export const MAX_IMPORT_DEPTH = 4
 export const INSTRUCTIONS_MAX_DIRS = 3000
+/**
+ * Other tools' rule files (rule-files.ts): how many are read from one project, the largest one read at all (a bigger
+ * file is not a rule anyone wrote by hand), how much of a file-scoped rule comes with a matching file before it is cut
+ * to a pointer, and how many conditional rules the prompt lists by name.
+ */
+export const RULES_MAX_FILES = 200
+export const RULE_FILE_MAX_BYTES = 256 * 1024
+export const RULE_MAX_TEXT = 8 * 1024
+export const RULES_MAX_LISTED = 50
+/**
+ * Stream rules (stream-rules.ts): how many replies one agent turn may have stopped and rewritten before the rest of
+ * the turn goes unchecked. Each stop bills the abandoned part of a reply and a second request, and a model that keeps
+ * breaking rules after their guidance would otherwise loop.
+ */
+export const STREAM_RULE_RETRIES = 3
+/**
+ * Drafting a stream rule from a complaint (`/rule`): attempts before the last candidate is shown unconfirmed (omp's
+ * /omfg makes 3), how long each may take, and how much of the reply the drafting model sees: its last outputs, each
+ * cut to a length.
+ */
+export const RULE_DRAFT_ATTEMPTS = 3
+export const RULE_DRAFT_MS = 90_000
+export const RULE_DRAFT_OUTPUTS = 12
+export const RULE_DRAFT_OUTPUT_CHARS = 4_000
 /** The largest diff patch returned, and which untracked files are shown in full: the first 50, up to 256 KB each. */
 export const MAX_PATCH = 512 * 1024
 export const MAX_UNTRACKED_SHOWN = 50
@@ -507,9 +822,38 @@ export const MAX_FIND_SCAN = 50_000
 /** The longest memory, and the most memories kept, so memory stays a short list of facts. */
 export const MEMORY_MAX_TEXT = 400
 export const MAX_MEMORIES = 300
-/** How much memory a round's prompt carries at most. */
-export const RECALL_COUNT = 40
+/**
+ * How much memory a round's prompt carries at most: every kept memory while they fit, past that the newest
+ * `MEMORY_PROMPT_PREFERENCES` preferences and the memories most relevant to the request; agents `recall` the rest.
+ */
+export const MEMORY_PROMPT_COUNT = 15
+export const MEMORY_PROMPT_PREFERENCES = 6
 export const RECALL_CHARS = 6_000
+/** The most memories one `recall` call returns, and how much of a query it matches on. */
+export const RECALL_TOOL_COUNT = 10
+export const RECALL_QUERY_CHARS = 2_000
+/** Relevance ranking: how much freshness weighs against matching words, and MMR's relevance-over-diversity balance. */
+export const RECALL_RECENCY_WEIGHT = 0.2
+export const RECALL_MMR_LAMBDA = 0.7
+/** Word overlap (0-1) at which two memories say the same thing, so a suggestion of it is not new. */
+export const MEMORY_SAME_SIMILARITY = 0.8
+/**
+ * The memory reviewer (memory-review.ts): suggestions per round at most, how little the person must have said in a
+ * round to be read at all, how much of what they said and of the answer it reads, and how long one call may take.
+ */
+export const MEMORY_EXTRACT_MAX = 3
+export const MEMORY_EXTRACT_MIN_CHARS = 15
+export const MEMORY_EXTRACT_PERSON_CHARS = 4_000
+export const MEMORY_EXTRACT_ANSWER_CHARS = 1_500
+export const MEMORY_REVIEW_MS = 60_000
+/**
+ * Tidying memories up (reflect): the most kept memories it reads and merges it suggests per pass; after a round, it
+ * runs at most this often, and only when two kept memories of one scope overlap at least this much.
+ */
+export const MEMORY_REFLECT_INPUT = 120
+export const MEMORY_REFLECT_MAX = 8
+export const MEMORY_REFLECT_EVERY_MS = 24 * 60 * 60_000
+export const MEMORY_REFLECT_OVERLAP = 0.4
 /** The most of a skill file an agent reads at once. */
 export const SKILL_MAX_FILE_CHARS = 40_000
 /** Bundled files listed per skill, so a big skill does not flood the agent. */
@@ -519,6 +863,22 @@ export const SKILL_STALE_DAYS = 30
 export const SKILL_ARCHIVE_DAYS = 90
 /** How often the server looks for learned skills to retire. */
 export const SKILL_CURATE_EVERY_MS = 6 * 60 * 60_000
+
+// Installing plugins and skills (install-sources.ts, marketplaces.ts, skill-installs.ts)
+
+/**
+ * How long a fetched plugin or skill waits for the person to confirm it after they saw what it holds; then its staged
+ * copy is deleted and they review it again.
+ */
+export const INSTALL_REVIEW_MS = 15 * 60_000
+/** Where npm packages are looked up, unless a marketplace entry names its own registry. */
+export const NPM_REGISTRY_URL = 'https://registry.npmjs.org'
+/** omp's skills registry (skills.omp.sh): search it and install a skill from Settings → Skills. */
+export const SKILLS_REGISTRY_URL = 'https://skills.omp.sh'
+/** One registry or catalog request; a download that hangs fails instead of holding the review open. */
+export const INSTALL_FETCH_TIMEOUT_MS = 60_000
+/** The largest package tarball fetched: skills registry packages are capped at 5 MB, plugins get more room. */
+export const INSTALL_MAX_BYTES = 50 * 1024 * 1024
 /** The largest script a made tool may have, to keep tools small. */
 export const MADE_TOOL_MAX_SOURCE = 64 * 1024
 
@@ -548,6 +908,11 @@ export const CUA_DRIVER_FALLBACK_ENV = ['PATH', 'HOME', 'USER', 'LOGNAME', 'SHEL
 export const COMPUTER_START_MS = 15_000
 export const COMPUTER_CALL_MS = 60_000
 /** How long a computer action waits for another agent to let go of the app (or the foreground) before it gives up. */
+/**
+ * The desktop app's overlay asks for the agents' pointers a few times a second while an agent drives the Mac; when it
+ * has not asked for this long it is gone, and the driver draws its own cursor again.
+ */
+export const COMPUTER_OVERLAY_SEEN_MS = 3_000
 export const COMPUTER_LOCK_WAIT_MS = 30_000
 /** Accessibility elements listed with a screenshot, and walked per window (Electron apps have tens of thousands). */
 export const COMPUTER_ELEMENTS_SHOWN = 120
@@ -698,6 +1063,8 @@ export const RECOVERY_GRACE_MS = 60_000
 /** The most chats one message search returns, and how much of the matching message shows around the match. */
 export const CHAT_SEARCH_LIMIT = 50
 /** The person's past messages the composer learns its suggestions from, most recent first. */
+/** Above this share of control characters in its first bytes, a file without NUL bytes is read as binary. */
+export const READ_BINARY_CONTROL_SHARE = 0.1
 export const SUGGEST_CORPUS = 2_000
 /** The longest name a chat group may have, as it fits a sidebar heading. */
 export const CHAT_GROUP_NAME_MAX = 40
@@ -867,6 +1234,16 @@ export const VOICE_TRANSCRIPT_DAYS = 30
 /** How often a running gateway drops transcripts older than that. */
 export const VOICE_TRANSCRIPT_PRUNE_MS = 24 * 60 * 60_000
 /**
+ * A call's greeting (voice/greeting.ts): at most VOICE_GREETING_WORDS words, never one of the person's last
+ * VOICE_GREETING_RECENT lines. A chat's title is said only when it has at most VOICE_GREETING_TITLE_WORDS words and
+ * VOICE_GREETING_TITLE_CHARS characters; a call within VOICE_GREETING_AGAIN_MS of the last one opens with "again".
+ */
+export const VOICE_GREETING_WORDS = 25
+export const VOICE_GREETING_RECENT = 5
+export const VOICE_GREETING_TITLE_WORDS = 4
+export const VOICE_GREETING_TITLE_CHARS = 32
+export const VOICE_GREETING_AGAIN_MS = 15 * 60_000
+/**
  * Cloud voice providers (voice/providers.ts). A streaming speech to text is asked for the words of a turn once it ends,
  * and given VOICE_STT_FINISH_MS to send them before the turn falls back to a batch transcription. Speech that streams
  * in is passed on in pieces of at least VOICE_TTS_CHUNK_MS (a provider's body arrives in small parts). A request to a
@@ -907,3 +1284,137 @@ export const CHAT_TITLE_MIN_WINDOW = 16_000
  * how chats are named when no available model has a known price.
  */
 export const CHAT_TITLE_TIERS = ['haiku', 'flash', 'mini', 'nano', 'lite', 'small', 'fast']
+
+// Secrets kept from model providers (provider-secrets.ts)
+
+/** The shortest credential Myrmidon holds that is hidden wherever its value appears: shorter ones would hide words. */
+export const MIN_KNOWN_SECRET = 8
+/**
+ * How long the credentials Myrmidon holds (vault keys, channel tokens) are read once for every model call: many
+ * agents calling at once read them once, and a key added in Settings is hidden at most this much later.
+ */
+export const KNOWN_SECRETS_FRESH_MS = 2_000
+/** A placeholder's tag, in base32 characters: 12 carry 60 bits of a keyed hash, so two secrets never share one. */
+export const SECRET_TAG_CHARS = 12
+/** Texts kept already hidden for the next model call (each step resends the conversation); past it they start over. */
+export const HIDDEN_TEXTS_KEPT = 4_000
+
+// Importing Claude Code and Codex sessions (session-import.ts)
+
+/** The newest sessions the import list shows: two tools' whole histories would be a list nobody scrolls. */
+export const IMPORT_LIST_MAX = 300
+/**
+ * How much of each transcript's start and end listing reads for its title and first message: Claude Code writes them
+ * the first prompt near the start and appends titles later; reading every transcript whole would read gigabytes.
+ */
+export const IMPORT_SCAN_BYTES = 64 * 1024
+/** The longest first message a listed session shows. */
+export const IMPORT_PREVIEW_CHARS = 200
+/**
+ * The largest transcript that is imported: converting one holds all of it in memory (a 177 MB transcript took about
+ * 850 MB), and past this it is mostly screenshots and tool output that would be clipped anyway.
+ */
+export const IMPORT_MAX_BYTES = 256 * 1024 * 1024
+/**
+ * What an imported conversation keeps, newest first: it goes into the new chat's first round as its context (every
+ * agent of that round reads it), so it is held to about 15k tokens, and to this many messages for the chat view.
+ */
+export const IMPORT_HISTORY_CHARS = 60_000
+export const IMPORT_MAX_TURNS = 400
+/** One message's text, a tool call's arguments and a tool's result, each clipped to this in an import. */
+export const IMPORT_TURN_CHARS = 4_000
+export const IMPORT_TOOL_ARGS_CHARS = 300
+export const IMPORT_TOOL_RESULT_CHARS = 600
+
+// Exporting a chat as one HTML page (chat-export.ts)
+
+/**
+ * What an HTML export carries inline. The page has to stand alone (sent on, opened offline, without Myrmidon), so
+ * files are embedded rather than linked; past these sizes a file is named but left out, keeping a long chat's page to
+ * a few megabytes that a browser opens at once and a person can still send.
+ */
+export const CHAT_EXPORT = {
+  /** A text file (code, notes, JSON) shown in full under its run. */
+  textBytes: 64 * 1024,
+  /** A picture shown under its run, as a data: URL. */
+  imageBytes: 512 * 1024,
+  /** Everything embedded in one page together; files after this are named only. */
+  totalBytes: 4 * 1024 * 1024,
+  /** A crewmate's message (mail, team chat) in the folded crew section. */
+  crewChars: 4_000,
+  /** One tool step's line: the tool and what it was called on. */
+  stepChars: 140,
+  /** Tool steps listed per run; the count covers all of them. */
+  stepsListed: 200,
+} as const
+
+// Sharing a chat live with another person (chat-shares.ts)
+
+/**
+ * How long an invite to join a chat live stays open. It works once; sharing is for now, so an unused link lapses
+ * rather than waiting in someone's inbox.
+ */
+export const SHARE_INVITE_MS = 60 * 60_000
+/** Invites one chat may have open at once, and people in it besides the person. */
+export const SHARE_MAX_INVITES = 10
+export const SHARE_MAX_GUESTS = 8
+/**
+ * Characters in an invite code. From a 31-letter alphabet that is about 59 bits, so guessing one of a few open codes
+ * is hopeless even without a cap on wrong tries (a cap would let anyone who can reach the gateway withdraw them all).
+ */
+export const SHARE_CODE_LENGTH = 12
+/** A guest's name, as they typed it: cut to this before anyone sees it. */
+export const SHARE_NAME_CHARS = 40
+
+// Remote hosts over SSH (ssh.ts)
+
+export const SSH = {
+  /** Hosts the person may add in Settings → Tools. */
+  maxHosts: 50,
+  /** How long a command runs when the agent names no time, and the longest it may name, in seconds. */
+  timeoutS: 60,
+  maxTimeoutS: 600,
+  /** Connecting (and starting the shared connection) gives up after this, so a dead host cannot hold a step. */
+  connectS: 10,
+  /** How long the shared connection stays open after its last use (OpenSSH's ControlPersist), in seconds. */
+  persistS: 600,
+  /** The most of a remote file one read brings back; the agent is told when a file is longer. */
+  readBytes: 256 * 1024,
+  /** Settings' Test button: the same probe with a short limit. */
+  testS: 15,
+  /** How long output is still read once ssh has exited, before a pipe something else holds is let go. */
+  drainMs: 500,
+} as const
+
+// Autoresearch (autoresearch.ts)
+
+/**
+ * The experiment loop on an agent's own branch (after omp's autoresearch): bounded by trials and by time, which never
+ * runs past the round's own wall.
+ */
+export const AUTORESEARCH = {
+  /** Trials when the agent names no number, and the most it may name. */
+  trials: 10,
+  maxTrials: 50,
+  /** How long the loop may run when the agent names no time, in minutes. */
+  minutes: 30,
+  /** The longest one run of the measure command may take. */
+  measureMs: 10 * 60_000,
+  /** Kept back from the round's deadline, so the agent can still finish and answer after the last trial. */
+  reserveMs: 2 * 60_000,
+  /** What a measure run's output shows the agent, from its end, where results are printed. */
+  outputChars: 4_000,
+} as const
+
+// Telemetry export over OTLP (telemetry.ts)
+
+export const TELEMETRY = {
+  /** What collectors see as the sender (OTel's service.name). */
+  serviceName: 'myrmidon',
+  /** The vault entry (with the model providers' keys) that holds the person's OTLP headers, e.g. an API key. */
+  headersId: 'otlp-headers',
+  /** One request to the collector gives up after this. */
+  timeoutMs: 10_000,
+  /** Spans one round sends at most; a longer round sends its first ones and says how many it left out. */
+  maxSpans: 5_000,
+} as const

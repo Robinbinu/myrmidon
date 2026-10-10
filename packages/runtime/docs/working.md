@@ -97,3 +97,6 @@ section. Then:
 - After changing code, `run_checks` runs the project's own typecheck, lint and tests; outside a project it checks
   your scratch folder (a package.json, tsconfig or pyproject there). Fix what fails before you say you are done,
   and say plainly if something still fails.
+- When a bug's cause is not clear from the code or a print, `debug` runs the program under a debugger: launch it
+  with breakpoints, then read the stack and variables, evaluate, and step. `security_scan` finds leaked secrets and
+  dependencies with known vulnerabilities; never copy a secret it finds anywhere. Load both with `find_tools`.

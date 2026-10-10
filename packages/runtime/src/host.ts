@@ -9,16 +9,30 @@ import type {
   PermissionVerdict,
   Review,
 } from '@myrmidon/protocol'
-import type { AgentTool } from '@oh-my-pi/pi-agent-core'
+import type { Advisor } from './advisor.ts'
 import type { ModelError } from './agent.ts'
 import type { BrowserHub } from './browser.ts'
 import type { ComputerHub } from './computer/driver.ts'
+import type { MediaTools } from './media.ts'
+import type { AgentTool } from './omp/agent-core.ts'
+import type { Judge } from './omp/ai.ts'
 import type { PluginHost } from './plugin-host.ts'
 import type { ProjectContext } from './project-context.ts'
 import type { Sandbox } from './sandbox.ts'
 import type { ColonySpec } from './spec.ts'
+import type { SshHost, SshHub } from './ssh.ts'
+import type { StreamRule } from './stream-rules.ts'
 import type { WebTools } from './web.ts'
 import type { ColonyWorkspace } from './workspace.ts'
+
+/** An agent's branch for an experiment (ColonyHost.experimentTree). */
+export interface ExperimentTree {
+  readonly workdir: string
+  readonly branch: string
+  keep(message: string): Promise<string>
+  revert(): Promise<void>
+  finish(): Promise<string[]>
+}
 
 /** Everything a tool or service needs from the running colony, without depending on the runner. */
 export interface ColonyHost {
@@ -64,6 +78,8 @@ export interface ColonyHost {
    */
   closing?(agent: string): string | undefined
   batchEnded(agent: string): void
+  /** The round's advisor, when it has one: agents show it their steps that called tools. */
+  readonly advisor?: Advisor
   /** An agent's model failed for good (a refusal, or an error that retries did not fix): pause for the person. */
   modelFailed(agent: string, model: string, error: ModelError): Promise<void>
   /** An agent's working checklist (update_todo), kept in view and checked when it stops. */
@@ -72,6 +88,13 @@ export interface ColonyHost {
   huddling(): boolean
   /** Search and page fetching for agents. */
   readonly web: WebTools
+  /**
+   * The model that judges find's names and passages for this agent: the cheapest the person can use, as chat titles
+   * pick one. Absent (tests, bare hosts), find ranks by words alone.
+   */
+  judge?(agent: string): Judge | undefined
+  /** Pictures and speech for agents (generate_image, tts); absent in runs without the model runtime. */
+  readonly media?: MediaTools
   /** Tools of the connected MCP servers, offered to agents allowed `mcp`. */
   mcpTools(): AgentTool[]
   /** The MCP server marks this tool read-only (it changes nothing), so by default it runs without asking. */
@@ -109,6 +132,11 @@ export interface ColonyHost {
    * the person wrote into it. Absent otherwise, so the computer tool is left out or refuses.
    */
   readonly computer?: ComputerHub
+  /**
+   * The person's remote hosts this round may reach over SSH, with what reaches them: set up in Settings → Tools, and
+   * only while the person alone wrote into the round (a channel member's message takes them away at once).
+   */
+  remotes(): { readonly hub: SshHub; readonly hosts: readonly SshHost[] } | undefined
   /** The project's instructions, check commands and layout, read when the round started; absent outside projects. */
   readonly project?: ProjectContext
   /**
@@ -173,10 +201,19 @@ export interface ColonyHost {
    * worktree). Throws, with what to do, when they conflict.
    */
   mergeWork(agent: string): Promise<string[]>
+  /**
+   * Autoresearch: the agent's own branch of the project to experiment on, a worktree made now if it has none (any
+   * round of a git project whose preset lets agents change it without asking). `keep` commits a trial, `revert` drops
+   * it, and `finish` merges what was kept into the project folder and, for a worktree made for the experiment, puts
+   * the agent back in the folder. Throws, with why, where there is no such branch to be had.
+   */
+  experimentTree(agent: string): Promise<ExperimentTree>
   /** Runs the person's PreToolUse hooks; throws, with the hook's reason, when one blocks the call. */
   beforeTool(agent: string, tool: string, input: unknown): Promise<void>
   /** Runs the person's PostToolUse hooks; returns what they want the agent to know ('' for nothing). */
   afterTool(agent: string, tool: string, input: unknown, output: string): Promise<string>
+  /** The person's stream rules and the project's (stream-rules.ts), read afresh at each agent turn. */
+  streamRules?(): readonly StreamRule[]
   /** The skills agents may use in this colony (enabled ones, including its project's). */
   skills(): { name: string; description: string }[]
   /** A skill's instructions, or one of its files, for an agent (use_skill). */
@@ -185,11 +222,19 @@ export interface ColonyHost {
   loadTools(agent: string, query: string): string
   /** Brings the project folder's current state into an agent's worktree; the files it changed there. */
   refreshWork(agent: string): Promise<string[]>
-  /** Proposes a memory for the person to keep across chats. */
+  /** Proposes a memory for the person to keep across chats, maybe in place of kept ones (`replaces`). */
   proposeMemory(
     agent: string,
-    input: { text: string; kind: string; scope: 'everywhere' | 'project'; why: string },
+    input: {
+      text: string
+      kind: string
+      scope: 'everywhere' | 'project'
+      why: string
+      replaces?: readonly string[]
+    },
   ): Promise<string>
+  /** The person's kept memories best matching `query`, for this chat's scope (recall). */
+  recallMemory(query: string): string
   /** Ends this round and has the chat rerun its request at a bigger tier, keeping the work so far. */
   escalate(by: string, to: 'solo' | 'team', reason: string): Promise<string>
 }

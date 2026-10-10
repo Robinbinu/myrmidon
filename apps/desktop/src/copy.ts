@@ -1,6 +1,8 @@
 /** Every word the desktop shell shows or logs, in one place. The page itself uses apps/web/src/client/copy.ts. */
 export const desktopCopy = {
   appName: 'Myrmidon',
+  /** The see-through windows over the screen while an agent drives the Mac. */
+  overlayTitle: 'Myrmidon is using your Mac',
   /** macOS asks with this the first time a voice call uses the microphone. */
   microphoneUsage: 'Myrmidon uses the microphone for voice calls with your crew.',
   starting: 'Starting Myrmidon…',
@@ -42,6 +44,7 @@ export const desktopCopy = {
       `${path} no longer requires its addon the way scripts/build-sidecar.ts rewrites: update the rewrite`,
     bundleMissing: (path: string) =>
       `${path} is not where Electrobun's build left the app: update src/platform.ts appBundle`,
+    commandFailed: (command: string, code: number | null) => `\`${command}\` failed (exit code ${code})`,
     patched: (path: string) => `set the microphone usage description in ${path}`,
     copied: (path: string) => `copied the Myrmidon server into ${path}`,
   },

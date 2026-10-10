@@ -56,7 +56,7 @@ export class ColonyWorkspace {
   scratch(agent: string): string {
     const dir = join(this.scratchRoot, agent)
     mkdirSync(dir, { recursive: true })
-    return realpathSync(dir)
+    return realpathSync.native(dir)
   }
 
   /** Where an agent's shell starts and its file tools work: its worktree, the project, or its scratch directory. */
@@ -67,6 +67,11 @@ export class ColonyWorkspace {
   /** Points an agent at its own git worktree of the project instead of the shared folder. */
   isolate(agent: string, tree: { workdir: string; branch: string }) {
     this._isolated.set(agent, tree)
+  }
+
+  /** Points an agent back at the shared folder, once what it did in its worktree is merged. */
+  release(agent: string) {
+    this._isolated.delete(agent)
   }
 
   /** The agent's worktree, if it has one. */
@@ -117,6 +122,20 @@ export class ColonyWorkspace {
     return this._resolve(agent, path, true)
   }
 
+  /**
+   * Whether a path a file tool would change stays in the agent's working directory or scratch, whatever access the
+   * round has (with full access `resolveInWorkdir` takes any path): a hidden secret is written back only there.
+   */
+  keepsInside(agent: string, path: string): boolean {
+    const roots = [...new Set([this.workdir(agent), this.scratch(agent)])].map(realPath)
+    const named = expandHome(path, this._access.home ?? homedir())
+    return reachable(
+      realPath(isAbsolute(named) ? named : resolve(roots[0] as string, named)),
+      roots,
+      this.hidden(),
+    )
+  }
+
   /** Whether the read-only file tools may read this absolute path: listings and searches leave out what they may not. */
   mayRead(agent: string, path: string): boolean {
     try {
@@ -149,7 +168,7 @@ export class ColonyWorkspace {
     const target = isAbsolute(path) ? path : resolve(root, path)
     let probe = target
     while (!existsSync(probe)) probe = dirname(probe)
-    const real = join(realpathSync(probe), relative(probe, target))
+    const real = join(realpathSync.native(probe), relative(probe, target))
     if (real !== root && !real.startsWith(root + sep)) {
       throw new Error(`path escapes your scratch directory: ${path}`)
     }

@@ -17,10 +17,18 @@ export const RULE_DECISIONS: readonly RuleDecision[] = ['allow', 'ask', 'deny']
 /**
  * What a rule names. `tool`: a built-in, plugin or made tool by name. `edit`: `*`, every file change. `command`: a
  * command prefix (`bun test`), or `*` for every command. `mcp-server`: a server's name, or `*` for every MCP tool.
- * `mcp-tool`: one MCP tool's full name (`mcp__github_create_issue`).
+ * `mcp-tool`: one MCP tool's full name (`mcp__github_create_issue`). `ssh-host`: a remote host the person added
+ * (Settings → Tools → Remote hosts) by its name, or `*` for every host.
  */
-export type RuleKind = 'tool' | 'edit' | 'command' | 'mcp-server' | 'mcp-tool'
-export const RULE_KINDS: readonly RuleKind[] = ['tool', 'edit', 'command', 'mcp-server', 'mcp-tool']
+export type RuleKind = 'tool' | 'edit' | 'command' | 'mcp-server' | 'mcp-tool' | 'ssh-host'
+export const RULE_KINDS: readonly RuleKind[] = [
+  'tool',
+  'edit',
+  'command',
+  'mcp-server',
+  'mcp-tool',
+  'ssh-host',
+]
 
 /** Who a rule or a tool group applies to: the lead (the agent that speaks for the chat), or its crew. */
 export type AgentRole = 'lead' | 'crew'
@@ -35,10 +43,44 @@ export interface PermissionRule {
 }
 
 /** Groups of tools a role may be given or not ("who can use what"). */
-export type AccessGroup = 'files' | 'shell' | 'web' | 'browser' | 'mcp' | 'computer' | 'messaging' | 'plugins'
+export type AccessGroup =
+  | 'files'
+  | 'shell'
+  | 'web'
+  | 'browser'
+  | 'mcp'
+  | 'remote'
+  | 'computer'
+  | 'messaging'
+  | 'plugins'
 export const ACCESS_GROUPS: Readonly<Record<AccessGroup, readonly string[]>> = {
-  files: ['fs_write', 'fs_edit', 'fs_read', 'fs_list', 'grep', 'glob', 'request_read'],
-  shell: ['shell', 'run_checks', 'start_server', 'server_logs', 'stop_server', 'create_tool'],
+  files: [
+    'fs_write',
+    'fs_edit',
+    'fs_read',
+    'fs_list',
+    'grep',
+    'glob',
+    'find',
+    'ast_grep',
+    'ast_edit',
+    'lsp',
+    'security_scan',
+    'request_read',
+  ],
+  // github runs the GitHub CLI where commands run, so it goes with them.
+  shell: [
+    'shell',
+    'eval',
+    'debug',
+    'run_checks',
+    'autoresearch',
+    'start_server',
+    'server_logs',
+    'stop_server',
+    'create_tool',
+    'github',
+  ],
   web: ['web_search', 'web_fetch'],
   browser: [
     'browser_open',
@@ -58,6 +100,8 @@ export const ACCESS_GROUPS: Readonly<Record<AccessGroup, readonly string[]>> = {
   ],
   // `mcp` stands for every tool of the connected MCP servers.
   mcp: ['mcp'],
+  // Commands and file reads on the person's remote hosts over SSH.
+  remote: ['ssh'],
   // Cua Driver's computer tool with the tools that open and list the apps it works in, and omp's desktop engine.
   computer: ['computer', 'open_app', 'list_apps', 'desktop'],
   messaging: ['message', 'create_group', 'update_group', 'append_note'],
@@ -71,6 +115,7 @@ export const LEAD_WORK_GROUPS: readonly AccessGroup[] = [
   'web',
   'browser',
   'mcp',
+  'remote',
   'computer',
 ]
 
@@ -98,9 +143,11 @@ export interface PermissionLevels {
  */
 export interface PermissionCall {
   readonly tool: string
-  readonly kind: 'read' | 'colony' | 'web' | 'edit' | 'command' | 'mcp' | 'proposal' | 'other'
+  readonly kind: 'read' | 'colony' | 'web' | 'edit' | 'command' | 'mcp' | 'ssh' | 'proposal' | 'other'
   readonly command?: string
   readonly mcp?: { readonly server: string; readonly readOnly: boolean }
+  /** A call on one of the person's remote hosts, by the name they gave it. */
+  readonly ssh?: { readonly host: string }
   readonly where?: 'project' | 'private' | 'outside'
   readonly edits?: boolean
   readonly readOnly?: boolean
@@ -162,6 +209,8 @@ export function ruleMatches(rule: PermissionRule, call: PermissionCall, role?: A
       return call.kind === 'mcp' && rule.target === call.tool
     case 'mcp-server':
       return call.kind === 'mcp' && !!call.mcp && (rule.target === '*' || rule.target === call.mcp.server)
+    case 'ssh-host':
+      return call.kind === 'ssh' && !!call.ssh && (rule.target === '*' || rule.target === call.ssh.host)
     case 'edit':
       return call.kind === 'edit' || (call.kind === 'proposal' && !!call.edits)
     case 'command':
@@ -226,6 +275,9 @@ export function presetDecision(preset: PermissionPreset, call: PermissionCall): 
       return 'ask'
     case 'mcp':
       return call.mcp?.readOnly || preset === 'full' ? 'allow' : 'ask'
+    // Another computer is outside every sandbox: only full access or a rule for the host lets a call run unasked.
+    case 'ssh':
+      return preset === 'full' ? 'allow' : 'ask'
     case 'edit': {
       if (call.where === 'private' || preset === 'full') return 'allow'
       if (preset === 'read-only') return 'deny'
@@ -242,7 +294,7 @@ export function presetDecision(preset: PermissionPreset, call: PermissionCall): 
 }
 
 /**
- * Whether a whole tool is denied to this role (by its name, its MCP server, or every MCP tool): such a tool is left
+ * Whether a whole tool is denied to this role (by its name, its MCP server, every MCP tool, or every remote host): such a tool is left
  * out of the agent's tools altogether, since no level could let it run.
  */
 export function toolHidden(
@@ -260,7 +312,8 @@ export function toolHidden(
           (r.kind === 'mcp-server' &&
             (r.target === '*'
               ? tool === 'mcp' || tool.startsWith('mcp__')
-              : server !== undefined && r.target === server))),
+              : server !== undefined && r.target === server)) ||
+          (r.kind === 'ssh-host' && r.target === '*' && tool === 'ssh')),
     ),
   )
 }
@@ -1103,6 +1156,14 @@ export const DESTRUCTIVE_COMMANDS: readonly RegExp[] = [
   /^killall\b/,
   /^ch(?:mod|own)\s+-R\b/,
   /^find\s.*\s-delete\b/,
+  // What changes GitHub speaks for the person in public, as a push does.
+  /^gh\s+(?:pr|issue)\s+(?:create|merge|close|reopen|comment|review|edit|delete|lock|unlock|transfer|ready)\b/,
+  /^gh\s+run\s+(?:rerun|cancel|delete)\b/,
+  /^gh\s+(?:release|repo|gist|label|secret|variable)\s+(?:create|delete|edit|upload|fork|rename|archive|set)\b/,
+  /^gh\s+workflow\s+(?:run|enable|disable)\b/,
+  // gh api sends fields as a POST unless told GET, and any other method changes something.
+  /^gh\s+api\b(?=.*\s(?:-X\s*|--method[\s=])(?!GET\b)[A-Za-z])/,
+  /^gh\s+api\b(?!.*\s(?:-X\s*|--method[\s=])GET\b)(?=.*\s(?:-[fF]|--(?:raw-)?field|--input)(?:[\s=]|$))/,
 ]
 
 /** A download piped straight into a shell, anywhere in the line. */
@@ -1158,7 +1219,7 @@ function commandRuleMatches(rule: PermissionRule, line: string): boolean {
 /** Whether what a command line runs is known only when it runs (see ParsedLine.unknown). */
 export const commandUnknown = (line: string) => readLine(line).unknown
 
-/** Commands that only look (Claude Code's built-in read-only set): Ask runs them without asking. */
+/** Commands that only look (Claude Code's built-in read-only set, and gh's reads of GitHub): Ask runs them unasked. */
 const READ_ONLY_PROGRAMS = new Set([
   'ls',
   'cat',
@@ -1182,6 +1243,37 @@ const READ_ONLY_PROGRAMS = new Set([
 ])
 const READ_ONLY_GIT = new Set(['status', 'log', 'diff', 'show', 'blame', 'rev-parse', 'ls-files'])
 const READ_ONLY_GIT_BRANCH_FLAGS = new Set(['-a', '-r', '-v', '-vv', '--list', '--show-current'])
+/** gh subcommands that only read GitHub (by group), and `gh api` when its method is GET. */
+const READ_ONLY_GH: Readonly<Record<string, ReadonlySet<string>>> = {
+  pr: new Set(['view', 'list', 'diff', 'checks', 'status']),
+  issue: new Set(['view', 'list', 'status']),
+  repo: new Set(['view', 'list']),
+  run: new Set(['view', 'list', 'watch']),
+  workflow: new Set(['view', 'list']),
+  release: new Set(['view', 'list']),
+  search: new Set(['repos', 'issues', 'prs', 'code', 'commits']),
+}
+
+function readOnlyGh(args: readonly string[]): boolean {
+  const [group, sub, ...rest] = args
+  if (!group || !sub) return false
+  // --web opens a browser, which reaches past the sandbox.
+  if (args.some((a) => a === '--web' || a === '-w')) return false
+  if (group === 'api') {
+    const all = args.slice(1)
+    const method = all.flatMap((a, i) =>
+      a === '-X' || a === '--method'
+        ? [all[i + 1] ?? '']
+        : a.startsWith('--method=')
+          ? [a.slice(9)]
+          : a.startsWith('-X')
+            ? [a.slice(2)]
+            : [],
+    )
+    return method.length > 0 && method.every((m) => m.toUpperCase() === 'GET') && !all.includes('--input')
+  }
+  return READ_ONLY_GH[group]?.has(sub) === true && !rest.includes('--input')
+}
 
 export function readOnlyCommand(line: string): boolean {
   const { segments, simple } = readLine(line)
@@ -1193,6 +1285,7 @@ export function readOnlyCommand(line: string): boolean {
     // Options of otherwise read-only programs that run a program or write a file.
     if (program === 'rg' && args.some((a) => a.startsWith('--pre'))) return false
     if (program === 'tree' && args.some((a) => a === '-o')) return false
+    if (program === 'gh') return readOnlyGh(args)
     if (program === 'git') {
       const [sub, ...rest] = args
       // Git takes any unambiguous start of a long option: `--out=x` is `--output=x`.
@@ -1378,7 +1471,7 @@ export interface PermissionOffer extends Omit<PermissionRule, 'decision'> {
 
 /**
  * What an approval card may remember for a call, most specific first: a command's prefixes then every command; an
- * MCP tool then its server; file changes; or the tool itself. A command offers its prefixes only when remembering them
+ * MCP tool then its server; a remote host; file changes; or the tool itself. A command offers its prefixes only when remembering them
  * all would cover it: it is simple, no part lacks a prefix it may be remembered by, and it is not a download run by a
  * shell.
  */
@@ -1404,6 +1497,8 @@ export function offersFor(call: PermissionCall): PermissionOffer[] {
         { kind: 'mcp-tool', target: call.tool },
         ...(call.mcp ? [{ kind: 'mcp-server' as const, target: call.mcp.server }] : []),
       ]
+    case 'ssh':
+      return call.ssh ? [{ kind: 'ssh-host', target: call.ssh.host }] : []
     case 'edit':
       return [{ kind: 'edit', target: '*' }]
     case 'proposal':

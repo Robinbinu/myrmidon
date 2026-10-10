@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
+  TTS_SENTENCE_GAP_MS,
   VOICE_MAX_CALLS,
   VOICE_PHONON_MODEL_BYTES,
   VOICE_SMART_TURN_BYTES,
@@ -15,8 +16,9 @@ import {
 import type { ModelResolver } from '../models.ts'
 import { prompts } from '../prompts.ts'
 import { type MyrSettings, VOICE_LEGACY_KEYS, type VoiceEndpoint } from '../settings.ts'
-import { trimSilence } from './audio.ts'
+import { resample, trimSilence, wav } from './audio.ts'
 import { type CallChats, type CallOptions, type CallOutput, CallSession, type CallTurn } from './call.ts'
+import { CallGreeter, type CallGreetingFacts } from './greeting.ts'
 import {
   ENDPOINT_DEFAULTS,
   endpointVault,
@@ -29,6 +31,7 @@ import {
 } from './providers.ts'
 import { RealtimeCallSession } from './realtime/session.ts'
 import { SmartTurn } from './smart-turn.ts'
+import { SpeechSplitter } from './speech.ts'
 import { FunctionStt, OpenAiCompatibleStt, type PhononState, PhononStt, type SpeechToText } from './stt.ts'
 import {
   FunctionTts,
@@ -177,6 +180,10 @@ export class VoiceHub {
   /** Voice lists fetched from providers, by provider and model, with when. */
   private readonly _voiceLists = new Map<string, { at: number; voices: VoiceOption[] }>()
   private readonly _migrated: Promise<void>
+  /** Picks each call's opening line, so calls in a row do not open the same way. */
+  private readonly _greeter: CallGreeter
+  /** When the person's last call that got as far as its greeting ended (kept transcripts tell it after a restart). */
+  private _lastCall?: Date
 
   constructor(
     private readonly options: {
@@ -214,6 +221,7 @@ export class VoiceHub {
     this.turn = options.turn ?? new SmartTurn(options.home)
     this._secretsFile = join(options.home, 'voice', 'secrets.json')
     this._callsDir = join(options.home, 'calls')
+    this._greeter = new CallGreeter(options.resolver)
     this._migrated = this._migrateSecrets().catch((err) =>
       log(
         `could not move the voice keys into the vault: ${err instanceof Error ? err.message : String(err)}`,
@@ -587,6 +595,45 @@ export class VoiceHub {
     return { pcm: trimSilence(speech.pcm, speech.sampleRate), sampleRate: speech.sampleRate }
   }
 
+  /**
+   * Text as one WAV file in the voice chosen in Settings → Voice, for agents' tts tool: said a sentence at a time
+   * (Kitten speaks one at a time, and a cloud voice's request stays small), each trimmed and set apart by a pause.
+   */
+  async speakFile(text: string, signal?: AbortSignal): Promise<{ audio: Uint8Array; voice: string }> {
+    const { voice } = this.options.settings()
+    const kitten = this.kitten.status().state
+    // With voice off nothing is downloaded: Kitten's model comes with turning voice on, never with an agent's call.
+    if (voice.tts.provider === 'kitten' && !voice.enabled && kitten !== 'ready' && kitten !== 'running')
+      throw new Error(prompts.toolResults.voiceNotReady)
+    await this.loadKeys()
+    const tts = this.tts()
+    const sentences = new SpeechSplitter().push(text, true)
+    if (sentences.length === 0) throw new Error(prompts.toolResults.nothingToSay)
+    const parts: Int16Array[] = []
+    let rate = 0
+    for (const sentence of sentences) {
+      if (signal?.aborted) throw new Error('the call was stopped')
+      const speech = await tts.speak(sentence, signal)
+      rate ||= speech.sampleRate
+      const pcm = trimSilence(speech.pcm, speech.sampleRate)
+      parts.push(speech.sampleRate === rate ? pcm : resample(pcm, speech.sampleRate, rate))
+      parts.push(new Int16Array(Math.round((TTS_SENTENCE_GAP_MS / 1000) * rate)))
+    }
+    parts.pop()
+    const all = new Int16Array(parts.reduce((n, p) => n + p.length, 0))
+    let at = 0
+    for (const p of parts) {
+      all.set(p, at)
+      at += p.length
+    }
+    const t = voice.tts
+    const named =
+      t.provider === 'kitten'
+        ? `Kitten TTS (${t.voice})`
+        : `${t.provider.replace(/^endpoint:/, '')}${t.voiceId ? ` (${t.voiceId})` : ''}`
+    return { audio: wav(all, rate), voice: named }
+  }
+
   /** Whether voice calls are on in Settings → Voice. */
   get enabled(): boolean {
     return this.options.settings().voice.enabled
@@ -609,11 +656,19 @@ export class VoiceHub {
       crew?: readonly { name: string; role?: string }[]
       member?: CallOptions['member']
       phone?: string
+      /**
+       * What the call's greeting is drawn from: the chats as the chat list shows them (no more than the caller already
+       * has, so greeting costs no wait) and the model that may write fresher lines for a later call.
+       */
+      greeting?: { chats: CallGreetingFacts['chats']; model?: string }
     },
     emit: (out: CallOutput) => void,
   ): CallSession {
     const refused = this.refusal(options.chatId, options.talkTo)
     if (refused) throw refused
+    // The greeting is the hub's to draw; the call is given only the line.
+    const { greeting, ...rest } = options
+    options = rest
     const { voice, fallbackModel } = this.options.settings()
     if (voice.mode === 'realtime' && !options.talkTo) return this._realtimeCall(chats, options, emit)
     const model = voice.callModel ?? fallbackModel
@@ -637,6 +692,8 @@ export class VoiceHub {
         ...(this.turn.ready ? { judge: this.turn } : {}),
         ...(this.options.log ? { log: this.options.log } : {}),
         fallback: this._fallback(),
+        // A member calling in hears the plain hello: the owner's chats are not theirs to hear about.
+        ...(options.member ? {} : { greet: () => this._greet(options, greeting) }),
       },
       {
         ...options,
@@ -648,6 +705,7 @@ export class VoiceHub {
       (out) => {
         if (out.type === 'ended') {
           this._calls.delete(session.id)
+          if (session.transcript().length) this._lastCall = new Date()
           this._save(session)
         }
         emit(out)
@@ -655,6 +713,24 @@ export class VoiceHub {
     )
     this._calls.set(session.id, session)
     return session
+  }
+
+  /** The line a call starting now opens with, from the moment and what the chats are doing. */
+  private _greet(
+    options: { name: string; chatId?: string; talkTo?: string },
+    greeting?: { chats: CallGreetingFacts['chats']; model?: string },
+  ): string {
+    return this._greeter.line(
+      {
+        name: options.name,
+        now: new Date(),
+        ...(this._lastCall ? { lastSeen: this._lastCall } : {}),
+        chats: greeting?.chats ?? [],
+        ...(options.chatId ? { chatId: options.chatId } : {}),
+        ...(options.talkTo ? { talkTo: options.talkTo } : {}),
+      },
+      greeting?.model,
+    )
   }
 
   /** A call with the call assistant on the realtime model chosen in Settings → Voice. */
@@ -693,6 +769,7 @@ export class VoiceHub {
       (out) => {
         if (out.type === 'ended') {
           this._calls.delete(session.id)
+          if (session.transcript().length) this._lastCall = new Date()
           this._save(session)
         }
         emit(out)
@@ -831,7 +908,11 @@ export class VoiceHub {
   /** Drops transcripts older than VOICE_TRANSCRIPT_DAYS. */
   private _prune() {
     const before = new Date(Date.now() - VOICE_TRANSCRIPT_DAYS * 86_400_000).toISOString()
-    for (const { file, call } of this._saved()) if (call.endedAt < before) rmSync(file, { force: true })
+    for (const { file, call } of this._saved()) {
+      if (call.endedAt < before) rmSync(file, { force: true })
+      else if (!(this._lastCall && this._lastCall.toISOString() >= call.endedAt))
+        this._lastCall = new Date(call.endedAt)
+    }
   }
 
   private _file(id: string): string {

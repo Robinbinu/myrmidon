@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { SqliteLogStore } from '@myrmidon/core'
+import { BlobStore, type SqliteLogStore } from '@myrmidon/core'
 import {
   type AgentInfo,
   type ColonyId,
@@ -27,7 +27,8 @@ import {
   withRule,
 } from '@myrmidon/protocol'
 import type { BrowserHub } from './browser.ts'
-import { namingModel } from './catalog.ts'
+import { defaultModelRef, namingModel } from './catalog.ts'
+import { exportDoc, renderChatHtml } from './chat-export.ts'
 import { ChatIndex, type CrewMember, type IndexedRound, type MessageHit } from './chat-index.ts'
 import type { ChatPlace, ChatShelf } from './chat-shelf.ts'
 import { nameChat } from './chat-titles.ts'
@@ -36,15 +37,28 @@ import { type Attachment, ColonyRun, RoundClosingError, type Runtime, SETTLE_MS 
 import type { ComputerHub } from './computer/driver.ts'
 import {
   CHAT_TITLE_ROUNDS,
+  GOAL,
   MAX_READ_FOLDERS,
   MAX_WORKERS,
+  MEMORY_EXTRACT_MIN_CHARS,
+  MEMORY_REFLECT_EVERY_MS,
+  MEMORY_REFLECT_OVERLAP,
   SKILL_REVIEW_CALLS,
   SUGGEST_CORPUS,
 } from './config.ts'
+import { parseGoal } from './goal.ts'
 import type { HookStore } from './hooks.ts'
 import type { ToolLibrary } from './made-tools.ts'
 import type { McpHub } from './mcp.ts'
-import { type MemoryStore, memoryLines } from './memory.ts'
+import type { MediaTools } from './media.ts'
+import { type Memory, type MemoryStore, memoryLines, similarity } from './memory.ts'
+import {
+  extractMemories,
+  finalAnswer,
+  type MemorySuggestion,
+  personSaid,
+  reflectMemories,
+} from './memory-review.ts'
 import type { ModelResolver } from './models.ts'
 import { pickName } from './names.ts'
 import { speaksForColony } from './patterns.ts'
@@ -52,6 +66,8 @@ import type { PluginHost } from './plugin-host.ts'
 import type { ProjectStore } from './projects.ts'
 import { prompts } from './prompts.ts'
 import { chatsAt, grantCovers, keysAt, readFolder, realPath, secretAt } from './read-access.ts'
+import { checkRuleFile, draftStreamRule, type RuleDraft, roundOutputs } from './rule-draft.ts'
+import { importedConversation, type SessionImports } from './session-import.ts'
 import type { SettingsStore } from './settings.ts'
 import {
   reviewRound,
@@ -63,9 +79,19 @@ import {
 import type { SkillLibrary } from './skills.ts'
 import type { AcceptanceCheck, AgentSpec, ColonySpec, Tier } from './spec.ts'
 import { type SpecialistStore, specialistAgent } from './specialists.ts'
+import type { SshHub } from './ssh.ts'
+import type { StreamRuleScope, StreamRuleStore } from './stream-rules.ts'
 import type { WebTools } from './web.ts'
 
 /** One round of a chat: the colony it ran in, its place in that colony's log, and the colony's state. */
+/** Saving a stream rule over one of the same name, which the person has not said to replace. */
+export class RuleExistsError extends Error {
+  constructor(readonly rule: string) {
+    super(`a rule named ${rule} already exists`)
+    this.name = 'RuleExistsError'
+  }
+}
+
 interface RoundRef {
   readonly id: string
   readonly round: RoundInfo
@@ -79,9 +105,10 @@ function keptTeam(previous: readonly RoundRef[], mode: TeamConfig['mode']): Agen
   if (!last) return []
   // A colony that served several rounds holds every agent it ever had: keep the ones of this kind of team.
   const role = swarm ? 'peer' : 'worker'
+  // One that fell back comes back on the model it was set up with: the fallback was for that model's failure.
   return Object.values(last.state.agents)
     .filter((a) => a.info.role === role && !a.dismissed && a.status !== 'failed')
-    .map((a) => a.info)
+    .map((a) => (a.fellBackFrom ? { ...a.info, model: a.fellBackFrom } : a.info))
 }
 
 /**
@@ -119,6 +146,10 @@ export interface TeamConfig {
   /** Orchestrated only: how many more specialists the lead may add. */
   readonly extraWorkers?: number
   readonly judgeModel: string
+  /** The advisor's model (see advisor.ts); absent, the one in Settings → Crew & budget, if any. */
+  readonly advisorModel?: string
+  /** Prewalk's carry-out model (ColonySpec.prewalk); absent, the one in Settings → Crew & budget, if any. */
+  readonly carryOutModel?: string
   readonly wallMinutes?: number
   /** Overrides how hard reasoning models think in work rounds (direct answers stay quick). */
   readonly thinking?: Thinking
@@ -138,6 +169,11 @@ export interface SendOptions {
   readonly attachments?: readonly Attachment[]
   /** Plan mode: the round presents its plan for approval before doing any work. */
   readonly planFirst?: boolean
+  /**
+   * Goal mode: the message is `<condition>: <request>` (see parseGoal), and the round goes on until the condition
+   * holds, its checks run out, or the person stops it (ColonySpec.goal). It starts a round of its own.
+   */
+  readonly goal?: boolean
   /** A new chat's project; later rounds stay in the chat's project. */
   readonly project?: string
   /** Fixes the size: an escalated round reruns its request at the tier its agent asked for. */
@@ -157,6 +193,8 @@ export interface SendOptions {
   readonly answers?: QuestionAnswers
   /** A new chat forked from this one: its first round starts from that chat's conversation and project. */
   readonly forkOf?: string
+  /** A new chat continuing an imported Claude Code or Codex session: its first round starts from that conversation. */
+  readonly importOf?: string
 }
 
 /** Accepts the current team config or the older `{ mode: 'auto' | 'manual', workers, workerModel }` shape. */
@@ -171,6 +209,8 @@ export function normalizeTeamConfig(raw: Record<string, unknown>): TeamConfig {
     ...(typeof raw.wallMinutes === 'number' ? { wallMinutes: raw.wallMinutes } : {}),
     ...(thinking ? { thinking } : {}),
     ...(raw.helpers === 'always' ? { helpers: 'always' as const } : {}),
+    ...(str(raw.advisorModel) ? { advisorModel: str(raw.advisorModel) } : {}),
+    ...(str(raw.carryOutModel) ? { carryOutModel: str(raw.carryOutModel) } : {}),
   }
   if (raw.mode === 'orchestrated' || raw.mode === 'swarm') {
     const roster = (Array.isArray(raw.roster) ? raw.roster : [])
@@ -224,6 +264,8 @@ export interface ChatSummary {
   readonly status: ColonyStatus
   /** The latest round stopped to wait for the person's answer. */
   readonly awaiting?: boolean
+  /** The latest round is running and a step of it waits for the person's approval. */
+  readonly approving?: boolean
   /** The latest round stopped because a model failed. */
   readonly failed?: boolean
   readonly rounds: ChatRound[]
@@ -244,6 +286,8 @@ export interface ChatSummary {
   readonly archivedAt?: string
   readonly group?: string
   readonly forkOf?: string
+  /** The imported Claude Code or Codex session it continues (see SessionImports). */
+  readonly importOf?: string
 }
 
 /** The earlier rounds of a chat as `User:` / `Colony:` pairs, for agents that were not in them. */
@@ -292,6 +336,8 @@ export class ChatService {
       unsafeNoSandbox?: boolean
       settings?: SettingsStore
       web?: WebTools
+      /** Pictures and speech for agents (generate_image, tts). */
+      media?: MediaTools
       /** Fixes a new round's size; by default every round starts with the lead alone (see `leadFirst`). */
       classify?: Classify
       /** MCP servers whose tools colonies may use. */
@@ -306,12 +352,16 @@ export class ChatService {
       browser?: BrowserHub
       /** Computer use: agents drive the person's Mac through Cua Driver when Settings → Computer use is on. */
       computer?: ComputerHub
+      /** The person's ssh client, for the remote hosts they add in Settings → Tools. */
+      ssh?: SshHub
       /** What the person keeps across chats: recalled into every round, added to by agents' proposals. */
       memory?: MemoryStore
       /** Skills agents load by name when a task matches. */
       skills?: SkillLibrary
       /** The person's hooks around tools and round ends. */
       hooks?: HookStore
+      /** The person's stream rules, kept to by every round's agents and added to with `/rule`. */
+      rules?: StreamRuleStore
       /** Project folders chats can work in. */
       projects?: ProjectStore
       /** Agents the person defined once and brings back. */
@@ -322,6 +372,8 @@ export class ChatService {
       quietMs?: number
       /** Where the person filed each chat (pins, archive, groups, forks). */
       shelf?: ChatShelf
+      /** Claude Code and Codex sessions imported to start new chats from. */
+      imports?: SessionImports
     },
   ) {}
 
@@ -411,6 +463,59 @@ export class ChatService {
   }
 
   /**
+   * The person complained about a chat's last reply (`/rule`): the lead's model drafts a stream rule that would have
+   * stopped it, checked against what the latest round's agents wrote. `amend`: a change asked for to an earlier draft.
+   */
+  async draftRule(
+    chatId: string,
+    complaint: string,
+    amend?: { previous: string; change: string },
+  ): Promise<RuleDraft> {
+    const latest = (await this.rounds(chatId)).at(-1)
+    if (!latest) throw new Error('no such chat')
+    const agents = Object.values(latest.state.agents)
+    const model = (agents.find((a) => a.info.role === 'lead') ?? agents[0])?.info.model
+    if (!model) throw new Error('this chat has no reply to make a rule from')
+    const events = await this.store.read(latest.id as never)
+    const cwd = this._chatProject(latest.state) ?? this.store.colonyDir(latest.id as never)
+    return draftStreamRule({
+      resolver: this.options.resolver,
+      model,
+      complaint,
+      outputs: roundOutputs(events, latest.round.startSeq, cwd),
+      ...(amend ? { amend } : {}),
+    })
+  }
+
+  /**
+   * Saves a stream rule the person confirmed: theirs, for every chat, or in the chat's project. An existing rule of
+   * the name is replaced only when `replace` says so. Returns where it went; agents keep to it from their next turn.
+   */
+  async saveRule(input: {
+    name: string
+    text: string
+    where: StreamRuleScope
+    chatId?: string
+    replace?: boolean
+  }): Promise<{ name: string; path: string }> {
+    const rules = this.options.rules
+    if (!rules) throw new Error('stream rules are not set up on this server')
+    const rule = checkRuleFile(input.name, input.text)
+    const latest = input.chatId ? (await this.rounds(input.chatId)).at(-1) : undefined
+    const project = latest ? this._chatProject(latest.state) : undefined
+    if (input.where === 'project' && !project) throw new Error('this chat has no project to save the rule in')
+    if (!input.replace && rules.target(rule.name, input.where, project).exists)
+      throw new RuleExistsError(rule.name)
+    return { name: rule.name, path: rules.write(rule.name, input.text, input.where, project) }
+  }
+
+  /** The project folder a round's chat works in, if any. */
+  private _chatProject(state: ColonyState): string | undefined {
+    const id = state.chat?.project?.id
+    return (id ? this.options.projects?.get(id)?.path : undefined) ?? state.chat?.project?.path
+  }
+
+  /**
    * A crew member who is one of the person's specialists works as they set it up now: its specialty, instructions and
    * tools (its model and its memory of the chat stay as they are).
    */
@@ -440,7 +545,12 @@ export class ChatService {
 
   private _index?: ChatIndex
   private get index() {
-    this._index ??= new ChatIndex(this.store.home, this.store)
+    if (!this._index) {
+      const index = new ChatIndex(this.store.home, this.store)
+      // Closed with the runtime, as the log is: an open index keeps Windows from removing the data folder.
+      this.runtime.ctx.effect(() => () => index.close())
+      this._index = index
+    }
     return this._index
   }
 
@@ -549,6 +659,7 @@ export class ChatService {
           ? { crew: last.crew.filter((c) => c.role !== 'lead') }
           : {}),
         ...(last.awaiting ? { awaiting: true } : {}),
+        ...(last.approving ? { approving: true } : {}),
         ...(last.failed ? { failed: true } : {}),
         ...(last.permissions ? { permissions: last.permissions } : {}),
         ...(last.reads?.length ? { reads: last.reads } : {}),
@@ -627,6 +738,7 @@ export class ChatService {
       delivery = 'steer',
       attachments = [],
       planFirst = false,
+      goal = false,
       voice = false,
       context,
       answers,
@@ -639,6 +751,8 @@ export class ChatService {
     await this._settle()
     const live = this._live.get(id)
     if (live && live.state().status === 'running') {
+      // Steering would drop the goal: its checks belong to the round it starts.
+      if (goal) throw new Error(prompts.chat.goalWhileRunning)
       try {
         // Their message steers a round someone else started: from now on it asks too, as if they had started it.
         if (options.askAll) await live.askForAll()
@@ -657,15 +771,27 @@ export class ChatService {
     const source = !previous.length && options.forkOf ? await this.rounds(options.forkOf) : []
     if (options.forkOf && !previous.length && !source.length) throw new Error('the chat to fork is gone')
     if (source.length && options.forkOf) this.options.shelf?.fork(id, options.forkOf)
-    const history = conversation(previous.length ? previous : source)
+    // An imported session's first round starts from its conversation (the composer picks the project holding its folder).
+    const imported =
+      !previous.length && !source.length && options.importOf
+        ? this.options.imports?.get(options.importOf)
+        : undefined
+    if (options.importOf && !previous.length && !source.length && !imported)
+      throw new Error('the imported session is gone')
+    if (imported) this.options.shelf?.imported(id, imported.id)
+    const history = imported
+      ? importedConversation(imported)
+      : conversation(previous.length ? previous : source)
     // Written to crew members directly (@name): the round starts with them, and they answer.
     const latestState = previous.at(-1)?.state
     const to = latestState ? addressedIn(message, latestState) : []
     // The lead starts at once and sizes the work itself (escalate); tests and reruns may fix the size instead.
-    const tier = to.length
+    const sized = to.length
       ? 'team'
       : (options.tier ??
         (config.helpers === 'always' ? 'team' : await (this.options.classify ?? leadFirst)(message, history)))
+    // A goal is worked toward with tools and checked: never a direct answer.
+    const tier = goal && sized === 'answer' ? 'solo' : sized
     const spec = this.buildSpec(id, message, config, previous, history, tier, to)
     if (spec.chat) Object.assign(spec.chat, extra)
     if (options.askAll) spec.askAll = true
@@ -688,13 +814,29 @@ export class ChatService {
     const reads = this._reads(project, spec.askAll)
     if (reads.length) spec.reads = reads
     if (this._computerUse(spec.askAll)) spec.computerUse = true
-    const memory = this.options.memory?.recall(project?.id) ?? []
+    const remotes = this._remotes(spec.askAll)
+    if (remotes) spec.remotes = remotes
+    const fallbacks = this._fallbacks()
+    if (fallbacks) spec.fallbacks = fallbacks
+    const memory = this.options.memory?.recall(project?.id, message) ?? []
     if (memory.length && spec.chat) spec.chat.memory = memoryLines(memory)
+    const more = (this.options.memory?.kept(project?.id).length ?? 0) - memory.length
+    if (more > 0 && spec.chat) spec.chat.memoryMore = more
     if (planFirst && spec.tier !== 'answer') spec.planFirst = true
+    if (goal) {
+      spec.goal = {
+        ...parseGoal(message),
+        maxChecks: GOAL.maxChecks,
+        judge: config.judgeModel,
+        threshold: this.options.settings?.get().verification.threshold ?? 0.7,
+      }
+      spec.budget.wallMs = Math.max(spec.budget.wallMs, GOAL.wallMinutes * 60_000)
+    }
     const run: ColonyRun = new ColonyRun(this.runtime, spec, {
       resolver: this.options.resolver,
       ...(this.options.quietMs !== undefined ? { quietMs: this.options.quietMs } : {}),
       ...(this.options.web ? { web: this.options.web } : {}),
+      ...(this.options.media ? { media: this.options.media } : {}),
       ...(this.options.unsafeNoSandbox ? { unsafeNoSandbox: true } : {}),
       ...(this.options.mcp ? { mcp: this.options.mcp } : {}),
       ...(this.options.plugins ? { plugins: this.options.plugins } : {}),
@@ -703,8 +845,10 @@ export class ChatService {
       ...(this.options.library ? { library: this.options.library } : {}),
       ...(this.options.browser ? { browser: this.options.browser } : {}),
       ...(this.options.computer ? { computer: this.options.computer } : {}),
+      ...(this.options.ssh ? { ssh: this.options.ssh } : {}),
       ...(this.options.skills ? { skills: this.options.skills } : {}),
       ...(this.options.hooks ? { hooks: this.options.hooks } : {}),
+      ...(this.options.rules ? { rules: this.options.rules } : {}),
       ...(this.options.memory ? { memory: this.options.memory } : {}),
       // A chat's follow-ups continue its colony: same log, files, notes and agents' conversations.
       ...(latest ? { resumeId: latest.id as ColonyId } : {}),
@@ -784,6 +928,10 @@ export class ChatService {
         this._reviewForSkill(run.id, config.leadModel, false).catch((err) =>
           console.error(`skill review of ${run.id} failed: ${err instanceof Error ? err.message : err}`),
         )
+      if (final.status === 'completed')
+        this._suggestMemories(run, config.leadModel).catch((err) =>
+          console.error(`memory review of ${run.id} failed: ${err instanceof Error ? err.message : err}`),
+        )
     })
     return { chatId: id, colonyId: run.id, started: true, ...(spec.chat ? { round: spec.chat.round } : {}) }
   }
@@ -861,7 +1009,7 @@ export class ChatService {
     if (!store) throw new Error('memory is not available')
     const memory = store.get(id)
     if (!memory) throw new Error('no such memory')
-    if (keep) store.update(id, { status: 'active' })
+    if (keep) store.keep(id)
     else store.remove(id)
     const colony = memory.source.colonyId
     if (!colony || memory.status !== 'proposed') return
@@ -873,6 +1021,131 @@ export class ChatService {
     const live = [...this._live.values()].find((r) => r.id === colony)
     if (live && live.state().status === 'running') await live.append(draft)
     else await this.runtime.ctx.log.appendOne(colony as never, draft)
+  }
+
+  /**
+   * After a finished round, the memory reviewer reads what the person said in it for something worth remembering and
+   * suggests it on the round's card, then maybe tidies kept memories up. Only with Settings → Memory's "Suggest
+   * memories" on, and never for a round a channel member started: their words are not the person's.
+   */
+  private async _suggestMemories(run: ColonyRun, lead: string) {
+    const store = this.options.memory
+    if (!store || !this.options.settings?.get().memory.suggest || run.spec.askAll) return
+    const events = await this.store.read(run.id as never)
+    const state = foldColony(run.id, events)
+    const from = state.rounds.at(-1)?.startSeq ?? 0
+    const said = personSaid(events, from)
+    if (said.join('\n').length >= MEMORY_EXTRACT_MIN_CHARS) {
+      const project = run.spec.chat?.project
+      const known = store.list().filter((m) => !m.project || m.project === project?.id)
+      const answer = finalAnswer(events, from)
+      const suggestions = await this._cheaply(lead, (model) =>
+        extractMemories({
+          resolver: this.options.resolver,
+          model,
+          said,
+          ...(answer ? { answer } : {}),
+          ...(project ? { project: { id: project.id, name: project.name } } : {}),
+          known,
+        }),
+      )
+      const byId = new Map(known.map((m) => [m.id, m]))
+      for (const s of suggestions) {
+        const memory = this._propose(s, {
+          by: 'extract',
+          colonyId: run.id,
+          ...(state.chat ? { chatId: state.chat.chatId } : {}),
+          why: s.why,
+        })
+        // Already kept, or already suggested in another chat: not suggested twice.
+        if (!memory || memory.source.colonyId !== run.id || state.memories[memory.id]) continue
+        const replaces = (memory.replaces ?? []).flatMap((id) => {
+          const old = byId.get(id)
+          return old ? [{ id, text: old.text }] : []
+        })
+        await this._appendTo(run.id, {
+          type: 'memory/proposed',
+          actor: { kind: 'system', id: 'myrmidon' },
+          payload: {
+            id: memory.id,
+            agent: 'myrmidon',
+            text: memory.text,
+            kind: memory.kind,
+            ...(memory.project ? { project: memory.project } : {}),
+            why: s.why,
+            ...(replaces.length ? { replaces } : {}),
+            suggested: true,
+          },
+        })
+      }
+    }
+    // Tidying up runs on its own clock, and only when two kept memories of one scope look alike.
+    if (
+      Date.now() - this._tidiedAt < MEMORY_REFLECT_EVERY_MS ||
+      !overlapping(store.list().filter((m) => m.status === 'active'))
+    )
+      return
+    await this.tidyMemories(lead)
+  }
+
+  /** When memories were last tidied up in this process; the first round after a restart may tidy again. */
+  private _tidiedAt = 0
+
+  /**
+   * Reads the kept memories for ones that repeat, overlap or went stale and suggests merging them; each suggestion
+   * waits in Settings → Memory for the person. `lead`: the model to fall back on, the chat lead's by default. Returns
+   * how many it suggested.
+   */
+  async tidyMemories(lead?: string): Promise<number> {
+    const store = this.options.memory
+    if (!store) throw new Error('memory is not available')
+    const omp = this.options.resolver.omp
+    const model =
+      lead ??
+      this.options.settings?.get().team.leadModel ??
+      (omp ? defaultModelRef(omp, this.options.settings) : undefined)
+    if (!model) throw new Error('no model to tidy memories with: set one up in Settings → Models')
+    this._tidiedAt = Date.now()
+    const all = store.list()
+    const projects = new Map((this.options.projects?.list() ?? []).map((p) => [p.id, p.name]))
+    const suggestions = await this._cheaply(model, (m) =>
+      reflectMemories({
+        resolver: this.options.resolver,
+        model: m,
+        kept: all.filter((x) => x.status === 'active'),
+        waiting: all.filter((x) => x.status === 'proposed'),
+        projects,
+      }),
+    )
+    return suggestions.filter((s) => this._propose(s, { by: 'reflect', why: s.why })?.status === 'proposed')
+      .length
+  }
+
+  /** Records a reviewer's suggestion as a proposal; nothing when memory is full. */
+  private _propose(s: MemorySuggestion, source: Memory['source']): Memory | undefined {
+    try {
+      return this.options.memory?.add({
+        text: s.text,
+        kind: s.kind,
+        ...(s.project ? { project: s.project } : {}),
+        status: 'proposed',
+        replaces: s.replaces,
+        source,
+      })
+    } catch (err) {
+      console.warn(`memory suggestion dropped: ${err instanceof Error ? err.message : err}`)
+      return undefined
+    }
+  }
+
+  /** Runs a small job on the cheapest fast model, or on `lead` when that one fails (a lapsed key, a model gone). */
+  private async _cheaply<T>(lead: string, job: (model: string) => Promise<T>): Promise<T> {
+    const cheap = this._titleModel(lead)
+    if (cheap === lead) return job(lead)
+    return job(cheap).catch((err) => {
+      console.warn(`${cheap} failed, using ${lead}: ${err instanceof Error ? err.message : err}`)
+      return job(lead)
+    })
   }
 
   /** Pins, archives or files a chat in one of the person's groups (`false` and `null` take each back). */
@@ -1101,6 +1374,24 @@ export class ChatService {
     return !askAll && !!hub?.enabled && hub.supported
   }
 
+  /**
+   * The remote hosts a round of the person's may reach over SSH, from Settings → Tools. A round someone else started
+   * (`askAll`) never may; one they write into loses them from then on (ColonyRun.remotes).
+   */
+  private _remotes(askAll: boolean | undefined): ColonySpec['remotes'] {
+    const hosts = this.options.settings?.get().ssh.hosts ?? []
+    return !askAll && this.options.ssh && hosts.length ? hosts : undefined
+  }
+
+  /** The models agents go on with when theirs fails, from Settings → Crew & budget; none set leaves them out. */
+  private _fallbacks(): ColonySpec['fallbacks'] {
+    const team = this.options.settings?.get().team
+    const lead = team?.leadFallbacks ?? []
+    const workers = team?.workerFallbacks ?? []
+    if (!lead.length && !workers.length) return undefined
+    return { ...(lead.length ? { lead } : {}), ...(workers.length ? { workers } : {}) }
+  }
+
   private _project(
     id: string | undefined,
     required = true,
@@ -1114,7 +1405,9 @@ export class ChatService {
     return {
       id: project.id,
       name: project.name,
-      path: project.path,
+      // As the file tools resolve paths (realpathSync.native), so a folder saved in another spelling (an 8.3 short
+      // name on Windows) still matches them.
+      path: realPath(project.path),
       ...(project.permissions ? { permissions: project.permissions } : {}),
     }
   }
@@ -1292,6 +1585,12 @@ export class ChatService {
     const reads = this._reads(fresh ?? project, spec.askAll)
     if (reads.length) spec.reads = reads
     if (this._computerUse(spec.askAll)) spec.computerUse = true
+    const remotes = this._remotes(spec.askAll)
+    if (remotes) spec.remotes = remotes
+    const fallbacks = this._fallbacks()
+    if (fallbacks) spec.fallbacks = fallbacks
+    const advisor = this.options.settings?.get().team.advisorModel
+    if (advisor) spec.advisor = advisor
     const models: Record<string, string> = {}
     if (model) {
       this.options.resolver.resolve(model)
@@ -1311,6 +1610,7 @@ export class ChatService {
       resumeId: last.id as ColonyId,
       ...(this.options.quietMs !== undefined ? { quietMs: this.options.quietMs } : {}),
       ...(this.options.web ? { web: this.options.web } : {}),
+      ...(this.options.media ? { media: this.options.media } : {}),
       ...(this.options.unsafeNoSandbox ? { unsafeNoSandbox: true } : {}),
       ...(this.options.mcp ? { mcp: this.options.mcp } : {}),
       ...(this.options.plugins ? { plugins: this.options.plugins } : {}),
@@ -1319,8 +1619,10 @@ export class ChatService {
       ...(this.options.library ? { library: this.options.library } : {}),
       ...(this.options.browser ? { browser: this.options.browser } : {}),
       ...(this.options.computer ? { computer: this.options.computer } : {}),
+      ...(this.options.ssh ? { ssh: this.options.ssh } : {}),
       ...(this.options.skills ? { skills: this.options.skills } : {}),
       ...(this.options.hooks ? { hooks: this.options.hooks } : {}),
+      ...(this.options.rules ? { rules: this.options.rules } : {}),
     })
     this._live.set(chatId, run)
     this._own(run)
@@ -1374,12 +1676,16 @@ export class ChatService {
       .filter((e) => e.type === 'agent/joined' && e.seq > start.seq)
       .map((e) => (e.payload as EventPayloads['agent/joined']).agent)
     const notes = this.options.settings?.get().instructions
+    // A lead that already handed off (prewalk) resumes on its carry-out model, and does not hand off again.
+    const handoff = events.findLast((e) => e.type === 'agent/handoff' && e.seq > start.seq)?.payload as
+      | EventPayloads['agent/handoff']
+      | undefined
     const agents = [...created.agents, ...joined].map((info) => {
       const note = (info.role === 'lead' ? notes?.lead : notes?.worker)?.trim()
       return this._asSpecialist({
         name: info.name,
         role: info.role,
-        model: info.model,
+        model: handoff?.agent === info.name ? handoff.model : info.model,
         ...(info.specialty ? { specialty: info.specialty } : {}),
         ...(note ? { instructions: note } : {}),
       })
@@ -1411,6 +1717,8 @@ export class ChatService {
       ...(askAll ? { askAll: true } : {}),
       ...(created.review ? { review: created.review } : {}),
       ...(created.tier ? { tier: created.tier } : {}),
+      ...(created.goal ? { goal: created.goal } : {}),
+      ...(created.prewalk && !handoff ? { prewalk: created.prewalk } : {}),
     }
   }
 
@@ -1424,6 +1732,30 @@ export class ChatService {
       history: chat.history ?? '',
       ...(project ? { project: { ...project, permissions: projectLevelFrom(project.permissions) } } : {}),
     }
+  }
+
+  /** The chat as one self-contained HTML page (chat-export.ts), secrets redacted, with its title. */
+  async exportHtml(chatId: string): Promise<{ title: string; html: string }> {
+    const all = await this.list()
+    const chat = all.find((c) => c.chatId === chatId)
+    if (!chat) throw new Error('no such chat')
+    const parent = chat.forkOf ? all.find((c) => c.chatId === chat.forkOf) : undefined
+    const imported = chat.importOf ? this.options.imports?.get(chat.importOf) : undefined
+    const doc = await exportDoc(
+      {
+        title: chat.title,
+        rounds: chat.rounds,
+        ...(chat.project ? { project: chat.project.name } : {}),
+        ...(chat.forkOf ? { forkOf: parent?.title ?? null } : {}),
+        ...(imported ? { imported: { source: imported.source, title: imported.title } } : {}),
+      },
+      {
+        events: (colonyId) => this.store.read(colonyId as never),
+        blob: (colonyId, hash) =>
+          new BlobStore(join(this.store.colonyDir(colonyId as never), 'blobs')).get(hash),
+      },
+    )
+    return { title: chat.title, html: renderChatHtml(doc) }
   }
 
   /** Permanently deletes every round of a chat, stopping a running round first. Returns the deleted colony ids. */
@@ -1443,6 +1775,9 @@ export class ChatService {
         this.store.deleteColony(id as never)
         this.index.forget(id)
       }
+      // The imported conversation it started from goes with it: it is a copy of another tool's transcript.
+      const importOf = this.options.shelf?.place(chatId).importOf
+      if (importOf) this.options.imports?.remove(importOf)
       this.options.shelf?.forget([chatId])
       return ids
     } finally {
@@ -1563,7 +1898,7 @@ export class ChatService {
       kept.push({
         name,
         role: info.role,
-        model: info.model,
+        model: known[name]?.fellBackFrom ?? info.model,
         ...(info.specialty ? { specialty: info.specialty } : {}),
         ...(info.focus ? { focus: info.focus } : {}),
       })
@@ -1642,6 +1977,14 @@ export class ChatService {
       ...(s?.team.tokens ? { tokens: s.team.tokens } : {}),
     }
     const models = [...new Set([...roster.map((r) => r.model), config.leadModel])]
+    // Every tier gets it: a direct answer that calls tools is watched as closely as a team's work.
+    const advisor = config.advisorModel ?? s?.team.advisorModel
+    // Only a lead hands off, and only in a round with work to carry out; a lead already on it has nothing to switch.
+    const carryOut = config.carryOutModel ?? s?.team.carryOutModel
+    const prewalk =
+      carryOut && tier !== 'answer' && agents.some((a) => a.role === 'lead' && a.model !== carryOut)
+        ? carryOut
+        : undefined
     return {
       name: title(request),
       mission: history ? prompts.chat.mission(request, history) : request,
@@ -1675,6 +2018,8 @@ export class ChatService {
       },
       tier,
       ...(config.thinking ? { thinking: config.thinking } : {}),
+      ...(advisor ? { advisor } : {}),
+      ...(prewalk ? { prewalk } : {}),
       team: {
         mode: config.mode,
         maxWorkers: tier === 'team' && !swarm ? (kept.length || roster.length) + extra : 0,
@@ -1696,4 +2041,16 @@ function alive(pid: number): boolean {
   } catch (err) {
     return (err as NodeJS.ErrnoException).code === 'EPERM'
   }
+}
+
+/** Whether two kept memories of one scope share enough words that tidying up may merge them. */
+function overlapping(kept: readonly Memory[]): boolean {
+  return kept.some((a, i) =>
+    kept
+      .slice(i + 1)
+      .some(
+        (b) =>
+          (a.project ?? '') === (b.project ?? '') && similarity(a.text, b.text) >= MEMORY_REFLECT_OVERLAP,
+      ),
+  )
 }

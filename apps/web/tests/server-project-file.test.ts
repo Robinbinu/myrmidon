@@ -15,7 +15,7 @@ afterEach(async () => {
 
 test('GET /api/projects/:id/file opens a file an agent edited, and only files in that folder', async () => {
   const home = mkdtempSync(join(tmpdir(), 'myr-pfile-home-'))
-  const folders = realpathSync(mkdtempSync(join(tmpdir(), 'myr-pfile-')))
+  const folders = realpathSync.native(mkdtempSync(join(tmpdir(), 'myr-pfile-')))
   dirs.push(home, folders)
   const root = join(folders, 'app')
   mkdirSync(root)
@@ -43,7 +43,7 @@ test('GET /api/projects/:id/file opens a file an agent edited, and only files in
 
 test('GET /api/projects/:id/tree lists a folder and /find finds files by name, both inside the folder only', async () => {
   const home = mkdtempSync(join(tmpdir(), 'myr-ptree-home-'))
-  const folders = realpathSync(mkdtempSync(join(tmpdir(), 'myr-ptree-')))
+  const folders = realpathSync.native(mkdtempSync(join(tmpdir(), 'myr-ptree-')))
   dirs.push(home, folders)
   const root = join(folders, 'app')
   mkdirSync(join(root, 'src'), { recursive: true })
@@ -74,7 +74,7 @@ test('GET /api/projects/:id/tree lists a folder and /find finds files by name, b
 })
 
 test("a project around Myrmidon's data folder does not show it", async () => {
-  const folders = realpathSync(mkdtempSync(join(tmpdir(), 'myr-pdata-')))
+  const folders = realpathSync.native(mkdtempSync(join(tmpdir(), 'myr-pdata-')))
   dirs.push(folders)
   const root = join(folders, 'app')
   const home = join(root, '.myrmidon')
@@ -104,7 +104,7 @@ test("a project around Myrmidon's data folder does not show it", async () => {
 })
 
 test('the git views of a project never show its ignored files in full, nor keys or Myrmidon data inside it', async () => {
-  const folders = realpathSync(mkdtempSync(join(tmpdir(), 'myr-pgit-')))
+  const folders = realpathSync.native(mkdtempSync(join(tmpdir(), 'myr-pgit-')))
   dirs.push(folders)
   const root = join(folders, 'app')
   const home = join(root, 'data')

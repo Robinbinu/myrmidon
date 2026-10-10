@@ -332,6 +332,31 @@ export const copy = {
     key: 'key',
   },
 
+  /** How close each signed-in account is to its plan's limits: Settings → Models & providers, the composer's model. */
+  planLimits: {
+    title: 'Plan limits',
+    note: 'how much of each subscription is left, window by window',
+    refresh: 'Check again',
+    refreshing: 'Checking…',
+    checked: (when: string) => `Checked ${when}`,
+    failed: (error: string) => `Couldn’t read plan limits: ${error}`,
+    remaining: (percent: number) => `${percent}% left`,
+    remainingLong: (label: string, percent: number) => `${label}: ${percent}% left`,
+    noAmount: 'no amount given',
+    resetsIn: (when: string) => `resets in ${when}`,
+    unreachable: 'Couldn’t reach it: the sign-in may have expired, or the provider is busy',
+    unsupported: 'This provider doesn’t report plan limits',
+    status: { warning: 'near limit', exhausted: 'limit reached' },
+    /** The composer's model chip, when every account the model's provider could use is near or at a limit. */
+    /** The model chip's battery: what is left of the provider's tightest plan window. */
+    left: (label: string, percent: number, resets?: string) =>
+      `${label}: ${percent}% left${resets ? ` · ${resets}` : ''}`,
+    nearLimit: (label: string, percent: number, resets?: string) =>
+      `${label} has only ${percent}% left${resets ? `, ${resets}` : ''}: agents on this model may slow down or stop`,
+    atLimit: (label: string, resets?: string) =>
+      `${label} limit reached${resets ? `, ${resets}` : ''}: agents on this model will wait or fail until then`,
+  },
+
   composer: {
     modes: {
       orchestrated: {
@@ -426,6 +451,8 @@ export const copy = {
       `Your “${(copy.settings.hooks.events as Record<string, string>)[event] ?? event}” hook failed (exit code ${code}):`,
     readSkillFile: (file: string) => `Read ${file} from skill`,
     usedSkill: 'Used skill',
+    /** The project's instruction and rule files (AGENTS.md, .cursor/rules, …) the round's agents were given. */
+    followedRules: (n: number) => `Following the project's ${n === 1 ? 'rule file' : `${n} rule files`}:`,
     proposedMemory: 'Proposed to remember:',
     ownBranch: 'Works on its own branch',
     merged: (n: number) => `Merged ${n} file${n === 1 ? '' : 's'} into the project`,
@@ -439,10 +466,24 @@ export const copy = {
     approved: 'Allowed',
     notApprovedInTime: 'Not answered in time',
     denied: 'Denied',
-    compacted: 'Summarized older messages to make room',
+    /** By the method that settled the pass; shake may have run before snapcompact or a summary. */
+    compacted: {
+      shake: 'Elided old tool output to make room',
+      snapcompact: 'Archived older messages as images to make room',
+      summary: 'Summarized older messages to make room',
+    },
     compactedTail: (messages: number, kTokens: number) => `${messages} messages, at ~${kTokens}k tokens`,
+    shakenTail: (results: number, kTokens: number) => `${results} tool outputs, at ~${kTokens}k tokens`,
     switchedTo: 'Switched to',
     switchedFrom: (model?: string) => `from ${model}, by you`,
+    fellBackTo: 'Went on with',
+    fellBackFrom: (model?: string) => `after ${model} failed`,
+    handedOffTo: 'Handed off to',
+    handedOffFrom: (model?: string) => `from ${model}, to carry out the plan`,
+    goalMet: 'Goal reached',
+    goalNotMet: (check: string) => `Goal not reached yet (check ${check})`,
+    advised: 'Got a note from the advisor:',
+    ruleStopped: (rule: string) => `Rule ${rule} stopped a reply and it was written again:`,
     askedJudge: 'Asked the reviewer to check the result',
     judgeApproved: 'Reviewer approved',
     judgeRejected: 'Reviewer asked for changes',
@@ -466,6 +507,8 @@ export const copy = {
       planningTasks: 'planning tasks',
       writingReply: 'writing a reply',
       usingMac: 'using your Mac',
+      drawing: 'making a picture',
+      recording: 'recording audio',
       using: (tool: string) => `using ${tool}`,
     },
   },
@@ -500,6 +543,7 @@ export const copy = {
       'skill/proposed': 'skill suggested',
       'skill/decided': 'skill kept or discarded',
       'hook/ran': 'hook ran',
+      'rule/fired': 'rule stopped a reply',
       'skill/used': 'skill used',
       'colony/escalated': 'run handed to a bigger crew',
       'agent/joined': 'crewmate joined',
@@ -521,15 +565,21 @@ export const copy = {
       'worktree/updated': 'worktree updated',
       'worktree/conflict': 'worktree conflict',
       'worktree/closed': 'worktree closed',
+      'experiment/started': 'experiment started',
+      'experiment/trial': 'experiment trial',
+      'experiment/finished': 'experiment finished',
       'approval/decided': 'approval answered',
       'review/done': 'approved step ran',
       'checkpoint/created': 'checkpoint saved',
       'checkpoint/restored': 'files rewound',
       'permissions/changed': 'permissions changed',
       'plugin/event': 'plugin event',
-      'agent/compacted': 'older messages summarized',
+      'agent/compacted': 'context made to fit',
       'agent/prompt': 'prompt assembled',
       'agent/model': 'model switched',
+      'agent/fallback': 'went on with a fallback model',
+      'agent/handoff': 'handed off to the carry-out model',
+      'agent/advised': 'advisor note',
       'tool/created': 'tool made',
       'chat/user': 'message from you',
       'chat/reply': 'reply',
@@ -946,6 +996,11 @@ export const copy = {
     fromPlugin: (plugin: string) => `From the ${plugin} plugin`,
     list: {
       plan: { args: '<request>', description: 'Plan first: see the plan and approve it before any work' },
+      goal: {
+        args: '<condition>: <request>',
+        description:
+          'Keep working until a condition holds: "the tests pass", a `command` that must exit 0, or anything the reviewer can check',
+      },
       steer: { args: '<message>', description: 'Send now: the crew reads it at its next step' },
       queue: {
         args: '<message>',
@@ -981,8 +1036,23 @@ export const copy = {
       new: { description: 'Start a new chat' },
       rename: { args: '<title>', description: 'Rename this chat' },
       attach: { description: 'Attach files to your next message' },
-      export: { description: 'Download this chat as Markdown' },
+      export: {
+        description: 'Download this chat as Markdown, a web page, or an encrypted file to share',
+        options: {
+          md: { label: 'Markdown', description: 'Text to read or paste anywhere (the default)' },
+          html: { label: 'Web page', description: 'One HTML file that opens offline, secrets hidden' },
+          share: {
+            label: 'Encrypted share file',
+            description: 'The web page, locked with a key you send apart',
+          },
+        },
+      },
+      family: { description: 'Show the chats forked from this one, and the one it came from' },
       learn: { description: 'Learn a skill from how this chat did its work' },
+      rule: {
+        args: '<what went wrong>',
+        description: 'Turn a complaint about the last reply into a rule that stops it next time',
+      },
       mcp: { description: 'Manage MCP servers (tool connectors)' },
       settings: { description: 'Open settings' },
       help: { description: 'Show every command' },
@@ -1041,8 +1111,15 @@ export const copy = {
       settings: 'Open Settings',
       shortcuts: 'Keyboard shortcuts',
       export: 'Export this chat as Markdown',
+      exportHtml: 'Export this chat as a web page',
+      share: 'Share this chat as an encrypted file',
+      shareLive: 'Share this chat live with someone',
+      family: 'Show this chat’s family (forks and rounds)',
       crewConsole: 'Open the crew console',
+      importSession: 'Import a Claude Code or Codex session',
     },
+    /** More words the import action answers to. */
+    importKeywords: 'continue resume claude codex transcript history',
     newChatIn: (name: string) => `New chat in ${name}`,
     noMatches: (query: string) => `Nothing matches “${query}”.`,
     footer: { move: 'move', open: 'open', close: 'close' },
@@ -1053,7 +1130,12 @@ export const copy = {
     chat: {
       label: (title: string) => `Chat “${title}”`,
       rename: 'Rename',
-      export: 'Export as Markdown',
+      export: 'Export',
+      exportMarkdown: 'Markdown (.md)',
+      exportHtml: 'Web page (.html)',
+      share: 'Encrypted share file…',
+      shareLive: 'Share live…',
+      family: 'Show family',
       copyLink: 'Copy link',
       linkCopied: 'Link copied',
       delete: 'Delete chat',
@@ -1145,6 +1227,7 @@ export const copy = {
       count: (n: number) => `${n} selected`,
       delete: (n: number) => (n === 1 ? 'Delete chat' : `Delete ${n} chats`),
       export: (n: number) => (n === 1 ? 'Export as Markdown' : `Export ${n} chats as Markdown`),
+      exportHtml: (n: number) => (n === 1 ? 'Export as a web page' : `Export ${n} chats as web pages`),
       clear: 'Clear selection',
       clearTitle: (key: string) => `Clear selection (${key})`,
     },
@@ -1197,6 +1280,8 @@ export const copy = {
     previewOf: (name: string) => `Preview of ${name}`,
     noPreview:
       'This Myrmidon has no preview address for this device yet, so here is the code. docs/remote.md explains how to add one.',
+    /** A picture or sound that could not be loaded (gone, or not what its name says). */
+    mediaFailed: 'This file could not be shown here; download it to open it.',
   },
 
   /** The workspace's Explorer: the project folder as a tree, like an editor's. */
@@ -1342,9 +1427,13 @@ export const copy = {
     },
     memory: {
       wantsToRemember: 'wants to remember',
+      /** A memory Myrmidon's reviewer suggested from what the person said, not one an agent proposed. */
+      suggested: 'Worth remembering from this chat',
       forProject: ' for this project',
       everyChat: ' in every chat',
       why: (why: string) => `Why: ${why}`,
+      said: (quote: string) => `You said: “${quote}”`,
+      replaces: 'Replaces',
       discard: 'Discard',
       keep: 'Keep',
       kept: 'Kept: later chats start with it',
@@ -1565,10 +1654,11 @@ export const copy = {
       crewHint: 'workers, crewmates, an agent alone',
       groups: {
         files: { label: 'Files', hint: 'Read, search and change files' },
-        shell: { label: 'Commands', hint: 'Shell, checks, dev servers, tool making' },
+        shell: { label: 'Commands', hint: 'Shell, code cells, checks, dev servers, tool making' },
         web: { label: 'Web', hint: 'Search and read pages' },
         browser: { label: 'Browser', hint: 'Its own browser: click, type, sign in' },
         mcp: { label: 'MCP tools', hint: 'Tools of your MCP servers' },
+        remote: { label: 'Remote hosts', hint: 'Commands and file reads over SSH on hosts you added' },
         computer: { label: 'Computer use', hint: 'Your Mac, one app at a time' },
         messaging: { label: 'Messaging', hint: 'Team chat, mail and shared notes' },
         plugins: { label: 'Plugins', hint: 'Build and switch on plugins' },
@@ -1598,6 +1688,7 @@ export const copy = {
         command: 'Commands',
         'mcp-server': 'MCP servers',
         'mcp-tool': 'MCP tools',
+        'ssh-host': 'Remote hosts',
       },
       kindOne: {
         tool: 'Tool',
@@ -1605,6 +1696,7 @@ export const copy = {
         command: 'Command prefix',
         'mcp-server': 'MCP server',
         'mcp-tool': 'MCP tool',
+        'ssh-host': 'Remote host',
       },
       kindLabel: 'Kind',
       targetLabel: 'What',
@@ -1614,6 +1706,7 @@ export const copy = {
         command: 'bun test',
         'mcp-server': 'github',
         'mcp-tool': 'mcp__github_create_issue',
+        'ssh-host': 'build-box',
       },
       targetHint: {
         tool: 'A tool by name.',
@@ -1622,6 +1715,8 @@ export const copy = {
           'Commands starting with these words; * is every command. Chained commands must match in every part. A deny is best effort: a script or a program that runs commands of its own can still run what it names, so Myrmidon asks when it cannot tell what a command runs.',
         'mcp-server': 'Every tool of one server; * is every MCP tool.',
         'mcp-tool': 'One MCP tool by its full name.',
+        'ssh-host':
+          'Commands and reads on one remote host, by the name it has in Settings → Tools; * is every host.',
       },
       decisions: { allow: 'Allow', ask: 'Ask', deny: 'Deny' },
       decisionLabel: (target: string) => `Decision for ${target}`,
@@ -1631,6 +1726,7 @@ export const copy = {
       remove: (target: string) => `Remove the rule for ${target}`,
       everyCommand: 'Every command',
       everyMcp: 'Every MCP tool',
+      everyHost: 'Every remote host',
       everyEdit: 'Every file change',
       readOnlyTool: 'read only',
       cancel: 'Cancel',
@@ -1642,6 +1738,9 @@ export const copy = {
       tool: 'Tool',
       command: 'Command',
       commandPlaceholder: 'bun test && git push',
+      /** For the ssh tool: the remote host the call goes to. */
+      host: 'Remote host',
+      hostPlaceholder: 'build-box',
       where: 'Where',
       noProject: 'A chat without a project',
       inProject: (name: string) => `A chat in ${name}`,
@@ -1654,17 +1753,27 @@ export const copy = {
       /** Names people know for the built-in tools; one missing shows its id. */
       names: {
         shell: 'Run a command',
+        ssh: 'Run on a remote host',
+        autoresearch: 'Run an experiment loop',
+        eval: 'Run a code cell',
+        debug: 'Debug a program',
         run_checks: 'Run checks',
         start_server: 'Start a dev server',
         server_logs: 'Read server logs',
         stop_server: 'Stop a dev server',
         create_tool: 'Make a tool',
+        github: 'Use GitHub',
         fs_read: 'Read a file',
         fs_list: 'List a folder',
         fs_write: 'Write a file',
         fs_edit: 'Edit a file',
         grep: 'Search file contents',
         glob: 'Find files by name',
+        find: 'Find code by what it does',
+        ast_grep: 'Search code by structure',
+        ast_edit: 'Rewrite code by structure',
+        lsp: 'Ask the language server',
+        security_scan: 'Scan for secrets and vulnerable packages',
         request_read: 'Ask to read a folder',
         propose: 'Propose changes',
         web_search: 'Search the web',
@@ -1705,6 +1814,8 @@ export const copy = {
         submit_task: 'Hand in a task',
         update_todo: 'Update the to-do list',
         publish_artifact: 'Publish a file',
+        generate_image: 'Make a picture',
+        tts: 'Read text aloud',
         read_artifact: 'Read a published file',
         list_artifacts: 'List published files',
         observe: 'Look in on the crew',
@@ -1795,6 +1906,8 @@ export const copy = {
         mcpTool: (tool: string) => tool,
         mcpServer: (server: string) => `everything from ${server}`,
         everyMcp: 'every MCP tool',
+        sshHost: (host: string) => `everything on ${host}`,
+        everyHost: 'every remote host',
         tool: (tool: string) => tool,
       },
       remembered: (what: string, scope: string) => `Remembered: ${what} · ${scope.toLowerCase()}`,
@@ -1844,6 +1957,10 @@ export const copy = {
       `${version ? `Version ${version}` : 'Installed'}${own ? ', installed by Myrmidon' : ', your own install'}`,
     install: (size: string) => `Install (${size})`,
     reinstall: 'Reinstall',
+    /** The person's own Cua Driver is older than the one Myrmidon was tried with. */
+    outdated: (yours: string, pinned: string) =>
+      `Your Cua Driver ${yours} is older than ${pinned}, the version Myrmidon is tried with; older ones can fail on some apps. Install ${pinned} into Myrmidon's folder and it is used instead (yours stays as it is).`,
+    installVersion: (version: string, size: string) => `Install ${version} (${size})`,
     installHint: (version: string, size: string) =>
       `Downloads Cua Driver ${version} from GitHub (${size}), checks it, and keeps it in Myrmidon's folder. Nothing runs until an agent first needs your Mac.`,
     progress: (done: string, total: string) => `${done} of ${total}`,
@@ -2089,6 +2206,62 @@ export const copy = {
     tryAgain: 'Try again',
     noModel: (window: string) => `No model with ${window} or more is set up. Add one in Settings → Models.`,
     kept: 'The work so far is kept; the failed reply is not.',
+    /** A line in the round: an agent's model failed and it went on with the next of the person's fallbacks. */
+    fellBack: (agent: string, previous: string, model: string) =>
+      `${agent}'s model, ${previous}, failed, so it went on with ${model}.`,
+    fellBackRefused: (agent: string, previous: string, model: string) =>
+      `${previous} declined to continue, so ${agent} went on with ${model}.`,
+    fellBackTitle: (message: string) => `Provider message: ${message}`,
+    /** A line in the round: prewalk handed the lead from the model it planned on to the cheaper one. */
+    handedOff: (agent: string, previous: string, model: string) =>
+      `${agent} planned on ${previous} and handed off to ${model} to carry out the plan.`,
+  },
+
+  /** Goal mode's lines in the round: each check of the goal, as it happens. */
+  goal: {
+    met: (condition: string) => `Goal reached: ${condition}`,
+    notMet: (check: number, why: string) => `Goal not reached yet (check ${check}): ${why}`,
+  },
+
+  /** Stream rules: the `/rule` sheet that drafts one from a complaint, and the line a rule leaves when it stops a reply. */
+  rules: {
+    /** A line in the round: a rule stopped an agent's reply as it was written, and the reply was written again. */
+    stopped: (agent: string, rule: string, where: string) =>
+      `${agent} broke the rule ${rule} ${where}, so it was stopped and wrote it again.`,
+    where: (source: 'text' | 'thinking' | 'tool', tool?: string) =>
+      source === 'tool'
+        ? `in a ${tool ?? 'tool'} call`
+        : source === 'thinking'
+          ? 'while thinking'
+          : 'in its reply',
+    stoppedTitle: (description: string | undefined, path: string) =>
+      `${description ? `${description} · ` : ''}${path}`,
+    sheet: {
+      title: 'New rule',
+      complaint: 'Your complaint',
+      drafting: 'Writing a rule that would have caught it…',
+      matched: 'It catches the reply you complained about.',
+      unconfirmed: 'Couldn’t confirm it catches the reply you complained about:',
+      name: 'Name',
+      pattern: 'Stops a reply when it matches',
+      scope: 'Watches',
+      guidance: 'What the agent is told instead',
+      file: 'The rule’s file',
+      saveMine: 'Save for all my chats',
+      saveProject: 'Save for this project',
+      replace: (name: string) => `Replace ${name}`,
+      exists: (name: string) => `A rule named ${name} is already saved.`,
+      amend: 'Ask for a change',
+      amendPlaceholder: 'e.g. only for TypeScript files written with fs_write',
+      redraft: 'Rewrite',
+      cancel: 'Cancel',
+      failed: (reason: string) => `Couldn’t write a rule: ${reason}`,
+      tryAgain: 'Try again',
+    },
+    saved: (name: string, project: boolean) =>
+      project ? `Rule ${name} saved for this project` : `Rule ${name} saved for all your chats`,
+    noChat: 'Open a chat to make a rule about its last reply',
+    usage: 'Say what the reply got wrong: /rule <complaint>',
   },
 
   outcome: {
@@ -2342,6 +2515,175 @@ export const copy = {
     },
   },
 
+  /** Import a session: another tool's conversation, continued as a new chat. */
+  importSessions: {
+    title: 'Import a session',
+    /** The home screen's way in, under the composer. */
+    open: 'Continue a Claude Code or Codex session',
+    search: 'Search sessions',
+    loading: 'Reading your Claude Code and Codex sessions…',
+    failed: 'Could not list your sessions',
+    empty: 'No Claude Code or Codex sessions on this computer.',
+    emptyHint: 'Claude Code keeps them in ~/.claude/projects, Codex in ~/.codex/sessions.',
+    noMatch: (query: string) => `No session matches “${query}”.`,
+    tools: { claude: 'Claude Code', codex: 'Codex' },
+    untitled: 'Untitled session',
+    messages: (n: number) => `${n} message${n === 1 ? '' : 's'}`,
+    size: (bytes: number) =>
+      bytes < 1024 * 1024
+        ? `${Math.max(1, Math.round(bytes / 1024))} KB`
+        : `${(bytes / 1024 / 1024).toFixed(1)} MB`,
+    showAll: (n: number) => `Show all ${n}`,
+    importing: 'Importing…',
+    /** Under the list: what importing does, and what it leaves alone. */
+    footnote:
+      'The session is copied into a new chat (secrets hidden, long parts clipped); the original stays where it is.',
+    /** Above the new chat's composer, until its first message. */
+    note: (tool: string, title: string) =>
+      `Continues “${title}” from ${tool}: the crew reads it before your message.`,
+    cancel: 'Start fresh instead',
+    /** The imported transcript, folded at the top of the chat and above the composer. */
+    block: (tool: string) => `Imported from ${tool}`,
+    turns: (n: number) => `${n} message${n === 1 ? '' : 's'}`,
+    omitted: (n: number) => `${n} earlier message${n === 1 ? '' : 's'} left out`,
+    show: 'Show transcript',
+    hide: 'Hide transcript',
+    roles: { user: 'You', assistant: 'Assistant', summary: 'Summary of earlier work' },
+    failedResult: 'Failed',
+    gone: 'The imported transcript is no longer here.',
+  },
+
+  /** Sharing a chat as an encrypted file (chat menu → Export → Encrypted share file, `/export share`). */
+  share: {
+    title: 'Share as an encrypted file',
+    /** Before the file is made: what happens, and where things go. */
+    intro:
+      'Myrmidon makes one web page of this chat (secrets hidden), locks it in this browser with a new key, and saves ' +
+      'it as a file in your downloads. Nothing is uploaded: you send the file, and the key separately.',
+    noHost:
+      'Myrmidon has no public place to put a share link, so the file itself is what you send; whoever has it and the key can read it.',
+    create: 'Create encrypted file',
+    creating: 'Encrypting…',
+    /** After: the key, shown only here. */
+    saved: (name: string) => `Saved ${name} to your downloads.`,
+    keyLabel: 'Key',
+    keyHint:
+      'Send the key another way than the file (a message, not the same email). It is shown only now and is not kept anywhere.',
+    copyKey: 'Copy key',
+    keyCopied: 'Key copied',
+    howToOpen:
+      'To read it: open the file in a browser and paste the key, or add # and the key to the end of its address.',
+    done: 'Done',
+    failed: (reason: string) => `Couldn’t create the share file: ${reason}`,
+    /** The downloaded file's name: no chat title, as the file reveals nothing until it is opened. */
+    fileName: 'myrmidon-chat-encrypted.html',
+    /** What the file itself says before it is opened, to someone who may not know Myrmidon. */
+    file: {
+      title: 'Encrypted chat',
+      body: 'This chat was shared from Myrmidon and is encrypted. Paste the key you were sent; it is decrypted in this browser, and nothing is sent anywhere.',
+      keyLabel: 'Key',
+      open: 'Open',
+      errors: {
+        key: 'That key does not open this file. Check that you copied all of it.',
+        sealed: 'This file is damaged. Ask for it again.',
+        browser:
+          'This browser cannot decrypt the file. Open it in a current Chrome, Safari, Firefox or Edge.',
+      },
+    },
+  },
+
+  /** Sharing a chat live (chat menu → Share live…): inviting someone in, seeing who is in, taking them out. */
+  liveShare: {
+    title: 'Share live',
+    intro:
+      'Invite someone to follow this chat as it happens. They open the link, give their name, and see the conversation: ' +
+      'not what agents ran or read, the chat’s files, your other chats, Settings or keys.',
+    localOnly:
+      'This Myrmidon only answers on this computer, so the link opens here alone. To let someone else in, run it as a ' +
+      'gateway they can reach (see Running Myrmidon on another machine).',
+    access: 'They can',
+    accessHint: {
+      view: 'Watch only.',
+      write:
+        'Watch and write. Their messages carry their name, and every step that reaches outside the chat waits for your approval.',
+    },
+    view: 'Watch',
+    write: 'Watch and write',
+    create: 'Create invite link',
+    creating: 'Creating…',
+    linkLabel: 'Invite link',
+    copyLink: 'Copy link',
+    linkCopied: 'Invite link copied',
+    code: (code: string) => `Or enter the code ${code} at this Myrmidon’s address.`,
+    once: (until: string) => `Works once, until ${until}. Send it only to the person you mean.`,
+    invitesTitle: 'Open invites',
+    invite: (access: 'view' | 'write', until: string) =>
+      `${access === 'write' ? 'Watch and write' : 'Watch'} · until ${until}`,
+    withdraw: 'Withdraw',
+    guestsTitle: 'In this chat',
+    noGuests: 'No one has joined yet.',
+    guest: (access: 'view' | 'write', online: boolean) =>
+      `${access === 'write' ? 'Can write' : 'Watching'} · ${online ? 'here now' : 'away'}`,
+    remove: 'Remove',
+    removeLabel: (name: string) => `Remove ${name} from this chat`,
+    stop: 'Stop sharing',
+    stopHint: 'Withdraws every invite and removes everyone.',
+    restart: 'A restart of Myrmidon ends sharing; invite people again after one.',
+    done: 'Done',
+    failed: (reason: string) => `Couldn’t update sharing: ${reason}`,
+  },
+
+  /** The page a guest of a shared chat sees: joining with an invite, the chat, and the end of it. */
+  guest: {
+    join: {
+      title: 'Join a shared chat',
+      intro:
+        'Someone shared a Myrmidon chat with you. Give your name to join; they will see it beside your messages.',
+      code: 'Invite code',
+      codeHint: 'From the link you were sent; it works once.',
+      name: 'Your name',
+      join: 'Join',
+    },
+    sharedBy: (host: string) => `Shared by ${host}`,
+    you: (name: string, access: 'view' | 'write') =>
+      `You are ${name} · ${access === 'write' ? 'you can write' : 'watching'}`,
+    leave: 'Leave',
+    working: 'Working…',
+    approving: (host: string) => `Waiting for ${host} to approve a step`,
+    awaiting: (host: string) => `Waiting for an answer from ${host}`,
+    writing: 'writing…',
+    empty: 'Nothing has been said in this chat yet.',
+    viewOnly: 'You can watch this chat but not write in it.',
+    placeholder: 'Write to the crew…',
+    send: 'Send',
+    asks: (host: string) =>
+      `Anything your message makes the crew do outside the chat waits for ${host}’s approval.`,
+    ended: {
+      title: 'You are no longer in this chat',
+      body: 'The person who shared it stopped sharing or removed you, or Myrmidon restarted. Ask them for a new link to join again.',
+      left: 'You left the chat. Ask for a new link to join again.',
+    },
+  },
+
+  /** A chat's family: the chat it was forked from, the chats forked from it, and each one's runs. */
+  family: {
+    title: 'Chat family',
+    open: 'Show family',
+    openTitle: 'Show the chats this one was forked from and into',
+    intro: 'Forks start from another chat’s conversation and go their own way. Choose a chat to open it.',
+    alone: 'No forks yet. Fork this chat from its menu in the list to try another direction from here.',
+    current: 'This chat',
+    gone: 'A deleted chat',
+    imported: (tool: string) => `Imported from ${tool}`,
+    importedAny: 'Imported from another tool',
+    tools: { claude: 'Claude Code', codex: 'Codex' } as Record<string, string>,
+    forkedAfter: (n: number) => `Forked after run ${n}`,
+    forked: 'Forked',
+    run: (n: number) => `Run ${n}`,
+    runs: (n: number) => `${n} run${n === 1 ? '' : 's'}`,
+    openChat: (title: string) => `Open “${title}”`,
+  },
+
   app: {
     /** Above a new chat forked from another (Fork in the chat list's menu), until its first message. */
     fork: {
@@ -2395,6 +2737,7 @@ export const copy = {
       thinkingAuto: 'Thinking: each role decides',
       thinkingLevel: (level: string) => `Thinking: ${level} while the crew works`,
       openChatToExport: 'Open a chat to export it',
+      exportUsage: 'Export as md, html or share, e.g. /export html',
       stopping: 'Stopping the crew…',
       deleted: (title: string) => `Deleted “${title}”`,
       deletedMany: (n: number) => `Deleted ${n} chats`,
@@ -2886,7 +3229,35 @@ export const copy = {
           'voice api',
         ],
         leadModel: ['default model', 'main model', 'lead model'],
+        fallbacks: [
+          'fallback',
+          'failover',
+          'backup model',
+          'model outage',
+          'overloaded',
+          'rate limit',
+          'model down',
+        ],
         reviewer: ['review', 'judge', 'verifier', 'verification', 'check the work', 'quality'],
+        advisor: [
+          'advisor',
+          'watchdog',
+          'second opinion',
+          'supervisor',
+          'course correction',
+          'mistakes',
+          'notes',
+        ],
+        prewalk: [
+          'prewalk',
+          'carry out',
+          'cheaper model',
+          'plan then execute',
+          'hand off',
+          'handoff',
+          'save money',
+          'executor',
+        ],
         helpers: ['crewmates', 'workers', 'helpers', 'subagents', 'team size', 'parallel'],
         budget: ['budget', 'cost', 'money', 'dollars', 'price', 'spend', 'limit'],
         time: ['timeout', 'duration', 'minutes', 'how long'],
@@ -2905,11 +3276,48 @@ export const copy = {
         access: ['tool groups', 'lead tools', 'crew tools', 'allow tools', 'disable tools'],
         rules: ['allow', 'deny', 'ask', 'allowlist', 'blocklist', 'command rules', 'tool rules'],
         readFolders: ['read access', 'folders', 'home folder', 'documents', 'files agents can read'],
+        secrets: [
+          'redact',
+          'redaction',
+          'api keys',
+          'tokens',
+          'passwords',
+          'privacy',
+          'leak',
+          'placeholder',
+          'mask',
+        ],
         instructions: ['system prompt', 'prompt', 'house rules', 'custom instructions', 'rules for agents'],
         memory: ['remember', 'memories', 'facts', 'preferences', 'knowledge'],
         skills: ['skill', 'playbook', 'playbooks', 'skill.md', 'agent skills'],
         mcp: ['mcp', 'model context protocol', 'tool server', 'connectors', 'integrations'],
+        telemetry: [
+          'telemetry',
+          'opentelemetry',
+          'otel',
+          'otlp',
+          'traces',
+          'metrics',
+          'observability',
+          'grafana',
+          'honeycomb',
+          'datadog',
+          'export',
+        ],
+        ssh: ['ssh', 'remote', 'server', 'vps', 'host', 'machine', 'ssh config', 'openssh'],
         webSearch: ['search engine', 'brave', 'exa', 'duckduckgo', 'google', 'internet'],
+        imageGeneration: [
+          'image model',
+          'generate image',
+          'pictures',
+          'drawing',
+          'dall-e',
+          'gpt-image',
+          'imagen',
+          'nano banana',
+          'grok imagine',
+          'art',
+        ],
         plugins: ['plugin', 'extension', 'extensions', 'add-on', 'claude code plugin'],
         hooks: ['hook', 'pre tool use', 'post tool use', 'script', 'lint on save', 'automation'],
         schedules: ['cron', 'recurring', 'every day', 'daily', 'weekly', 'timer', 'automation', 'routine'],
@@ -3133,6 +3541,28 @@ export const copy = {
       units: { minutes: 'min', dollars: '$', tokens: 'tok', seconds: 's' },
       crewTitle: 'Default crew',
       limitsTitle: 'Limits per run',
+      fallbacksTitle: 'If a model fails',
+      leadFallbacks: "Lead's fallback models",
+      leadFallbacksHint:
+        "When the lead's model is down, rate-limited past its retries, signed out or gone, the lead goes on with these, in order. None: the run pauses for you.",
+      workerFallbacks: "Crew's fallback models",
+      workerFallbacksHint:
+        'The same for crewmates and swarm peers. Each round starts on the chosen models again.',
+      addFallback: 'Add a fallback model',
+      removeFallback: (model: string) => `Remove ${model}`,
+      noFallbacks: 'None',
+      advisorTitle: 'Advisor',
+      advisor: 'Advisor model',
+      advisorHint:
+        'A second model reads each agent’s steps as it works and, when it spots a concrete problem (the wrong file, an ignored error, going in circles), sends the agent a short note. Off by default: each look is a model call, with a cap per run, and it stops as the run nears its spend or token limit.',
+      chooseAdvisor: 'Choose a model',
+      advisorOff: (model: string) => `Turn off the advisor (${model})`,
+      prewalkTitle: 'Prewalk',
+      carryOut: 'Carry-out model',
+      carryOutHint:
+        'The lead plans on its own model, then hands off once to this cheaper one to carry the plan out: at its first change (a file edit or a task), after you approve the plan in plan mode. Off by default. The chat shows the hand-off.',
+      chooseCarryOut: 'Choose a model',
+      carryOutOff: (model: string) => `Turn off prewalk (${model})`,
     },
     tools: {
       title: 'Tools',
@@ -3149,6 +3579,16 @@ export const copy = {
         guarded: (paths: readonly string[]) =>
           `Careful: ${paths.join(', ')} ${paths.length === 1 ? 'holds' : 'hold'} keys, sign-ins or every chat’s data. Agents in all your chats can read ${paths.length === 1 ? 'it' : 'them'}, and anything they read can leave over the network.`,
       },
+      /** Secrets kept from model providers (the runtime's provider-secrets.ts). */
+      secrets: {
+        title: 'Secrets and model providers',
+        subtitle: 'what leaves this machine with each model call',
+        hide: 'Hide secrets from model providers',
+        hideHint:
+          'API keys, tokens and passwords in what agents read, and the keys Myrmidon holds, reach the model as placeholders. Agents can still use them: Myrmidon puts the real value back in files in their own folder and in sandboxed commands.',
+        offHint:
+          'Off: a key in a file or a command’s output goes to the model provider as it is. Turn this off only when an agent must read a key itself.',
+      },
       libraryTitle: 'Your tool library',
       librarySubtitle: 'tools agents made that you kept; every new run starts with them',
       webSearch: 'Web search',
@@ -3156,6 +3596,15 @@ export const copy = {
       searchProviderHint:
         'Auto tries the search providers you have keys for first, then keyless ones like DuckDuckGo.',
       searchAuto: 'Auto',
+      imageGeneration: 'Image generation',
+      imageModel: 'Image model',
+      imageModelHint:
+        'The model agents make and edit pictures with. Automatic uses the first one your providers can run. Each picture is billed by its provider and counts toward a chat’s spending limit.',
+      imageModelNone:
+        'None of your providers can make pictures yet. Add an OpenAI, Google Gemini, OpenRouter or xAI key, or sign in with ChatGPT, in Models & providers.',
+      imageAuto: 'Automatic',
+      /** A chosen model its provider can no longer run (its key was removed). */
+      imageGone: (ref: string) => `${ref} (not available)`,
     },
     mcp: {
       added: (name: string) => `Added ${name}`,
@@ -3190,6 +3639,62 @@ export const copy = {
       remove: (name: string) => `Remove ${name}`,
       confirmRemove: 'Yes, remove server',
       removed: (name: string) => `Removed ${name}`,
+    },
+    /** Telemetry export over OTLP (Settings → General). */
+    telemetry: {
+      title: 'Telemetry export (OTLP)',
+      subtitle: 'send each finished run to your own collector',
+      enabled: 'Export runs over OTLP',
+      enabledHint:
+        'Off by default. Each finished run goes to your collector as a trace (turns, model and tool calls) and metrics (tokens, cost, calls). Only names, counts and timings: never prompts, replies or tool output.',
+      endpoint: 'Collector address',
+      endpointHint:
+        'OTLP over HTTP with JSON, e.g. http://localhost:4318; /v1/traces and /v1/metrics are added. Nothing is sent until there is one.',
+      endpointPlaceholder: 'http://localhost:4318',
+      endpointInvalid: 'Use an http:// or https:// address.',
+      headers: 'Headers',
+      headersHint:
+        'name=value, separated by commas (an API key, say). Kept in the credential vault, never shown again.',
+      headersSaved: 'Saved in the vault; type new ones to replace them',
+      headersPlaceholder: 'x-api-key=…',
+      saveHeaders: 'Save headers',
+      removeHeaders: 'Remove headers',
+      headersStored: 'Headers saved',
+      headersRemoved: 'Headers removed',
+      test: 'Send a test',
+      testOk: 'The collector took the test span',
+      testFailed: (error: string) => `The collector did not take it: ${error}`,
+      last: (at: string, ok: boolean, error?: string) =>
+        ok ? `Last sent ${at}` : `Last send failed ${at}${error ? `: ${error}` : ''}`,
+    },
+    /** Remote hosts agents reach over SSH (Settings → Tools). */
+    ssh: {
+      title: 'Remote hosts (SSH)',
+      subtitle: 'agents run commands and read files here; your rules decide each call',
+      note: 'Keys stay in your ssh agent or keychain: Myrmidon keeps only where to connect. A host from ~/.ssh/config uses its settings there.',
+      listLabel: 'Your remote hosts',
+      empty: 'No remote hosts yet. Add one below, or pick one from ~/.ssh/config.',
+      addLabel: 'Add a remote host',
+      addHint: 'A name for agents and rules, and the address (or an alias from ~/.ssh/config).',
+      name: 'Name',
+      host: 'Address',
+      user: 'User',
+      port: 'Port',
+      fromConfig: 'From ~/.ssh/config',
+      fromConfigNone: 'Pick a host…',
+      add: 'Add host',
+      added: (name: string) => `Added ${name}`,
+      exists: (name: string) => `A host named ${name} is already here`,
+      badName: 'Use letters, digits, dash, underscore and dot for the name.',
+      test: 'Test',
+      testLabel: (name: string) => `Test the connection to ${name}`,
+      testOk: (name: string) => `${name} answers`,
+      testFailed: (name: string, error: string) => `${name} did not answer: ${error}`,
+      remove: (name: string) => `Remove ${name}`,
+      confirmRemove: 'Yes, remove host',
+      removed: (name: string) => `Removed ${name}`,
+      rulesHint:
+        'Each call asks first unless a rule in Permissions allows the host, or the chat has full access.',
     },
     channels: {
       title: 'Channels',
@@ -3834,11 +4339,39 @@ export const copy = {
       title: 'Plugins',
       intro:
         'A plugin bundles skills, commands, hooks and MCP servers, on and off as one. Claude Code plugins work unchanged. It runs as you: add only plugins you trust.',
-      sourcePlaceholder: 'Folder path or git URL, e.g. ~/code/my-plugin or https://github.com/you/plugin',
-      sourceLabel: 'Plugin folder or git URL',
-      add: 'Add plugin',
-      adding: 'Adding…',
-      added: (name: string) => `Added ${name}`,
+      sourcePlaceholder:
+        'Folder, git URL or npm package, e.g. https://github.com/you/plugin or npm:my-plugin',
+      sourceLabel: 'Plugin folder, git URL or npm package',
+      add: 'Review plugin',
+      adding: 'Fetching…',
+      added: (name: string) => `Installed ${name}`,
+      updated: (name: string) => `Updated ${name}`,
+      update: 'Update',
+      updating: 'Fetching…',
+      from: (source: string) => `From ${source}`,
+      commit: (sha: string) => `commit ${sha.slice(0, 7)}`,
+      marketplaces: {
+        title: 'Marketplaces',
+        intro:
+          'Claude Code plugin marketplaces: catalogs of plugins in a git repository. Adding one only reads its list; each plugin you install from it is shown to you first.',
+        sourceLabel: 'Marketplace repository',
+        sourcePlaceholder: 'GitHub owner/repo or git URL, e.g. anthropics/claude-plugins-official',
+        add: 'Add marketplace',
+        adding: 'Adding…',
+        added: (name: string, n: number) => `Added ${name} (${n} plugin${n === 1 ? '' : 's'})`,
+        refresh: 'Refresh',
+        refreshed: (name: string) => `Refreshed ${name}`,
+        remove: 'Remove',
+        confirmRemove: 'Yes, remove marketplace',
+        removed: (name: string) => `Removed ${name}; plugins installed from it stay`,
+        by: (owner: string) => `by ${owner}`,
+        plugins: (n: number) => `${n} plugin${n === 1 ? '' : 's'}`,
+        browse: 'Show plugins',
+        hide: 'Hide plugins',
+        install: 'Install…',
+        installed: 'installed',
+        empty: 'No marketplaces yet.',
+      },
       loading: 'Loading plugins…',
       emptyTitle: 'No plugins yet',
       emptyBody: 'Add one above. It can be a Claude Code plugin folder or repository.',
@@ -3902,6 +4435,60 @@ export const copy = {
       restored: (name: string) => `Restored ${name}`,
       showMore: 'Show more',
       showLess: 'Show less',
+      add: {
+        title: 'Add skills',
+        intro:
+          "Search omp's skills registry, or install from a git repository. You see what a skill holds, including any scripts, before it is installed.",
+        searchLabel: 'Search the skills registry',
+        searchPlaceholder: 'e.g. pdf, testing, owner:ada',
+        search: 'Search',
+        searching: 'Searching…',
+        popular: 'Popular in the registry',
+        noHits: 'Nothing in the registry matches.',
+        downloads: (n: number) => `${n.toLocaleString()} this week`,
+        install: 'Install…',
+        sourceLabel: 'Skill git URL',
+        sourcePlaceholder: 'Git URL of a skill or a repository of skills, e.g. https://github.com/you/skills',
+        review: 'Review',
+        fetching: 'Fetching…',
+        installed: (names: string[]) => `Installed ${names.join(', ')}`,
+      },
+      from: (source: string) => `From ${source}`,
+      update: 'Update',
+      updated: (names: string[]) => `Updated ${names.join(', ')}`,
+      remove: 'Remove',
+      confirmRemove: 'Yes, remove skill',
+      removed: (name: string) => `Removed ${name}`,
+    },
+    /** The review shown before a plugin or skill is installed. */
+    installReview: {
+      pluginTitle: (name: string) => `Install ${name}?`,
+      updateTitle: (name: string) => `Update ${name}?`,
+      skillTitle: (n: number) => (n === 1 ? 'Install this skill?' : `Install these ${n} skills?`),
+      source: 'From',
+      version: 'Version',
+      pinned: 'Pinned to',
+      replaces: (version?: string, commit?: string) =>
+        `Replaces ${[version && `v${version}`, commit?.slice(0, 7)].filter(Boolean).join(' · ') || 'the installed copy'}`,
+      runs: 'What runs as you',
+      code: (entry: string) => `Server code (${entry}) runs in Myrmidon once it is on`,
+      ui: 'Adds its own screens to the app',
+      hooks: (n: number) => `${n} hook${n === 1 ? '' : 's'}: commands around every tool call`,
+      servers: (names: string[]) => `MCP server${names.length === 1 ? '' : 's'}: ${names.join(', ')}`,
+      nothingRuns: 'No code, hooks or servers: only skills and commands.',
+      adds: 'What it adds',
+      skills: (names: string[]) => `Skills: ${names.join(', ')}`,
+      commands: (names: string[]) => `Commands: ${names.map((n) => `/${n}`).join(', ')}`,
+      dependencies: (names: string[]) =>
+        `Installs ${names.length} npm package${names.length === 1 ? '' : 's'} it needs (${names.join(', ')}), with their install scripts off`,
+      files: (n: number) => `${n} file${n === 1 ? '' : 's'}`,
+      scripts: (files: string[]) =>
+        `Scripts an agent can run: ${files.join(', ')}. Nothing runs when it is installed.`,
+      warning: 'It runs as you, with your files and keys. Install it only if you trust where it comes from.',
+      install: 'Install',
+      update: 'Update',
+      installing: 'Installing…',
+      cancel: 'Cancel',
     },
     memory: {
       kinds: {
@@ -3935,6 +4522,22 @@ export const copy = {
       keep: 'Keep',
       forget: 'Forget this',
       confirmForget: 'Yes, forget this memory',
+      suggest: 'Suggest memories',
+      suggestHint:
+        'After a chat, a small model suggests what to remember from what you said, and now and then how to merge memories that repeat or went stale. Nothing is kept until you keep it, and nothing that looks like a secret or personal detail is suggested.',
+      search: 'Search memories',
+      noMatch: (query: string) => `Nothing remembered matches “${query}”`,
+      waitingTitle: 'Waiting for you',
+      tidy: 'Tidy up',
+      tidyHint: 'Suggest merging memories that repeat or went stale. Each suggestion waits for you.',
+      tidying: 'Tidying up…',
+      tidied: (n: number) => (n === 1 ? '1 suggestion to look at' : `${n} suggestions to look at`),
+      tidiedNone: 'Nothing to tidy up',
+      fromChat: 'suggested from a chat',
+      fromTidy: 'suggested by tidying up',
+      said: (quote: string) => `You said: “${quote}”`,
+      replaces: 'Replaces',
+      discard: 'Discard',
     },
     shortcuts: {
       title: 'Keyboard shortcuts',

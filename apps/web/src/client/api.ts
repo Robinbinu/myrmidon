@@ -193,6 +193,18 @@ export async function blobImage(colony: string, hash: string): Promise<string> {
   return URL.createObjectURL(blob)
 }
 
+/**
+ * A sound stored with a chat (speech an agent made) as an object URL for <audio src>, fetched with the auth header.
+ * The server serves it as audio only if its bytes are WAV, MP3, Ogg or FLAC; anything else is refused here.
+ */
+export async function blobAudio(colony: string, hash: string): Promise<string> {
+  const res = await call(`${base}/api/colonies/${colony}/blobs/${hash}?as=audio`, { headers: auth })
+  if (!res.ok) throw failure(res.status)
+  const blob = await res.blob()
+  if (!blob.type.startsWith('audio/')) throw new ApiError(copy.artifactViewer.mediaFailed)
+  return URL.createObjectURL(blob)
+}
+
 /** A plugin's built UI, imported from an object URL so the token stays in the header, never in a URL. */
 export async function importPluginUI(name: string): Promise<unknown> {
   // A plugin's screen runs as part of this page, with this machine's access; one from another gateway opens there.
@@ -207,6 +219,13 @@ export async function importPluginUI(name: string): Promise<unknown> {
   } finally {
     URL.revokeObjectURL(url)
   }
+}
+
+/** A GET whose answer is text rather than JSON: a chat's HTML export. */
+export async function apiText(path: string): Promise<string> {
+  const res = await call(`${base}${path}`, { headers: auth })
+  if (!res.ok) throw failure(res.status, await errorOf(res))
+  return res.text()
 }
 
 export async function blobText(colony: string, hash: string): Promise<string> {
@@ -564,6 +583,46 @@ export interface ChatSummary {
   group?: string
   /** The chat it was forked from. */
   forkOf?: string
+  /** The imported Claude Code or Codex session it continues. */
+  importOf?: string
+}
+
+export type ImportSource = 'claude' | 'codex'
+
+/** Another tool's session on the server's machine, as the import list shows it. */
+export interface ImportableSession {
+  source: ImportSource
+  id: string
+  cwd: string
+  title?: string
+  preview?: string
+  updatedAt: string
+  messages?: number
+  bytes: number
+  project?: { id: string; name: string }
+}
+
+/** One message of an imported conversation. */
+export interface ImportedTurn {
+  role: 'user' | 'assistant' | 'tool' | 'summary'
+  text: string
+  tool?: string
+  result?: string
+  error?: boolean
+}
+
+/** An imported session a new chat starts from (redacted and clipped on the server). */
+export interface ImportedSession {
+  id: string
+  source: ImportSource
+  sourceId: string
+  title: string
+  cwd: string
+  project?: { id: string; name: string }
+  updatedAt: string
+  importedAt: string
+  turns: ImportedTurn[]
+  omitted: number
 }
 
 /** A section of the chat list the person named. */
@@ -591,11 +650,15 @@ export interface Project {
   permissions?: ProjectPermissions
 }
 
-/** Who this is to the server: whether it is a remote gateway, and this device's scope. 401 when not signed in. */
+/**
+ * Who this is to the server: whether it is a remote gateway, and this device's scope. 401 when not signed in. A guest
+ * of a shared chat is `guest`, and sees that chat alone (GuestChat.tsx).
+ */
 export interface WhoAmI {
-  scope: 'full' | 'chat'
+  scope: 'full' | 'chat' | 'guest'
   remote: boolean
   device?: { id: string; name: string }
+  guest?: { name: string; access: ShareAccess; chatId: string }
 }
 
 /** Who this is to this machine (not to the gateway the window shows): pairing happens here. */
@@ -616,6 +679,67 @@ export async function pairDevice(code: string, name: string): Promise<void> {
   const data = (await res.json().catch(() => ({}))) as { error?: string }
   if (!res.ok) throw new ApiError(data.error ?? copy.api.status(res.status))
 }
+
+/** What a guest of a shared chat may do: watch it, or watch and write in it. */
+export type ShareAccess = 'view' | 'write'
+
+/** A chat shared live, as the person sees it in Share live: open invites and who is in. */
+export interface ChatShare {
+  /** Whether others can reach this Myrmidon at all; on this computer alone, a link opens only here. */
+  remote: boolean
+  invites: { id: string; access: ShareAccess; createdAt: string; expiresAt: string }[]
+  guests: { id: string; name: string; access: ShareAccess; joinedAt: string; online: boolean }[]
+}
+
+export const chatShare = (chatId: string) => api<ChatShare>(`/api/chats/${chatId}/share`)
+/** A single-use invite: the link to send, and its code for typing in. */
+export const inviteGuest = (chatId: string, access: ShareAccess) =>
+  post<{ link: string; code: string; invite: { id: string; expiresAt: string } }>(
+    `/api/chats/${chatId}/share`,
+    {
+      access,
+    },
+  )
+export const withdrawInvite = (chatId: string, id: string) =>
+  send('DELETE', `/api/chats/${chatId}/share/invites/${id}`)
+export const removeGuest = (chatId: string, id: string) =>
+  send('DELETE', `/api/chats/${chatId}/share/guests/${id}`)
+export const stopSharing = (chatId: string) => send('DELETE', `/api/chats/${chatId}/share`)
+
+/** The shared chat as its guest sees it: no project, crew, permissions or filing. */
+export interface GuestView {
+  guest: { id: string; name: string; access: ShareAccess; joinedAt: string }
+  /** The person who shared it. */
+  host: string
+  chat: Pick<ChatSummary, 'chatId' | 'title' | 'updatedAt' | 'status' | 'awaiting' | 'failed' | 'rounds'> & {
+    approving?: boolean
+  }
+}
+
+/**
+ * The shared chat for its guest; undefined once they are no longer in it (removed, sharing stopped, a restart). A
+ * guest's requests go to this machine, never through a gateway.
+ */
+export async function guestView(): Promise<GuestView | undefined> {
+  const res = await call('/api/guest')
+  if (res.status === 401 || res.status === 404) return undefined
+  if (!res.ok) throw failure(res.status, await errorOf(res))
+  return res.json() as Promise<GuestView>
+}
+
+/** Joins a shared chat with an invite's code; the server sets the guest's cookie. */
+export async function joinChat(code: string, name: string): Promise<void> {
+  const res = await fetch('/api/guest/join', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ code, name }),
+  })
+  const data = (await res.json().catch(() => ({}))) as { error?: string }
+  if (!res.ok) throw new ApiError(data.error ?? copy.api.status(res.status))
+}
+
+export const guestSend = (text: string) => hubSend('POST', '/api/guest/messages', { text })
+export const leaveChat = () => hubSend('DELETE', '/api/guest')
 
 /** Another gateway as this machine (the hub) lists it; its token stays here. */
 export interface GatewayInfo {

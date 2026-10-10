@@ -7,8 +7,7 @@
  * member's round, macOS grants present, the app approved for the chat at a tier that allows the action, and
  * consequential steps approved by the person.
  */
-import type { AgentTool, AgentToolResult } from '@oh-my-pi/pi-agent-core'
-import { type ComputerToolCallMetadata, type Model, type } from '@oh-my-pi/pi-ai'
+
 import {
   COMPUTER_ELEMENTS_SHOWN,
   COMPUTER_ELEMENTS_WALKED,
@@ -20,6 +19,8 @@ import {
   COMPUTER_SENSITIVE_LABEL,
 } from '../config.ts'
 import { agentActor, type ColonyHost } from '../host.ts'
+import type { AgentTool, AgentToolResult } from '../omp/agent-core.ts'
+import { type ComputerToolCallMetadata, type Model, type } from '../omp/ai.ts'
 import { prompts } from '../prompts.ts'
 import { redactSecrets } from '../secrets.ts'
 import { spotlight } from '../tools.ts'
@@ -36,7 +37,7 @@ import {
 } from './actions.ts'
 import { type AppTier, allows, appTier, appWarning, canRaise, isOwnApp, sendsOnReturn } from './apps.ts'
 import { desktopParameters } from './desktop.ts'
-import { ComputerStopped, type DriverResult, type Wait } from './driver.ts'
+import { type ComputerHub, ComputerStopped, type DriverResult, type Pointer, type Wait } from './driver.ts'
 import { blocked, needGrants } from './grants.ts'
 import { COMPUTER_TOOL, DESKTOP_TOOL, LIST_APPS_TOOL, OPEN_APP_TOOL } from './names.ts'
 
@@ -52,6 +53,8 @@ interface Target {
   windowId: number
   bounds: { width: number; height: number }
   title: string
+  /** Its window has no accessibility tree to read (Chromium and Electron apps build one only for assistive tools). */
+  noTree?: boolean
 }
 
 interface Element {
@@ -65,6 +68,8 @@ interface Element {
 
 /** What one agent has on its desktop: the app it drives and its latest screenshot. */
 interface Desk {
+  /** The driver session the agent drives in: its own cursor, and its own snapshots. */
+  session?: string
   target?: Target
   shot?: {
     readonly snapshot?: string
@@ -435,6 +440,8 @@ async function perform(
   for (const action of actions) {
     if (signal?.aborted) throw new Error('the call was stopped')
     const result = await act(host, agent, desk, action, signal)
+    const pointer = pointerOf(desk, action)
+    if (pointer) hub.point({ colonyId: host.id, agent }, pointer.x, pointer.y, pointer.action)
     if (result?.note) notes.push(result.note)
     if (result?.image) zoomed = result.image
     if (action.kind === 'list_apps' || action.kind === 'cursor' || action.kind === 'elements')
@@ -461,8 +468,12 @@ async function act(
 ): Promise<{ note?: string; image?: { data: string; mimeType: string } } | undefined> {
   const hub = host.computer
   if (!hub) throw new Error(t.notHere)
+  // Each agent drives as a session of its own, so the driver keeps one cursor per agent; it hides that cursor while the
+  // desktop app's overlay draws the agents' own.
+  desk.session ??= sessionOf(host.id, agent)
+  await hub.showDriverCursor(desk.session, !hub.overlayShown())
   const call = async (tool: string, args: Record<string, unknown>) => {
-    const r = await hub.call(tool, args, signal)
+    const r = await driverCall(hub, desk, tool, args, signal)
     if (r.isError) throw new Error(r.text.replace(/^Error:\s*/, '').slice(0, 600) || `${tool} failed`)
     return r
   }
@@ -492,6 +503,14 @@ async function act(
   if (!allows(tier, action))
     throw new Error(t.tier(target.app, tier, describe(action).action.replace(/_/g, ' ')))
   const at = { pid: target.pid, window_id: target.windowId }
+  // Cua refuses background input to a window whose accessibility surface it cannot resolve (the events could reach
+  // another window of the same app): there each action brings the window forward, one agent at a time.
+  const input = (tool: string, args: Record<string, unknown>) =>
+    target.noTree && hub.accepts(tool, 'delivery_mode')
+      ? hub.inForeground({ colonyId: host.id, agent }, target.app, () =>
+          call(tool, { ...args, delivery_mode: 'foreground' }),
+        )
+      : call(tool, args)
   switch (action.kind) {
     case 'screenshot':
       return undefined
@@ -540,7 +559,7 @@ async function act(
       // Modified clicks must bring the window forward, so macOS sees the keys held: one agent at a time.
       if (action.modifiers.length)
         await hub.inForeground({ colonyId: host.id, agent }, target.app, () => call('click', args))
-      else await call('click', args)
+      else await input('click', args)
       desk.cursor = point
       return undefined
     }
@@ -556,15 +575,15 @@ async function act(
         element_index: action.element,
         ...(shot.snapshot ? { snapshot_id: shot.snapshot } : {}),
       }
-      if (action.count === 2) await call('double_click', ref)
-      else await call(action.button === 'right' ? 'right_click' : 'click', ref)
+      if (action.count === 2) await input('double_click', ref)
+      else await input(action.button === 'right' ? 'right_click' : 'click', ref)
       return undefined
     }
     case 'move': {
       const shot = needShot(desk)
       if (!inside(action.at, shot))
         throw new Error(t.outside(action.at[0], action.at[1], shot.width, shot.height))
-      await call('move_cursor', { ...at, x: action.at[0], y: action.at[1] })
+      await input('move_cursor', { ...at, x: action.at[0], y: action.at[1] })
       desk.cursor = action.at
       return undefined
     }
@@ -572,7 +591,7 @@ async function act(
       const shot = needShot(desk)
       for (const p of [action.from, action.to])
         if (!inside(p, shot)) throw new Error(t.outside(p[0], p[1], shot.width, shot.height))
-      await call('drag', {
+      await input('drag', {
         ...at,
         from_x: action.from[0],
         from_y: action.from[1],
@@ -586,7 +605,7 @@ async function act(
       const shot = needShot(desk)
       if (action.at && !inside(action.at, shot))
         throw new Error(t.outside(action.at[0], action.at[1], shot.width, shot.height))
-      await call('scroll', {
+      await input('scroll', {
         ...at,
         direction: action.direction,
         amount: action.amount,
@@ -601,7 +620,7 @@ async function act(
       if (redactSecrets(action.text) !== action.text) throw new Error(t.secret)
       if (sendsOrRuns(action, target.bundleId)) await approveStep(host, agent, [action], t.review.sensitive)
       const shot = desk.shot
-      await call('type_text', {
+      await input('type_text', {
         ...at,
         text: action.text,
         ...(action.element !== undefined
@@ -615,8 +634,8 @@ async function act(
       if (sendsOrRuns(action, target.bundleId)) await approveStep(host, agent, [action], t.review.sensitive)
       const modifiers = action.keys.slice(0, -1)
       for (let i = 0; i < action.repeat; i++)
-        if (modifiers.length) await call('hotkey', { ...at, keys: [...action.keys] })
-        else await call('press_key', { ...at, key })
+        if (modifiers.length) await input('hotkey', { ...at, keys: [...action.keys] })
+        else await input('press_key', { ...at, key })
       return undefined
     }
   }
@@ -815,27 +834,50 @@ async function screenshot(host: ColonyHost, desk: Desk, model: Model) {
     max_elements: COMPUTER_ELEMENTS_WALKED,
     ...(hub.accepts('get_window_state', 'tree_format') ? { tree_format: 'elements' } : {}),
   }
-  let r = await hub.call('get_window_state', args)
+  let r = await driverCall(
+    hub,
+    desk,
+    'get_window_state',
+    target.noTree && hub.accepts('get_window_state', 'include_accessibility_tree')
+      ? {
+          pid: args.pid,
+          window_id: args.window_id,
+          max_dimension: args.max_dimension,
+          include_accessibility_tree: false,
+        }
+      : args,
+  )
   if (r.isError && /window_id_not_found|window_owner_pid_mismatch/.test(r.text)) {
     // The window closed or changed (a dialog, a new document): look at the app's front window instead.
-    const window = frontWindow(windowsOf(await hub.call('list_windows', { pid: target.pid })))
+    const window = frontWindow(windowsOf(await driverCall(hub, desk, 'list_windows', { pid: target.pid })))
     if (!window) throw new Error(t.noWindow(target.app))
     target.windowId = window.id
     target.bounds = window.bounds
     target.title = window.title
-    r = await hub.call('get_window_state', {
+    r = await driverCall(hub, desk, 'get_window_state', {
       ...args,
       window_id: window.id,
       max_dimension: screenshotEdge(window.bounds, limits),
     })
   }
+  // No tree to read, but the window is there: look at it by screenshot alone and act by pixel. Remembered for the
+  // app, so later looks do not pay for a failed walk first.
+  const treeless = hub.accepts('get_window_state', 'include_accessibility_tree')
+  if (treeless && unresolved(r)) target.noTree = true
+  if (target.noTree && treeless && (r.isError || !r.images[0]))
+    r = await driverCall(hub, desk, 'get_window_state', {
+      pid: target.pid,
+      window_id: target.windowId,
+      max_dimension: args.max_dimension,
+      include_accessibility_tree: false,
+    })
   if (r.isError) throw new Error(r.text.replace(/^Error:\s*/, '').slice(0, 600))
   const s = (r.structured ?? {}) as Record<string, unknown>
   const title = typeof s.window_title === 'string' ? s.window_title : target.title
   target.title = title
   if (COMPUTER_OWN_WINDOW_TITLE.test(title)) throw new Error(t.ownWindow(target.app))
   const image = r.images[0]
-  if (!image) throw new Error(String(s.degraded_reason ?? 'the driver returned no screenshot of this window'))
+  if (!image) throw new Error(t.noCapture(target.app, captureProblem(s)))
   const width = Number(s.screenshot_width) || target.bounds.width
   const height = Number(s.screenshot_height) || target.bounds.height
   const bounds = s.window_bounds as { x?: number; y?: number; width?: number; height?: number } | undefined
@@ -849,7 +891,28 @@ async function screenshot(host: ColonyHost, desk: Desk, model: Model) {
       ? { window: { x: bounds.x ?? 0, y: bounds.y ?? 0, width: bounds.width, height: bounds.height } }
       : {}),
   }
-  return { image, text: `${t.shot(target.app, title, width, height)}\n${elementLines(elements, r)}` }
+  const listed = target.noTree ? t.noTree(target.app) : elementLines(elements, r)
+  return { image, text: `${t.shot(target.app, title, width, height)}\n${listed}` }
+}
+
+/**
+ * The driver could not resolve the window's accessibility surface: Cua 0.28 and later answer with an empty tree and
+ * `degraded_reason: ax_window_unresolved` beside the screenshot; some builds refuse with that text as an error.
+ */
+function unresolved(r: DriverResult): boolean {
+  const reason = (r.structured as { degraded_reason?: unknown } | undefined)?.degraded_reason
+  return (
+    /ax_window_unresolved/.test(r.text) ||
+    (typeof reason === 'string' && reason.startsWith('ax_window_unresolved'))
+  )
+}
+
+/** Why the driver gave no screenshot, from its `screenshot_error` (px_capture_unavailable, px_frame_mismatch…). */
+function captureProblem(s: Record<string, unknown>): string {
+  const e = s.screenshot_error as { code?: unknown; reason?: unknown } | undefined
+  const code = typeof e?.code === 'string' ? e.code : undefined
+  const reason = typeof e?.reason === 'string' ? e.reason : undefined
+  return [code, reason].filter(Boolean).join(': ') || 'the driver returned no screenshot'
 }
 
 async function keyframe(
@@ -884,11 +947,82 @@ async function keyframe(
 }
 
 /** The label of the element under a screenshot pixel: pixels map onto the window's frame in screen points. */
-export function labelAt(desk: Pick<Desk, 'shot'>, at: Point): string | undefined {
+/** The driver session label for one agent of one round: short, and the same on every call it makes. */
+export function sessionOf(colonyId: string, agent: string): string {
+  const clean = (text: string) =>
+    text
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')
+  // A colony id ends in a random tail (…-mv0mzk25-926f34): enough to tell rounds apart.
+  return `myr-${clean(agent).slice(0, 24)}-${clean(colonyId).split('-').at(-1)?.slice(-12)}`
+}
+
+/** A driver call in the agent's session, where the driver's tool takes one. */
+function driverCall(
+  hub: ComputerHub,
+  desk: Pick<Desk, 'session'>,
+  tool: string,
+  args: Record<string, unknown>,
+  signal?: AbortSignal,
+): Promise<DriverResult> {
+  const session = desk.session && hub.accepts(tool, 'session') ? { session: desk.session } : {}
+  return hub.call(tool, { ...args, ...session }, signal)
+}
+
+/** A point in the latest screenshot's pixels, in screen points (origin top-left), where the window was then. */
+export function screenPoint(desk: Pick<Desk, 'shot'>, at: Point): Point | undefined {
   const shot = desk.shot
   if (!shot?.window || !shot.width || !shot.height) return undefined
-  const x = shot.window.x + (at[0] * shot.window.width) / shot.width
-  const y = shot.window.y + (at[1] * shot.window.height) / shot.height
+  return [
+    shot.window.x + (at[0] * shot.window.width) / shot.width,
+    shot.window.y + (at[1] * shot.window.height) / shot.height,
+  ]
+}
+
+/**
+ * Where on the screen an action happened, for the agent's cursor in the desktop app's overlay: the point it clicked,
+ * moved, dragged or scrolled to, the element it used, or for typing and keys where its cursor already was.
+ */
+export function pointerOf(
+  desk: Pick<Desk, 'shot' | 'cursor'>,
+  action: DesktopAction,
+): { x: number; y: number; action: Pointer['action'] } | undefined {
+  const element = (index: number | undefined) => {
+    const f = desk.shot?.elements.find((e) => e.index === index)?.frame
+    return f ? ([f.x + f.w / 2, f.y + f.h / 2] as Point) : undefined
+  }
+  const at = (p: Point | undefined) => (p ? screenPoint(desk, p) : undefined)
+  const found = (p: Point | undefined, kind: Pointer['action']) =>
+    p ? { x: p[0], y: p[1], action: kind } : undefined
+  switch (action.kind) {
+    case 'click':
+      return found(at(action.at ?? desk.cursor), 'click')
+    case 'click_element':
+      return found(element(action.element), 'click')
+    case 'move':
+      return found(at(action.at), 'move')
+    case 'drag':
+      return found(at(action.to), 'drag')
+    case 'scroll':
+      return found(
+        action.element !== undefined ? element(action.element) : at(action.at ?? desk.cursor),
+        'scroll',
+      )
+    case 'type':
+      return found(action.element !== undefined ? element(action.element) : at(desk.cursor), 'type')
+    case 'key':
+      return found(at(desk.cursor), 'type')
+    default:
+      return undefined
+  }
+}
+
+export function labelAt(desk: Pick<Desk, 'shot'>, at: Point): string | undefined {
+  const shot = desk.shot
+  const point = screenPoint(desk, at)
+  if (!shot || !point) return undefined
+  const [x, y] = point
   let best: Element | undefined
   for (const e of shot.elements) {
     const f = e.frame

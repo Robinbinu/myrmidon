@@ -399,7 +399,8 @@ export class ChannelLedger {
     this._db.run("delete from kv where key like ? escape '\\'", [`${channel.replace(/[\\%_]/g, '\\$&')}:%`])
   }
 
+  // close(true) releases the file at once (or throws), so Windows can delete the data folder after.
   close() {
-    this._db.close()
+    this._db.close(true)
   }
 }

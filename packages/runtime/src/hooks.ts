@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { isAbsolute, join, resolve } from 'node:path'
 import { HOOK_MAX_OUTPUT, HOOK_MAX_TIMEOUT_S, HOOK_TIMEOUT_S } from './config.ts'
-import { hostShell } from './shell.ts'
+import { hostShell, shellEnv } from './shell.ts'
 
 /**
  * The person's hooks: commands Myrmidon runs at fixed points (before a tool, after it, when a round ends), so a
@@ -60,6 +60,7 @@ const CLAUDE_NAMES: Record<string, string> = {
   fs_edit: 'Edit',
   glob: 'Glob',
   grep: 'Grep',
+  lsp: 'LSP',
   web_fetch: 'WebFetch',
   web_search: 'WebSearch',
   update_todo: 'TodoWrite',
@@ -170,7 +171,7 @@ async function runCommand(
     stdin: new Blob([JSON.stringify(input)]),
     stdout: 'pipe',
     stderr: 'pipe',
-    env: { ...process.env, ...env },
+    env: shellEnv({ ...process.env, ...env }),
     windowsHide: true,
   })
   let timedOut = false

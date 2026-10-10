@@ -1,14 +1,10 @@
 import {
-  type ColonyState,
   DEFAULT_PRESET,
   expandCommand,
-  foldColony,
-  type MyrEvent,
   type PermissionLevel,
   type PermissionPreset,
   type PluginCommand,
   type QuestionAnswers,
-  roundSlice,
   type SetupStep,
 } from '@myrmidon/protocol'
 import {
@@ -37,6 +33,7 @@ import {
   type ChatSummary,
   CONNECTION_CHANGED,
   type ColonySummary,
+  type ImportedSession,
   type ModelOption,
   normalizeConfig,
   type Project,
@@ -51,17 +48,24 @@ import { CommandPalette, type PaletteItem } from './CommandPalette.tsx'
 import { Compare } from './Compare.tsx'
 import { ComputerBanner, OPEN_SETTINGS_EVENT } from './ComputerUse.tsx'
 import { ChatReadChips } from './chat/ApprovalCards.tsx'
+import { ChatFamily } from './chat/ChatFamily.tsx'
 import { Composer, type ComposerHandle, type Delivery } from './chat/Composer.tsx'
 import { sidebarOrder, stepChat } from './chat/chat-order.ts'
 import { allCommands, setPluginCommands } from './chat/commands.ts'
 import { forgetDraft } from './chat/drafts.ts'
+import { type ExportFormat, exportChat } from './chat/export.ts'
 import { FolderPicker, ProjectPill } from './chat/FolderPicker.tsx'
+import { chatFamily, familySize } from './chat/family.ts'
 import { Hero } from './chat/Hero.tsx'
 import { useHeldDeletes } from './chat/held-deletes.ts'
+import { LiveShare } from './chat/LiveShare.tsx'
 import { canLead } from './chat/model-list.ts'
 import { ProjectFiles } from './chat/ProjectFiles.tsx'
 import { FullAccessBadge, ProjectPermissions } from './chat/ProjectPermissions.tsx'
 import { isRunning, JumpToLatest, PendingRound, RoundView } from './chat/RoundView.tsx'
+import { RuleSheet } from './chat/RuleSheet.tsx'
+import { ImportedChatBlock, ImportNote, ImportSessions } from './chat/SessionImport.tsx'
+import { ShareChat } from './chat/ShareChat.tsx'
 import { Sidebar, type View } from './chat/Sidebar.tsx'
 import { Workspace } from './chat/Workspace.tsx'
 import { copy } from './copy.ts'
@@ -191,40 +195,6 @@ async function encodeFile(file: File): Promise<{ name: string; data: string }> {
   for (let i = 0; i < bytes.length; i += 0x8000)
     binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
   return { name: file.name, data: btoa(binary) }
-}
-
-/** Downloads a chat as Markdown: each round's request, the colony's replies, and the files it delivered. */
-async function exportChat(chat: ChatSummary) {
-  const lines = [`# ${chat.title}`, '']
-  const loaded = new Map<string, { state: ColonyState; events: MyrEvent[] }>()
-  for (const round of chat.rounds) {
-    let colony = loaded.get(round.colonyId)
-    if (!colony) {
-      const events = await api<MyrEvent[]>(`/api/colonies/${round.colonyId}/events?from=1&limit=20000`)
-      colony = { events, state: foldColony(round.colonyId, events) }
-      loaded.set(round.colonyId, colony)
-    }
-    const { state, info } = roundSlice(colony.state, colony.events, round.round)
-    lines.push(`## ${copy.app.export.round(round.round)}`, '')
-    for (const m of state.chatMessages)
-      lines.push(`**${m.from === 'user' ? copy.app.export.you : m.from}:**`, '', m.text, '')
-    const from = info?.startSeq ?? 0
-    const files = Object.entries(state.artifacts)
-      .filter(([, v]) => v.some((x) => x.seq >= from && x.author !== 'user'))
-      .map(([name]) => name)
-    if (files.length) lines.push(copy.app.export.files(files.join(', ')), '')
-  }
-  const url = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/markdown' }))
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `${
-    chat.title
-      .replace(/[^\w -]+/g, '')
-      .trim()
-      .slice(0, 60) || copy.app.export.fallbackName
-  }.md`
-  a.click()
-  URL.revokeObjectURL(url)
 }
 
 /** The delete sheet's question: one chat by its title, several by how many with their titles listed. */
@@ -372,6 +342,12 @@ export function App() {
   )
   /** The chats the delete sheet asks about: one, or the sidebar's selection. */
   const [deleting, setDeleting] = useState<readonly ChatSummary[]>()
+  /** `/rule`: the complaint about the open chat's last reply that a rule is being drafted from. */
+  const [ruleFor, setRuleFor] = useState<{ chatId: string; complaint: string; project: boolean }>()
+  /** The chat whose family sheet is open, the chat being sealed into a share file, and the one shared live. */
+  const [familyOf, setFamilyOf] = useState<string>()
+  const [sharing, setSharing] = useState<ChatSummary>()
+  const [sharingLive, setSharingLive] = useState<ChatSummary>()
   const deletes = useHeldDeletes({
     remove: (chatId) => request('DELETE', `/api/chats/${chatId}`),
     gone: (chatIds) => {
@@ -408,6 +384,9 @@ export function App() {
   const [newProject, setNewProject] = useState<string>()
   /** The chat a new chat continues (Fork), until its first message is sent. */
   const [forkOf, setForkOf] = useState<string>()
+  /** A Claude Code or Codex session the new chat continues, until its first message (Import a session). */
+  const [imported, setImported] = useState<ImportedSession>()
+  const [importOpen, setImportOpen] = useState(false)
   /** The person's own groups in the chat list. */
   const [chatGroups, setChatGroups] = useState<ChatGroup[]>([])
   const loadGroups = useCallback(
@@ -747,6 +726,13 @@ export function App() {
   const waiting = !!pending && (pending.chatId ?? undefined) === (chat?.chatId ?? pending.chatId)
   /** A chat link (`?chat=`) whose chat is not in the list once it has loaded. */
   const missing = !!activeChat && chatsLoaded && !chat && !waiting
+  /** The open chat has relatives (a chat it was forked from, or forks): the header offers its family. */
+  const related = useMemo(() => {
+    const root = chat ? chatFamily(chats, chat.chatId) : undefined
+    return !!root && (familySize(root) > 1 || !root.chat)
+  }, [chats, chat])
+  const exportAs = (c: ChatSummary, format: ExportFormat) =>
+    void exportChat(c, format).catch((err) => toast(String(err.message ?? err), 'error'))
 
   const openSettings = (section: Section) => {
     if (!fullAccess) return toast(copy.app.chatsOnly, 'info')
@@ -781,11 +767,12 @@ export function App() {
   }, [chats, pending])
 
   const newTask = useCallback(
-    (project?: string, fork?: string) =>
+    (project?: string, fork?: string, session?: ImportedSession) =>
       leaveSettings(() => {
         placement.away()
         setNewProject(project)
         setForkOf(fork)
+        setImported(session)
         setActiveChat(undefined)
         setView('chat')
         setSettingsOpen(false)
@@ -855,7 +842,8 @@ export function App() {
     chatId = activeChat,
     delivery: Delivery = 'steer',
     files: readonly File[] = [],
-    plan = false,
+    /** `plan`: plan mode (/plan); `goal`: goal mode (/goal), the text being `<condition>: <request>`. */
+    how: { plan?: boolean; goal?: boolean } = {},
     answers?: QuestionAnswers,
   ) => {
     if (!config) return
@@ -875,9 +863,11 @@ export function App() {
           config,
           chatId,
           delivery,
-          ...(plan ? { plan: true } : {}),
+          ...(how.plan ? { plan: true } : {}),
+          ...(how.goal ? { goal: true } : {}),
           ...(!chatId && newProject ? { project: newProject } : {}),
           ...(!chatId && forkOf ? { forkOf } : {}),
+          ...(!chatId && imported ? { importOf: imported.id } : {}),
           ...(!chatId && newPermissions ? { permissions: newPermissions } : {}),
           ...(answers ? { answers } : {}),
           ...(files.length ? { attachments: await Promise.all(files.map(encodeFile)) } : {}),
@@ -887,6 +877,7 @@ export function App() {
       if (!chatId) {
         setNewPermissions(undefined)
         setForkOf(undefined)
+        setImported(undefined)
       }
       setView('chat')
       if (r.started)
@@ -952,8 +943,17 @@ export function App() {
     switch (name) {
       case 'learn':
         return learn()
+      case 'rule':
+        if (!activeChat) return toast(copy.rules.noChat, 'info')
+        if (!arg) {
+          toast(copy.rules.usage, 'error')
+          throw new Error('no complaint')
+        }
+        return setRuleFor({ chatId: activeChat, complaint: arg, project: !!chat?.project })
       case 'plan':
-        return send(arg, activeChat, 'steer', [], true)
+        return send(arg, activeChat, 'steer', [], { plan: true })
+      case 'goal':
+        return send(arg, activeChat, 'steer', [], { goal: true })
       case 'steer':
       case 'queue':
         if (!running) {
@@ -1017,8 +1017,18 @@ export function App() {
           'success',
         )
       }
-      case 'export':
-        return chat ? exportChat(chat) : toast(copy.app.toasts.openChatToExport, 'info')
+      case 'export': {
+        if (!chat) return toast(copy.app.toasts.openChatToExport, 'info')
+        const format = arg.toLowerCase() || 'md'
+        if (format === 'share') return setSharing(chat)
+        if (format !== 'md' && format !== 'html') {
+          toast(copy.app.toasts.exportUsage, 'error')
+          throw new Error('bad export format')
+        }
+        return exportChat(chat, format)
+      }
+      case 'family':
+        return chat ? setFamilyOf(chat.chatId) : toast(copy.commands.unavailable.noChat, 'info')
       case 'mcp':
       case 'settings':
         return leaveSettings(() => openSettings(name === 'mcp' ? 'tools' : 'general'))
@@ -1061,7 +1071,10 @@ export function App() {
   const sidebar = (
     <Sidebar
       onDelete={setDeleting}
-      onExport={(c) => void exportChat(c).catch((err) => toast(String(err.message ?? err), 'error'))}
+      onExport={exportAs}
+      onShare={setSharing}
+      {...(fullAccess ? { onShareLive: setSharingLive } : {})}
+      onFamily={(c) => setFamilyOf(c.chatId)}
       onRename={async (c, title) => {
         try {
           await request('PATCH', `/api/chats/${c.chatId}`, { title })
@@ -1174,7 +1187,41 @@ export function App() {
           group: 'actions',
           label: a.export,
           icon: <Download className={icon} />,
-          run: () => void exportChat(chat).catch((err) => toast(String(err.message ?? err), 'error')),
+          run: () => exportAs(chat, 'md'),
+        },
+      view === 'chat' &&
+        !!chat && {
+          id: 'export-html',
+          group: 'actions',
+          label: a.exportHtml,
+          icon: <Download className={icon} />,
+          run: () => exportAs(chat, 'html'),
+        },
+      view === 'chat' &&
+        !!chat && {
+          id: 'share',
+          group: 'actions',
+          label: a.share,
+          icon: <FEATURE_ICONS.shareFile className={icon} />,
+          run: () => setSharing(chat),
+        },
+      // Letting someone else into a chat takes a device with full access, as the server holds it to.
+      view === 'chat' &&
+        !!chat &&
+        fullAccess && {
+          id: 'share-live',
+          group: 'actions',
+          label: a.shareLive,
+          icon: <FEATURE_ICONS.liveShare className={icon} />,
+          run: () => setSharingLive(chat),
+        },
+      view === 'chat' &&
+        !!chat && {
+          id: 'family',
+          group: 'actions',
+          label: a.family,
+          icon: <FEATURE_ICONS.chatFamily className={icon} />,
+          run: () => setFamilyOf(chat.chatId),
         },
       view === 'chat' &&
         !!latest && {
@@ -1199,6 +1246,15 @@ export function App() {
         icon: <PanelRight className={icon} />,
         combo: 'mod+j',
         run: () => pressShortcut('mod+j', isMac),
+      },
+      // Reading other tools' sessions needs full access, as the server checks.
+      fullAccess && {
+        id: 'import-session',
+        group: 'actions',
+        label: a.importSession,
+        keywords: copy.palette.importKeywords,
+        icon: <FEATURE_ICONS.sessionImport className={icon} />,
+        run: () => setImportOpen(true),
       },
       fullAccess && {
         id: 'settings',
@@ -1464,6 +1520,15 @@ export function App() {
                       )}
                       {view === 'chat' && chat?.fullAccess && <FullAccessBadge />}
                     </ToolbarTitle>
+                    {view === 'chat' && chat && related && (
+                      <IconButton
+                        label={copy.family.open}
+                        title={copy.family.openTitle}
+                        onClick={() => setFamilyOf(chat.chatId)}
+                      >
+                        <FEATURE_ICONS.chatFamily className="size-4" />
+                      </IconButton>
+                    )}
                     {view === 'chat' && voiceOn && !call && (
                       <CallMenu crew={chat?.crew ?? []} onCall={(to) => void startCall(to)} />
                     )}
@@ -1649,7 +1714,7 @@ export function App() {
                             onOpenColony={setColonyModal}
                             onRetry={(t) => void send(t).catch(() => {})}
                             onLearn={() => void learn()}
-                            onAnswer={(t, a) => send(t, activeChat, 'steer', [], false, a)}
+                            onAnswer={(t, a) => send(t, activeChat, 'steer', [], {}, a)}
                             onResume={resume}
                             models={models}
                             sending={busy}
@@ -1694,7 +1759,26 @@ export function App() {
                               onCancel={() => setForkOf(undefined)}
                             />
                           )}
+                          {imported && (
+                            <ImportNote
+                              session={imported}
+                              onCancel={() => {
+                                setImported(undefined)
+                                setNewProject(undefined)
+                              }}
+                            />
+                          )}
                           {box}
+                          {fullAccess && !forkOf && !imported && (
+                            <button
+                              type="button"
+                              onClick={() => setImportOpen(true)}
+                              className="mx-auto mt-2 flex items-center gap-1.5 text-small text-muted hover:text-fg"
+                            >
+                              <FEATURE_ICONS.sessionImport aria-hidden className="size-3.5" />
+                              {copy.importSessions.open}
+                            </button>
+                          )}
                         </Hero>
                       )
                     })()}
@@ -1721,6 +1805,19 @@ export function App() {
           </div>
 
           <AnimatePresence>
+            {importOpen && (
+              <Sheet key="import" title={copy.importSessions.title} onClose={() => setImportOpen(false)}>
+                <ImportSessions
+                  onImported={(session) => {
+                    setImportOpen(false)
+                    newTask(session.project?.id, undefined, session)
+                  }}
+                />
+              </Sheet>
+            )}
+          </AnimatePresence>
+
+          <AnimatePresence>
             {deleting && deleting.length > 0 && (
               <Sheet
                 key="delete"
@@ -1738,6 +1835,17 @@ export function App() {
                   onConfirm={confirmDelete}
                 />
               </Sheet>
+            )}
+            {ruleFor && (
+              <RuleSheet
+                key="rule"
+                {...ruleFor}
+                onClose={() => setRuleFor(undefined)}
+                onSaved={(name, where) => {
+                  setRuleFor(undefined)
+                  toast(copy.rules.saved(name, where === 'project'), 'success')
+                }}
+              />
             )}
             {permissionsFor && (
               <ProjectPermissions
@@ -1776,6 +1884,33 @@ export function App() {
                 flush
               >
                 <ColonyScreen key={colonyModal} id={colonyModal} />
+              </Sheet>
+            )}
+            {familyOf && (
+              <Sheet key="family" title={copy.family.title} onClose={() => setFamilyOf(undefined)} size="sm">
+                <ChatFamily
+                  chats={chats}
+                  chatId={familyOf}
+                  onOpen={(id) => {
+                    setFamilyOf(undefined)
+                    openChat(id)
+                  }}
+                />
+              </Sheet>
+            )}
+            {sharing && (
+              <Sheet key="share" title={copy.share.title} onClose={() => setSharing(undefined)} size="sm">
+                <ShareChat chat={sharing} onClose={() => setSharing(undefined)} />
+              </Sheet>
+            )}
+            {sharingLive && (
+              <Sheet
+                key="share-live"
+                title={copy.liveShare.title}
+                onClose={() => setSharingLive(undefined)}
+                size="sm"
+              >
+                <LiveShare chat={sharingLive} onClose={() => setSharingLive(undefined)} />
               </Sheet>
             )}
             {shortcutsOpen && (
@@ -1910,6 +2045,7 @@ function Transcript(props: {
     <div ref={pane.ref} className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
       <ProjectFiles project={props.chat?.project}>
         <div className="mx-auto flex max-w-[820px] flex-col gap-8 p-6">
+          {props.chat?.importOf && <ImportedChatBlock importId={props.chat.importOf} />}
           {colonies(rounds).map((group, g) => (
             <ColonyRounds
               key={group.colonyId}

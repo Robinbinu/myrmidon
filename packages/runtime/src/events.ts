@@ -1,5 +1,6 @@
 import type SchemaType from '@deepseek-ai/schemastery'
 import { type EventLog, type EventTypeDefinition, Schema } from '@myrmidon/core'
+import { ADVICE_KINDS } from '@myrmidon/protocol'
 
 const str = () => Schema.string().required()
 const strs = () => Schema.array(Schema.string()).default([])
@@ -29,7 +30,7 @@ const task = Schema.object({
 
 const presetOf = Schema.union(['read-only', 'ask', 'auto', 'full'])
 const ruleTarget = {
-  kind: oneOf('tool', 'edit', 'command', 'mcp-server', 'mcp-tool'),
+  kind: oneOf('tool', 'edit', 'command', 'mcp-server', 'mcp-tool', 'ssh-host'),
   target: str(),
   who: Schema.union(['all', 'lead', 'crew']),
 }
@@ -83,6 +84,7 @@ const colonySpec = Schema.object({
       history: Schema.string(),
       escalate: Schema.array(oneOf('solo', 'team')).default([]),
       memory: strs(),
+      memoryMore: Schema.natural(),
       addressed: optional(Schema.array(str())),
       project: optional(
         Schema.object({
@@ -127,6 +129,16 @@ const colonySpec = Schema.object({
   review: Schema.union(['off', 'auto', 'always']),
   fullAccess: Schema.boolean(),
   computerUse: Schema.boolean(),
+  goal: optional(
+    Schema.object({
+      condition: str(),
+      check: Schema.object({ kind: oneOf('checks', 'command', 'judge'), run: Schema.string() }),
+      maxChecks: Schema.natural().required(),
+      judge: str(),
+      threshold: Schema.number().required(),
+    }),
+  ),
+  prewalk: Schema.string(),
   access: optional(roundAccess),
 })
 
@@ -142,6 +154,7 @@ const defs: EventTypeDefinition[] = [
       hostname: Schema.string(),
       resumed: Schema.boolean(),
       models: Schema.dict(Schema.string()),
+      rules: Schema.array(Schema.string()),
     }),
   },
   {
@@ -213,7 +226,8 @@ const defs: EventTypeDefinition[] = [
   {
     type: 'memory/proposed',
     version: 1,
-    actors: ['agent'],
+    // The memory reviewer's suggestions from a finished round are Myrmidon's own.
+    actors: ['agent', 'system'],
     schema: Schema.object({
       id: str(),
       agent: str(),
@@ -221,6 +235,8 @@ const defs: EventTypeDefinition[] = [
       kind: oneOf('preference', 'decision', 'lesson', 'fact'),
       project: Schema.string(),
       why: Schema.string().default(''),
+      replaces: optional(Schema.array(Schema.object({ id: str(), text: str() }))),
+      suggested: optional(Schema.boolean()),
     }),
   },
   {
@@ -236,6 +252,19 @@ const defs: EventTypeDefinition[] = [
       ms: Schema.natural().required(),
       outcome: oneOf('ok', 'blocked', 'asked', 'feedback', 'failed'),
       message: Schema.string(),
+    }),
+  },
+  {
+    type: 'rule/fired',
+    version: 1,
+    actors: ['system'],
+    schema: Schema.object({
+      agent: str(),
+      rule: str(),
+      description: Schema.string(),
+      source: oneOf('text', 'thinking', 'tool'),
+      tool: Schema.string(),
+      path: str(),
     }),
   },
   {
@@ -279,6 +308,48 @@ const defs: EventTypeDefinition[] = [
     version: 1,
     actors: ['system'],
     schema: Schema.object({ agent: str(), kept: Schema.boolean().required() }),
+  },
+  {
+    type: 'experiment/started',
+    version: 1,
+    actors: ['agent'],
+    schema: Schema.object({
+      agent: str(),
+      measure: str(),
+      metric: str(),
+      direction: oneOf('lower', 'higher'),
+      trials: Schema.natural().required(),
+      until: str(),
+      branch: str(),
+    }),
+  },
+  {
+    type: 'experiment/trial',
+    version: 1,
+    actors: ['agent'],
+    schema: Schema.object({
+      agent: str(),
+      trial: Schema.natural().required(),
+      description: Schema.string().default(''),
+      outcome: oneOf('baseline', 'kept', 'reverted', 'failed'),
+      metric: Schema.number(),
+      best: Schema.number(),
+      commit: Schema.string(),
+      ms: Schema.natural().required(),
+    }),
+  },
+  {
+    type: 'experiment/finished',
+    version: 1,
+    actors: ['agent'],
+    schema: Schema.object({
+      agent: str(),
+      trials: Schema.natural().required(),
+      kept: Schema.natural().required(),
+      baseline: Schema.number(),
+      best: Schema.number(),
+      files: strs(),
+    }),
   },
   {
     type: 'approval/requested',
@@ -399,6 +470,11 @@ const defs: EventTypeDefinition[] = [
       messages: Schema.natural().required(),
       tokens: Schema.natural().required(),
       summaryChars: Schema.natural().required(),
+      // Logs from before there were other methods only ever summarized.
+      methods: Schema.array(Schema.union(['shake', 'snapcompact', 'summary'])).default(['summary']),
+      elided: Schema.natural().default(0),
+      frames: Schema.natural().default(0),
+      tokensAfter: Schema.natural(),
     }),
   },
   {
@@ -419,6 +495,35 @@ const defs: EventTypeDefinition[] = [
     version: 1,
     actors: ['user'],
     schema: Schema.object({ agent: str(), model: str(), previous: str() }),
+  },
+  {
+    type: 'agent/handoff',
+    version: 1,
+    actors: ['system'],
+    schema: Schema.object({ agent: str(), model: str(), previous: str(), after: str() }),
+  },
+  {
+    type: 'agent/fallback',
+    version: 1,
+    actors: ['system'],
+    schema: Schema.object({
+      agent: str(),
+      model: str(),
+      previous: str(),
+      kind: oneOf('refusal', 'error'),
+      message: str(),
+    }),
+  },
+  {
+    type: 'agent/advised',
+    version: 1,
+    actors: ['system'],
+    schema: Schema.object({
+      agent: str(),
+      model: str(),
+      note: str(),
+      kind: Schema.union([...ADVICE_KINDS]),
+    }),
   },
   {
     type: 'tool/created',

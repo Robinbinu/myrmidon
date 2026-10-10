@@ -32,6 +32,7 @@ export const ACCESS_INFO: { group: AccessGroup; label: string; hint: string; ico
   { group: 'web', ...t.access.groups.web, icon: FEATURE_ICONS.web },
   { group: 'browser', ...t.access.groups.browser, icon: FEATURE_ICONS.computer },
   { group: 'mcp', ...t.access.groups.mcp, icon: FEATURE_ICONS.mcp },
+  { group: 'remote', ...t.access.groups.remote, icon: FEATURE_ICONS.sshHosts },
   { group: 'computer', ...t.access.groups.computer, icon: FEATURE_ICONS.computerUse },
   { group: 'messaging', ...t.access.groups.messaging, icon: FEATURE_ICONS.mail },
   { group: 'plugins', ...t.access.groups.plugins, icon: FEATURE_ICONS.plugins },
@@ -44,13 +45,20 @@ export const RULE_ICONS: Record<PermissionRule['kind'], LucideIcon> = {
   command: FEATURE_ICONS.agentShell,
   'mcp-server': FEATURE_ICONS.mcp,
   'mcp-tool': FEATURE_ICONS.mcp,
+  'ssh-host': FEATURE_ICONS.sshHosts,
 }
 
 /** A rule's target as the rules table shows it: `*` in words, otherwise the name itself. */
 export function shownTarget(rule: Pick<PermissionRule, 'kind' | 'target'>): string {
   if (rule.target !== '*') return rule.target
   const r = t.rules
-  return rule.kind === 'command' ? r.everyCommand : rule.kind === 'edit' ? r.everyEdit : r.everyMcp
+  return rule.kind === 'command'
+    ? r.everyCommand
+    : rule.kind === 'edit'
+      ? r.everyEdit
+      : rule.kind === 'ssh-host'
+        ? r.everyHost
+        : r.everyMcp
 }
 
 /** What a rule names, in words: "every command", `bun test …`, "everything from github". */
@@ -65,6 +73,8 @@ export function targetText(rule: Pick<PermissionRule, 'kind' | 'target'>): strin
       return rule.target === '*' ? c.everyMcp : c.mcpServer(rule.target)
     case 'mcp-tool':
       return c.mcpTool(rule.target)
+    case 'ssh-host':
+      return rule.target === '*' ? c.everyHost : c.sshHost(rule.target)
     case 'tool':
       return c.tool(rule.target)
   }
@@ -117,6 +127,8 @@ export function callFor(tool: CatalogTool, command: string): PermissionCall {
   if (name === 'fs_write' || name === 'fs_edit')
     return { tool: name, kind: 'edit', where: 'project', readOnly: false }
   if (name === 'propose') return { tool: name, kind: 'proposal', edits: true, readOnly: false }
+  // What is typed names the remote host the call would go to.
+  if (name === 'ssh') return { tool: name, kind: 'ssh', ssh: { host: command.trim() }, readOnly: false }
   if (name === 'mcp' || tool.mcp)
     return {
       tool: name,

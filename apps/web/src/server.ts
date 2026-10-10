@@ -22,6 +22,7 @@ import {
 } from '@myrmidon/protocol'
 import {
   accountName,
+  addKnownSecrets,
   type BrowserHub,
   BUILT_IN_CHANNELS,
   buildCatalog,
@@ -29,7 +30,9 @@ import {
   type CallSession,
   type ChannelChats,
   ChannelHub,
+  type ChatGuest,
   type ChatService,
+  ChatShares,
   type ChatShelf,
   type ComputerHub,
   CUSTOM_APIS,
@@ -53,6 +56,10 @@ import {
   gitUnstage,
   gitWorkingChanges,
   guardedPaths,
+  guardSecrets,
+  guestEvents,
+  guestMessage,
+  guestSummary,
   type HookStore,
   importFromOmp,
   type LiveInput,
@@ -85,13 +92,16 @@ import {
   type ProjectStore,
   personInput,
   projectSecret,
+  RuleExistsError,
   readProjectFile,
+  readSshConfig,
   refuseProjectSecret,
   requestScreenRecording,
   restartSetup,
   ruleGreeting,
   type Schedule,
   type ScheduleStore,
+  type SessionImports,
   type SettingsStore,
   type SileroVad,
   type SkillLibrary,
@@ -99,14 +109,18 @@ import {
   type SmartTurn,
   type SpecialistInput,
   type SpecialistStore,
+  type SshHub,
   setupHave,
+  sniffAudio,
   sniffImage,
   startScheduler,
+  type TelemetryExport,
   TerminalUnavailable,
   TOOL_DEFS,
   type ToolLibrary,
   TWILIO_API,
   VOICE_ENDPOINT_ID,
+  type VoiceFiles,
   VoiceHub,
   voiceProvider,
   wav,
@@ -178,6 +192,10 @@ export interface ServeOptions {
   readonly browser?: BrowserHub
   /** Computer use: the driver agents control the person's Mac through, its install, grants and Stop. */
   readonly computer?: ComputerHub
+  /** The person's ssh client, for the remote hosts in Settings → Tools (their ~/.ssh/config, a connection test). */
+  readonly ssh?: SshHub
+  /** Sends finished rounds to the person's OTLP collector (Settings → General), with its headers in the vault. */
+  readonly telemetry?: TelemetryExport
   /** Project folders chats can work in. */
   readonly projects?: ProjectStore
   readonly specialists?: SpecialistStore
@@ -196,6 +214,8 @@ export interface ServeOptions {
   readonly schedules?: ScheduleStore
   /** Where the person filed chats: pins, archive, groups, forks (the same store the chat runtime reads). */
   readonly shelf?: ChatShelf
+  /** Claude Code and Codex sessions on this machine, to start chats from (the same store the chat runtime reads). */
+  readonly imports?: SessionImports
   /** Shown in settings so users know whether the shell tool is confined. */
   readonly sandboxKind?: string
   /** The speech detector and end-of-turn model for calls; downloaded into the home unless given (tests stay offline). */
@@ -224,11 +244,13 @@ export interface WebServer {
   pairingLink(scope: DeviceScope): { code: string; link: string }
   /** Loads and warms the speech engines voice calls use, so the first call does not wait on them. */
   warmVoice(): Promise<void>
+  /** Speech in the voice chosen in Settings → Voice, for agents' tts tool; absent without the chat runtime. */
+  readonly voice?: VoiceFiles
   stop(): Promise<void>
 }
 
-/** Which paired device opened a socket, so revoking it closes them. */
-type Opened = { device?: string }
+/** Which paired device or chat guest opened a socket, so revoking it, or removing them, closes them. */
+type Opened = { device?: string; guest?: string }
 type StreamData = Opened &
   (
     | { kind: 'events'; colony: ColonyId; cursor: number }
@@ -260,6 +282,8 @@ type StreamData = Opened &
         watch?: ReturnType<typeof setInterval>
         /** The socket closed, maybe before the shell had started. */
         closed?: boolean
+        /** What was typed before the shell had started (slow on Windows), written to it once it has. */
+        typed?: string[]
       }
     /**
      * A voice call: the person's audio in, the call's speech and state out. `refusal`: the call is refused, said as
@@ -296,6 +320,12 @@ const SECURE_DEVICE_COOKIE = `__Host-${DEVICE_COOKIE}`
 /** The pairing call comes before sign-in, so its body is capped. */
 const PAIR_BODY_MAX = 4096
 /**
+ * A guest of a shared chat holds their own token in this cookie: a separate one from a device's, which the rest of
+ * the API never accepts, so a guest reaches only the routes made for them (`guestOf`).
+ */
+const GUEST_COOKIE = 'myr_guest'
+const SECURE_GUEST_COOKIE = `__Host-${GUEST_COOKIE}`
+/**
  * Seconds a request may wait for its answer before Bun closes the connection. Bun's default of 10 cut off slow GETs
  * (seen on Bun 1.3.14), such as one forwarded to another gateway, which may take up to FORWARD_MS; 255 is Bun's most.
  */
@@ -317,6 +347,8 @@ const TERMINAL_FOREGROUND_MS = 1_500
 const POLL_MS = 400
 /** How long stopping waits for Bun to report the server stopped (see `stop`). */
 const STOP_WAIT_MS = 500
+/** How long stopping waits for the terminals' shells to exit once they are told to. */
+const TERMINAL_STOP_MS = 3_000
 const VOICE_OFF = 'voice calls are off: turn them on in Settings → Voice'
 /** The longest text "Try it" in Settings → Voice speaks. */
 const VOICE_SAMPLE_CHARS = 300
@@ -325,6 +357,15 @@ const VOICE_KEY_MAX = 4096
 /** The largest audio frame (about a second at 48 kHz) and control message a call takes from the person's side. */
 const VOICE_FRAME_MAX = 96_000
 const VOICE_MESSAGE_MAX = 1024
+
+/** A call's control message is the page hanging up. */
+function hangsUp(raw: string): boolean {
+  try {
+    return (JSON.parse(raw) as { type?: unknown } | null)?.type === 'hangup'
+  } catch {
+    return false
+  }
+}
 /** The largest webhook body a platform may post (media comes by reference, not inline). */
 const WEBHOOK_MAX = 5 * 1024 * 1024
 
@@ -346,14 +387,23 @@ function sendProblem(raw: unknown): string | undefined {
   return undefined
 }
 
+const importSchema = Schema.object({
+  source: Schema.union(['claude', 'codex']).required(),
+  id: Schema.string().min(1).max(200).required(),
+})
+
 const sendSchema = Schema.object({
   text: Schema.string().min(1).max(MAX_MESSAGE_CHARS).required(),
   chatId: Schema.string().pattern(/^chat-[a-z0-9-]{1,40}$/),
   delivery: Schema.union(['steer', 'queue']),
   plan: Schema.boolean(),
+  // Goal mode: the text is `<condition>: <request>`, and the round goes on until the condition holds.
+  goal: Schema.boolean(),
   project: Schema.string().pattern(/^[a-z0-9-]{1,80}$/),
   // A new chat that continues another's conversation (Fork in the chat list).
   forkOf: Schema.string().pattern(/^chat-[a-z0-9-]{1,40}$/),
+  // A new chat that continues an imported Claude Code or Codex session (Import a session).
+  importOf: Schema.string().pattern(/^import-[a-z0-9-]{1,40}$/),
   // A new chat's own permission level, chosen in the composer before its first message (checked by normalizeLevel).
   permissions: Schema.any(),
   // An answer given on a question card: the card shows it, so the chat need not repeat it as a message.
@@ -479,6 +529,8 @@ export function startServer(options: ServeOptions): WebServer {
   const devices = new DeviceStore(options.home)
   const pairing = new PairingCodes()
   const audit = new AuthAudit(options.home)
+  /** Chats shared live with other people (Share live in a chat's menu); in memory, so a restart ends them. */
+  const shares = new ChatShares()
   const token = options.noAuth
     ? ''
     : (options.token ?? Buffer.from(crypto.getRandomValues(new Uint8Array(24))).toString('base64url'))
@@ -547,6 +599,18 @@ export function startServer(options: ServeOptions): WebServer {
   }
   const account = accountName()
   const greetings = options.resolver ? new GreetingWriter(options.resolver) : undefined
+  /**
+   * The model that writes greetings (the entry page's line, a call's opening): the cheap one that names chats, not the
+   * lead's, whose reasoning can outlast a greeting's time limit; none when the person chose the rules' lines.
+   */
+  const greetingModel = (): string | undefined => {
+    try {
+      const lead = options.settings?.get().profile?.greeting === 'rules' ? undefined : defaultTeam().leadModel
+      return lead && options.omp ? namingModel(options.omp, options.settings, lead) : lead
+    } catch {
+      return undefined
+    }
+  }
   const logins = options.omp ? new Logins(options.omp) : undefined
   // Channels and voice calls reach the same chats, with the person's default team.
   const chatsPort: ChannelChats | undefined = chats
@@ -673,6 +737,22 @@ export function startServer(options: ServeOptions): WebServer {
     .catch((err) => console.error(`channels: ${err instanceof Error ? err.message : err}`))
   // A plugin that adds or drops a platform is picked up without a restart.
   const offPlugins = options.pluginHost?.onChange(() => void channels?.refresh())
+  // What reaches model providers is kept free of secrets as the person chose (Settings → Permissions), the credentials
+  // this server holds included, whatever their shape: its token, gateways', channels' and the vault's.
+  let secretsHidden = settingsStore?.get().privacy.hideSecrets ?? true
+  const offSecretsSetting = settingsStore?.onChange((next) => {
+    secretsHidden = next.privacy.hideSecrets
+  })
+  // A dashboard without settings (`myrmidon run --ui`) leaves the choice to the process that has them.
+  const unguardSecrets = settingsStore
+    ? guardSecrets({ enabled: () => secretsHidden, keyFile: join(options.home, 'secret-placeholder.key') })
+    : undefined
+  const offKnownSecrets = addKnownSecrets(() => [
+    token,
+    ...gateways.list().map((g) => g.token),
+    ...(channels?.secretValues() ?? []),
+    ...(options.omp?.secretValues() ?? []),
+  ])
   // Agents can message the owner on a channel (OpenClaw's core `message` tool), e.g. when long work is done.
   if (channels) options.pluginHost?.addBuiltIn('channels', [channelSendTool(channels)])
   /** Starts a schedule's round as a new chat; with `deliver`, the channel follows it and sends the answer. */
@@ -763,6 +843,35 @@ export function startServer(options: ServeOptions): WebServer {
   const closeDevice = (id: string) => {
     for (const ws of opened) if (ws.data.device === id) ws.close(4401, 'device revoked')
   }
+  /**
+   * The guest of a shared chat a request comes from, on this server's own origins. `authorized` never accepts a
+   * guest, so every route stays closed to them except the few that ask this: their chat's logs and the guest routes.
+   */
+  const guestOf = (req: Request): ChatGuest | undefined =>
+    sameOrigin(req) ? shares.find(cookie(req, SECURE_GUEST_COOKIE) ?? cookie(req, GUEST_COOKIE)) : undefined
+  const sharedChat = async (guest: ChatGuest) =>
+    (await options.chats?.list())?.find((c) => c.chatId === guest.chatId)
+  /** Whether a colony ran one of the shared chat's rounds: the only logs its guests may read. */
+  const guestMayRead = async (guest: ChatGuest, colony: string) =>
+    !!(await sharedChat(guest))?.rounds.some((r) => r.colonyId === colony)
+  /** Guests removed, or a chat no longer shared: whatever they have open closes at once. */
+  const closeGuests = (ids: readonly string[]) => {
+    for (const ws of opened)
+      if (ws.data.guest && ids.includes(ws.data.guest)) ws.close(4401, 'no longer in the shared chat')
+  }
+  const notShared = () => json({ error: 'That is not part of the chat shared with you.' }, 403)
+  /** Where a guest opens an invite: the address devices use, else the one the person's request came in on. */
+  const shareLink = (req: Request, code: string) =>
+    `${publicUrl?.origin ?? `${new URL(req.url).protocol}//${req.headers.get('host') ?? ''}`}/#join=${code}`
+  const guestJson = (g: ChatGuest) => ({ id: g.id, name: g.name, access: g.access, joinedAt: g.joinedAt })
+  /**
+   * A guest's cookie, as a device's: HttpOnly and Strict, `__Host-` and Secure over HTTPS. No Max-Age: a guest lasts as
+   * long as the share, which a restart ends.
+   */
+  const guestCookie = (host: string, value: string) => {
+    const secure = publicUrl?.protocol === 'https:' && host === publicUrl.host
+    return `${secure ? SECURE_GUEST_COOKIE : GUEST_COOKIE}=${value}; Path=/; HttpOnly; SameSite=Strict${secure ? '; Secure' : ''}`
+  }
   const forbidden = () =>
     json({ error: 'This device can use chats only. To do this, pair it again with full access.' }, 403)
 
@@ -793,6 +902,15 @@ export function startServer(options: ServeOptions): WebServer {
         return json({ error: 'internal error' }, 500)
       }
     }
+
+  /** The part of a colony's log a request asks for: `from` (the first seq) and `limit`, at most 20,000. */
+  const eventRange = (url: URL) => ({
+    from: Number(url.searchParams.get('from') ?? '1'),
+    limit: Math.min(Number(url.searchParams.get('limit') ?? '5000'), 20000),
+  })
+  const readEvents = guard(async (req, url) =>
+    json(await store.read(colonyId(req.params.id ?? ''), eventRange(url))),
+  )
 
   // Agent-built pages run on their own port: a separate origin cannot read the dashboard's token or call its API.
   // Each device gets its own preview key, so revoking a device ends its previews too.
@@ -954,6 +1072,8 @@ export function startServer(options: ServeOptions): WebServer {
     development: options.debug ? { hmr: true, console: true } : false,
     routes: {
       '/': index,
+      // The desktop app's see-through window over the screen while an agent drives the Mac (ComputerOverlay.tsx).
+      '/overlay': index,
       // The entry page's line. The rules' greeting comes back at once; with the model writing it, `pending` asks the
       // page to come back shortly for the model's own.
       '/api/greeting': guard(async (req) => {
@@ -967,15 +1087,7 @@ export function startServer(options: ServeOptions): WebServer {
           ...(seen && !Number.isNaN(seen.getTime()) ? { lastSeen: seen } : {}),
           chats: options.chats ? await options.chats.list() : [],
         }
-        let model: string | undefined
-        try {
-          // One line of text: the cheap model that names chats writes it, not the lead's, whose reasoning can
-          // outlast the greeting's time limit.
-          const lead = profile?.greeting === 'rules' ? undefined : defaultTeam().leadModel
-          model = lead && options.omp ? namingModel(options.omp, options.settings, lead) : lead
-        } catch {
-          model = undefined
-        }
+        const model = greetingModel()
         const written = model ? greetings?.written(facts, model) : undefined
         return json({
           name,
@@ -1038,9 +1150,111 @@ export function startServer(options: ServeOptions): WebServer {
           })
         },
       },
+      // Joining a shared chat with an invite: no sign-in yet (the code is the proof), only from the server's own origins.
+      '/api/guest/join': {
+        POST: async (req: Request) => {
+          if (!sameOrigin(req)) return json({ error: 'unauthorized' }, 401)
+          const raw = await req.text()
+          if (raw.length > PAIR_BODY_MAX) return json({ error: 'request too large' }, 413)
+          let body: { code?: unknown; name?: unknown } = {}
+          try {
+            body = JSON.parse(raw) as typeof body
+          } catch {
+            body = {}
+          }
+          const host = req.headers.get('host') ?? ''
+          const joined = shares.join(typeof body.code === 'string' ? body.code : '', body.name)
+          if (joined === 'wrong') {
+            audit.record('guest-join-failed', { host })
+            // A wrong code costs a moment, so guessing is slow as well as hopeless.
+            await Bun.sleep(500)
+            return json(
+              { error: 'That invite is wrong, used or expired. Ask for a new link to this chat.' },
+              401,
+            )
+          }
+          if (joined === 'full')
+            return json({ error: 'This chat has as many guests as it can take. Try again later.' }, 409)
+          const { guest, token: guestToken } = joined
+          audit.record('guest-joined', {
+            guest: guest.id,
+            name: guest.name,
+            chat: guest.chatId,
+            access: guest.access,
+            host,
+          })
+          return new Response(JSON.stringify({ guest: guestJson(guest), chatId: guest.chatId }), {
+            headers: {
+              'content-type': 'application/json',
+              'cache-control': 'no-store',
+              'set-cookie': guestCookie(host, encodeURIComponent(guestToken)),
+            },
+          })
+        },
+      },
+      /** The shared chat as its guest sees it (guestSummary), with who shared it; DELETE leaves it. */
+      '/api/guest': {
+        GET: async (req: Request) => {
+          const guest = guestOf(req)
+          if (!guest) return json({ error: 'unauthorized', remote }, 401)
+          const chat = await sharedChat(guest)
+          if (!chat) return json({ error: 'no such chat' }, 404)
+          return json({
+            guest: guestJson(guest),
+            host: options.settings?.get().profile.name ?? account,
+            chat: guestSummary(chat),
+          })
+        },
+        DELETE: (req: Request) => {
+          const guest = guestOf(req)
+          if (!guest) return json({ error: 'unauthorized' }, 401)
+          shares.remove(guest.chatId, guest.id)
+          audit.record('guest-removed', { guest: guest.id, chat: guest.chatId, by: 'themselves' })
+          closeGuests([guest.id])
+          return new Response(JSON.stringify({ ok: true }), {
+            headers: {
+              'content-type': 'application/json',
+              'set-cookie': `${guestCookie(req.headers.get('host') ?? '', '')}; Max-Age=0`,
+            },
+          })
+        },
+      },
+      /**
+       * A guest who may write posts into the shared chat. It carries their name, and runs as a channel member's
+       * message does: every step that changes something outside the round waits for the person's approval (askAll).
+       */
+      '/api/guest/messages': {
+        POST: async (req: Request) => {
+          const guest = guestOf(req)
+          if (!guest) return json({ error: 'unauthorized' }, 401)
+          if (guest.access !== 'write')
+            return json({ error: 'You can watch this chat, but not write in it.' }, 403)
+          if (!options.chats) return json({ error: 'this server was started without the chat runtime' }, 503)
+          const { text } = (await req.json().catch(() => ({}))) as { text?: unknown }
+          if (typeof text !== 'string' || !text.trim()) return json({ error: 'text is required' }, 400)
+          const problem = sendProblem({ text })
+          if (problem) return json({ error: problem }, 400)
+          try {
+            await options.chats.send(guestMessage(guest.name, text.trim()), defaultTeam(), guest.chatId, {
+              askAll: true,
+            })
+            return json({ ok: true })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 422)
+          }
+        },
+      },
       /** Who this is: lets the page show what this device may do, and whether the gateway is remote. */
       '/api/whoami': (req: Request) => {
         const access = authorized(req, new URL(req.url))
+        // A guest of a shared chat: the page opens that chat alone (GuestChat.tsx).
+        const guest = access ? undefined : guestOf(req)
+        if (guest)
+          return json({
+            scope: 'guest',
+            remote,
+            guest: { name: guest.name, access: guest.access, chatId: guest.chatId },
+          })
         if (!access) return json({ error: 'unauthorized', remote }, 401)
         return json({
           scope: access.scope,
@@ -1445,6 +1659,21 @@ export function startServer(options: ServeOptions): WebServer {
           composer,
         })
       }),
+      // How close each signed-in account is to its plan's limits: Settings → Models & providers, the composer's warning.
+      // Any paired device may read it, since it picks models too; a chats-only device gets the limits without whose
+      // accounts they are, and cannot make the gateway ask every provider again (`refresh`).
+      '/api/usage': guard(async (_req, url, access) => {
+        if (!options.omp) return json({ fetchedAt: Date.now(), accounts: [] })
+        const full = access.scope === 'full'
+        const snapshot = await options.omp.quota.read({
+          force: full && url.searchParams.get('refresh') === '1',
+        })
+        if (full) return json(snapshot)
+        return json({
+          ...snapshot,
+          accounts: snapshot.accounts.map(({ account: _account, ...rest }) => rest),
+        })
+      }),
       '/api/models/test': {
         POST: guard(async (req) => {
           if (!options.resolver) return json({ error: 'model testing needs the chat runtime' }, 503)
@@ -1505,6 +1734,8 @@ export function startServer(options: ServeOptions): WebServer {
             settings: options.settings.get(),
             providers: options.omp?.providers() ?? [],
             searchProviders: options.omp?.searchProviders() ?? [],
+            // For Settings → Tools → Image generation: the models generate_image can use now, best first.
+            imageModels: options.omp?.imageModels() ?? [],
             customApis: CUSTOM_APIS,
             sandbox: options.sandboxKind ?? 'unknown',
             home: options.home,
@@ -1541,7 +1772,12 @@ export function startServer(options: ServeOptions): WebServer {
             const { setup, composer } = options.settings.get()
             const body = { ...((await req.json()) as Record<string, unknown>), setup, composer }
             const was = options.settings.get().computerUse
+            const hostsWere = options.settings.get().ssh.hosts
             const settings = options.settings.set(body)
+            // A host removed or pointed elsewhere: its shared connection must not carry the next call there.
+            for (const h of hostsWere)
+              if (!settings.ssh.hosts.some((n) => JSON.stringify(n) === JSON.stringify(h)))
+                await options.ssh?.forget(h)
             // Switched off, or to the other engine: agents on the person's Mac stop at once, and the driver with them.
             const engineChanged = (was.engine ?? 'cua') !== (settings.computerUse.engine ?? 'cua')
             if (was.enabled && (!settings.computerUse.enabled || engineChanged) && options.computer) {
@@ -1876,14 +2112,89 @@ export function startServer(options: ServeOptions): WebServer {
       },
       '/api/plugins': {
         GET: guard(() => json({ plugins: pluginList(), dir: options.plugins?.dir })),
+        // Fetches a plugin and says what it holds; nothing installs until the person confirms that review
+        // (/api/plugin-installs/:id). Agents have no tool that reaches here: installing is the person's action.
+        POST: guard(async (req) => {
+          if (!options.plugins) return json({ error: 'plugins need the chat runtime' }, 503)
+          const body = (await req.json().catch(() => ({}))) as {
+            source?: unknown
+            marketplace?: unknown
+            plugin?: unknown
+          }
+          const from =
+            typeof body.marketplace === 'string' && typeof body.plugin === 'string'
+              ? { marketplace: body.marketplace, plugin: body.plugin }
+              : typeof body.source === 'string'
+                ? body.source
+                : undefined
+          if (!from) return json({ error: 'give a folder, a git URL or npm:<package>' }, 400)
+          try {
+            return json({ preview: await options.plugins.prepare(from) })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 422)
+          }
+        }),
+      },
+      '/api/plugins/:name/update': {
+        POST: guard(async (req) => {
+          if (!options.plugins) return json({ error: 'plugins need the chat runtime' }, 503)
+          try {
+            return json({ preview: await options.plugins.prepareUpdate(req.params.name ?? '') })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 422)
+          }
+        }),
+      },
+      '/api/plugin-installs/:id': {
+        POST: guard(async (req) => {
+          if (!options.plugins) return json({ error: 'plugins need the chat runtime' }, 503)
+          const plugins = options.plugins
+          try {
+            // An update replaces the folder its code runs from: stop that code first, start the new one after.
+            const updating = plugins.reviewed(req.params.id ?? '')
+            if (updating?.replaces) await options.pluginHost?.unload(updating.name)
+            const plugin = await plugins
+              .confirm(req.params.id ?? '')
+              .finally(() => Promise.all([options.mcp?.start(), options.pluginHost?.sync()]))
+            return json({ plugin, plugins: pluginList() })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 422)
+          }
+        }),
+        DELETE: guard((req) => {
+          options.plugins?.cancel(req.params.id ?? '')
+          return json({ ok: true })
+        }),
+      },
+      '/api/plugin-marketplaces': {
+        GET: guard(() => json({ marketplaces: options.plugins?.marketplaces.list() ?? [] })),
         POST: guard(async (req) => {
           if (!options.plugins) return json({ error: 'plugins need the chat runtime' }, 503)
           const { source } = (await req.json().catch(() => ({}))) as { source?: unknown }
-          if (typeof source !== 'string') return json({ error: 'give a folder or a git URL' }, 400)
+          if (typeof source !== 'string') return json({ error: 'give a GitHub owner/repo or a git URL' }, 400)
           try {
-            const plugin = await options.plugins.install(source)
-            await Promise.all([options.mcp?.start(), options.pluginHost?.sync()])
-            return json({ plugin, plugins: pluginList() })
+            const marketplace = await options.plugins.marketplaces.add(source)
+            return json({ marketplace, marketplaces: options.plugins.marketplaces.list() })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 422)
+          }
+        }),
+      },
+      '/api/plugin-marketplaces/:name': {
+        POST: guard(async (req) => {
+          if (!options.plugins) return json({ error: 'plugins need the chat runtime' }, 503)
+          try {
+            await options.plugins.marketplaces.update(req.params.name ?? '')
+            return json({ marketplaces: options.plugins.marketplaces.list() })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 422)
+          }
+        }),
+        DELETE: guard((req) => {
+          if (!options.plugins) return json({ error: 'plugins need the chat runtime' }, 503)
+          try {
+            options.plugins.marketplaces.remove(req.params.name ?? '')
+            return json({ marketplaces: options.plugins.marketplaces.list() })
           } catch (err) {
             return json({ error: err instanceof Error ? err.message : String(err) }, 422)
           }
@@ -1959,6 +2270,65 @@ export function startServer(options: ServeOptions): WebServer {
           if (typeof enabled === 'boolean') options.skills.setEnabled(req.params.name ?? '', enabled)
           if (typeof kept === 'boolean') options.skills.setKept(req.params.name ?? '', kept)
           return json({ skills: options.skills.list() })
+        }),
+        DELETE: guard((req) => {
+          if (!options.skills) return json({ error: 'skills need the chat runtime' }, 503)
+          try {
+            options.skills.installs.remove(req.params.name ?? '')
+            return json({ skills: options.skills.list() })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 422)
+          }
+        }),
+      },
+      // Searching omp's skills registry; an empty search lists its popular skills.
+      '/api/skill-registry': guard(async (_req, url) => {
+        if (!options.skills) return json({ error: 'skills need the chat runtime' }, 503)
+        const q = url.searchParams.get('q')?.trim() ?? ''
+        const client = options.skills.installs.registry
+        try {
+          const hits = q ? (await client.search(q)).hits : (await client.home()).popular
+          return json({ hits, registry: client.url })
+        } catch (err) {
+          return json({ error: err instanceof Error ? err.message : String(err) }, 502)
+        }
+      }),
+      // As with plugins: fetch and review first, install on the person's confirmation.
+      '/api/skill-installs': {
+        POST: guard(async (req) => {
+          if (!options.skills) return json({ error: 'skills need the chat runtime' }, 503)
+          const { source } = (await req.json().catch(() => ({}))) as { source?: unknown }
+          if (typeof source !== 'string') return json({ error: 'give @scope/name or a git URL' }, 400)
+          try {
+            return json({ preview: await options.skills.installs.prepare(source) })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 422)
+          }
+        }),
+      },
+      '/api/skill-installs/:id': {
+        POST: guard((req) => {
+          if (!options.skills) return json({ error: 'skills need the chat runtime' }, 503)
+          try {
+            const names = options.skills.installs.confirm(req.params.id ?? '')
+            return json({ names, skills: options.skills.list() })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 422)
+          }
+        }),
+        DELETE: guard((req) => {
+          options.skills?.installs.cancel(req.params.id ?? '')
+          return json({ ok: true })
+        }),
+      },
+      '/api/skills/:name/update': {
+        POST: guard(async (req) => {
+          if (!options.skills) return json({ error: 'skills need the chat runtime' }, 503)
+          try {
+            return json({ preview: await options.skills.installs.prepareUpdate(req.params.name ?? '') })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 422)
+          }
         }),
       },
       '/api/skills/:name/restore': {
@@ -2054,6 +2424,73 @@ export function startServer(options: ServeOptions): WebServer {
             return json({ proposal: proposal ?? null })
           } catch (err) {
             return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
+        }),
+      },
+      // `/rule`: the lead's model drafts a stream rule from the person's complaint about the last reply.
+      '/api/chats/:chatId/rule': {
+        POST: guard(async (req) => {
+          if (!options.chats) return json({ error: 'this server was started without the chat runtime' }, 503)
+          const body = (await req.json().catch(() => ({}))) as {
+            complaint?: unknown
+            amend?: { previous?: unknown; change?: unknown }
+          }
+          const complaint = typeof body.complaint === 'string' ? body.complaint.trim() : ''
+          if (!complaint) return json({ error: 'say what the reply got wrong' }, 400)
+          const amend =
+            typeof body.amend?.previous === 'string' &&
+            typeof body.amend.change === 'string' &&
+            body.amend.change.trim()
+              ? { previous: body.amend.previous, change: body.amend.change.trim() }
+              : undefined
+          try {
+            const draft = await options.chats.draftRule(req.params.chatId ?? '', complaint, amend)
+            return json({ draft })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
+        }),
+      },
+      // Saving a stream rule steers every agent from then on, as a setting does: full-access devices only.
+      '/api/rules': {
+        POST: guard(async (req) => {
+          if (!options.chats) return json({ error: 'this server was started without the chat runtime' }, 503)
+          const body = (await req.json().catch(() => ({}))) as {
+            name?: unknown
+            text?: unknown
+            where?: unknown
+            chatId?: unknown
+            replace?: unknown
+          }
+          if (typeof body.name !== 'string' || typeof body.text !== 'string')
+            return json({ error: 'a rule needs a name and its file' }, 400)
+          if (body.where !== 'person' && body.where !== 'project')
+            return json({ error: 'where is person or project' }, 400)
+          try {
+            const saved = await options.chats.saveRule({
+              name: body.name,
+              text: body.text,
+              where: body.where,
+              ...(typeof body.chatId === 'string' ? { chatId: body.chatId } : {}),
+              ...(body.replace === true ? { replace: true } : {}),
+            })
+            return json(saved)
+          } catch (err) {
+            if (err instanceof RuleExistsError) return json({ error: err.message, exists: err.rule }, 409)
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
+        }),
+      },
+      // Tidy up: the memory reviewer suggests merging kept memories that repeat or went stale; each waits for the person.
+      '/api/memory/tidy': {
+        POST: guard(async () => {
+          if (!options.chats || !options.memory)
+            return json({ error: 'this server was started without the chat runtime' }, 503)
+          try {
+            const suggested = await options.chats.tidyMemories()
+            return json({ suggested, memories: options.memory.list() })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 502)
           }
         }),
       },
@@ -2296,6 +2733,53 @@ export function startServer(options: ServeOptions): WebServer {
           return json({ error: err instanceof Error ? err.message : String(err) }, 400)
         }
       }),
+      // Telemetry export (Settings → General): whether headers are kept and how the last send went; never the headers.
+      '/api/telemetry': {
+        GET: guard(() => {
+          if (!options.telemetry) return json({ error: 'telemetry needs the chat runtime' }, 503)
+          const last = options.telemetry.status()
+          return json({ headersSet: options.telemetry.headersSet(), ...(last ? { last } : {}) })
+        }),
+      },
+      '/api/telemetry/headers': {
+        PUT: guard(async (req) => {
+          if (!options.telemetry) return json({ error: 'telemetry needs the chat runtime' }, 503)
+          const { headers } = (await req.json().catch(() => ({}))) as { headers?: unknown }
+          if (typeof headers !== 'string' || headers.length > 8_000)
+            return json({ error: 'headers must be text: name=value, separated by commas' }, 400)
+          try {
+            await options.telemetry.setHeaders(headers)
+            return json({ headersSet: options.telemetry.headersSet() })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
+        }),
+        DELETE: guard(async () => {
+          if (!options.telemetry) return json({ error: 'telemetry needs the chat runtime' }, 503)
+          await options.telemetry.setHeaders('')
+          return json({ headersSet: options.telemetry.headersSet() })
+        }),
+      },
+      '/api/telemetry/test': {
+        POST: guard(async () => {
+          if (!options.telemetry) return json({ error: 'telemetry needs the chat runtime' }, 503)
+          return json(await options.telemetry.test())
+        }),
+      },
+      // Remote hosts (Settings → Tools): the aliases in the person's ~/.ssh/config to add from, and a connection test.
+      '/api/ssh/config': {
+        GET: guard(() => json({ hosts: readSshConfig() })),
+      },
+      '/api/ssh/test': {
+        POST: guard(async (req) => {
+          if (!options.ssh || !options.settings)
+            return json({ error: 'remote hosts need the chat runtime' }, 503)
+          const { name } = (await req.json().catch(() => ({}))) as { name?: unknown }
+          const host = options.settings.get().ssh.hosts.find((h) => h.name === name)
+          if (!host) return json({ error: `no remote host ${String(name)}` }, 404)
+          return json(await options.ssh.test(host))
+        }),
+      },
       '/api/mcp': {
         GET: guard(() => {
           if (!options.mcp) return json({ error: 'MCP needs the chat runtime' }, 503)
@@ -2356,6 +2840,37 @@ export function startServer(options: ServeOptions): WebServer {
           }
         }),
       },
+      // Other tools' sessions on this machine: listing and importing read their folders, so both need full access.
+      '/api/import-sessions': {
+        GET: guard(async () => {
+          if (!options.imports) return json({ error: 'this server imports no sessions' }, 503)
+          return json({ sessions: await options.imports.list() })
+        }),
+        POST: guard(async (req) => {
+          if (!options.imports) return json({ error: 'this server imports no sessions' }, 503)
+          let body: ReturnType<typeof importSchema>
+          try {
+            body = importSchema((await req.json()) as never)
+          } catch (err) {
+            return json(
+              { error: `invalid request: ${err instanceof Error ? err.message : String(err)}` },
+              400,
+            )
+          }
+          try {
+            return json(await options.imports.import(body.source, body.id))
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 422)
+          }
+        }),
+      },
+      // What a chat started from: already redacted and clipped, so any device that sees the chat may read it.
+      '/api/imported/:importId': {
+        GET: guard(async (req) => {
+          const session = options.imports?.get(req.params.importId ?? '')
+          return session ? json(session) : json({ error: 'no such import' }, 404)
+        }),
+      },
       '/api/chats': {
         GET: guard(async () => json(options.chats ? await options.chats.list() : [])),
         POST: guard(async (req, _url, access) => {
@@ -2387,8 +2902,10 @@ export function startServer(options: ServeOptions): WebServer {
               ...(body.delivery ? { delivery: body.delivery } : {}),
               attachments,
               planFirst: body.plan === true,
+              ...(body.goal ? { goal: true } : {}),
               ...(body.project ? { project: body.project } : {}),
               ...(body.forkOf && !body.chatId ? { forkOf: body.forkOf } : {}),
+              ...(body.importOf && !body.chatId && !body.forkOf ? { importOf: body.importOf } : {}),
               ...(calls ? { context: calls.context } : {}),
               ...(body.answers ? { answers: body.answers } : {}),
               // Like PUT /api/chats/:id/permissions, a chat's own level needs a device with full access.
@@ -2504,10 +3021,87 @@ export function startServer(options: ServeOptions): WebServer {
           if (deleted.length === 0) return json({ error: 'no such chat' }, 404)
           for (const id of deleted) store.forget(id as ColonyId)
           voice?.forget(req.params.chatId ?? '')
+          closeGuests(shares.stop(req.params.chatId ?? '').map((g) => g.id))
           for (const ws of sockets)
             if (ws.data.kind === 'events' && deleted.includes(ws.data.colony))
               ws.close(1000, 'colony deleted')
           return json({ ok: true, deleted })
+        }),
+      },
+      // Sharing a chat live (Share live in its menu): its open invites and who is in, a new invite, and stopping. Only a
+      // device with full access may let someone else in (needsFull).
+      '/api/chats/:chatId/share': {
+        GET: guard((req) => {
+          const chatId = req.params.chatId ?? ''
+          return json({
+            remote,
+            invites: shares
+              .invites(chatId)
+              .map((i) => ({ id: i.id, access: i.access, createdAt: i.createdAt, expiresAt: i.expiresAt })),
+            guests: shares.guests(chatId).map((g) => ({
+              ...guestJson(g),
+              online: [...opened].some((ws) => ws.data.guest === g.id),
+            })),
+          })
+        }),
+        POST: guard(async (req) => {
+          const chatId = req.params.chatId ?? ''
+          if (!(await options.chats?.list())?.some((c) => c.chatId === chatId))
+            return json({ error: 'no such chat' }, 404)
+          const body = (await req.json().catch(() => ({}))) as { access?: unknown }
+          try {
+            const { invite, code } = shares.invite(chatId, body.access === 'write' ? 'write' : 'view')
+            audit.record('guest-invited', { chat: chatId, access: invite.access })
+            return json({ invite, code, link: shareLink(req, code) })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 409)
+          }
+        }),
+        DELETE: guard((req) => {
+          const chatId = req.params.chatId ?? ''
+          const out = shares.stop(chatId)
+          for (const g of out) audit.record('guest-removed', { guest: g.id, chat: chatId })
+          closeGuests(out.map((g) => g.id))
+          return json({ ok: true, removed: out.length })
+        }),
+      },
+      '/api/chats/:chatId/share/invites/:id': {
+        DELETE: guard((req) =>
+          shares.withdraw(req.params.chatId ?? '', req.params.id ?? '')
+            ? json({ ok: true })
+            : json({ error: 'no such invite' }, 404),
+        ),
+      },
+      '/api/chats/:chatId/share/guests/:id': {
+        DELETE: guard((req) => {
+          const chatId = req.params.chatId ?? ''
+          const out = shares.remove(chatId, req.params.id ?? '')
+          if (!out) return json({ error: 'no such guest' }, 404)
+          audit.record('guest-removed', { guest: out.id, chat: chatId })
+          closeGuests([out.id])
+          return json({ ok: true })
+        }),
+      },
+      // The chat as one HTML page, for Export and for sealing into a share file in the page. Any device that sees the
+      // chat may read it (it holds what that device can already read, redacted further), so it is not `needsFull`.
+      // Sent as a download, sandboxed, so opening this address never renders a chat's text as a page of this origin.
+      '/api/chats/:chatId/export': {
+        GET: guard(async (req) => {
+          if (!options.chats) return json({ error: 'this server was started without the chat runtime' }, 503)
+          try {
+            const { html } = await options.chats.exportHtml(req.params.chatId ?? '')
+            return new Response(html, {
+              headers: {
+                'content-type': 'text/html; charset=utf-8',
+                'content-disposition': 'attachment; filename="chat.html"',
+                'content-security-policy': 'sandbox',
+                'cache-control': 'no-store',
+              },
+            })
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err)
+            return json({ error: message }, message === 'no such chat' ? 404 : 422)
+          }
         }),
       },
       '/api/chats/:chatId/resume': {
@@ -2656,6 +3250,16 @@ export function startServer(options: ServeOptions): WebServer {
           return json(computerStatus(access))
         }),
       },
+      // For the desktop app's overlay while an agent drives the Mac: who controls what, and where each last acted. Asking
+      // tells the driver the overlay draws the agents' cursors, so it hides its own.
+      '/api/computer/pointers': {
+        GET: guard(() =>
+          json({
+            controls: options.computer?.controls() ?? [],
+            pointers: options.computer?.pointers() ?? [],
+          }),
+        ),
+      },
       '/api/computer/stop': {
         // The person's Stop (the chat's button, or Esc in the desktop app): open to every device, as a safety stop.
         POST: guard((_req, _url, access) =>
@@ -2697,12 +3301,14 @@ export function startServer(options: ServeOptions): WebServer {
         const b = colonyId(url.searchParams.get('b') ?? '')
         return json(runDiff({ id: a, events: await store.read(a) }, { id: b, events: await store.read(b) }))
       }),
-      '/api/colonies/:id/events': guard(async (req, url) => {
-        const id = colonyId(req.params.id ?? '')
-        const from = Number(url.searchParams.get('from') ?? '1')
-        const limit = Math.min(Number(url.searchParams.get('limit') ?? '5000'), 20000)
-        return json(await store.read(id, { from, limit }))
-      }),
+      '/api/colonies/:id/events': async (req: Request & { params: Record<string, string> }) => {
+        const url = new URL(req.url)
+        // A guest of a shared chat reads its rounds' logs too, pared to the conversation (guestEvents).
+        const guest = authorized(req, url) ? undefined : guestOf(req)
+        if (!guest) return readEvents(req)
+        if (!(await guestMayRead(guest, req.params.id ?? ''))) return notShared()
+        return json(guestEvents(await store.read(colonyId(req.params.id ?? ''), eventRange(url))))
+      },
       '/api/colonies/:id/changes': guard(async (req, url) => {
         if (!options.chats) return json({ error: 'this server was started without the chat runtime' }, 503)
         const round = url.searchParams.get('round')
@@ -2972,13 +3578,21 @@ export function startServer(options: ServeOptions): WebServer {
         if (!(await store.exists(id))) return json({ error: 'no such colony' }, 404)
         const blobs = new BlobStore(join(store.colonyDir(id), 'blobs'))
         // Browser keyframes are JPEGs; `as=image` (a picture in a chat) is served as an image only when its bytes
-        // are one (PNG, JPEG, GIF, WebP: never SVG, which can carry script); everything else as inert text.
+        // are one (PNG, JPEG, GIF, WebP: never SVG, which can carry script), and `as=audio` (speech an agent made) as
+        // sound only when they are WAV, MP3, Ogg or FLAC; everything else as inert text.
         const as = new URL(req.url).searchParams.get('as')
         const bytes = await blobs.get(req.params.hash ?? '')
-        const image = as === 'jpeg' ? 'image/jpeg' : as === 'image' ? sniffImage(bytes) : undefined
+        const media =
+          as === 'jpeg'
+            ? 'image/jpeg'
+            : as === 'image'
+              ? sniffImage(bytes)
+              : as === 'audio'
+                ? sniffAudio(bytes)
+                : undefined
         return new Response(Buffer.from(bytes), {
           headers: {
-            'content-type': image ?? 'text/plain; charset=utf-8',
+            'content-type': media ?? 'text/plain; charset=utf-8',
             'x-content-type-options': 'nosniff',
             'cache-control': 'private, max-age=31536000, immutable',
           },
@@ -2987,10 +3601,13 @@ export function startServer(options: ServeOptions): WebServer {
       '/api/colonies/:id/stream': async (req: Request & { params: Record<string, string> }) => {
         const url = new URL(req.url)
         const access = authorized(req, url)
-        if (!access) return json({ error: 'unauthorized' }, 401)
+        // A guest watches their shared chat's rounds, and nothing else (pump pares what they get).
+        const guest = access ? undefined : guestOf(req)
+        if (!access && !guest) return json({ error: 'unauthorized' }, 401)
+        if (guest && !(await guestMayRead(guest, req.params.id ?? ''))) return notShared()
         const id = colonyId(req.params.id ?? '')
         const cursor = Math.max(0, Number(url.searchParams.get('from') ?? '1') - 1)
-        const device = access.device ? { device: access.device.id } : {}
+        const device = access?.device ? { device: access.device.id } : guest ? { guest: guest.id } : {}
         if (server.upgrade(req, { data: { kind: 'events', colony: id, cursor, ...device } }))
           return undefined as unknown as Response
         return json({ error: 'websocket upgrade failed' }, 400)
@@ -3211,6 +3828,7 @@ export function startServer(options: ServeOptions): WebServer {
               term.close()
               return
             }
+            for (const typed of data.typed?.splice(0) ?? []) term.write(typed)
             void term.exited.then(() => ws.close(1000, 'shell exited'))
             // The tab is named by what runs in it, as IDE terminals do. Polling `ps` is cheap and needs no native
             // module (Windows asks for the shell's children instead); a JSON text frame tells the page, beside the
@@ -3246,8 +3864,11 @@ export function startServer(options: ServeOptions): WebServer {
             await voice.warm()
             // Each wait is a chance for the person to have gone: no call is made for a closed socket.
             if (data.closed) return
-            const summary = data.chat ? (await chats.list()).find((c) => c.chatId === data.chat) : undefined
+            // The chat list is read anyway; the greeting is drawn from it too, so it costs the call no wait.
+            const list = await chats.list()
+            const summary = data.chat ? list.find((c) => c.chatId === data.chat) : undefined
             if (data.closed) return
+            const writer = greetingModel()
             const session = voice.call(
               chatsPort,
               {
@@ -3263,6 +3884,7 @@ export function startServer(options: ServeOptions): WebServer {
                   : {}),
                 name: options.settings?.get().profile.name ?? account,
                 sampleRate: data.rate,
+                greeting: { chats: list, ...(writer ? { model: writer } : {}) },
               },
               (out) => {
                 if (out.type === 'audio') {
@@ -3358,7 +3980,15 @@ export function startServer(options: ServeOptions): WebServer {
         }
         if (ws.data.kind === 'call') {
           const session = ws.data.session
-          if (!session) return
+          if (!session) {
+            // Hung up while the engines warm up: no call is made, and the page is told the call is over at once
+            // rather than when its own close arrives, which can be after the warm-up ends.
+            if (typeof raw === 'string' && raw.length <= VOICE_MESSAGE_MAX && hangsUp(raw)) {
+              ws.data.closed = true
+              ws.close(1000, 'call ended')
+            }
+            return
+          }
           if (typeof raw !== 'string') {
             if (raw.byteLength > VOICE_FRAME_MAX) return ws.close(1009, 'audio frame too large')
             // 16-bit samples: an odd trailing byte is not half a sample worth keeping.
@@ -3396,8 +4026,10 @@ export function startServer(options: ServeOptions): WebServer {
             rows?: unknown
           }
           const term = ws.data.proc
-          if (msg.type === 'input' && typeof msg.data === 'string') term?.write(msg.data)
-          else if (msg.type === 'resize' && typeof msg.cols === 'number' && typeof msg.rows === 'number')
+          if (msg.type === 'input' && typeof msg.data === 'string') {
+            if (term) term.write(msg.data)
+            else ws.data.typed = [...(ws.data.typed ?? []), msg.data]
+          } else if (msg.type === 'resize' && typeof msg.cols === 'number' && typeof msg.rows === 'number')
             term?.resize(Math.min(500, Math.max(10, msg.cols)), Math.min(500, Math.max(5, msg.rows)))
           return
         }
@@ -3450,7 +4082,9 @@ export function startServer(options: ServeOptions): WebServer {
     const events = await store.read(ws.data.colony, { from: ws.data.cursor + 1, limit: BATCH })
     if (events.length === 0) return
     ws.data.cursor = events.at(-1)?.seq ?? ws.data.cursor
-    ws.send(JSON.stringify(events))
+    // A shared chat's guest gets the conversation only; a batch with none of it sends nothing.
+    const shown = ws.data.guest ? guestEvents(events) : events
+    if (shown.length) ws.send(JSON.stringify(shown))
   }
 
   const poll = setInterval(() => {
@@ -3483,20 +4117,30 @@ export function startServer(options: ServeOptions): WebServer {
     pairingLink,
     token,
     warmVoice: () => voice?.warm() ?? Promise.resolve(),
+    ...(voice ? { voice } : {}),
     async stop() {
       await personBrowser?.shutdown()
       stopScheduler?.()
       clearInterval(poll)
       stopStreaming?.()
+      // A shell keeps the folder it works in busy until it has exited, and Windows cannot remove a busy folder.
+      const shells = [...opened].flatMap((ws) =>
+        ws.data.kind === 'terminal' && ws.data.proc ? [ws.data.proc.exited] : [],
+      )
+      for (const ws of opened) if (ws.data.kind === 'terminal') ws.close(1001, 'server stopping')
       for (const ws of sockets) ws.close(1001, 'server stopping')
       // Bun 1.3 never settles stop() once the server has closed a socket itself (revoking a device, the loop
       // above), though the port is already released; waiting on it would hang shutdown.
       await Promise.race([server.stop(true), Bun.sleep(STOP_WAIT_MS)])
+      await Promise.race([Promise.allSettled(shells), Bun.sleep(TERMINAL_STOP_MS)])
       await preview.stop(true)
       offPlugins?.()
       await channels?.stop()
       offVoiceSettings?.()
       voice?.stop()
+      offKnownSecrets()
+      unguardSecrets?.()
+      offSecretsSetting?.()
       store.close()
     },
   }

@@ -29,5 +29,8 @@
     "bun-plugin-tailwind": "0.1.2",
     "tailwindcss": "4.3.3",
     "typescript": "7.0.2"
+  },
+  "patchedDependencies": {
+    "@oh-my-pi/pi-ai@18.8.8": "patches/@oh-my-pi%2Fpi-ai@18.8.8.patch"
   }
 }

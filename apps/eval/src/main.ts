@@ -106,7 +106,7 @@ async function runTrial(c: EvalCase, mode: Mode, trial: number): Promise<TrialRe
   const site = c.site ? Bun.serve({ port: 0, fetch: c.site }) : undefined
   try {
     if (c.project) {
-      dir = realpathSync(mkdtempSync(join(tmpdir(), `myr-eval-${c.id}-`)))
+      dir = realpathSync.native(mkdtempSync(join(tmpdir(), `myr-eval-${c.id}-`)))
       for (const [name, text] of Object.entries(c.project)) {
         mkdirSync(dirname(join(dir, name)), { recursive: true })
         writeFileSync(join(dir, name), text)

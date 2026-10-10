@@ -6,9 +6,14 @@ import {
   BadgeCheck,
   BadgeQuestionMark,
   BadgeX,
+  Battery,
+  BatteryFull,
+  BatteryLow,
+  BatteryMedium,
   BellRing,
   BookMarked,
   Brain,
+  Cable,
   CalendarClock,
   Compass,
   Container,
@@ -22,30 +27,43 @@ import {
   FishingHook,
   FolderKey,
   FolderTree,
+  Footprints,
   Gavel,
   GitBranch,
+  Glasses,
   Globe,
+  Goal,
   GraduationCap,
+  ImagePlus,
+  Import,
   Keyboard,
   KeyRound,
+  LifeBuoy,
   ListChecks,
   ListFilter,
+  ListTree,
   LockKeyhole,
   Mail,
   MessageSquareText,
   MessagesSquare,
   MonitorSmartphone,
   MousePointerClick,
+  OctagonPause,
+  PackageSearch,
   Palette,
   PhoneIncoming,
   Plug,
   Puzzle,
+  RadioTower,
+  RectangleEllipsis,
   Rocket,
+  SatelliteDish,
   ScreenShare,
   ScrollText,
   SearchCheck,
   Server,
   ServerCog,
+  Share2,
   ShieldCheck,
   ShieldOff,
   ShieldPlus,
@@ -53,6 +71,7 @@ import {
   SlidersHorizontal,
   Smile,
   SquareTerminal,
+  Store,
   Terminal,
   TextSearch,
   User,
@@ -94,6 +113,8 @@ export const FEATURE_ICONS = {
   fileTools: FilePen,
   /** Folders sandboxed agents may read beyond the defaults: in Settings, a project's permissions, a chat's grants. */
   readAccess: FolderKey,
+  /** Secrets kept from model providers: they see placeholders, never the keys (Settings → Permissions). */
+  hiddenSecrets: RectangleEllipsis,
   /** The sandbox shell commands run in. */
   sandbox: Container,
   /** The Full access preset: agents run without the sandbox (its choice at any level, the badge on its chats). */
@@ -112,10 +133,26 @@ export const FEATURE_ICONS = {
   lightThinking: Feather,
   /** Models: the Models section, the /model command. */
   models: Cpu,
+  /** Fallback models: the ones an agent goes on with when its own fails (Settings → Crew & budget, the round's line). */
+  fallback: LifeBuoy,
+  /** The advisor: the model that watches agents' steps and sends one a note (Settings → Crew & budget, its notes). */
+  advisor: Glasses,
+  /** Prewalk: the lead plans, then hands off to its carry-out model (Settings → Crew & budget, the round's line). */
+  prewalk: Footprints,
+  /** Goal mode: a round that keeps working until its goal holds (`/goal`, each check's line in the round). */
+  goal: Goal,
+  /** Stream rules: the person's rules that stop a reply mid-stream (`/rule`, the line a stop leaves in the round). */
+  streamRules: OctagonPause,
   /** Models removed from pickers, listed under Hidden models in Settings → Models to restore. */
   hiddenModels: EyeOff,
   /** Providers and their keys. */
   providers: KeyRound,
+  /** How close each subscription is to its plan's limits (Models & providers, the composer's model chip). */
+  planLimits: BatteryMedium,
+  /** The same battery, as full as the subscription the chosen model runs on (the composer's model chip). */
+  planFull: BatteryFull,
+  planLow: BatteryLow,
+  planEmpty: Battery,
   /** Another Myrmidon this window can show. */
   gateway: Server,
   /** Managing gateways. */
@@ -150,6 +187,10 @@ export const FEATURE_ICONS = {
   mail: Mail,
   /** MCP servers and their tools. */
   mcp: Plug,
+  /** Remote hosts agents reach over SSH: Settings → Tools, their rules and who may use them. */
+  sshHosts: Cable,
+  /** Sending finished runs to the person's own OTLP collector (Settings → General). */
+  telemetry: SatelliteDish,
   /** Specialists the person keeps. */
   specialists: UserCog,
   /** What agents remember across chats. */
@@ -160,6 +201,10 @@ export const FEATURE_ICONS = {
   tools: Wrench,
   /** Plugins and the views they add. */
   plugins: Puzzle,
+  /** Claude Code plugin marketplaces: catalogs to browse and install plugins from (Settings → Plugins). */
+  marketplaces: Store,
+  /** omp's skills registry: searching it and installing a skill (Settings → Skills). */
+  skillRegistry: PackageSearch,
   /** Hooks: commands around every tool call. */
   hooks: FishingHook,
   /** Requests that run on a schedule. */
@@ -182,6 +227,8 @@ export const FEATURE_ICONS = {
   phoneCalls: PhoneIncoming,
   /** The web: search, fetching pages, a page an agent opened. */
   web: Globe,
+  /** Pictures agents make and edit (generate_image): the image model in Settings → Tools. */
+  imageGeneration: ImagePlus,
   /** Scratch files: private drafts before publishing. */
   scratchFiles: SlidersHorizontal,
   /** Files the crew published. */
@@ -208,4 +255,12 @@ export const FEATURE_ICONS = {
   alerts: BellRing,
   /** Searching Settings: the field over the section list and its results. */
   settingsSearch: TextSearch,
+  /** Importing a Claude Code or Codex session into a new chat, and the imported transcript it starts from. */
+  sessionImport: Import,
+  /** A chat's family: the chat it was forked from and the chats forked from it, as a tree (Show family). */
+  chatFamily: ListTree,
+  /** Sharing a chat as an encrypted file the person sends, with its key apart. */
+  shareFile: Share2,
+  /** Sharing a chat live: inviting someone to watch or write in it (Share live), and the page they join. */
+  liveShare: RadioTower,
 } as const

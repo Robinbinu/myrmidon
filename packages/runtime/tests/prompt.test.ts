@@ -4,12 +4,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { newColonyId } from '@myrmidon/core'
 import { emptyColonyState, foldColony, projectLevelFrom } from '@myrmidon/protocol'
-import type { Context as LlmContext } from '@oh-my-pi/pi-ai'
-import { createMockModel, type MockContent } from '@oh-my-pi/pi-ai/providers/mock'
 import { canonicalZone } from '../src/clock.ts'
 import { COMPUTER_TOOL_NAMES } from '../src/computer/names.ts'
 import { bootRuntime, ChatService, ModelResolver, type Runtime } from '../src/index.ts'
 import { inputSchema } from '../src/made-tools.ts'
+import type { Context as LlmContext } from '../src/omp/ai.ts'
+import { createMockModel, type MockContent } from '../src/omp/mock.ts'
 import { type Environment, kickoff, snapshot, startsAwake, toolsFor } from '../src/patterns.ts'
 import { projectGit } from '../src/project-context.ts'
 import { assemble, renderSections } from '../src/prompt/assemble.ts'
@@ -148,7 +148,11 @@ const matrix: [string, ColonySpec, AgentSpec, Partial<Environment>?][] = [
   ],
   ['solo in a read-only project', chat({ agents: [lead] }, inProject('read-only')), lead],
   ['solo in an ask-first project', chat({ agents: [lead] }, inProject('ask')), lead],
-  ['solo in a project', chat({ agents: [lead] }, { ...inProject('auto'), memory: ['- Likes tea.'] }), lead],
+  [
+    'solo in a project',
+    chat({ agents: [lead] }, { ...inProject('auto'), memory: ['- Likes tea.'], memoryMore: 3 }),
+    lead,
+  ],
   [
     'solo with full access',
     chat({ agents: [lead], fullAccess: true }, inProject('auto')),
@@ -165,6 +169,12 @@ const matrix: [string, ColonySpec, AgentSpec, Partial<Environment>?][] = [
     { computer: true, computerEngine: 'omp' },
   ],
   ['solo a channel member opened', chat({ agents: [lead], askAll: true }), lead],
+  // The person's remote hosts (Settings → Tools): the ssh tool, which loads on demand, and what it may reach.
+  [
+    'solo with remote hosts',
+    chat({ agents: [lead], remotes: [{ name: 'box', host: 'build.example.com' }] }, inProject('auto')),
+    lead,
+  ],
   ['solo with plan first', chat({ agents: [lead], planFirst: true, review: 'auto' }), lead],
   ['colony lead', { ...chat({ agents: [lead, kai] }), chat: undefined, tier: undefined } as ColonySpec, lead],
   [
@@ -193,7 +203,28 @@ function envFor(spec: ColonySpec, extra: Partial<Environment> = {}): Environment
         project: {
           checks: [{ name: 'test', command: 'bun test' }],
           layout: 'src/',
-          instructions: { files: ['AGENTS.md'], text: 'Run bun test before you finish.', nested: [] },
+          instructions: {
+            files: ['AGENTS.md'],
+            text: 'Run bun test before you finish.',
+            nested: [],
+            // Other tools' rules that apply only sometimes, so the word budget counts their listing.
+            rules: [
+              {
+                name: 'ts',
+                file: '.cursor/rules/ts.mdc',
+                mode: 'glob',
+                globs: ['src/**/*.ts'],
+                text: 'Strict.',
+              },
+              {
+                name: 'api',
+                file: '.cursor/rules/api.mdc',
+                mode: 'requested',
+                description: 'API routes',
+                text: '',
+              },
+            ],
+          },
         } as never,
       }
     : {}
@@ -261,6 +292,10 @@ test('descriptions that depend on the round say what holds in it', () => {
     'an independent reviewer checks it',
   )
   expect(toolDescription('reply_user', facts('solo with plan first'))).toContain('(request_review)')
+  expect(toolDescription('ssh', facts('solo with remote hosts'))).toContain('remote hosts over SSH: box.')
+  expect(views.find((v) => v.label === 'solo with remote hosts')?.view.system.join('\n')).toContain(
+    'remote hosts (ssh): box (load with find_tools("ssh"))',
+  )
   // The answer tier is never told how to scope a build it cannot do.
   expect(views.find((v) => v.label === 'answer')?.view.system.join('\n')).not.toContain('before building')
   // Deferred tools say how to load them.
@@ -393,8 +428,13 @@ test('on Windows an agent with a shell is told which shell runs its commands, an
     expect(found).toEqual([])
     expect(told).toBeGreaterThan(0)
   }
-  // macOS and Linux prompts say nothing of it: sh is what agents assume.
-  for (const { view } of views) expect(view.system.join('\n')).not.toContain('Commands run in')
+  // macOS and Linux prompts say nothing of it: sh is what agents assume. (The views are this host's, which may be
+  // Windows, so each is drawn again for the other two.)
+  for (const platform of ['darwin', 'linux'])
+    for (const { view } of views) {
+      const facts = { ...view.facts, env: { ...view.facts.env, platform, shell: undefined } }
+      expect(viewOf(facts).system.join('\n')).not.toContain('Commands run in')
+    }
 })
 
 test('every prompt stays within its word budgets', () => {
@@ -542,6 +582,20 @@ test('a team lead assigns tasks and holds none, so it has no claim, release or s
   expect(toolsFor(teamRound, lead)).toEqual(
     expect.arrayContaining(['create_task', 'assign_task', 'reject_task']),
   )
+})
+
+test('memory left out for room is searched with recall, told only to agents that have it', () => {
+  const { view } = views.find((v) => v.label === 'solo in a project') ?? {}
+  if (!view) throw new Error('no solo in a project')
+  expect(view.facts.tools.names).toContain('recall')
+  expect(view.system.join('\n')).toContain('3 more are kept; search them with recall.')
+  const worker = views.find((v) => !v.view.facts.tools.names.includes('recall'))?.view
+  if (!worker) throw new Error('every agent has recall')
+  const facts = {
+    ...worker.facts,
+    context: { ...worker.facts.context, memory: ['- Likes tea.'], memoryMore: 3 },
+  }
+  expect(viewOf(facts).system.join('\n')).not.toContain('more are kept')
 })
 
 test("a round's first message says the request once, and the board it carries leaves its copy out", () => {

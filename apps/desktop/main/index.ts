@@ -12,6 +12,7 @@ import Electrobun, {
   BuildConfig,
   GlobalShortcut,
   PATHS,
+  Screen,
   Utils,
 } from 'electrobun/main'
 import { DESKTOP_COMPUTER_STOP } from '../../web/src/client/ui/desktop.ts'
@@ -27,11 +28,13 @@ import {
 import { COMPUTER_STOP_KEYS, WINDOW_SIZE } from '../src/config.ts'
 import { desktopCopy } from '../src/copy.ts'
 import { setDockBadge } from '../src/dock.ts'
+import { prepareOverlayWindow } from '../src/overlay-window.ts'
 import { asPlatform, executableName, menuFor, titlebarInset, windowChrome } from '../src/platform.ts'
 import {
   freePort,
   loopbackOrigin,
   myrmidonHome,
+  overlayUrl,
   runningServer,
   type Server,
   startServer,
@@ -58,6 +61,8 @@ const win = new BrowserWindow({
 if (chrome.buttons) win.setWindowButtonPosition(chrome.buttons.x, chrome.buttons.y)
 
 const run = (script: string) => win.webview.executeJavascript(script)
+/** The dashboard's address, token included, once there is a server to show. */
+let dashboard: string | undefined = existing?.pageUrl
 // Entering or leaving full screen resizes the window; a reload starts again from the preload's windowed inset.
 const fitTitlebar = () => run(insetScript(titlebarInset(chrome, win.isFullScreen())))
 if (chrome.titlebarInsetPx) {
@@ -113,9 +118,43 @@ async function answer(request: Request): Promise<unknown> {
   }
 }
 
+/**
+ * While an agent drives the Mac, a see-through window over each display (the page's /overlay): a glow round the edge
+ * and each agent's cursor, so it is plain the computer is in an agent's hands. Clicks pass through, and the windows
+ * open without taking focus from the app the person is in. On macOS they cover the menu bar and every Space
+ * (src/overlay-window.ts).
+ */
+let overlays: BrowserWindow[] = []
+function showOverlays(on: boolean) {
+  if (!on || !dashboard) {
+    for (const w of overlays) w.close()
+    overlays = []
+    return
+  }
+  if (overlays.length) return
+  for (const display of Screen.getAllDisplays()) {
+    const w = new BrowserWindow({
+      title: t.overlayTitle,
+      url: overlayUrl(dashboard),
+      frame: { ...display.bounds },
+      titleBarStyle: 'hidden',
+      transparent: true,
+      passthrough: true,
+      hidden: true,
+    })
+    if (!prepareOverlayWindow(w.ptr, w.webview.ptr)) {
+      w.setAlwaysOnTop(true)
+      w.setVisibleOnAllWorkspaces(true)
+    }
+    w.showInactive()
+    overlays.push(w)
+  }
+}
+
 /** The global Esc, held only while an agent controls the Mac: it tells the page to stop computer use. */
 let stopKey: string | undefined
 function computerControl(active: boolean): boolean {
+  showOverlays(active)
   if (active && !stopKey)
     stopKey = COMPUTER_STOP_KEYS.find((key) =>
       GlobalShortcut.register(key, () => run(shortcutScript(DESKTOP_COMPUTER_STOP))),
@@ -153,6 +192,7 @@ serverReady.then(
   async (server) => {
     if (!server.owned) return
     await loadingShown
+    dashboard = server.pageUrl
     win.webview.loadURL(server.pageUrl)
   },
   async (err: unknown) => {

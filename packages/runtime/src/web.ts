@@ -1,6 +1,10 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { lookup as dnsLookup } from 'node:dns/promises'
-import { FETCH_MAX_REDIRECTS } from './config.ts'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { basename, join, resolve, sep } from 'node:path'
+import { FETCH_MAX_REDIRECTS, READER_PAGE_MAX_BYTES, READER_PROGRAM_TIMEOUT_MS } from './config.ts'
+import { loadToolsManager } from './omp/readers.ts'
 import type { OmpRuntime, ReadResult } from './omp/runtime.ts'
 import { prompts } from './prompts.ts'
 
@@ -333,9 +337,170 @@ export async function pinnedFetch(
   }
 }
 
+/** The programs omp's reader runs: yt-dlp for videos, trafilatura and lynx for pages its own converter fails on. */
+export type ReaderName = 'yt-dlp' | 'trafilatura' | 'lynx'
+/** Where each installed reader program is; a missing one is left out. */
+export type ReaderPrograms = Partial<Record<ReaderName, string>>
+
+/**
+ * Finds the reader programs where omp looks for them (its tools folder, then PATH, for yt-dlp and trafilatura; PATH
+ * for lynx), so a program is counted installed exactly when omp would run it.
+ */
+export async function findReaderPrograms(): Promise<ReaderPrograms> {
+  const { getToolPath } = await loadToolsManager()
+  const found: ReaderPrograms = {}
+  const ytDlp = getToolPath('yt-dlp')
+  if (ytDlp) found['yt-dlp'] = ytDlp
+  const trafilatura = getToolPath('trafilatura')
+  if (trafilatura) found.trafilatura = trafilatura
+  const lynx = Bun.which('lynx')
+  if (lynx) found.lynx = lynx
+  return found
+}
+
+/**
+ * The options omp passes each reader, with how many values each takes. Anything else is refused, so a reader is
+ * never told to read a file (a batch file, cookies, a config, an input folder) or to run a command.
+ */
+const READER_OPTIONS: Record<ReaderName, Record<string, number>> = {
+  'yt-dlp': {
+    '--dump-json': 0,
+    '--no-warnings': 0,
+    '--no-playlist': 0,
+    '--skip-download': 0,
+    '--list-subs': 0,
+    '--write-sub': 0,
+    '--write-auto-sub': 0,
+    '--sub-lang': 1,
+    '--sub-format': 1,
+    '-o': 1,
+  },
+  trafilatura: { '-u': 1, '--output-format': 1 },
+  lynx: { '-dump': 0, '-nolist': 0, '-width': 1 },
+}
+// omp downloads yt-dlp from its GitHub releases when it is missing; an agent's read installs nothing.
+const READER_DOWNLOAD = /^https:\/\/github\.com\/yt-dlp\/yt-dlp\/releases\/download\//i
+const PROXY_VARIABLE = /^(https?|all|no|ftp)_proxy$/i
+
+function readerName(command: string): ReaderName | undefined {
+  const name = basename(command)
+    .toLowerCase()
+    .replace(/\.(exe|cmd|bat)$/, '')
+  return name === 'yt-dlp' || name === 'trafilatura' || name === 'lynx' ? name : undefined
+}
+
+let readerHome: string | undefined
+/** An empty folder of this process's own to start readers in, so none picks up a config from where Myrmidon runs. */
+function readerCwd(): string {
+  readerHome ??= mkdtempSync(join(tmpdir(), 'myrmidon-reader-'))
+  return readerHome
+}
+
+/** The page at `url`, fetched pinned and checked, cut at READER_PAGE_MAX_BYTES, as a program's stdin. */
+function pageOnStdin(url: string, scope: ReadScope): ReadableStream<Uint8Array> {
+  let body: ReadableStreamDefaultReader<Uint8Array> | undefined
+  let left = READER_PAGE_MAX_BYTES
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        if (!body) {
+          const response = await pinnedFetch(url, {}, scope)
+          if (!response.ok || !response.body) return controller.close()
+          body = response.body.getReader()
+        }
+        const { done, value } = await body.read()
+        if (done || left <= 0) {
+          await body.cancel().catch(() => {})
+          return controller.close()
+        }
+        controller.enqueue(value.subarray(0, left))
+        left -= value.byteLength
+      } catch (err) {
+        // An empty stdin makes the reader produce nothing, and omp moves on to its next reader.
+        if (err instanceof UnreachableError) scope.refused.push(err)
+        controller.close()
+      }
+    },
+    cancel: () => body?.cancel().catch(() => {}),
+  })
+}
+
+type SpawnOptions = { env?: Record<string, string | undefined>; timeout?: number } & Record<string, unknown>
+
+/**
+ * What a reader omp starts during an agent's read actually runs. Network access stays behind the guard:
+ * - yt-dlp has to reach YouTube itself, so every connection it makes goes through `scope.proxy`, which checks and
+ *   pins each one (redirects included) as `pinnedFetch` does. `--ignore-config` keeps a yt-dlp.conf from adding
+ *   options, and it starts in an empty folder of its own.
+ * - trafilatura and lynx get the page on stdin, fetched by `pinnedFetch`, instead of its URL, so they make no
+ *   requests at all.
+ * Every reader gets the proxy in its environment too, runs within READER_PROGRAM_TIMEOUT_MS, and may take only the
+ * options omp passes it (READER_OPTIONS) and http(s) URLs. Any other program is refused.
+ *
+ * Residual risk: the proxy only sees what a program sends through it. A reader that ignored its proxy settings, or a
+ * program yt-dlp starts itself (a JavaScript runtime for YouTube's player code), would reach the network unchecked;
+ * and a reader's own bugs (a parser exploit in a hostile page) run with the server's permissions. Only programs the
+ * person installed, found where omp looks, are run, never ones the agent names.
+ */
+function readerSpawn(scope: ReadScope, command: string[], options: SpawnOptions): [string[], SpawnOptions] {
+  const [program = '', ...args] = command
+  const name = readerName(program)
+  if (!name || scope.proxy === undefined) throw new Error(prompts.toolResults.readerProgram)
+  const allowed = READER_OPTIONS[name]
+  const kept: string[] = []
+  let url: string | undefined
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i] ?? ''
+    const takes = allowed[arg]
+    if (takes === undefined) {
+      if (url !== undefined || !/^https?:\/\//i.test(arg)) throw new Error(prompts.toolResults.readerProgram)
+      url = arg
+      continue
+    }
+    const value = args[i + 1]
+    if (takes === 1) {
+      if (value === undefined) throw new Error(prompts.toolResults.readerProgram)
+      i++
+      if (arg === '-u') {
+        if (url !== undefined || !/^https?:\/\//i.test(value))
+          throw new Error(prompts.toolResults.readerProgram)
+        url = value
+        continue
+      }
+      // yt-dlp writes subtitles where omp says; only ever into the temp folder, where omp puts them.
+      const inTemp = resolve(value).startsWith(resolve(tmpdir()) + sep)
+      if (arg === '-o' ? !inTemp : !/^[\w.,+-]+$/.test(value))
+        throw new Error(prompts.toolResults.readerProgram)
+      kept.push(arg, value)
+    } else kept.push(arg)
+  }
+  if (url === undefined) throw new Error(prompts.toolResults.readerProgram)
+  const early = quickRefusal(new URL(url), scope.localPorts)
+  if (early) {
+    scope.refused.push(early)
+    throw early
+  }
+  const proxy = `http://127.0.0.1:${scope.proxy}`
+  const env: Record<string, string> = {}
+  for (const [key, value] of Object.entries(options.env ?? process.env))
+    if (value !== undefined && !PROXY_VARIABLE.test(key)) env[key] = value
+  for (const key of ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy'])
+    env[key] = proxy
+  const timeout = Math.min(options.timeout || READER_PROGRAM_TIMEOUT_MS, READER_PROGRAM_TIMEOUT_MS)
+  const run = { ...options, env, cwd: readerCwd(), timeout }
+  if (name === 'yt-dlp') return [[program, '--ignore-config', '--proxy', proxy, ...kept, url], run]
+  const stdin = pageOnStdin(url, scope)
+  if (name === 'trafilatura') return [[program, ...kept], { ...run, stdin }]
+  return [[program, ...kept, '-force_html', '-stdin'], { ...run, stdin }]
+}
+
 interface ReadScope extends PinOptions {
   /** Requests refused during the read, so a failed read can say why. */
   readonly refused: UnreachableError[]
+  /** The URL the agent asked for. */
+  readonly url?: string
+  /** The port of the guard proxy reader programs reach the network through; none when no reader is installed. */
+  proxy?: number
 }
 
 const readScope = new AsyncLocalStorage<ReadScope>()
@@ -343,8 +508,9 @@ let guarded = false
 
 /**
  * omp's reader calls the global `fetch` from many places (the page, its alternates, llms.txt, documents, site
- * readers) and can run lynx or trafilatura, which fetch on their own. Inside an agent's read, `fetch` becomes
- * `pinnedFetch` and starting programs is refused; everywhere else both behave as before.
+ * readers) and can run yt-dlp, trafilatura or lynx, which fetch on their own. Inside an agent's read, `fetch`
+ * becomes `pinnedFetch`, readers run behind the guard (`readerSpawn`) and any other program is refused; everywhere
+ * else all of them behave as before.
  */
 function guardProcess() {
   if (guarded) return
@@ -352,6 +518,9 @@ function guardProcess() {
   const scoped = (input: string | URL | Request, init?: RequestInit) => {
     const scope = readScope.getStore()
     if (!scope) return unguardedFetch(input, init)
+    const target = input instanceof Request ? input.url : String(input)
+    if (READER_DOWNLOAD.test(target) && target !== scope.url)
+      return Promise.reject(new Error(prompts.toolResults.readerInstall))
     return pinnedFetch(input, init, scope).catch((err: unknown) => {
       if (err instanceof UnreachableError) scope.refused.push(err)
       throw err
@@ -360,47 +529,95 @@ function guardProcess() {
   globalThis.fetch = Object.assign(scoped, { preconnect: unguardedFetch.preconnect }) as typeof fetch
   const spawn = Bun.spawn
   const spawnSync = Bun.spawnSync
-  const refuse = () => {
-    if (readScope.getStore()) throw new Error(prompts.toolResults.readerProgram)
-  }
   Object.assign(Bun, {
     spawn: (...args: Parameters<typeof spawn>) => {
-      refuse()
-      return spawn(...args)
+      const scope = readScope.getStore()
+      if (!scope) return spawn(...args)
+      // Bun.spawn(cmd, options) or Bun.spawn({ cmd, ...options }).
+      const [first, second] = args as unknown as [
+        string[] | ({ cmd: string[] } & SpawnOptions),
+        SpawnOptions?,
+      ]
+      const [command, options] = Array.isArray(first)
+        ? readerSpawn(scope, first, second ?? {})
+        : readerSpawn(scope, first.cmd, (({ cmd: _, ...rest }) => rest)(first))
+      return spawn(command, options as never)
     },
     spawnSync: (...args: Parameters<typeof spawnSync>) => {
-      refuse()
+      if (readScope.getStore()) throw new Error(prompts.toolResults.readerProgram)
       return spawnSync(...args)
     },
   })
 }
 
-/** Runs `read` with every fetch it makes pinned and checked (see `pinnedFetch`) and no programs started. */
+export interface ReadOptions extends PinOptions {
+  /** The URL the agent asked for: the one release download a read may fetch, since the agent named it. */
+  readonly url?: string
+  /** Start the guard proxy reader programs reach the network through (only worth it when one is installed). */
+  readonly readers?: boolean
+}
+
+/**
+ * Runs `read` with every fetch it makes pinned and checked (see `pinnedFetch`), reader programs behind the guard
+ * (see `readerSpawn`), and no other program started.
+ */
 export async function withPinnedNetwork<T>(
-  options: PinOptions,
+  options: ReadOptions,
   read: (refused: readonly UnreachableError[]) => Promise<T>,
 ): Promise<T> {
   guardProcess()
   const scope: ReadScope = { ...options, refused: [] }
-  return readScope.run(scope, () => read(scope.refused))
+  // Imported here: browser.ts imports this module.
+  const proxy = options.readers
+    ? await (await import('./browser.ts')).startBrowserProxy({
+        localPorts: options.localPorts ?? NO_LOCAL_PORTS,
+        ...(options.lookup ? { lookup: options.lookup } : {}),
+        onRefused: (reason) => scope.refused.push(new UnreachableError(reason)),
+      })
+    : undefined
+  scope.proxy = proxy?.port
+  try {
+    return await readScope.run(scope, () => read(scope.refused))
+  } finally {
+    proxy?.close()
+  }
 }
 
-/** `lookup` resolves host names (the system's by default; tests give a table, so they need no DNS). */
+/** Says what would let web_fetch do better when the reader program a page needed is not installed. */
+function withReaderNotes(result: ReadResult, installed: ReaderPrograms): ReadResult {
+  if (result.method === 'youtube-no-ytdlp')
+    return {
+      ...result,
+      contentType: 'text/plain',
+      output: prompts.toolResults.noTranscriptReader(result.url),
+    }
+  if (result.method === 'raw-html' && !installed.trafilatura && !installed.lynx)
+    return { ...result, output: `${prompts.toolResults.noPageReader}\n\n${result.output}` }
+  return result
+}
+
+/**
+ * `lookup` resolves host names (the system's by default; tests give a table, so they need no DNS); `programs` finds
+ * the installed reader programs (where omp looks, by default).
+ */
 export function ompWebTools(
   omp: OmpRuntime,
   provider: () => string,
   lookup: Lookup = systemLookup,
+  programs: () => Promise<ReaderPrograms> = findReaderPrograms,
 ): WebTools {
   return {
     search: (query, options = {}) => omp.search(query, { ...options, provider: provider() }),
     async read(url, localPorts = NO_LOCAL_PORTS) {
       const href = (await assertReachableUrl(url, localPorts, lookup)).href
-      return withPinnedNetwork({ localPorts, lookup }, async (refused) => {
+      const installed = await programs()
+      const readers = Object.keys(installed).length > 0
+      return withPinnedNetwork({ localPorts, lookup, url: href, readers }, async (refused) => {
         const result = await omp.read(href)
         // The reader turns a refused request into "Failed to fetch"; the agent should hear why instead.
         const [first] = refused
         if (result.method === 'failed' && first) throw first
-        return result
+        return withReaderNotes(result, installed)
       })
     },
   }

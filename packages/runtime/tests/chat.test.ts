@@ -4,8 +4,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { newColonyId, SqliteLogStore } from '@myrmidon/core'
 import { type ColonyState, type EventPayloads, foldColony, type MyrEvent } from '@myrmidon/protocol'
-import type { Context as LlmContext } from '@oh-my-pi/pi-ai'
-import { createMockModel, type MockContent } from '@oh-my-pi/pi-ai/providers/mock'
 import {
   BrowserHub,
   bootRuntime,
@@ -19,6 +17,8 @@ import {
   type Runtime,
   type TeamConfig,
 } from '../src/index.ts'
+import type { Context as LlmContext } from '../src/omp/ai.ts'
+import { createMockModel, type MockContent } from '../src/omp/mock.ts'
 import type { OmpRuntime } from '../src/omp/runtime.ts'
 
 let home: string
@@ -306,18 +306,21 @@ test('@name writes to a crew member directly: it answers the person; an idle cre
     },
   })
   resolver.register('mock/lead', { model: lead.model, streamFn: lead.stream })
-  scripted(resolver, 'mock/writer', [
-    (ctx) => {
-      look('writer', ctx)
-      return [tool('reply_person', { text: 'Hi! I am on the rhymes.' })]
+  // The writer answers each message the person sent it once, whenever it is called: how often it is woken in between
+  // (to read the lead's final answer, say) depends on how fast the machine is.
+  const asked = ['how is it going?', 'make it shorter']
+  const answers = ['Hi! I am on the rhymes.', 'Shorter now: ants march.']
+  let answered = 0
+  const writerModel = createMockModel({
+    handler: (ctx: LlmContext) => {
+      if (answered < asked.length && JSON.stringify(ctx.messages).includes(asked[answered] ?? '')) {
+        look('writer', ctx)
+        return { content: [tool('reply_person', { text: answers[answered++] ?? '' })] }
+      }
+      return { content: [answered === 1 ? 'back to it' : 'done'] }
     },
-    ['back to it'],
-    (ctx) => {
-      look('writer', ctx)
-      return [tool('reply_person', { text: 'Shorter now: ants march.' })]
-    },
-    ['done'],
-  ])
+  })
+  resolver.register('mock/writer', { model: writerModel.model, streamFn: writerModel.stream })
   judge(resolver)
   const chats = new ChatService(runtime, { resolver, classify: fixed('team'), quietMs: QUIET_MS })
   const config = {
@@ -1012,6 +1015,43 @@ test('a round left running by a Myrmidon that is gone is stopped, and the chat t
   expect(s.chatMessages.at(-1)?.text).toBe('Picked up.')
 })
 
+test("the chat list tells a running round's waiting approval, so a call can open with it", async () => {
+  const gate = new Promise<void>(() => {})
+  const resolver = new ModelResolver()
+  const slow = createMockModel({
+    handler: async () => {
+      await gate
+      return { content: ['late'] }
+    },
+  })
+  resolver.register('mock/slow', { model: slow.model, streamFn: slow.stream })
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo') })
+  const { chatId, colonyId } = await chats.send('a long job', solo('mock/slow'))
+  await waitFor(colonyId, (s) => s.status === 'running')
+  const approving = async () => (await chats.list()).find((c) => c.chatId === chatId)?.approving
+  expect(await approving()).toBeUndefined()
+  const decide = async (
+    type: 'approval/requested' | 'approval/decided',
+    payload: Record<string, unknown>,
+  ) => {
+    await runtime.ctx.log.appendOne(colonyId as never, {
+      type,
+      actor:
+        type === 'approval/requested' ? { kind: 'agent', id: 'lead' } : { kind: 'system', id: 'myrmidon' },
+      payload: { id: 'approval-1', ...payload } as never,
+    })
+    await waitFor(
+      colonyId,
+      (s) => (s.approvals['approval-1']?.decided !== undefined) === (type === 'approval/decided'),
+    )
+  }
+  await decide('approval/requested', { agent: 'lead', tool: 'shell', summary: 'ls' })
+  expect(await approving()).toBe(true)
+  await decide('approval/decided', { approved: false, by: 'stopped' })
+  expect(await approving()).toBeUndefined()
+  await chats.stop(chatId)
+})
+
 test('a short remark after the final answer is not taken for a second answer', async () => {
   const resolver = new ModelResolver()
   let judged = 0
@@ -1556,7 +1596,8 @@ test.skipIf(!findChrome())('browser_network lists requests, failures and API bod
   site.stop(true)
 })
 
-test.skipIf(!findChrome())(
+// create_tool makes commands too, so it is offered only with the OS sandbox.
+test.skipIf(!findChrome() || detectSandbox().kind === 'none')(
   'a browser flow is saved after its test run and replays with new inputs',
   async () => {
     const site = Bun.serve({
@@ -1627,6 +1668,8 @@ test.skipIf(!findChrome())(
     await browser.close()
     site.stop(true)
   },
+  // A real Chrome launch and three model rounds: well past the default 5s on a busy machine.
+  60_000,
 )
 
 test.skipIf(!findChrome())('browser tabs, downloads and uploads', async () => {
@@ -2044,6 +2087,136 @@ test('a context the provider calls too long is folded and retried once, then pau
   expect(paused.modelError?.tokens).toBeGreaterThan(0)
 })
 
+/** A model that always fails with `errorMessage`, counting its calls. */
+function failing(resolver: ModelResolver, ref: string, errorMessage: string, window?: number) {
+  const calls = { n: 0 }
+  const m = createMockModel({
+    ...(window ? { contextWindow: window } : {}),
+    handler: () => {
+      calls.n += 1
+      return { stopReason: 'error', errorMessage }
+    },
+  })
+  resolver.register(ref, { model: m.model, streamFn: m.stream })
+  return calls
+}
+
+async function withFallbacks(team: { leadFallbacks?: string[]; workerFallbacks?: string[] }) {
+  const { SettingsStore } = await import('../src/settings.ts')
+  const settings = new SettingsStore(home)
+  settings.set({ ...settings.get(), team: { ...settings.get().team, ...team } })
+  return settings
+}
+
+const fallbacksOf = async (colonyId: string) =>
+  (await events(colonyId))
+    .filter((e) => e.type === 'agent/fallback')
+    .map((e) => e.payload as EventPayloads['agent/fallback'])
+
+test('a lead whose model fails goes on with its first fallback that has credentials, and the round completes', async () => {
+  const resolver = new ModelResolver()
+  const primary = failing(resolver, 'mock/primary', '401 Unauthorized: the sign-in has expired')
+  const seen: string[] = []
+  const backup = createMockModel({
+    handler: (ctx: LlmContext) => {
+      seen.push(JSON.stringify(ctx.messages))
+      return { content: [tool('reply_user', { text: 'Done on the backup.', final: true })] }
+    },
+  })
+  resolver.register('mock/backup', { model: backup.model, streamFn: backup.stream })
+  judge(resolver)
+  // A model the resolver does not know is skipped, as one removed from the provider list would be.
+  const settings = await withFallbacks({ leadFallbacks: ['mock/gone', 'mock/backup'] })
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), settings })
+  const { colonyId } = await chats.send('Answer me', { ...solo('mock/primary'), judgeModel: 'mock/judge' })
+  const s = await waitFor(colonyId)
+  expect(s.status).toBe('completed')
+  expect(s.modelError).toBeUndefined()
+  // Not a transient failure: no retries on the failing model before it moves on.
+  expect(primary.n).toBe(1)
+  expect(await fallbacksOf(colonyId)).toEqual([
+    {
+      agent: 'lead',
+      model: 'mock/backup',
+      previous: 'mock/primary',
+      kind: 'error',
+      message: '401 Unauthorized: the sign-in has expired',
+    },
+  ])
+  expect(s.agents.lead?.info.model).toBe('mock/backup')
+  expect(s.agents.lead?.fellBackFrom).toBe('mock/primary')
+  expect(seen[0]).not.toContain('Unauthorized')
+})
+
+test('a transient failure is retried on the same model before the fallback takes over', async () => {
+  const resolver = new ModelResolver()
+  const primary = failing(resolver, 'mock/busy', 'Overloaded: the server is temporarily busy')
+  scripted(resolver, 'mock/backup', [[tool('reply_user', { text: 'Answered.', final: true })]])
+  judge(resolver)
+  const settings = await withFallbacks({ leadFallbacks: ['mock/backup'] })
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), settings })
+  const { colonyId } = await chats.send('Answer me', { ...solo('mock/busy'), judgeModel: 'mock/judge' })
+  const s = await waitFor(colonyId)
+  expect(s.status).toBe('completed')
+  // The first call and MODEL_RETRIES (2) retries.
+  expect(primary.n).toBe(3)
+  expect((await fallbacksOf(colonyId)).map((f) => f.model)).toEqual(['mock/backup'])
+}, 20_000)
+
+test("a swarm's peer falls back on the crew's chain, not the lead's", async () => {
+  const resolver = new ModelResolver()
+  failing(resolver, 'mock/peer', '404 model not found')
+  scripted(resolver, 'mock/crew-backup', [[tool('reply_user', { text: 'Peer answer.', final: true })]])
+  judge(resolver)
+  const settings = await withFallbacks({
+    leadFallbacks: ['mock/lead-backup'],
+    workerFallbacks: ['mock/crew-backup'],
+  })
+  const chats = new ChatService(runtime, { resolver, classify: fixed('answer'), settings })
+  const { colonyId } = await chats.send('Answer me', {
+    mode: 'swarm',
+    leadModel: 'mock/peer',
+    roster: [{ role: 'peer', model: 'mock/peer' }],
+    judgeModel: 'mock/judge',
+  })
+  const s = await waitFor(colonyId)
+  expect(s.status).toBe('completed')
+  expect((await fallbacksOf(colonyId)).map((f) => f.model)).toEqual(['mock/crew-backup'])
+})
+
+test('without fallbacks, or once they fail too, the round pauses on the error as before', async () => {
+  const resolver = new ModelResolver()
+  failing(resolver, 'mock/primary', '401 Unauthorized')
+  failing(resolver, 'mock/backup', '403 Forbidden')
+  judge(resolver)
+  const bare = new ChatService(runtime, { resolver, classify: fixed('solo') })
+  const first = await bare.send('Answer me', { ...solo('mock/primary'), judgeModel: 'mock/judge' })
+  const paused = await waitFor(first.colonyId)
+  expect(paused.statusReason).toBe('model failed: lead on mock/primary')
+  expect(await fallbacksOf(first.colonyId)).toEqual([])
+
+  const settings = await withFallbacks({ leadFallbacks: ['mock/backup'] })
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), settings })
+  const second = await chats.send('Answer me', { ...solo('mock/primary'), judgeModel: 'mock/judge' })
+  const stopped = await waitFor(second.colonyId)
+  // The last model tried is the one named; the primary failed too recently to be tried again.
+  expect(stopped.statusReason).toBe('model failed: lead on mock/backup')
+  expect((await fallbacksOf(second.colonyId)).map((f) => f.model)).toEqual(['mock/backup'])
+})
+
+test('a conversation too long for the model never falls back: folding it is the remedy, then the round pauses', async () => {
+  const resolver = new ModelResolver()
+  failing(resolver, 'mock/stuck', 'prompt is too long: 9000 tokens > 8000 maximum', 8_000)
+  scripted(resolver, 'mock/backup', [['should not run']])
+  judge(resolver)
+  const settings = await withFallbacks({ leadFallbacks: ['mock/backup'] })
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), settings })
+  const { colonyId } = await chats.send('Answer me', { ...solo('mock/stuck'), judgeModel: 'mock/judge' })
+  const s = await waitFor(colonyId)
+  expect(s.statusReason).toContain('ran out of context')
+  expect(await fallbacksOf(colonyId)).toEqual([])
+})
+
 test('a chat in a project works in that folder, follow-ups stay in it, and a round can be rewound', async () => {
   const { ProjectStore } = await import('../src/projects.ts')
   const { Checkpoints } = await import('../src/checkpoints.ts')
@@ -2329,7 +2502,11 @@ test('review cards: the person sees a change in full and may rewrite it; an appr
   }
   const file = await pending()
   expect(file?.review).toMatchObject({ kind: 'file', title: 'Write notes.txt' })
-  expect(file?.review?.fields[0]).toMatchObject({ before: 'one\ntwo\n', value: 'one\nTWO\n', editable: true })
+  expect(file?.review?.fields[0]).toMatchObject({
+    before: 'one\ntwo\n',
+    value: 'one\nTWO\n',
+    editable: true,
+  })
   await chats.decideApproval(colonyId, file?.id ?? '', true, { edits: { content: 'one\nTwo!\n' } })
 
   const commit = await pending()
@@ -2439,29 +2616,33 @@ test('allowing all file changes for a chat approves the waiting one and later on
   rmSync(folder, { recursive: true, force: true })
 })
 
-test('a new chat can start on its own preset, chosen before its first message', async () => {
-  const resolver = new ModelResolver()
-  scripted(resolver, 'mock/own', [
-    [tool('shell', { command: 'bun test' })],
-    [tool('reply_user', { text: 'Done.', final: true })],
-  ])
-  judge(resolver)
-  const chats = new ChatService(runtime, { resolver, classify: fixed('solo') })
-  const { chatId, colonyId } = await chats.send(
-    'Run the tests',
-    { ...solo('mock/own'), judgeModel: 'mock/judge' },
-    undefined,
-    { permissions: { preset: 'ask', rules: [] } },
-  )
-  // Ask: a command that does more than look waits, where Auto (the default) would have run it.
-  const s = await waitFor(colonyId, (x) => Object.values(x.approvals).some((a) => !a.decided))
-  const waiting = Object.values(s.approvals).find((a) => !a.decided)
-  expect(waiting).toMatchObject({ tool: 'shell', why: { by: 'preset', scope: 'chat', preset: 'ask' } })
-  expect(await chats.chatPermissions(chatId)).toEqual({ preset: 'ask', rules: [] })
-  await chats.decideApproval(colonyId, waiting?.id ?? '', false)
-  await waitFor(colonyId)
-  await chats.stopAll()
-})
+// The card is for a shell command, and shell needs the OS sandbox.
+test.skipIf(detectSandbox().kind === 'none')(
+  'a new chat can start on its own preset, chosen before its first message',
+  async () => {
+    const resolver = new ModelResolver()
+    scripted(resolver, 'mock/own', [
+      [tool('shell', { command: 'bun test' })],
+      [tool('reply_user', { text: 'Done.', final: true })],
+    ])
+    judge(resolver)
+    const chats = new ChatService(runtime, { resolver, classify: fixed('solo') })
+    const { chatId, colonyId } = await chats.send(
+      'Run the tests',
+      { ...solo('mock/own'), judgeModel: 'mock/judge' },
+      undefined,
+      { permissions: { preset: 'ask', rules: [] } },
+    )
+    // Ask: a command that does more than look waits, where Auto (the default) would have run it.
+    const s = await waitFor(colonyId, (x) => Object.values(x.approvals).some((a) => !a.decided))
+    const waiting = Object.values(s.approvals).find((a) => !a.decided)
+    expect(waiting).toMatchObject({ tool: 'shell', why: { by: 'preset', scope: 'chat', preset: 'ask' } })
+    expect(await chats.chatPermissions(chatId)).toEqual({ preset: 'ask', rules: [] })
+    await chats.decideApproval(colonyId, waiting?.id ?? '', false)
+    await waitFor(colonyId)
+    await chats.stopAll()
+  },
+)
 
 test.skipIf(detectSandbox().kind === 'none')(
   'project permissions: ask mode waits for the person, read-only keeps the folder untouched',
@@ -2559,7 +2740,10 @@ test('team workers in a git project each get a worktree, and their changes merge
   ])
   const coder = (file: string): Step[] => [
     (ctx) => [
-      tool('claim_task', { id: /task-\d/.exec(JSON.stringify(ctx.messages))?.[0] ?? 'task-1', revision: 1 }),
+      tool('claim_task', {
+        id: /task-\d/.exec(JSON.stringify(ctx.messages))?.[0] ?? 'task-1',
+        revision: 1,
+      }),
     ],
     (ctx) => {
       const prompt = ctx.systemPrompt?.join('\n') ?? ''
@@ -2882,6 +3066,128 @@ test('an agent proposes a memory, the person keeps it, and the next chat starts 
   await chats.stopAll()
 })
 
+test('after a round the reviewer suggests a memory from what the person said; agents recall it and propose its replacement', async () => {
+  const { MemoryStore } = await import('../src/memory.ts')
+  const { SettingsStore } = await import('../src/settings.ts')
+  const memory = new MemoryStore(home)
+  const settings = new SettingsStore(home)
+  settings.set({ ...settings.get(), profile: { ...settings.get().profile, titles: 'first-message' } })
+  const resolver = new ModelResolver()
+  let recalled = ''
+  let tidied = 0
+  const model = createMockModel({
+    handler: (ctx: LlmContext) => {
+      const system = ctx.systemPrompt?.join('\n') ?? ''
+      const seen = JSON.stringify(ctx.messages)
+      if (system.includes('pick out what is worth remembering'))
+        return {
+          content: [
+            JSON.stringify({
+              memories: [
+                // The person said it: suggested. The crew said it: dropped. A secret: dropped.
+                {
+                  text: 'Prefers pnpm over npm',
+                  kind: 'preference',
+                  scope: 'everywhere',
+                  evidence: 'use pnpm',
+                },
+                { text: 'Likes long answers', kind: 'preference', evidence: 'Here is a long answer' },
+                { text: 'Token ghp_abcdefghijklmnopqrstuvwxyz123456', kind: 'fact', evidence: 'use pnpm' },
+              ],
+            }),
+          ],
+        }
+      if (system.includes('You tidy up the memories')) {
+        tidied++
+        const ids = [...seen.matchAll(/mem-[a-z0-9]+-[a-z0-9]+/g)].map((m) => m[0])
+        return {
+          content: [
+            JSON.stringify({
+              memories: [
+                { text: 'Uses pnpm, never npm or yarn', kind: 'preference', replaces: [...new Set(ids)] },
+              ],
+            }),
+          ],
+        }
+      }
+      if (seen.includes('Which package manager')) {
+        if (!seen.includes('"recall"'))
+          return { content: [tool('recall', { query: 'package manager pnpm' })] }
+        if (!seen.includes('"remember"')) {
+          recalled = seen
+          const id = /mem-[a-z0-9]+-[a-z0-9]+/.exec(seen)?.[0] ?? ''
+          return {
+            content: [
+              tool('remember', {
+                text: 'Uses pnpm, never yarn',
+                kind: 'preference',
+                scope: 'everywhere',
+                why: 'they ruled out yarn',
+                replaces: [id],
+              }),
+            ],
+          }
+        }
+        return {
+          content: seen.includes('reply_user')
+            ? ['done']
+            : [tool('reply_user', { text: 'pnpm.', final: true })],
+        }
+      }
+      return {
+        content: seen.includes('reply_user')
+          ? ['done']
+          : [tool('reply_user', { text: 'Here is a long answer.', final: true })],
+      }
+    },
+  })
+  resolver.register('mock/solo', { model: model.model, streamFn: model.stream })
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), memory, settings })
+  const config = { ...solo('mock/solo'), judgeModel: 'mock/judge' }
+  const first = await chats.send('Please use pnpm for this project', config)
+  const s1 = await waitFor(first.colonyId, (s) => Object.keys(s.memories).length > 0)
+  const suggested = Object.values(s1.memories)
+  expect(suggested).toHaveLength(1)
+  expect(suggested[0]).toMatchObject({
+    agent: 'myrmidon',
+    text: 'Prefers pnpm over npm',
+    why: 'use pnpm',
+    suggested: true,
+  })
+  expect(memory.recall()).toHaveLength(0)
+  await chats.decideMemory(suggested[0]?.id ?? '', true)
+  const kept = memory.get(suggested[0]?.id ?? '')
+  expect(kept).toMatchObject({ status: 'active', source: { by: 'extract' } })
+
+  // An agent searches memory, finds it by its words, and proposes a correction that replaces it.
+  const second = await chats.send('Which package manager, and never yarn?', config)
+  const s2 = await waitFor(second.colonyId, (s) =>
+    Object.values(s.memories).some((m) => m.agent === 'lead' && m.replaces?.length),
+  )
+  expect(recalled).toContain('Prefers pnpm over npm')
+  const correction = Object.values(s2.memories).find((m) => m.agent === 'lead')
+  expect(correction?.replaces).toEqual([{ id: kept?.id ?? '', text: 'Prefers pnpm over npm' }])
+  await chats.decideMemory(correction?.id ?? '', true)
+  expect(memory.kept().map((m) => m.text)).toEqual(['Uses pnpm, never yarn'])
+
+  // Tidying up proposes a merge, which waits for the person.
+  memory.add({
+    text: 'Never use yarn for installs',
+    kind: 'preference',
+    status: 'active',
+    source: { by: 'person' },
+  })
+  expect(await chats.tidyMemories('mock/solo')).toBe(1)
+  expect(tidied).toBe(1)
+  const merge = memory.list().find((m) => m.source.by === 'reflect')
+  expect(merge).toMatchObject({ status: 'proposed', text: 'Uses pnpm, never npm or yarn' })
+  expect(merge?.replaces).toHaveLength(2)
+  await chats.decideMemory(merge?.id ?? '', true)
+  expect(memory.kept().map((m) => m.text)).toEqual(['Uses pnpm, never npm or yarn'])
+  await chats.stopAll()
+})
+
 test('a follow-up continues the same colony, and its agent remembers the earlier round', async () => {
   const resolver = new ModelResolver()
   let followUp = ''
@@ -3144,8 +3450,11 @@ test('a secret an agent reads is kept out of the log and its transcript', async 
     },
   )
   await waitFor(colonyId)
-  // The agent saw the file as it is; what was stored did not keep the key.
-  expect(seen).toContain(key)
+  // The model was sent a placeholder for the key (provider-secrets.ts), the rest of the file as it is; what was
+  // stored did not keep the key either.
+  expect(seen).not.toContain(key)
+  expect(seen).toContain('OPENAI_API_KEY=[[secret:api-key:')
+  expect(seen).toContain('PORT=3000')
   const log = JSON.stringify(await events(colonyId))
   expect(log).not.toContain(key)
   expect(log).toContain('[api key redacted]')
@@ -3587,9 +3896,11 @@ test('a round stopped after reaching outside Myrmidon tells its agents what was 
     ...solo('mock/lead'),
     judgeModel: 'mock/judge',
   })
-  for (let i = 0; i < 100; i++) {
-    if ((await events(colonyId)).some((e) => e.type === 'tool/result')) break
-    await Bun.sleep(20)
+  // The call outside Myrmidon has run, and the lead is working on its next step, before the person stops: the MCP
+  // server can take seconds to start on a slow machine, and a round stopped before the call has nothing to tell.
+  for (let i = 0; !(await events(colonyId)).some((e) => e.type === 'tool/result') || calls < 2; i++) {
+    if (i >= 400) throw new Error('the call outside Myrmidon never ran')
+    await Bun.sleep(50)
   }
   await chats.stop(chatId)
   await waitFor(colonyId, (x) => x.status === 'stopped')

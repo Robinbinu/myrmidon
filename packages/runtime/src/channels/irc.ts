@@ -264,9 +264,9 @@ class IrcConnection {
           },
           data: (_socket, data) => this._data(data),
           drain: () => this._flush(),
-          close: (_socket, err) => this._end(err),
-          error: (_socket, err) => this._end(err),
-          end: () => this._end(),
+          close: (_socket, err) => this._gone(err),
+          error: (_socket, err) => this._gone(err),
+          end: () => this._gone(),
           connectError: () => {},
         },
       })
@@ -336,6 +336,12 @@ class IrcConnection {
       this._flush()
       this._socket?.end()
     } catch {}
+  }
+
+  /** The socket itself reported it ended: nothing more is written to it, and it is not ended a second time. */
+  private _gone(err?: Error) {
+    this._socket = undefined
+    this._end(err)
   }
 
   private _fail(err: Error) {

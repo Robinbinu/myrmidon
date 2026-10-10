@@ -1,6 +1,14 @@
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
-import { dirname, join, relative, resolve, sep } from 'node:path'
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import {
   type ColonyState,
   type ConversationLine,
@@ -22,10 +30,8 @@ import {
   SYSTEM,
   type TaskSnapshot,
   TEAM_CHAT,
+  type UsageInfo,
 } from '@myrmidon/protocol'
-import type { AgentTool, AgentToolResult } from '@oh-my-pi/pi-agent-core'
-import { type Model, type } from '@oh-my-pi/pi-ai'
-import * as natives from '@oh-my-pi/pi-natives'
 import type { ElementHandle } from 'puppeteer-core'
 import chatDoc from '../docs/chat.md' with { type: 'text' }
 import coordinationDoc from '../docs/coordination.md' with { type: 'text' }
@@ -35,6 +41,7 @@ import overviewDoc from '../docs/overview.md' with { type: 'text' }
 import pluginsDoc from '../docs/plugins.md' with { type: 'text' }
 import verificationDoc from '../docs/verification.md' with { type: 'text' }
 import workingDoc from '../docs/working.md' with { type: 'text' }
+import { better, type Experiment, experimentFrom, metricOf } from './autoresearch.ts'
 import {
   artifactOrigin,
   assertAgentControl,
@@ -49,7 +56,17 @@ import {
   switchPage,
   watched,
 } from './browser.ts'
+import { CELL_LANGUAGES, type CellAccess, type CellScope, cellKernels } from './cells.ts'
 import { clockTime, localDate } from './clock.ts'
+import {
+  astEdit,
+  astGrep,
+  type FileChange,
+  LSP_ACTIONS,
+  type LspScope,
+  lsp,
+  lspWrites,
+} from './code-intel.ts'
 import { desktopTool } from './computer/desktop.ts'
 import { DESKTOP_TOOL } from './computer/names.ts'
 import {
@@ -61,18 +78,45 @@ import {
   OPEN_APP_TOOL,
 } from './computer/tool.ts'
 import {
+  AUTORESEARCH,
   FETCH_SHOWN_CHARS,
   FIND_TOOLS_LIMIT,
+  GITHUB,
   GLOB_LIMIT,
   GREP_LIMIT,
+  IMAGE_TIMEOUT_MS,
+  LSP_PROJECT_CHECK_MS,
   MAX_ARTIFACT_BYTES,
+  MAX_IMAGE_INPUTS,
+  MAX_IMAGES_PER_CALL,
+  MAX_MEDIA_BYTES,
   MAX_READ_CHARS,
   MCP_FAILURE_LIMIT,
   PAGE_EXCERPT,
   READ_LOG_RESULT_CHARS,
   REVIEW_MAX_CHARS,
+  RULE_MAX_TEXT,
+  SSH,
+  TTS_MAX_CHARS,
 } from './config.ts'
+import { DEBUG_ACTIONS, type DebugScope, debugReads, debugSessions } from './debugger.ts'
+import { readFileAs } from './file-read.ts'
+import { find } from './find.ts'
 import { gitCommitChanges, gitWorkingChanges } from './git.ts'
+import {
+  type GhScope,
+  GITHUB_OPS,
+  ghBinary,
+  ghEnv,
+  ghToken,
+  githubWriteCommand,
+  githubWrites,
+  posixLine,
+  runGithub,
+  runGithubWrite,
+  scrubToken,
+  shellLine,
+} from './github.ts'
 import { agentActor, type ColonyHost, type ReviewDecision } from './host.ts'
 import {
   browserSteps,
@@ -84,14 +128,22 @@ import {
   type MadeTool,
   scriptCommand,
 } from './made-tools.ts'
-import { toolsFor } from './patterns.ts'
+import type { AgentTool, AgentToolResult } from './omp/agent-core.ts'
+import { type Model, type } from './omp/ai.ts'
+import type { ServerConfig } from './omp/lsp.ts'
+import * as natives from './omp/natives.ts'
+import { RUNTIMES, toolsFor } from './patterns.ts'
 import { presetOf } from './permissions.ts'
 import { adoptDraft, isOwnDraft, testPlugin, writeDraft } from './plugin-builder.ts'
 import { type ProjectCheck, scratchChecks } from './project-context.ts'
 import type { PromptFacts } from './prompt/facts.ts'
 import { type Place, prompts } from './prompts.ts'
-import { within } from './read-access.ts'
-import { SANDBOX_DIRS } from './sandbox.ts'
+import { keysAt, slashed, within } from './read-access.ts'
+import { ruleMatches } from './rule-files.ts'
+import { SANDBOX_DIRS, type SandboxRun } from './sandbox.ts'
+import { SCAN_CHECKS, securityScan } from './security-scan.ts'
+import { hostShell } from './shell.ts'
+import { parseWav } from './voice/audio.ts'
 import { assertArtifactName, SKIP_DIRS } from './workspace.ts'
 
 /** A short, stable file name for a fetched URL. */
@@ -112,6 +164,8 @@ interface ToolOutput {
   readonly images: readonly { readonly data: string; readonly mimeType: string }[]
   /** The harness's own note (where a page was saved, a stale-year warning); stays outside the untrusted block. */
   readonly preface?: string
+  /** What the call spent on a model of its own (generate_image), for the round's budget. */
+  readonly usage?: UsageInfo
 }
 
 interface ToolDef {
@@ -121,6 +175,9 @@ interface ToolDef {
   /** For a tool whose description depends on the round's configuration: what this agent is told instead. */
   readonly describe?: (facts: PromptFacts) => string
   readonly parameters: ReturnType<typeof type>
+  /** For a tool only some of whose calls change things (lsp's rename): this call's tier, which `tier` is the least of. */
+  // biome-ignore lint/suspicious/noExplicitAny: arguments are validated against `parameters` by the agent loop
+  readonly tierOf?: (args: any) => Tier
   // biome-ignore lint/suspicious/noExplicitAny: arguments are validated against `parameters` by the agent loop
   run(args: any, agent: string, host: ColonyHost): Promise<string | ToolOutput>
 }
@@ -136,6 +193,20 @@ const IMAGE_MAGIC: Record<string, (b: Uint8Array) => boolean> = {
 /** The raster image type these bytes really are (PNG, JPEG, GIF, WebP), whatever the file is called. */
 export function sniffImage(bytes: Uint8Array): string | undefined {
   return Object.entries(IMAGE_MAGIC).find(([, is]) => is(bytes))?.[0]
+}
+
+/** Leading bytes of each sound format the chat plays, so only real audio is served as audio. */
+const AUDIO_MAGIC: Record<string, (b: Uint8Array) => boolean> = {
+  'audio/wav': (b) => text4(b, 0) === 'RIFF' && text4(b, 8) === 'WAVE',
+  'audio/mpeg': (b) => text4(b, 0).startsWith('ID3') || (b[0] === 0xff && ((b[1] ?? 0) & 0xe0) === 0xe0),
+  'audio/ogg': (b) => text4(b, 0) === 'OggS',
+  'audio/flac': (b) => text4(b, 0) === 'fLaC',
+}
+const text4 = (b: Uint8Array, at: number) => String.fromCharCode(...b.subarray(at, at + 4))
+
+/** The sound type these bytes really are (WAV, MP3, Ogg, FLAC), whatever the file is called. */
+export function sniffAudio(bytes: Uint8Array): string | undefined {
+  return Object.entries(AUDIO_MAGIC).find(([, is]) => is(bytes))?.[0]
 }
 
 /** Media types whose bytes are readable text. */
@@ -292,6 +363,118 @@ function artifactUrl(host: ColonyHost, name: string): string {
   return `${artifactOrigin(host.id)}/${name.split('/').map(encodeURIComponent).join('/')}`
 }
 
+/**
+ * Publishes bytes as the next version of artifact `name`, unless it is the output of a task someone else is working on.
+ * Returns the version and stored size.
+ */
+async function publishFile(
+  host: ColonyHost,
+  agent: string,
+  name: string,
+  bytes: Uint8Array,
+  mediaType: string,
+): Promise<{ version: number; size: number }> {
+  const { hash, size } = await host.blobs.put(bytes)
+  const e = first(
+    await host.appendAtomic((s) => {
+      const owner = Object.values(s.tasks).find(
+        (t) => t.status === 'in_progress' && t.owner !== agent && t.outputs?.includes(name),
+      )
+      if (owner)
+        throw new Error(
+          `${name} is an output of ${owner.id}, which ${owner.owner} is working on; do not publish it`,
+        )
+      const prev = s.artifacts[name]?.at(-1)
+      return [
+        {
+          type: 'artifact/versioned',
+          actor: agentActor(agent),
+          payload: {
+            name,
+            version: (prev?.version ?? 0) + 1,
+            blob: hash,
+            size,
+            ...(prev ? { parentVersion: prev.version } : {}),
+            author: agent,
+            mediaType,
+          },
+        },
+      ]
+    }),
+  )
+  return { version: (e.payload as EventPayloads['artifact/versioned']).version, size }
+}
+
+const IMAGE_EXTENSIONS: Record<string, string> = {
+  'image/png': 'png',
+  'image/jpeg': 'jpg',
+  'image/gif': 'gif',
+  'image/webp': 'webp',
+}
+
+/**
+ * The artifact name of a media file: the agent's `name`, else a few words of the request under `folder`, with the
+ * extension the bytes really have, and `-n` when it is one of several.
+ */
+export function mediaName(
+  given: string | undefined,
+  words: string,
+  folder: string,
+  extension: string,
+  index?: number,
+): string {
+  const slug =
+    words
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim()
+      .split(' ')
+      .slice(0, 6)
+      .join('-')
+      .slice(0, 48)
+      .replace(/-+$/, '') || 'untitled'
+  const base = given ? assertArtifactName(given).replace(/\.[A-Za-z0-9]+$/, '') : `${folder}/${slug}`
+  return `${base}${index === undefined ? '' : `-${index}`}.${extension}`
+}
+
+/** A picture to edit from: a published artifact by name, else a file the agent may read. */
+async function inputImage(
+  host: ColonyHost,
+  agent: string,
+  ref: string,
+): Promise<{ data: string; mimeType: string }> {
+  const latest = host.state().artifacts[ref]?.at(-1)
+  const bytes = latest
+    ? await host.blobs.get(latest.blob)
+    : new Uint8Array(readFileSync(host.workspace.resolveForRead(agent, ref)))
+  if (bytes.byteLength > MAX_MEDIA_BYTES)
+    throw new Error(prompts.toolResults.mediaTooLarge(ref, bytes.byteLength))
+  const mimeType = sniffImage(bytes)
+  if (!mimeType) throw new Error(prompts.toolResults.notAPicture(ref))
+  return { data: Buffer.from(bytes).toString('base64'), mimeType }
+}
+
+/**
+ * Publishes a picture or sound for the person and keeps a copy in the agent's scratch directory, so it can use the file
+ * (copy it into a project, put it on a page). Returns the artifact's name and version and where the copy is.
+ */
+async function publishMedia(
+  host: ColonyHost,
+  agent: string,
+  name: string,
+  bytes: Uint8Array,
+  mediaType: string,
+): Promise<{ name: string; version: number; copy: string }> {
+  if (bytes.byteLength > MAX_MEDIA_BYTES)
+    throw new Error(prompts.toolResults.mediaTooLarge(name, bytes.byteLength))
+  const { version } = await publishFile(host, agent, name, bytes, mediaType)
+  const path = host.workspace.resolveInScratch(agent, name)
+  mkdirSync(dirname(path), { recursive: true })
+  writeFileSync(path, bytes)
+  // In a project the shell starts in the project, so the copy is named by its full path.
+  return { name, version, copy: host.workspace.project ? path : name }
+}
+
 /** All a swarm peer may do during the opening huddle: look around and talk. */
 const HUDDLE_TOOLS = new Set([
   'read_task',
@@ -418,8 +601,22 @@ function concurrencyOf(def: Pick<ToolDef, 'name' | 'tier'>): 'shared' | 'exclusi
   return def.tier === 'read' || IN_PARALLEL.has(def.name) ? 'shared' : 'exclusive'
 }
 
+/** A call's tier: the tool's own, or what this call does when that depends on its arguments. */
+function tierOf(def: Pick<ToolDef, 'tier' | 'tierOf'>, params: unknown): Tier {
+  return def.tierOf?.(params ?? {}) ?? def.tier
+}
+
 /** File tools that read from the working directory, which is the person's project in a chat that has one. */
-const PROJECT_READS = new Set(['fs_read', 'fs_list', 'grep', 'glob'])
+const PROJECT_READS = new Set([
+  'fs_read',
+  'fs_list',
+  'grep',
+  'glob',
+  'find',
+  'ast_grep',
+  'lsp',
+  'security_scan',
+])
 
 /**
  * Whether a call reads the person's project rather than the agent's own scratch. A round someone else started
@@ -439,8 +636,31 @@ function readsProject(host: ColonyHost, agent: string, tool: string, params: unk
   return target !== scratch && !target.startsWith(scratch + sep)
 }
 
-/** Tools that decide their own calls once they know what they would do (the file, the command, the proposal). */
-const GUARDED = new Set(['fs_write', 'fs_edit', 'shell', 'start_server', 'run_checks', 'propose'])
+/**
+ * Tools that decide their own calls once they know what they would do (the file, the command, the proposal): those of
+ * their calls that are not reads.
+ */
+const GUARDED = new Set([
+  'fs_write',
+  'fs_edit',
+  'ast_edit',
+  'lsp',
+  'shell',
+  'eval',
+  'start_server',
+  'run_checks',
+  'propose',
+  'github',
+  'debug',
+  'ssh',
+  'autoresearch',
+])
+/**
+ * Guarded tools whose reads are commands too, decided as the commands they run (the github tool's `gh pr view`): the
+ * harness leaves all their calls to them, so a rule naming the tool is not asked about twice. A read on a remote host
+ * is decided by its host's rules, like a command there.
+ */
+const GUARDS_READS = new Set(['github', 'ssh', 'autoresearch'])
 
 /** Tools that reach the web, in the agent's own fetcher or browser. */
 const WEB_TOOL = (name: string) =>
@@ -568,6 +788,47 @@ async function askFirst(
   return edits.length > 0
 }
 
+/** The file-scoped rules each agent of a round was shown already, so a rule comes with one file, not with every read. */
+const shownRules = new WeakMap<ColonyHost, Map<string, Set<string>>>()
+
+/**
+ * The project's rules for a file an agent just read or wrote (`glob` rules from other tools, see rule-files.ts), each
+ * the first time one of its files comes up, the way Cursor attaches a rule when a matching file enters the chat. Its
+ * globs are relative to the project, or to the agent's worktree, which is a copy of it. Empty for any other file.
+ */
+function rulesForFile(host: ColonyHost, agent: string, path: string): string {
+  const rules = host.project?.instructions?.rules.filter((r) => r.mode === 'glob') ?? []
+  if (rules.length === 0) return ''
+  const root = host.workspace.isolation(agent)?.workdir ?? host.workspace.project
+  if (!root) return ''
+  let base: string
+  try {
+    base = realpathSync.native(root)
+  } catch {
+    return ''
+  }
+  if (path === base || !within(path, base)) return ''
+  const file = relative(base, path).split(sep).join('/')
+  const byAgent = shownRules.get(host) ?? new Map<string, Set<string>>()
+  shownRules.set(host, byAgent)
+  const shown = byAgent.get(agent) ?? new Set<string>()
+  byAgent.set(agent, shown)
+  return rules
+    .filter((r) => !shown.has(r.name) && ruleMatches(r, file))
+    .map((r) => {
+      shown.add(r.name)
+      const cut = r.text.length > RULE_MAX_TEXT
+      return prompts.toolResults.projectRule(
+        r.name,
+        r.file,
+        r.globs ?? [],
+        cut ? r.text.slice(0, RULE_MAX_TEXT) : r.text,
+        cut,
+      )
+    })
+    .join('')
+}
+
 /**
  * A file change follows the permission model: where it lands (the project, the agent's own scratch or worktree, or
  * elsewhere, which only full access reaches) and the preset and rules in effect. When it asks, the person sees the new
@@ -592,21 +853,26 @@ async function guardProjectEdit(
       : 'outside'
   const call: PermissionCall = { tool, kind: 'edit', where, readOnly: false }
   const verdict = host.permit(agent, call)
-  const shown = inProject && project ? relative(project.path, path) : path
+  const shown = inProject && project ? slashed(relative(project.path, path)) : path
   if (verdict.decision === 'deny')
     throw verdict.source.by === 'read-only'
       ? new Error(prompts.toolResults.readOnly(project?.name ?? 'this chat', shown))
       : denied(`changing ${shown}`, verdict)
   if (verdict.decision === 'allow') return unchanged
-  const decision = await host.reviewChange(agent, tool, `${tool === 'fs_edit' ? 'edit' : 'write'} ${shown}`, {
-    review: fileReview(
-      tool === 'fs_edit' ? prompts.reviewCard.edit(shown) : prompts.reviewCard.write(shown),
-      shown,
-      change,
-    ),
-    key: change.key,
-    permission: { call, verdict },
-  })
+  const decision = await host.reviewChange(
+    agent,
+    tool,
+    `${tool === 'fs_write' ? 'write' : 'edit'} ${shown}`,
+    {
+      review: fileReview(
+        tool === 'fs_write' ? prompts.reviewCard.write(shown) : prompts.reviewCard.edit(shown),
+        shown,
+        change,
+      ),
+      key: change.key,
+      permission: { call, verdict },
+    },
+  )
   if (!decision.approved) throw new Error(prompts.toolResults.declined(`changing ${shown}`, decision.note))
   const edited = decision.edits?.content
   return edited === undefined ? unchanged : { content: edited, edited: true }
@@ -660,6 +926,458 @@ async function guardProjectCommand(
   return decision.edits?.command ?? command
 }
 
+/**
+ * Several files changed by one call (ast_edit, lsp rename), each decided as fs_edit decides one: every file is
+ * approved before any is written, so a change turned down halfway leaves none behind. Returns the files the person
+ * rewrote.
+ */
+async function writeChanges(
+  host: ColonyHost,
+  agent: string,
+  tool: string,
+  key: string,
+  changes: readonly FileChange[],
+): Promise<string[]> {
+  const approved: { path: string; content: string; edited: boolean }[] = []
+  for (const c of changes)
+    approved.push({ path: c.path, ...(await guardProjectEdit(host, agent, tool, c.path, { ...c, key })) })
+  for (const a of approved) writeFileSync(a.path, a.content)
+  return approved.filter((a) => a.edited).map((a) => a.path)
+}
+
+/**
+ * A call on one of the person's remote hosts, decided by the rules for that host (`ssh-host`) and the preset, which
+ * asks unless the round has full access. When it asks, the person sees the command (and may rewrite it) or the file.
+ * Returns the command to run.
+ */
+async function guardRemote(
+  host: ColonyHost,
+  agent: string,
+  name: string,
+  what: { command: string } | { read: string },
+): Promise<string> {
+  const line = 'command' in what ? what.command.trim() : what.read
+  const call: PermissionCall = {
+    tool: 'ssh',
+    kind: 'ssh',
+    ssh: { host: name },
+    ...('command' in what ? { command: line } : {}),
+    readOnly: false,
+  }
+  const verdict = host.permit(agent, call)
+  const shown = 'command' in what ? line : prompts.reviewCard.read(line)
+  if (verdict.decision === 'deny') throw denied(`${shown} on ${name}`, verdict)
+  if (verdict.decision === 'allow') return line
+  const decision = await host.reviewChange(
+    agent,
+    'ssh',
+    `${name}: ${line.length > 300 ? `${line.slice(0, 300)}…` : line}`,
+    {
+      review: {
+        kind: 'command',
+        title: prompts.reviewCard.ssh(name),
+        fields: [{ key: 'command', label: 'ssh', value: line, format: 'code', editable: 'command' in what }],
+      },
+      permission: { call, verdict },
+    },
+  )
+  if (!decision.approved) throw new Error(prompts.toolResults.declined(`${shown} on ${name}`, decision.note))
+  return decision.edits?.command ?? line
+}
+
+/** Each agent's experiment (autoresearch), as its log tells it; read from the log once per round and agent. */
+const experiments = new WeakMap<ColonyHost, Map<string, Experiment>>()
+
+async function experimentOf(host: ColonyHost, agent: string): Promise<Experiment | undefined> {
+  const byAgent = experiments.get(host) ?? new Map<string, Experiment>()
+  experiments.set(host, byAgent)
+  if (!byAgent.has(agent)) {
+    const found = experimentFrom(await host.log.read(host.id), agent)
+    if (found) byAgent.set(agent, found)
+  }
+  return byAgent.get(agent)
+}
+
+/**
+ * One run of an experiment's measure, in the agent's worktree and sandbox as shell runs a command, decided as a command
+ * each time (rules may change mid-round). A run that fails or prints no metric has none.
+ */
+async function measureOnce(
+  host: ColonyHost,
+  agent: string,
+  measure: string,
+  name: string | undefined,
+  until: number,
+): Promise<{ metric?: { name: string; value: number }; tail: string; ms: number }> {
+  const command = await guardProjectCommand(host, agent, 'autoresearch', measure)
+  const started = Date.now()
+  const r = await host.sandbox.run({
+    command,
+    cwd: host.workspace.workdir(agent),
+    writable: writableFor(host, agent),
+    ...host.workspace.confinement(),
+    timeoutMs: Math.max(1_000, Math.min(AUTORESEARCH.measureMs, until - started)),
+    env: { MYR_MIRROR: host.workspace.mirrorRoot },
+  })
+  const output = `${r.stdout}${r.stderr ? `\n${r.stderr}` : ''}`.trim()
+  const metric = r.code === 0 && !r.timedOut ? metricOf(r.stdout, name) : undefined
+  return {
+    ...(metric ? { metric } : {}),
+    tail: output.slice(-AUTORESEARCH.outputChars),
+    ms: Date.now() - started,
+  }
+}
+
+interface AutoresearchArgs {
+  action: 'start' | 'trial' | 'finish' | 'status'
+  measure?: string
+  metric?: string
+  direction?: 'lower' | 'higher'
+  trials?: number
+  minutes?: number
+  description?: string
+}
+
+/** The autoresearch tool: start, trial, finish or status of the agent's experiment loop (autoresearch.ts). */
+async function autoresearch(args: AutoresearchArgs, agent: string, host: ColonyHost): Promise<string> {
+  const t = prompts.autoresearch
+  const exp = await experimentOf(host, agent)
+  const live = exp && !exp.finished ? exp : undefined
+  const minutesLeft = (e: Experiment) => Math.max(0, Math.round((e.until - Date.now()) / 60_000))
+  const actor = agentActor(agent)
+  switch (args.action) {
+    case 'status':
+      if (!exp) throw new Error(t.none)
+      return t.status(exp.log.map((l) => t.line(l)))
+    case 'start': {
+      if (live) throw new Error(t.running(live.runs))
+      if (!args.measure?.trim()) throw new Error(t.needsMeasure)
+      if (host.sandbox.kind === 'none' && !host.unsafeNoSandbox) throw new Error(t.needsSandbox)
+      const roundEnd = (host.deadline() || Number.POSITIVE_INFINITY) - AUTORESEARCH.reserveMs
+      const until = Math.min(Date.now() + (args.minutes ?? AUTORESEARCH.minutes) * 60_000, roundEnd)
+      if (until <= Date.now()) throw new Error(t.noTime)
+      const tree = await host.experimentTree(agent)
+      const measure = args.measure.trim()
+      const base = await measureOnce(host, agent, measure, args.metric, until)
+      if (!base.metric) throw new Error(t.noMetric(args.metric, base.tail))
+      const trials = Math.min(
+        Math.max(1, Math.round(args.trials ?? AUTORESEARCH.trials)),
+        AUTORESEARCH.maxTrials,
+      )
+      const direction = args.direction ?? 'lower'
+      const started: EventPayloads['experiment/started'] = {
+        agent,
+        measure,
+        metric: base.metric.name,
+        direction,
+        trials,
+        until: new Date(until).toISOString(),
+        branch: tree.branch,
+      }
+      const baseline: EventPayloads['experiment/trial'] = {
+        agent,
+        trial: 0,
+        description: 'baseline',
+        outcome: 'baseline',
+        metric: base.metric.value,
+        best: base.metric.value,
+        ms: base.ms,
+      }
+      await host.append({ type: 'experiment/started', actor, payload: started })
+      await host.append({ type: 'experiment/trial', actor, payload: baseline })
+      experiments.get(host)?.set(agent, {
+        agent,
+        measure,
+        metric: base.metric.name,
+        direction,
+        trials,
+        until,
+        branch: tree.branch,
+        baseline: base.metric.value,
+        best: base.metric.value,
+        runs: 0,
+        kept: 0,
+        finished: false,
+        log: [baseline],
+      })
+      return t.started({
+        workdir: tree.workdir,
+        branch: tree.branch,
+        metric: base.metric.name,
+        value: base.metric.value,
+        direction,
+        trials,
+        minutes: Math.round((until - Date.now()) / 60_000),
+      })
+    }
+    case 'trial': {
+      if (!live) throw new Error(t.none)
+      const description = args.description?.trim()
+      if (!description) throw new Error(t.needsDescription)
+      if (live.runs >= live.trials) throw new Error(t.outOfTrials(live.trials))
+      if (Date.now() >= live.until) throw new Error(t.outOfTime)
+      const tree = await host.experimentTree(agent)
+      const run = await measureOnce(host, agent, live.measure, live.metric, live.until)
+      const n = live.runs + 1
+      const value = run.metric?.value
+      const improved =
+        value !== undefined && (live.best === undefined || better(value, live.best, live.direction))
+      const commit = improved ? await tree.keep(`autoresearch trial ${n}: ${description}`) : undefined
+      if (!improved) await tree.revert()
+      const outcome = value === undefined ? 'failed' : improved ? 'kept' : 'reverted'
+      if (improved) {
+        live.best = value
+        live.kept += 1
+      }
+      live.runs = n
+      const trial: EventPayloads['experiment/trial'] = {
+        agent,
+        trial: n,
+        description,
+        outcome,
+        ...(value === undefined ? {} : { metric: value }),
+        ...(live.best === undefined ? {} : { best: live.best }),
+        ...(commit ? { commit } : {}),
+        ms: run.ms,
+      }
+      live.log.push(trial)
+      await host.append({ type: 'experiment/trial', actor, payload: trial })
+      return t.trial({
+        trial: n,
+        outcome: t.outcomes[outcome],
+        ...(value === undefined ? {} : { metric: value }),
+        ...(live.best === undefined ? {} : { best: live.best }),
+        name: live.metric,
+        left: live.trials - n,
+        minutes: minutesLeft(live),
+        output: outcome === 'failed' ? run.tail : '',
+      })
+    }
+    case 'finish': {
+      if (!live) throw new Error(t.none)
+      const tree = await host.experimentTree(agent)
+      // Changes made since the last trial were never measured.
+      await tree.revert()
+      const files = await tree.finish()
+      live.finished = true
+      const finished: EventPayloads['experiment/finished'] = {
+        agent,
+        trials: live.runs,
+        kept: live.kept,
+        ...(live.baseline === undefined ? {} : { baseline: live.baseline }),
+        ...(live.best === undefined ? {} : { best: live.best }),
+        files,
+      }
+      await host.append({ type: 'experiment/finished', actor, payload: finished })
+      return t.finished({ ...finished, name: live.metric })
+    }
+  }
+}
+
+/** POSIX shell quoting, for the command line a language server starts with inside the sandbox. */
+const shQuote = (word: string) => `'${word.replaceAll("'", `'\\''`)}'`
+
+/** Language servers a person was asked about once in a round, by agent and command line: one card per server. */
+const serversAsked = new WeakMap<ColonyHost, Set<string>>()
+
+/**
+ * A language server, started as the agent's commands are: the permission model decides it like a command (a project's
+ * own lsp.json can name any program), and in the OS sandbox it runs confined like `shell`, with the same environment.
+ * Started through omp's client, which needs the server's pipes, so the confinement wraps its command line.
+ */
+async function launchServer(host: ColonyHost, agent: string, server: ServerConfig): Promise<ServerConfig> {
+  if (host.sandbox.kind === 'none' && !host.unsafeNoSandbox) throw new Error(prompts.codeIntel.needsSandbox)
+  const argv = [server.resolvedCommand ?? server.command, ...(server.args ?? [])]
+  const line = argv.join(' ')
+  const asked = serversAsked.get(host) ?? new Set<string>()
+  serversAsked.set(host, asked)
+  const verdict = host.permit(agent, { tool: 'lsp', kind: 'command', command: line, readOnly: false })
+  if (verdict.decision === 'deny') throw denied(`starting ${line}`, verdict)
+  if (verdict.decision === 'ask' && !asked.has(`${agent}\0${line}`)) {
+    await guardProjectCommand(host, agent, 'lsp', line)
+    asked.add(`${agent}\0${line}`)
+  }
+  if (host.sandbox.kind !== 'sandbox-exec' && host.sandbox.kind !== 'bubblewrap') return server
+  const [program = '', ...args] = confinedLaunch(host, commandSpec(host, agent), argv).argv
+  return { ...server, command: program, resolvedCommand: program, args }
+}
+
+/** Where and with what access the agent's commands run (see `SandboxRun`), without the command. */
+function commandSpec(host: ColonyHost, agent: string): Omit<SandboxRun, 'timeoutMs'> {
+  return {
+    command: '',
+    cwd: host.workspace.workdir(agent),
+    writable: writableFor(host, agent),
+    ...host.workspace.confinement(),
+  }
+}
+
+/**
+ * A program started as the agent's commands are, by a caller that spawns it itself because it needs the program's
+ * pipes (a language server, a cell runtime): in the OS sandbox its command line is wrapped in the confinement and run
+ * with the sandbox's environment alone; with full access (or no sandbox, when allowed) it runs as it is, in the
+ * environment `run` would give it.
+ */
+function confinedLaunch(
+  host: ColonyHost,
+  spec: Omit<SandboxRun, 'timeoutMs'>,
+  argv: readonly string[],
+): { argv: string[]; env: Record<string, string | undefined> } {
+  const env = host.sandbox.env(spec)
+  if (host.sandbox.kind !== 'sandbox-exec' && host.sandbox.kind !== 'bubblewrap')
+    return { argv: [...argv], env }
+  const vars = Object.entries(env).flatMap(([k, v]) => (v === undefined ? [] : [`${k}=${v}`]))
+  const command = `exec /usr/bin/env -i ${[...vars, ...argv].map(shQuote).join(' ')}`
+  return { argv: host.sandbox.argv({ ...spec, command }), env }
+}
+
+/** The access a cell runtime started now would keep while it runs (see `CellAccess`). */
+export function cellAccess(host: Pick<ColonyHost, 'sandbox' | 'spec'>): CellAccess {
+  return { unconfined: host.sandbox.kind === 'unconfined', readOnly: presetOf(host.spec) === 'read-only' }
+}
+
+/**
+ * Where an agent's code cells run, as cells.ts sees it: started as its commands are, in its working directory. The
+ * runtimes' own files (omp's bundled runtime, its Python runner) go in the chat's folder, which commands may read and
+ * not change, and are opened to the runtime by name.
+ */
+function cellScope(host: ColonyHost, agent: string): CellScope {
+  const filesDir = join(host.workspace.colonyDir, 'cells')
+  mkdirSync(filesDir, { recursive: true })
+  const spec = commandSpec(host, agent)
+  const confined = { ...spec, readable: [...(spec.readable ?? []), filesDir] }
+  return {
+    colonyId: host.id,
+    agent,
+    access: cellAccess(host),
+    cwd: spec.cwd,
+    filesDir,
+    launch: (argv, env) => confinedLaunch(host, { ...confined, env: { ...env } }, argv),
+    python: () => sandboxPython(host, spec),
+  }
+}
+
+/** The python3 a command started with `spec` would run, found on the PATH the sandbox gives it. */
+function sandboxPython(host: ColonyHost, spec: Omit<SandboxRun, 'timeoutMs'>): string | undefined {
+  const path = host.sandbox.env(spec).PATH
+  return Bun.which('python3', path === undefined ? {} : { PATH: path }) ?? undefined
+}
+
+/** A command line's words as sh reads them, quoted only where they need it, for the permission card. */
+const shWord = (word: string) => (/^[\w@%+=:,./-]+$/.test(word) ? word : shQuote(word))
+
+/**
+ * Where an agent debugs, as debugger.ts sees it: in its working directory, its adapter started as its commands are.
+ * Starting a program is decided like the command line that runs it (the adapter's, then the program and its
+ * arguments): a project's own dap.json can name any adapter. In the OS sandbox the adapter runs confined like `shell`,
+ * so the program it runs is too, with the adapter's own files opened for reading when they sit in a hidden folder
+ * (vscode-js-debug in the person's home). Evaluating an expression runs code in the program, so it is decided as a
+ * command, and the person may rewrite it.
+ */
+function debugScope(host: ColonyHost, agent: string): DebugScope {
+  const spec = commandSpec(host, agent)
+  return {
+    colonyId: host.id,
+    agent,
+    access: cellAccess(host),
+    cwd: spec.cwd,
+    resolveRead: (path) => host.workspace.resolveForRead(agent, path),
+    python: () => sandboxPython(host, spec),
+    async start(adapter, target) {
+      const argv = [adapter.resolvedCommand, ...adapter.args]
+      await guardProjectCommand(host, agent, 'debug', [...argv, ...target].map(shWord).join(' '))
+      if (host.sandbox.kind !== 'sandbox-exec' && host.sandbox.kind !== 'bubblewrap') return adapter
+      if (adapter.connectMode === 'socket') throw new Error(prompts.debugger.socketConfined(adapter.name))
+      const files = adapter.args
+        .filter((a) => isAbsolute(a) && existsSync(a) && statSync(a).isFile())
+        .map((a) => dirname(a))
+        .filter((d) => !keysAt(d) && !(spec.hidden ?? []).some((h) => within(d, h)))
+      const [program = '', ...args] = confinedLaunch(
+        host,
+        { ...spec, readable: [...(spec.readable ?? []), ...files] },
+        argv,
+      ).argv
+      return { ...adapter, command: program, resolvedCommand: program, args }
+    },
+    approve: (expression) => guardProjectCommand(host, agent, 'debug', expression, true),
+  }
+}
+
+/** Where an agent's code tools work, as code-intel.ts sees it: its working directory, read access, and writes. */
+function codeScope(host: ColonyHost, agent: string, tool: string, params: unknown): LspScope {
+  const key = receiptKey(host, agent, tool, params)
+  return {
+    root: host.workspace.workdir(agent),
+    resolveRead: (path) => host.workspace.resolveForRead(agent, path),
+    mayRead: (path) => host.workspace.mayRead(agent, path),
+    mayWrite: (path) => {
+      try {
+        host.workspace.resolveInWorkdir(agent, path)
+        return true
+      } catch {
+        return false
+      }
+    },
+    write: (changes) => writeChanges(host, agent, tool, key, changes),
+    launch: (server) => launchServer(host, agent, server),
+    async check(command) {
+      if (host.sandbox.kind === 'none' && !host.unsafeNoSandbox)
+        throw new Error(prompts.codeIntel.needsSandbox)
+      const run = await guardProjectCommand(host, agent, tool, command)
+      const r = await host.sandbox.run({
+        command: run,
+        cwd: host.workspace.workdir(agent),
+        writable: writableFor(host, agent),
+        ...host.workspace.confinement(),
+        timeoutMs: LSP_PROJECT_CHECK_MS,
+      })
+      const tail = `${r.stdout}\n${r.stderr}`.trim().split('\n').slice(-80).join('\n')
+      return { ok: !r.timedOut && r.code === 0, output: r.timedOut ? `timed out\n${tail}` : tail }
+    },
+  }
+}
+
+/**
+ * Where the github tool's `gh` runs: where the agent's commands run, in its working directory, so gh finds the
+ * checkout's repository. A read is decided as the commands it runs (command rules, the preset, a round that asks for
+ * everything): a deny refuses any of them, and the person is asked at most once per call, about the first that asks,
+ * not once for every page of a run's jobs. A write was approved whole before it runs. Inside the sandbox gh's HOME
+ * is private and cannot hold the person's sign-in, so it gets their token in its environment; unconfined it runs as
+ * them and reads its own.
+ */
+function githubScope(host: ColonyHost, agent: string, bin: string, write: boolean): GhScope {
+  // Asked for on the first command, so a call refused for its arguments never reaches gh at all.
+  let token: Promise<string | undefined> | undefined
+  const confined = host.sandbox.kind === 'sandbox-exec' || host.sandbox.kind === 'bubblewrap'
+  const syntax = confined ? 'posix' : hostShell().syntax
+  const confinement = host.workspace.confinement()
+  let asked = write
+  return {
+    async run(args, timeoutMs = GITHUB.commandMs) {
+      const line = `gh ${posixLine(args)}`
+      const verdict = host.permit(agent, { tool: 'github', kind: 'command', command: line, readOnly: false })
+      if (verdict.decision === 'deny') throw denied('this command', verdict)
+      if (verdict.decision === 'ask' && !asked) {
+        await guardProjectCommand(host, agent, 'github', line)
+        asked = true
+      }
+      token ??= host.sandbox.kind === 'unconfined' ? Promise.resolve(undefined) : ghToken(bin)
+      const secret = await token
+      const r = await host.sandbox.run({
+        command: shellLine([bin, ...args], syntax),
+        cwd: host.workspace.workdir(agent),
+        writable: writableFor(host, agent),
+        ...confinement,
+        // gh may live in a folder the sandbox hides, such as a toolchain folder in the person's home.
+        readable: [...confinement.readable, bin],
+        timeoutMs,
+        env: ghEnv(secret),
+      })
+      return { ...r, stdout: scrubToken(r.stdout, secret), stderr: scrubToken(r.stderr, secret) }
+    },
+  }
+}
+
 /** Tools whose results are outside content an agent must treat as data, never as instructions. */
 const UNTRUSTED = new Set([
   // The log quotes tool results, web pages among them.
@@ -678,14 +1396,20 @@ const UNTRUSTED = new Set([
   'browser_press',
   'browser_console',
   'browser_eval',
+  // Issues, pull requests, comments and CI logs are written by anyone who can open one.
+  'github',
+  // Another computer's files and logs hold whatever was written to them.
+  'ssh',
 ])
 /** Tools whose command is checked against recent web content before it runs. */
-const COPY_CHECKED = new Set(['shell', 'start_server'])
+const COPY_CHECKED = new Set(['shell', 'start_server', 'eval', 'ssh'])
 
 function untrustedSource(tool: string, params: unknown, output: string): string {
-  const args = (params ?? {}) as { url?: unknown; query?: unknown }
+  const args = (params ?? {}) as { url?: unknown; query?: unknown; op?: unknown; host?: unknown }
+  if (tool === 'ssh' && typeof args.host === 'string') return `ssh ${args.host}`
   if (tool === 'web_fetch' && typeof args.url === 'string') return args.url
   if (tool === 'web_search' && typeof args.query === 'string') return `search: ${args.query}`
+  if (tool === 'github' && typeof args.op === 'string') return `github ${args.op}`
   // Browser snapshots start with the page's URL.
   const page = /^url: (\S+)/m.exec(output)?.[1]
   return page ? `${tool} ${page}` : tool
@@ -706,7 +1430,8 @@ export function spotlight(boundary: string, source: string, text: string): strin
  * command is often legitimate.
  */
 async function flagIfCopied(host: ColonyHost, agent: string, tool: string, params: unknown) {
-  const command = String((params as { command?: unknown })?.command ?? '').trim()
+  const args = params as { command?: unknown; code?: unknown } | undefined
+  const command = String(args?.command ?? args?.code ?? '').trim()
   if (command.length < 12) return
   const hit = host.recentUntrusted(agent).find((u) => u.text.includes(command))
   if (!hit) return
@@ -1321,35 +2046,14 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       if (bytes.byteLength === 0) throw new Error('refusing to publish an empty artifact')
       if (bytes.byteLength > MAX_ARTIFACT_BYTES)
         throw new Error(`artifact too large (${bytes.byteLength} bytes)`)
-      const { hash, size } = await host.blobs.put(bytes)
-      const e = first(
-        await host.appendAtomic((s) => {
-          const owner = Object.values(s.tasks).find(
-            (t) => t.status === 'in_progress' && t.owner !== agent && t.outputs?.includes(name),
-          )
-          if (owner)
-            throw new Error(
-              `${name} is an output of ${owner.id}, which ${owner.owner} is working on; do not publish it`,
-            )
-          const prev = s.artifacts[name]?.at(-1)
-          return [
-            {
-              type: 'artifact/versioned',
-              actor: agentActor(agent),
-              payload: {
-                name,
-                version: (prev?.version ?? 0) + 1,
-                blob: hash,
-                size,
-                ...(prev ? { parentVersion: prev.version } : {}),
-                author: agent,
-                mediaType: args.mediaType ?? guessMediaType(name),
-              },
-            },
-          ]
-        }),
+      const { version, size } = await publishFile(
+        host,
+        agent,
+        name,
+        bytes,
+        args.mediaType ?? guessMediaType(name),
       )
-      return `published ${name} v${(e.payload as EventPayloads['artifact/versioned']).version} (${size} bytes)`
+      return `published ${name} v${version} (${size} bytes)`
     },
   },
   {
@@ -1395,6 +2099,85 @@ export const TOOL_DEFS: readonly ToolDef[] = [
           .map(([n, vs]) => `${n} v${vs.at(-1)?.version} (${vs.at(-1)?.size} bytes, ${vs.at(-1)?.author})`)
           .join('\n') || '(no artifacts yet)'
       )
+    },
+  },
+  {
+    name: 'generate_image',
+    tier: 'write',
+    description: prompts.tools.generate_image.description,
+    parameters: type({
+      prompt: type('string').atLeastLength(3).describe(prompts.tools.generate_image.params.prompt),
+      'inputs?': type('string[]').describe(prompts.tools.generate_image.params.inputs),
+      'aspectRatio?': type("'1:1' | '3:4' | '4:3' | '9:16' | '16:9' | '3:2' | '2:3'").describe(
+        prompts.tools.generate_image.params.aspectRatio,
+      ),
+      'size?': type("'1024x1024' | '1536x1024' | '1024x1536'").describe(
+        prompts.tools.generate_image.params.size,
+      ),
+      'count?': type('number').describe(prompts.tools.generate_image.params.count),
+      'name?': type('string').describe(prompts.tools.generate_image.params.name),
+    }),
+    async run(args, agent, host) {
+      if (!host.media) throw new Error(prompts.toolResults.noMedia)
+      const refs: string[] = args.inputs ?? []
+      if (refs.length > MAX_IMAGE_INPUTS) throw new Error(prompts.toolResults.tooManyInputs(MAX_IMAGE_INPUTS))
+      const inputImages = await Promise.all(refs.map((ref) => inputImage(host, agent, ref)))
+      const made = await host.media.generateImage(
+        {
+          prompt: args.prompt,
+          ...(inputImages.length ? { inputImages } : {}),
+          ...(args.aspectRatio ? { aspectRatio: args.aspectRatio } : {}),
+          ...(args.size ? { imageSize: args.size } : {}),
+          count: Math.min(Math.max(1, Math.round(args.count ?? 1)), MAX_IMAGES_PER_CALL),
+        },
+        AbortSignal.timeout(IMAGE_TIMEOUT_MS),
+      )
+      const usage: UsageInfo | undefined =
+        made.cost !== undefined || made.tokens.total > 0
+          ? {
+              input: made.tokens.input,
+              output: made.tokens.output,
+              totalTokens: made.tokens.total,
+              ...(made.cost !== undefined ? { cost: made.cost } : {}),
+            }
+          : undefined
+      const spent = usage ? { usage } : {}
+      if (made.images.length === 0)
+        return { text: prompts.toolResults.noPicture(made.model, made.text), images: [], ...spent }
+      const published: { name: string; version: number; copy: string }[] = []
+      for (const [i, image] of made.images.entries()) {
+        const bytes = new Uint8Array(Buffer.from(image.data, 'base64'))
+        const mimeType = sniffImage(bytes) ?? image.mimeType
+        const extension = IMAGE_EXTENSIONS[mimeType] ?? 'png'
+        const index = made.images.length > 1 ? i + 1 : undefined
+        const name = mediaName(args.name, args.prompt, 'images', extension, index)
+        published.push(await publishMedia(host, agent, name, bytes, mimeType))
+      }
+      return {
+        text: prompts.toolResults.picturesMade(made.model, published, made.text),
+        images: made.images.map((i) => ({ data: i.data, mimeType: i.mimeType })),
+        ...spent,
+      }
+    },
+  },
+  {
+    name: 'tts',
+    tier: 'write',
+    description: prompts.tools.tts.description,
+    parameters: type({
+      text: type('string')
+        .atLeastLength(1)
+        .atMostLength(TTS_MAX_CHARS)
+        .describe(prompts.tools.tts.params.text),
+      'name?': type('string').describe(prompts.tools.tts.params.name),
+    }),
+    async run(args, agent, host) {
+      if (!host.media) throw new Error(prompts.toolResults.noMedia)
+      const spoken = await host.media.speak(args.text)
+      const name = mediaName(args.name, args.text, 'audio', 'wav')
+      const file = await publishMedia(host, agent, name, spoken.audio, spoken.mimeType)
+      const { pcm, sampleRate } = parseWav(spoken.audio)
+      return prompts.toolResults.speechMade(file, spoken.voice, pcm.length / sampleRate)
     },
   },
   {
@@ -1486,7 +2269,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       })
       mkdirSync(dirname(path), { recursive: true })
       writeFileSync(path, content)
-      return `wrote ${args.path} (${Buffer.byteLength(content)} bytes)${edited ? prompts.toolResults.editedByPerson : ''}`
+      return `wrote ${args.path} (${Buffer.byteLength(content)} bytes)${edited ? prompts.toolResults.editedByPerson : ''}${rulesForFile(host, agent, path)}`
     },
   },
   {
@@ -1516,7 +2299,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
         key: receiptKey(host, agent, 'fs_edit', args),
       })
       writeFileSync(path, content)
-      return `edited ${args.path} (${args.all ? count : 1} replacement${count > 1 && args.all ? 's' : ''})${edited ? prompts.toolResults.editedByPerson : ''}`
+      return `edited ${args.path} (${args.all ? count : 1} replacement${count > 1 && args.all ? 's' : ''})${edited ? prompts.toolResults.editedByPerson : ''}${rulesForFile(host, agent, path)}`
     },
   },
   {
@@ -1528,13 +2311,15 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       path: type('string').describe(prompts.tools.fs_read.params.path),
       'offset?': type('number').describe(prompts.tools.fs_read.params.offset),
       'limit?': type('number').describe(prompts.tools.fs_read.params.limit),
+      'entry?': type('string').describe(prompts.tools.fs_read.params.entry),
+      'sql?': type('string').describe(prompts.tools.fs_read.params.sql),
     }),
     async run(args, agent, host) {
-      return readRange(
-        readFileSync(host.workspace.resolveForRead(agent, args.path), 'utf8'),
-        args.offset,
-        args.limit,
-      )
+      const path = host.workspace.resolveForRead(agent, args.path)
+      const read = await readFileAs(path, args.path, args)
+      if (read.image) return { text: read.head ?? '', images: [read.image] }
+      const text = `${readRange(read.text, args.offset, args.limit)}${rulesForFile(host, agent, path)}`
+      return read.head ? { text, images: [], preface: `${read.head}\n` } : text
     },
   },
   {
@@ -1554,7 +2339,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
           // A readable folder can hold what stays hidden (the person's keys in a home they opened).
           if (!host.workspace.mayRead(agent, full)) continue
           if (entry.isDirectory()) walk(full)
-          else out.push(`${relative(root, full)} (${statSync(full).size} bytes)`)
+          else out.push(`${slashed(relative(root, full))} (${statSync(full).size} bytes)`)
         }
       }
       walk(dir)
@@ -1592,9 +2377,10 @@ export const TOOL_DEFS: readonly ToolDef[] = [
         ...(context ? { context } : {}),
         mode: args.filesOnly ? natives.GrepOutputMode.FilesWithMatches : natives.GrepOutputMode.Content,
       })
-      const where = (p: string) => relative(root, resolve(target, p)) || p
+      const where = (p: string) => slashed(relative(root, resolve(target, p))) || p
       const matches = readableMatches(host, agent, target, result.matches)
-      if (matches.length === 0) return `No matches for /${args.pattern}/ in ${relative(root, target) || '.'}.`
+      if (matches.length === 0)
+        return `No matches for /${args.pattern}/ in ${slashed(relative(root, target)) || '.'}.`
       const dropped = matches.length < result.matches.length
       const total = dropped ? matches.length : result.totalMatches
       const files = dropped ? new Set(matches.map((m) => m.path)).size : result.filesWithMatches
@@ -1639,7 +2425,83 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       })
       const matches = readableMatches(host, agent, target, result.matches)
       if (matches.length === 0) return `No files match ${args.pattern}.`
-      return matches.map((m) => relative(root, resolve(target, m.path)) || m.path).join('\n')
+      return matches.map((m) => slashed(relative(root, resolve(target, m.path))) || m.path).join('\n')
+    },
+  },
+  {
+    name: 'find',
+    tier: 'read',
+    description: prompts.tools.find.description(PLACE),
+    describe: (f) => prompts.tools.find.description(placeOf(f)),
+    parameters: type({
+      query: type('string').atLeastLength(1).describe(prompts.tools.find.params.query),
+      'keywords?': type('string[]').describe(prompts.tools.find.params.keywords),
+      'path?': type('string').describe(prompts.tools.find.params.path),
+    }),
+    async run(args, agent, host) {
+      const target = host.workspace.resolveForRead(agent, args.path ?? '.')
+      if (!existsSync(target)) throw new Error(`no such file or folder: ${args.path}`)
+      const judge = host.judge?.(agent)
+      const scope = {
+        root: host.workspace.workdir(agent),
+        target,
+        isFile: statSync(target).isFile(),
+        // A readable folder can hold what stays hidden (the person's keys in a home they opened).
+        mayRead: (path: string) => host.workspace.mayRead(agent, path),
+        ...(judge ? { judge } : {}),
+      }
+      return clip(await find(scope, { query: args.query, keywords: args.keywords ?? [] }))
+    },
+  },
+  {
+    name: 'ast_grep',
+    tier: 'read',
+    description: prompts.tools.ast_grep.description(PLACE),
+    describe: (f) => prompts.tools.ast_grep.description(placeOf(f)),
+    parameters: type({
+      pattern: type('string').atLeastLength(1).describe(prompts.tools.ast_grep.params.pattern),
+      'path?': type('string').describe(prompts.tools.ast_grep.params.path),
+      'glob?': type('string').describe(prompts.tools.ast_grep.params.glob),
+      'lang?': type('string').describe(prompts.tools.ast_grep.params.lang),
+      'skip?': type('number').describe(prompts.tools.ast_grep.params.skip),
+    }),
+    async run(args, agent, host) {
+      return astGrep(codeScope(host, agent, 'ast_grep', args), args)
+    },
+  },
+  {
+    name: 'ast_edit',
+    tier: 'write',
+    description: prompts.tools.ast_edit.description(PLACE),
+    describe: (f) => prompts.tools.ast_edit.description(placeOf(f)),
+    parameters: type({
+      pattern: type('string').atLeastLength(1).describe(prompts.tools.ast_edit.params.pattern),
+      rewrite: type('string').describe(prompts.tools.ast_edit.params.rewrite),
+      'path?': type('string').describe(prompts.tools.ast_edit.params.path),
+      'glob?': type('string').describe(prompts.tools.ast_edit.params.glob),
+      'lang?': type('string').describe(prompts.tools.ast_edit.params.lang),
+      'preview?': type('boolean').describe(prompts.tools.ast_edit.params.preview),
+    }),
+    async run(args, agent, host) {
+      return astEdit(codeScope(host, agent, 'ast_edit', args), args)
+    },
+  },
+  {
+    name: 'lsp',
+    tier: 'read',
+    tierOf: (args) => (lspWrites(args) ? 'write' : 'read'),
+    description: prompts.tools.lsp.description(PLACE),
+    describe: (f) => prompts.tools.lsp.description(placeOf(f)),
+    parameters: type({
+      action: type.enumerated(...LSP_ACTIONS).describe(prompts.tools.lsp.params.action),
+      'path?': type('string').describe(prompts.tools.lsp.params.path),
+      'line?': type('number').describe(prompts.tools.lsp.params.line),
+      'symbol?': type('string').describe(prompts.tools.lsp.params.symbol),
+      'query?': type('string').describe(prompts.tools.lsp.params.query),
+      'newName?': type('string').describe(prompts.tools.lsp.params.newName),
+    }),
+    async run(args, agent, host) {
+      return lsp(codeScope(host, agent, 'lsp', args), args)
     },
   },
   {
@@ -1703,6 +2565,65 @@ export const TOOL_DEFS: readonly ToolDef[] = [
         images: [],
         preface: prompts.toolResults.savedPage(head, page.output.length, where),
       }
+    },
+  },
+  {
+    name: 'github',
+    tier: 'read',
+    tierOf: (args) => (githubWrites(args) ? 'write' : 'read'),
+    description: prompts.tools.github.description,
+    parameters: type({
+      op: type.enumerated(...GITHUB_OPS).describe(prompts.tools.github.params.op),
+      'repo?': type('string').describe(prompts.tools.github.params.repo),
+      'issue?': type('string').describe(prompts.tools.github.params.issue),
+      'pr?': type('string').describe(prompts.tools.github.params.pr),
+      'run?': type('string').describe(prompts.tools.github.params.run),
+      'branch?': type('string').describe(prompts.tools.github.params.branch),
+      'state?': type("'open' | 'closed' | 'merged' | 'all'").describe(prompts.tools.github.params.state),
+      'label?': type('string[]').describe(prompts.tools.github.params.label),
+      'assignee?': type('string[]').describe(prompts.tools.github.params.assignee),
+      'reviewer?': type('string[]').describe(prompts.tools.github.params.reviewer),
+      'limit?': type('number').describe(prompts.tools.github.params.limit),
+      'query?': type('string').describe(prompts.tools.github.params.query),
+      'since?': type('string').describe(prompts.tools.github.params.since),
+      'until?': type('string').describe(prompts.tools.github.params.until),
+      'dateField?': type("'created' | 'updated'").describe(prompts.tools.github.params.dateField),
+      'comments?': type('boolean').describe(prompts.tools.github.params.comments),
+      'title?': type('string').describe(prompts.tools.github.params.title),
+      'body?': type('string').describe(prompts.tools.github.params.body),
+      'base?': type('string').describe(prompts.tools.github.params.base),
+      'head?': type('string').describe(prompts.tools.github.params.head),
+      'draft?': type('boolean').describe(prompts.tools.github.params.draft),
+      'method?': type("'merge' | 'squash' | 'rebase'").describe(prompts.tools.github.params.method),
+      'event?': type("'approve' | 'request_changes' | 'comment'").describe(prompts.tools.github.params.event),
+      'reason?': type("'completed' | 'not planned'").describe(prompts.tools.github.params.reason),
+      'failedOnly?': type('boolean').describe(prompts.tools.github.params.failedOnly),
+      'tail?': type('number').describe(prompts.tools.github.params.tail),
+    }),
+    async run(args, agent, host) {
+      if (host.sandbox.kind === 'none' && !host.unsafeNoSandbox) throw new Error(prompts.github.needsSandbox)
+      const bin = ghBinary()
+      if (!bin) throw new Error(prompts.github.missing)
+      const write = githubWrites(args)
+      let edited = false
+      if (write) {
+        // Anything that changes GitHub speaks for the person in public: no preset runs it unasked, only a rule
+        // (perhaps one this card offers). The card shows the call with its text rewritable, so a comment or title
+        // the person changes is what gets posted.
+        const command = `gh ${posixLine(githubWriteCommand(args))}`
+        const key = receiptKey(host, agent, 'github', args)
+        edited = await askFirst(
+          host,
+          agent,
+          'github',
+          args,
+          { tool: 'github', kind: 'command', command, readOnly: false, asks: true },
+          key,
+        )
+      }
+      const scope = githubScope(host, agent, bin, write)
+      const out = write ? await runGithubWrite(scope, args) : await runGithub(scope, args)
+      return `${clip(out)}${edited ? prompts.toolResults.editedByPerson : ''}`
     },
   },
   {
@@ -1776,9 +2697,21 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       ),
       scope: type("'everywhere' | 'project'").describe(prompts.tools.remember.params.scope),
       why: type('string').describe(prompts.tools.remember.params.why),
+      'replaces?': type('string').array().atMostLength(10).describe(prompts.tools.remember.params.replaces),
     }),
     async run(args, agent, host) {
       return host.proposeMemory(agent, args)
+    },
+  },
+  {
+    name: 'recall',
+    tier: 'read',
+    description: prompts.tools.recall.description,
+    parameters: type({
+      query: type('string').describe(prompts.tools.recall.params.query),
+    }),
+    async run(args, _agent, host) {
+      return host.recallMemory(args.query)
     },
   },
   {
@@ -1945,8 +2878,9 @@ export const TOOL_DEFS: readonly ToolDef[] = [
         if (!args.path || args.content === undefined)
           throw new Error('a file proposal needs path and content')
         const path = resolve(project.path, args.path)
-        if (!path.startsWith(`${project.path}/`)) throw new Error(`${args.path} is outside ${project.name}`)
-        const where = relative(project.path, path)
+        if (!within(path, project.path) || within(project.path, path))
+          throw new Error(`${args.path} is outside ${project.name}`)
+        const where = slashed(relative(project.path, path))
         const before = existsSync(path) ? readFileSync(path, 'utf8') : ''
         const title = existsSync(path) ? prompts.reviewCard.edit(where) : prompts.reviewCard.write(where)
         // A proposed file is a file change like any other, so a rule allowing file changes covers it.
@@ -2542,6 +3476,141 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       return clip(`${status}\n--- stdout\n${r.stdout}\n--- stderr\n${r.stderr}`)
     },
   },
+  {
+    name: 'eval',
+    tier: 'exec',
+    description: prompts.tools.eval.description(false, RUNTIMES.includes('python3')),
+    describe: (f) => prompts.tools.eval.description(f.access.fullAccess, RUNTIMES.includes('python3')),
+    parameters: type({
+      language: type.enumerated(...CELL_LANGUAGES).describe(prompts.tools.eval.params.language),
+      code: type('string').atLeastLength(1).describe(prompts.tools.eval.params.code),
+      'timeoutSeconds?': type('number').describe(prompts.tools.eval.params.timeoutSeconds),
+      'reset?': type('boolean').describe(prompts.tools.eval.params.reset),
+    }),
+    async run(args, agent, host) {
+      if (host.sandbox.kind === 'none' && !host.unsafeNoSandbox) throw new Error(prompts.cells.needsSandbox)
+      const scope = cellScope(host, agent)
+      // Said before the person is asked about code that could not run anyway.
+      if (args.language === 'py' && !scope.python()) throw new Error(prompts.cells.noPython)
+      // A cell can do what a command can, in the same sandbox, so it is decided as one; the person may rewrite it.
+      const code = await guardProjectCommand(host, agent, 'eval', args.code, true)
+      const r = await cellKernels.run(scope, { ...args, code })
+      if (!r.ok) throw new Error(clip(r.text))
+      return r.images.length ? { text: clip(r.text), images: r.images } : clip(r.text)
+    },
+  },
+  {
+    name: 'debug',
+    tier: 'exec',
+    tierOf: (args) => (debugReads(args) ? 'read' : 'exec'),
+    description: prompts.tools.debug.description(false),
+    describe: (f) => prompts.tools.debug.description(f.access.fullAccess),
+    parameters: type({
+      action: type.enumerated(...DEBUG_ACTIONS).describe(prompts.tools.debug.params.action),
+      'program?': type('string').describe(prompts.tools.debug.params.program),
+      'args?': type('string[]').describe(prompts.tools.debug.params.args),
+      'adapter?': type('string').describe(prompts.tools.debug.params.adapter),
+      'breakpoints?': type({
+        file: type('string').describe(prompts.tools.debug.params.breakpointFile),
+        line: type('number').describe(prompts.tools.debug.params.breakpointLine),
+        'condition?': type('string').describe(prompts.tools.debug.params.breakpointCondition),
+      })
+        .array()
+        .describe(prompts.tools.debug.params.breakpoints),
+      'file?': type('string').describe(prompts.tools.debug.params.file),
+      'line?': type('number').describe(prompts.tools.debug.params.line),
+      'condition?': type('string').describe(prompts.tools.debug.params.condition),
+      'port?': type('number').describe(prompts.tools.debug.params.port),
+      'pid?': type('number').describe(prompts.tools.debug.params.pid),
+      'frame?': type('number').describe(prompts.tools.debug.params.frame),
+      'ref?': type('number').describe(prompts.tools.debug.params.ref),
+      'expression?': type('string').describe(prompts.tools.debug.params.expression),
+      'timeoutSeconds?': type('number').describe(prompts.tools.debug.params.timeoutSeconds),
+    }),
+    async run(args, agent, host) {
+      if (host.sandbox.kind === 'none' && !host.unsafeNoSandbox)
+        throw new Error(prompts.debugger.needsSandbox)
+      return clip(await debugSessions.run(debugScope(host, agent), args))
+    },
+  },
+  {
+    name: 'security_scan',
+    tier: 'read',
+    description: prompts.tools.security_scan.description,
+    parameters: type({
+      'checks?': type.enumerated(...SCAN_CHECKS).describe(prompts.tools.security_scan.params.checks),
+      'path?': type('string').describe(prompts.tools.security_scan.params.path),
+    }),
+    async run(args, agent, host) {
+      // OSV.dev is on the web: only an agent that may use the web sends it the project's package list.
+      const web = toolsAllowed(host, agent).includes('web_fetch')
+      const report = await securityScan(
+        {
+          root: host.workspace.workdir(agent),
+          target: host.workspace.resolveForRead(agent, args.path ?? '.'),
+          mayRead: (path) => host.workspace.mayRead(agent, path),
+          ...(web ? { fetch: (url: string, init?: RequestInit) => fetch(url, init) } : {}),
+        },
+        args,
+      )
+      return clip(report)
+    },
+  },
+  {
+    name: 'autoresearch',
+    tier: 'exec',
+    tierOf: (args: { action?: unknown }) => (args.action === 'status' ? 'read' : 'exec'),
+    description: prompts.tools.autoresearch.description,
+    parameters: type({
+      action: type
+        .enumerated('start', 'trial', 'finish', 'status')
+        .describe(prompts.tools.autoresearch.params.action),
+      'measure?': type('string').describe(prompts.tools.autoresearch.params.measure),
+      'metric?': type('string').describe(prompts.tools.autoresearch.params.metric),
+      'direction?': type.enumerated('lower', 'higher').describe(prompts.tools.autoresearch.params.direction),
+      'trials?': type('number').describe(prompts.tools.autoresearch.params.trials),
+      'minutes?': type('number').describe(prompts.tools.autoresearch.params.minutes),
+      'description?': type('string').describe(prompts.tools.autoresearch.params.description),
+    }),
+    run: (args, agent, host) => autoresearch(args, agent, host),
+  },
+  {
+    name: 'ssh',
+    tier: 'read',
+    tierOf: (args: { command?: unknown }) => (args.command !== undefined ? 'exec' : 'read'),
+    description: prompts.tools.ssh.description([]),
+    describe: (f) => prompts.tools.ssh.description(f.access.remotes),
+    parameters: type({
+      host: type('string').describe(prompts.tools.ssh.params.host),
+      'command?': type('string').describe(prompts.tools.ssh.params.command),
+      'read?': type('string').describe(prompts.tools.ssh.params.read),
+      'timeoutSeconds?': type('number').describe(prompts.tools.ssh.params.timeoutSeconds),
+    }),
+    async run(args, agent, host) {
+      const remotes = host.remotes()
+      if (!remotes) throw new Error(prompts.remote.noHosts)
+      const target = remotes.hosts.find((h) => h.name === args.host)
+      if (!target)
+        throw new Error(
+          prompts.remote.unknownHost(
+            args.host,
+            remotes.hosts.map((h) => h.name),
+          ),
+        )
+      if ((args.command === undefined) === (args.read === undefined)) throw new Error(prompts.remote.oneOf)
+      if (!remotes.hub.available()) throw new Error(prompts.remote.noSsh)
+      const timeoutMs = Math.min(Math.max(1, args.timeoutSeconds ?? SSH.timeoutS), SSH.maxTimeoutS) * 1000
+      if (args.read !== undefined) {
+        const path = await guardRemote(host, agent, target.name, { read: args.read })
+        const file = await remotes.hub.read(target, path, SSH.readBytes, timeoutMs)
+        return clip(prompts.remote.file(target.name, path, file.text, file.truncated))
+      }
+      const command = await guardRemote(host, agent, target.name, { command: args.command })
+      const r = await remotes.hub.run(target, command, timeoutMs)
+      const status = r.timedOut ? prompts.remote.timedOut : prompts.remote.exit(r.code)
+      return clip(prompts.remote.result(target.name, status, r.stdout, r.stderr))
+    },
+  },
 ]
 
 export function describeCheck(c: ColonyHost['spec']['acceptance'][number]): string {
@@ -2690,6 +3759,10 @@ export function guessMediaType(name: string): string {
       webp: 'image/webp',
       pdf: 'application/pdf',
       wasm: 'application/wasm',
+      wav: 'audio/wav',
+      mp3: 'audio/mpeg',
+      ogg: 'audio/ogg',
+      flac: 'audio/flac',
     }[ext ?? ''] ?? 'text/plain'
   )
 }
@@ -3133,7 +4206,9 @@ function harnessTools(
         parameters: def.parameters,
         intent: 'omit',
         approval: def.tier,
-        concurrency: concurrencyOf(def),
+        concurrency: def.tierOf
+          ? (args: unknown) => concurrencyOf({ name: def.name, tier: tierOf(def, args) })
+          : concurrencyOf(def),
         async execute(callId: string, params: unknown): Promise<AgentToolResult> {
           const actor = agentActor(agent)
           await host.append({
@@ -3143,9 +4218,11 @@ function harnessTools(
           })
           let output: string
           let images: ToolOutput['images'] = []
+          let usage: UsageInfo | undefined
           let ok = true
+          const tier = tierOf(def, params)
           // Calls that write get receipts; commands may rightly run twice, and reads change nothing.
-          const key = def.tier === 'write' ? receiptKey(host, agent, def.name, params) : undefined
+          const key = tier === 'write' ? receiptKey(host, agent, def.name, params) : undefined
           const kept = key === undefined ? undefined : host.state().receipts[key]
           try {
             if (!allow.has(def.name)) throw new Error(`${def.name} is not allowed for ${agent}`)
@@ -3154,30 +4231,34 @@ function harnessTools(
             if (kept !== undefined) throw new AlreadyDone(kept)
             if (COPY_CHECKED.has(def.name)) await flagIfCopied(host, agent, def.name, params)
             // File changes, commands and proposals are decided where the change is known (guardProject*).
-            const edited = GUARDED.has(def.name)
-              ? false
-              : await askFirst(
-                  host,
-                  agent,
-                  def.name,
-                  params,
-                  callOf(host, agent, def.tier, def.name, params),
-                  key,
-                )
+            const edited =
+              GUARDED.has(def.name) && (tier !== 'read' || GUARDS_READS.has(def.name))
+                ? false
+                : await askFirst(
+                    host,
+                    agent,
+                    def.name,
+                    params,
+                    callOf(host, agent, tier, def.name, params),
+                    key,
+                  )
             await host.beforeTool(agent, def.name, params)
             const run = () => def.run(params ?? {}, agent, host)
             const result =
-              def.tier === 'read' || IN_PARALLEL.has(def.name)
-                ? await run()
-                : await inCallOrder(host, agent, run)
+              tier === 'read' || IN_PARALLEL.has(def.name) ? await run() : await inCallOrder(host, agent, run)
             output = typeof result === 'string' ? result : result.text
             // The person's hooks speak for the harness: their note stays outside any untrusted-content block.
             const hookNote = await host.afterTool(agent, def.name, params, output)
-            if (typeof result !== 'string') images = result.images
+            if (typeof result !== 'string') {
+              images = result.images
+              usage = result.usage
+            }
             const preface = typeof result === 'string' ? '' : (result.preface ?? '')
-            // Long pages are saved under web/ in scratch; reading one back is still outside content.
+            // Long pages are saved under web/ in scratch, and the browser's downloads under downloads/; reading one
+            // back is still outside content.
             const savedPage =
-              def.name === 'fs_read' && /(^|\/)web\//.test(String((params as { path?: unknown })?.path ?? ''))
+              def.name === 'fs_read' &&
+              /(^|[\\/])(web|downloads)[\\/]/.test(String((params as { path?: unknown })?.path ?? ''))
             if (UNTRUSTED.has(def.name) || savedPage) {
               const source = untrustedSource(def.name, params, output)
               host.rememberUntrusted(agent, source, output)
@@ -3194,7 +4275,14 @@ function harnessTools(
           await host.append({
             type: 'tool/result',
             actor,
-            payload: { agent, callId, tool: def.name, ok, output: clip(output, 8_000) },
+            payload: {
+              agent,
+              callId,
+              tool: def.name,
+              ok,
+              output: clip(output, 8_000),
+              ...(usage ? { usage } : {}),
+            },
           })
           return {
             content: [

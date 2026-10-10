@@ -1,13 +1,5 @@
 import { randomBytes } from 'node:crypto'
 import type { MyrEvent } from '@myrmidon/protocol'
-import {
-  type AssistantMessage,
-  type AssistantMessageEventStream,
-  type Message,
-  streamSimple,
-  type Tool,
-  type ToolCall,
-} from '@oh-my-pi/pi-ai'
 import { canonicalZone, clockMinutes, localDate, zoneOffset } from '../clock.ts'
 import {
   VOICE_ANSWER_CHARS,
@@ -22,7 +14,16 @@ import {
   VOICE_STEPS,
 } from '../config.ts'
 import type { ModelResolver } from '../models.ts'
+import {
+  type AssistantMessage,
+  type AssistantMessageEventStream,
+  type Message,
+  streamSimple,
+  type Tool,
+  type ToolCall,
+} from '../omp/ai.ts'
 import { prompts } from '../prompts.ts'
+import { hideInContext } from '../provider-secrets.ts'
 import { trimSilence, trimStart } from './audio.ts'
 import type { LiveTranscription } from './phonon-stream.ts'
 import type { TurnJudge } from './smart-turn.ts'
@@ -293,6 +294,8 @@ export class CallSession {
   protected _playingUntil = 0
   protected _muted = false
   protected _ended = false
+  /** Aborted when the call ends, calling off what it still had to say (the greeting, a fallback notice). */
+  private readonly _life = new AbortController()
   /** The state the call is in, shown again when the person unmutes. */
   protected _current: CallState = 'listening'
   private _vad?: { chance(chunk: Float32Array): Promise<number> }
@@ -341,6 +344,11 @@ export class CallSession {
        * so, shows the error, and carries on with them.
        */
       readonly fallback?: { readonly stt?: SpeechToText; readonly tts?: TextToSpeech }
+      /**
+       * The line the call opens with, asked for as it starts (so a call that ended first takes none) and at once: it
+       * must not wait on anything. Without it, the plain hello.
+       */
+      readonly greet?: () => string
     },
     protected readonly options: CallOptions,
     protected readonly emit: (out: CallOutput) => void,
@@ -417,6 +425,8 @@ export class CallSession {
 
   /** Says who answered, greets the person; the call is then listening. */
   async start() {
+    // Hung up before it started (the person's side closed while the engines warmed up): nothing is said or readied.
+    if (this._ended) return
     // While the greeting plays, so the person's first turn is not the one to pay for them.
     this._stt
       .prepare?.(this._hotwords)
@@ -427,10 +437,12 @@ export class CallSession {
       ...(this._chatId ? { chatId: this._chatId } : {}),
       ...(this.options.chatTitle ? { chatTitle: this.options.chatTitle } : {}),
     })
-    const hello = this.direct
-      ? prompts.voice.direct.hello(this.options.name, this.direct)
-      : prompts.voice.hello(this.options.name)
-    await this._say(hello, new AbortController().signal, this._voice)
+    const hello =
+      this.ports.greet?.() ??
+      (this.direct
+        ? prompts.voice.direct.hello(this.options.name, this.direct)
+        : prompts.voice.hello(this.options.name))
+    await this._say(hello, this._life.signal, this._voice)
     await this._speech
     this._state('listening')
   }
@@ -532,8 +544,7 @@ export class CallSession {
     this.ports.log?.(
       `${which === 'stt' ? 'speech to text' : 'text to speech'} failed, using this machine's: ${message}`,
     )
-    if (which === 'stt')
-      void this._say(prompts.voice.fallback.said(which), new AbortController().signal, this._voice)
+    if (which === 'stt') void this._say(prompts.voice.fallback.said(which), this._life.signal, this._voice)
   }
 
   /**
@@ -594,6 +605,7 @@ export class CallSession {
     if (this._ended) return
     this._ended = true
     this._reply?.abort()
+    this._life.abort()
     this._live?.close()
     this._off()
     this._offStream?.()
@@ -836,8 +848,8 @@ export class CallSession {
         tools: VOICE_TOOLS,
       }
       const stream: AssistantMessageEventStream = resolved.streamFn
-        ? await resolved.streamFn(resolved.model, context, { apiKey, signal })
-        : streamSimple(resolved.model, context, { apiKey, signal })
+        ? await resolved.streamFn(resolved.model, hideInContext(context), { apiKey, signal })
+        : streamSimple(resolved.model, hideInContext(context), { apiKey, signal })
       // Spoken as it is written: each sentence once it ends, the first clause sooner.
       const split = new SpeechSplitter({ firstClause: true })
       let written = ''

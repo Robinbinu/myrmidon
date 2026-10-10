@@ -14,17 +14,20 @@ import {
 import {
   DEFAULT_COST_USD,
   MAX_CREW_NAMES,
+  MAX_FALLBACKS,
   MAX_IMPORTED_THEMES,
   MAX_READ_FOLDERS,
   MAX_THEME_COLORS,
+  SSH,
 } from './config.ts'
 import { ownerOnly } from './owner-only.ts'
+import type { SshHost } from './ssh.ts'
 
 /** Tool groups a saved specialist can be kept out of (Settings → Specialists). */
 export const TOOL_GROUPS = {
-  shell: ['shell'],
+  shell: ['shell', 'eval'],
   web: ['web_search', 'web_fetch'],
-  files: ['fs_write', 'fs_edit', 'fs_read', 'fs_list', 'request_read'],
+  files: ['fs_write', 'fs_edit', 'fs_read', 'fs_list', 'ast_grep', 'ast_edit', 'lsp', 'request_read'],
   messaging: ['message', 'create_group', 'update_group', 'append_note'],
   browser: [
     'browser_open',
@@ -53,6 +56,23 @@ export interface MyrSettings {
     leadModel?: string
     workerModel?: string
     judgeModel?: string
+    /**
+     * The advisor: a second model that reads each agent's latest steps as it works and steers it with a short note
+     * when it sees a concrete problem (the wrong file, an ignored error, a loop). Unset: no advisor, the default.
+     */
+    advisorModel?: string
+    /**
+     * Prewalk's carry-out model: the lead of a work round plans on its own model, then hands off once to this cheaper
+     * one to carry the plan out (after omp's prewalk). Unset: the lead keeps its model, the default.
+     */
+    carryOutModel?: string
+    /**
+     * Models to go on with, in order, when the lead's model fails in a way another model could get past (an outage,
+     * a rate limit retries did not clear, an expired sign-in, a model taken down); `workerFallbacks` the same for
+     * crewmates and swarm peers. Empty: the round pauses on the error for the person, as before.
+     */
+    leadFallbacks: string[]
+    workerFallbacks: string[]
     wallMinutes: number
     maxTurns: number
     /** Per-round limits; 0 means no limit. */
@@ -75,8 +95,32 @@ export interface MyrSettings {
    * Driver (one approved app at a time; the default when absent) or omp's desktop engine (scripts, approved each time).
    */
   computerUse: { enabled: boolean; engine?: 'cua' | 'omp' }
+  /**
+   * Remote hosts agents may reach over SSH (Settings → Tools), each call decided by the permission model's `ssh-host`
+   * rules. Only where to connect is kept: keys stay in the person's ssh agent or keychain, and a host named after an
+   * alias in ~/.ssh/config takes the rest from there.
+   */
+  ssh: { hosts: SshHost[] }
+  /**
+   * Telemetry export over OTLP (telemetry.ts): each finished round's trace and metrics go to the collector at
+   * `endpoint` (a base address such as http://localhost:4318). Off by default; nothing is sent until it is on and has
+   * an address. Its headers (an API key) are in the credential vault, never here.
+   */
+  telemetry: { enabled: boolean; endpoint: string }
+  /**
+   * `hideSecrets`: keys, tokens and passwords reach model providers as placeholders (provider-secrets.ts). On unless
+   * the person turns it off: Myrmidon keeps their data on their machine, and a key read in a .env file should not leave
+   * it by accident, while the model still sees that a secret is there and Myrmidon writes the value back into the
+   * agent's own files. Off is for when the model must read the value itself (a key that looks malformed).
+   */
+  privacy: { hideSecrets: boolean }
   /** An omp search provider id (e.g. `brave`, `exa`, `duckduckgo`) or `auto` for omp's fallback chain. */
   search: { provider: string }
+  /**
+   * The model agents make pictures with (generate_image), as `provider/id`. Unset: the first image model a provider the
+   * person set up can run, in omp's order of preference.
+   */
+  images: { model?: string }
   /** `reviewer`: off never reviews; auto lets the speaking agent ask (request_review); always reviews every final answer. */
   verification: { threshold: number; rubric?: string; reviewer: 'off' | 'auto' | 'always' }
   instructions: { lead?: string; worker?: string }
@@ -94,6 +138,11 @@ export interface MyrSettings {
   /** `name`: what the mascot calls the person (their computer account's name when unset); `greeting`: who writes the entry page's line. */
   /** `titles`: name chats from what they are about (`model`), or keep their first message as the name. */
   profile: { name?: string; greeting: 'model' | 'rules'; titles: 'model' | 'first-message' }
+  /**
+   * `suggest`: after a round, a cheap model suggests memories from what the person said, and now and then merges of
+   * kept memories that repeat or went stale; each waits for the person to keep or discard it (memory-review.ts).
+   */
+  memory: { suggest: boolean }
   /** How the entry page's mascot looks, and what its screen shows beside its mood. */
   mascot: {
     eyes: 'round' | 'happy' | 'tall' | 'sleepy' | 'lashes'
@@ -217,6 +266,13 @@ export interface VoiceEndpoint {
 }
 
 export const VOICE_ENDPOINT_ID = /^[a-z][a-z0-9-]{0,30}$/
+/**
+ * A folder the person lists for agents to read, as typed: `~`, `~/…` or a full path; on Windows also `~\…`, a drive
+ * (`C:\…`) or a share (`\\server\…`). `readFolder` checks it in full where it is used.
+ */
+export const readFolderPattern = (platform: NodeJS.Platform = process.platform): RegExp =>
+  platform === 'win32' ? /^(~$|~[\\/]|[A-Za-z]:[\\/]|[\\/])/ : /^(~$|~\/|\/)/
+
 /** What a voice provider choice may be: a fixed engine, a registry id, or one of the person's endpoints. */
 const VOICE_PROVIDER = /^([a-z][a-z0-9-]{1,30}|endpoint:[a-z][a-z0-9-]{0,30})$/
 
@@ -228,28 +284,57 @@ export const settingsSchema = Schema.object({
     leadModel: Schema.string(),
     workerModel: Schema.string(),
     judgeModel: Schema.string(),
+    advisorModel: Schema.string().max(200),
+    carryOutModel: Schema.string().max(200),
+    leadFallbacks: Schema.array(Schema.string().max(200)).max(MAX_FALLBACKS).default([]),
+    workerFallbacks: Schema.array(Schema.string().max(200)).max(MAX_FALLBACKS).default([]),
     wallMinutes: Schema.number().min(1).max(240).default(30),
     maxTurns: Schema.natural().min(1).max(200).default(40),
     costUsd: Schema.number().min(0).max(1000).default(DEFAULT_COST_USD),
     tokens: Schema.natural().max(1_000_000_000).default(0),
   }).default({}),
   sandbox: Schema.object({
-    read: Schema.array(
-      Schema.string()
-        .pattern(/^(~$|~\/|\/)/)
-        .max(1000),
-    ).max(MAX_READ_FOLDERS),
+    read: Schema.array(Schema.string().pattern(readFolderPattern()).max(1000)).max(MAX_READ_FOLDERS),
     readHome: Schema.boolean(),
   }).default({}),
   computerUse: Schema.object({
     enabled: Schema.boolean().default(false),
     engine: Schema.union(['cua', 'omp']).default('cua'),
   }).default({}),
+  ssh: Schema.object({
+    hosts: Schema.array(
+      Schema.object({
+        // omp's rule for host names (ssh/config-writer.ts validateHostName).
+        name: Schema.string()
+          .pattern(/^[A-Za-z0-9_.-]{1,100}$/)
+          .required(),
+        // ssh reads an argument that starts with "-" as an option: never a host or user (omp's buildSshTarget).
+        host: Schema.string()
+          .pattern(/^[^\s-][^\s]{0,252}$/)
+          .required(),
+        user: Schema.string().pattern(/^[^\s@-][^\s@]{0,63}$/),
+        port: Schema.natural().min(1).max(65535),
+      }),
+    )
+      .max(SSH.maxHosts)
+      .default([]),
+  }).default({}),
+  telemetry: Schema.object({
+    enabled: Schema.boolean().default(false),
+    endpoint: Schema.union([
+      Schema.const(''),
+      Schema.string()
+        .pattern(/^https?:\/\/\S+$/)
+        .max(500),
+    ]).default(''),
+  }).default({}),
+  privacy: Schema.object({ hideSecrets: Schema.boolean().default(true) }).default({}),
   search: Schema.object({
     provider: Schema.string()
       .pattern(/^[a-z][a-z0-9-]{1,30}$/)
       .default('auto'),
   }).default({}),
+  images: Schema.object({ model: Schema.string().max(200) }).default({}),
   verification: Schema.object({
     threshold: Schema.number().min(0).max(1).default(0.7),
     rubric: Schema.string().max(8000),
@@ -272,6 +357,7 @@ export const settingsSchema = Schema.object({
     greeting: Schema.union(['model', 'rules']).default('model'),
     titles: Schema.union(['model', 'first-message']).default('model'),
   }).default({}),
+  memory: Schema.object({ suggest: Schema.boolean().default(true) }).default({}),
   mascot: Schema.object({
     eyes: Schema.union(['round', 'happy', 'tall', 'sleepy', 'lashes']).default('round'),
     look: Schema.union(['neutral', 'flower', 'bow']).default('neutral'),
@@ -491,7 +577,11 @@ function parse(input: unknown): MyrSettings {
   const composer = s.composer
   return {
     version: 1,
-    team: s.team,
+    team: {
+      ...s.team,
+      leadFallbacks: [...new Set(s.team.leadFallbacks.filter(Boolean))],
+      workerFallbacks: [...new Set(s.team.workerFallbacks.filter(Boolean))],
+    },
     sandbox: {
       ...(s.sandbox.read?.length ? { read: [...new Set(s.sandbox.read.map((f) => f.trim()))] } : {}),
       ...(s.sandbox.readHome ? { readHome: true } : {}),
@@ -500,7 +590,18 @@ function parse(input: unknown): MyrSettings {
       enabled: s.computerUse.enabled,
       ...(s.computerUse.engine === 'omp' ? { engine: 'omp' as const } : {}),
     },
+    telemetry: { enabled: s.telemetry.enabled, endpoint: s.telemetry.endpoint.trim() },
+    ssh: {
+      hosts: [...new Map(s.ssh.hosts.map((h) => [h.name, h])).values()].map((h) => ({
+        name: h.name,
+        host: h.host,
+        ...(h.user ? { user: h.user } : {}),
+        ...(h.port ? { port: h.port } : {}),
+      })),
+    },
+    privacy: { hideSecrets: s.privacy.hideSecrets },
     search: { provider: s.search.provider },
+    images: s.images.model?.trim() ? { model: s.images.model.trim() } : {},
     verification: s.verification,
     instructions: s.instructions,
     observer: s.observer,
@@ -511,6 +612,7 @@ function parse(input: unknown): MyrSettings {
       greeting: s.profile.greeting,
       titles: s.profile.titles,
     },
+    memory: { suggest: s.memory.suggest },
     mascot: {
       ...s.mascot,
       crew: {
@@ -623,6 +725,13 @@ export function withoutModel(
       delete next.team[key]
       cleared.push(role)
     }
+  // A fallback is not a default the person is told about: the chain just goes on without it.
+  // Nor is the advisor, which is optional help: the crew just works unadvised.
+  if (next.team.advisorModel === ref) delete next.team.advisorModel
+  // Nor is the carry-out model: the lead just keeps its own.
+  if (next.team.carryOutModel === ref) delete next.team.carryOutModel
+  next.team.leadFallbacks = next.team.leadFallbacks.filter((r) => r !== ref)
+  next.team.workerFallbacks = next.team.workerFallbacks.filter((r) => r !== ref)
   if (next.voice.callModel === ref) {
     delete next.voice.callModel
     cleared.push('call')

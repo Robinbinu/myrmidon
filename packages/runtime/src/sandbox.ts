@@ -1,18 +1,19 @@
 import { existsSync, mkdirSync, readdirSync, realpathSync, statSync } from 'node:fs'
 import { constants, homedir } from 'node:os'
 import { dirname, join, sep } from 'node:path'
-import { Process } from '@oh-my-pi/pi-natives'
 import {
   SANDBOX_HIDDEN_ROOTS,
   SANDBOX_HIDDEN_TMP,
   SANDBOX_MAX_OUTPUT,
   SANDBOX_TEMP_READABLE,
+  SANDBOX_TIMED_OUT_READ_MS,
   sandboxSystemBins,
 } from './config.ts'
 import { spawnLeashed } from './leashed.ts'
+import { Process } from './omp/natives.ts'
 import { presetOf } from './permissions.ts'
 import { pathOf, realOrNone, realPath, toolchainPaths, within } from './read-access.ts'
-import { hostShell } from './shell.ts'
+import { hostShell, shellEnv } from './shell.ts'
 import type { ColonySpec } from './spec.ts'
 
 export interface SandboxRun {
@@ -62,6 +63,11 @@ export interface Sandbox {
   run(spec: SandboxRun): Promise<SandboxResult>
   /** Starts a process that keeps running (no timeout) until stopped; same confinement as `run`. */
   start(spec: Omit<SandboxRun, 'timeoutMs'>): SandboxProcess
+  /**
+   * The environment `run` and `start` give a command: confined, its private HOME and TMPDIR and the sandboxed PATH.
+   * For a process started some other way inside `argv` (a language server, which needs its own pipes).
+   */
+  env(spec: Omit<SandboxRun, 'timeoutMs'>): Record<string, string | undefined>
 }
 
 function cap(text: string) {
@@ -112,6 +118,26 @@ function tmpSocketDirs(): string[] {
     return []
   }
 }
+
+/**
+ * The person's runtime folder when `XDG_RUNTIME_DIR` puts it outside /run/user/<uid> (a hidden root already): only a
+ * folder that is theirs and closed to others, as the XDG spec has it, so a variable naming a shared folder (`/tmp`)
+ * hides nothing.
+ */
+function runtimeDir(): string[] {
+  const dir = process.env.XDG_RUNTIME_DIR
+  if (process.platform !== 'linux' || !dir?.startsWith('/')) return []
+  try {
+    const stat = statSync(dir)
+    return stat.isDirectory() && stat.uid === process.getuid?.() && (stat.mode & 0o077) === 0 ? [dir] : []
+  } catch {
+    return []
+  }
+}
+
+/** Folders hidden for lying outside the home (and holding other apps' files or sockets), as real paths. */
+const hiddenRoots = () => [...SANDBOX_HIDDEN_ROOTS, ...runtimeDir(), ...tmpSocketDirs()].map(realPath)
+
 const depth = (path: string) => path.split(sep).filter(Boolean).length
 
 /**
@@ -124,12 +150,7 @@ export function pathRules(spec: PathSpec, home: string): PathRule[] {
   // one to hide keeps its rule, so a command that could write its parent cannot create it (~/.ssh in a project at ~).
   const real = (paths: readonly string[]) => paths.flatMap((p) => realOrNone(p) ?? [])
   const rules: PathRule[] = [
-    ...[
-      ...(home && home !== sep ? [home] : []),
-      ...SANDBOX_HIDDEN_ROOTS,
-      ...tmpSocketDirs(),
-      ...(spec.hidden ?? []),
-    ].map((path) => ({
+    ...[...(home && home !== sep ? [home] : []), ...hiddenRoots(), ...(spec.hidden ?? [])].map((path) => ({
       path: realPath(path),
       access: 'hide' as const,
     })),
@@ -138,7 +159,7 @@ export function pathRules(spec: PathSpec, home: string): PathRule[] {
       path,
       access: 'read' as const,
     })),
-    ...spec.writable.map((d) => ({ path: realpathSync(d), access: 'write' as const })),
+    ...spec.writable.map((d) => ({ path: realpathSync.native(d), access: 'write' as const })),
   ]
   const seen = new Set<string>()
   return rules
@@ -156,6 +177,17 @@ function ancestors(path: string): string[] {
   const out: string[] = []
   for (let dir = dirname(path); dir !== dirname(dir); dir = dirname(dir)) out.push(dir)
   return [...out, sep]
+}
+
+/**
+ * Which hidden folders on the way down to an open one may be listed (never their files): bun opens the folders above
+ * a project to find its root, and fails when it cannot. Those inside the folders hidden for lying outside the home
+ * may (a project in the temp folder), unless something hidden for its own sake (a home, the data folder) holds them.
+ */
+function listableIn(rules: readonly PathRule[]): (dir: string) => boolean {
+  const roots = hiddenRoots()
+  const guarded = rules.filter((r) => r.access === 'hide' && !roots.includes(r.path)).map((r) => r.path)
+  return (dir) => roots.some((r) => within(dir, r)) && !guarded.some((g) => within(dir, g))
 }
 
 export function macProfile(spec: PathSpec, home: string): string {
@@ -180,14 +212,7 @@ export function macProfile(spec: PathSpec, home: string): string {
   const opened = rules.filter((r) => r.access !== 'hide').map((r) => r.path)
   const parents = [...new Set(opened.flatMap(ancestors))]
   const above = parents.map((d) => `(literal ${sbplPath(d)})`)
-  // bun opens the folders above a project to find its root, and fails when it cannot: inside the folders hidden
-  // outside the home (a project in the temp folder), those on the way down may be listed, never their files, unless
-  // something hidden for its own sake (a home, the data folder) holds them.
-  const roots = SANDBOX_HIDDEN_ROOTS.map(realPath)
-  const guarded = rules.filter((r) => r.access === 'hide' && !roots.includes(r.path)).map((r) => r.path)
-  const listed = parents
-    .filter((d) => roots.some((r) => within(d, r)) && !guarded.some((g) => within(d, g)))
-    .map((d) => `(literal ${sbplPath(d)})`)
+  const listed = parents.filter(listableIn(rules)).map((d) => `(literal ${sbplPath(d)})`)
   return [
     '(version 1)',
     '(allow default)',
@@ -219,15 +244,58 @@ export function macProfile(spec: PathSpec, home: string): string {
   ].join('\n')
 }
 
-/** The same rules as bubblewrap mounts: an empty tmpfs (or /dev/null, for a file) over what is hidden. */
-export function bwrapMounts(spec: PathSpec, home: string): string[] {
-  return pathRules(spec, home).flatMap((r) => {
-    if (r.access === 'write') return ['--bind', r.path, r.path]
-    if (r.access === 'read') return ['--ro-bind', r.path, r.path]
+/**
+ * The same rules as bubblewrap mounts: an empty tmpfs (or /dev/null, for a file) over what is hidden, made read-only
+ * once what opens inside it is mounted. Its folders (the tmpfs itself and those bubblewrap makes in it on the way to
+ * an open folder) get the modes macOS's rules amount to: 0111 on the way to an open folder (looked up, not listed),
+ * 0555 where macOS lists them too (`listableIn`), 0000 otherwise. A writable 0755 tmpfs would let a command list it
+ * and write into it, a throwaway layer but no denial. The command has no capabilities, so the modes hold even though
+ * it owns the folders, and the read-only mount keeps it from changing them. `chmod` is false for a bubblewrap
+ * without --chmod (before 0.5): its hidden folders can be listed, still empty and read-only.
+ */
+export function bwrapMounts(spec: PathSpec, home: string, options: { chmod?: boolean } = {}): string[] {
+  const rules = pathRules(spec, home)
+  const opened = rules.filter((r) => r.access !== 'hide').map((r) => r.path)
+  const listable = listableIn(rules)
+  // What is mounted so far, deepest last, and the folders inside each tmpfs that the modes apply to.
+  const mounted: { path: string; tmpfs: boolean }[] = []
+  const inTmpfs = new Set<string>()
+  const args = rules.flatMap((r) => {
+    let mount: string[]
+    if (r.access === 'write') mount = ['--bind', r.path, r.path]
+    else if (r.access === 'read') mount = ['--ro-bind', r.path, r.path]
     // A mount needs something to cover.
-    if (!existsSync(r.path)) return []
-    return statSync(r.path).isDirectory() ? ['--tmpfs', r.path] : ['--ro-bind', '/dev/null', r.path]
+    else if (!existsSync(r.path)) return []
+    else if (statSync(r.path).isDirectory()) mount = ['--tmpfs', r.path]
+    else mount = ['--ro-bind', '/dev/null', r.path]
+    const cover = mounted.findLast((m) => within(r.path, m.path))
+    if (cover?.path === r.path) {
+      // Opened again where it was hidden: the tmpfs below is out of sight, and must not make this mount read-only.
+      inTmpfs.delete(r.path)
+      cover.tmpfs = false
+    } else if (cover?.tmpfs)
+      for (const dir of ancestors(r.path)) if (dir !== cover.path && within(dir, cover.path)) inTmpfs.add(dir)
+    if (mount[0] === '--tmpfs') inTmpfs.add(r.path)
+    mounted.push({ path: r.path, tmpfs: mount[0] === '--tmpfs' })
+    return mount
   })
+  const mode = (dir: string) =>
+    !opened.some((p) => p !== dir && within(p, dir)) ? '0000' : listable(dir) ? '0555' : '0111'
+  const modes = options.chmod === false ? [] : [...inTmpfs].flatMap((dir) => ['--chmod', mode(dir), dir])
+  const readOnly = mounted.filter((m) => m.tmpfs).flatMap((m) => ['--remount-ro', m.path])
+  return [...args, ...modes, ...readOnly]
+}
+
+/** Whether this bubblewrap has --chmod (0.5 and later), asked once per binary. */
+const chmodSupport = new Map<string, boolean>()
+function bwrapHasChmod(bwrap: string): boolean {
+  let has = chmodSupport.get(bwrap)
+  if (has === undefined) {
+    const help = Bun.spawnSync([bwrap, '--help'], { stdout: 'pipe', stderr: 'pipe' })
+    has = `${help.stdout}${help.stderr}`.includes('--chmod')
+    chmodSupport.set(bwrap, has)
+  }
+  return has
 }
 
 const HOME_DIR = '.home'
@@ -311,7 +379,7 @@ function confinedEnv(spec: Omit<SandboxRun, 'timeoutMs'>, person: string) {
   mkdirSync(tmp, { recursive: true })
   const env = confinedEnvFor(process.env, { person, home, tmp })
   for (const dir of [env.APPDATA, env.LOCALAPPDATA]) if (dir) mkdirSync(dir, { recursive: true })
-  return { ...env, ...spec.env }
+  return shellEnv({ ...env, ...spec.env })
 }
 
 function startConfined(
@@ -348,7 +416,7 @@ function startConfined(
  * Signals a process and all its descendants, children first: a dev server is usually a shell running npm running the
  * real server. Windows has no signals, so there the whole tree is ended at once.
  */
-function killTree(pid: number, signal: 'SIGTERM' | 'SIGKILL') {
+export function killTree(pid: number, signal: 'SIGTERM' | 'SIGKILL') {
   // Null when it has already gone.
   Process.fromPid(pid)?.killTree(constants.signals[signal])
 }
@@ -390,13 +458,18 @@ async function runLeashed(
     timedOut = true
     proc.stdin.end()
   }, spec.timeoutMs)
-  const [stdout, stderr, code] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ])
+  const out = { stdout: '', stderr: '' }
+  const read = async (stream: ReadableStream<Uint8Array>, into: 'stdout' | 'stderr') => {
+    const decoder = new TextDecoder()
+    for await (const chunk of stream) out[into] += decoder.decode(chunk, { stream: true })
+  }
+  const reading = Promise.all([read(proc.stdout, 'stdout'), read(proc.stderr, 'stderr')])
+  const code = await proc.exited
   clearTimeout(timer)
-  return { code: timedOut ? null : code, stdout: cap(stdout), stderr: cap(stderr), timedOut }
+  // Once the leash has stopped a command that ran too long, what is left holding its output open is outside the
+  // tree it could find (on Windows, a process whose Git Bash parent handed it on and exited): the run ends anyway.
+  await (timedOut ? Promise.race([reading, Bun.sleep(SANDBOX_TIMED_OUT_READ_MS)]) : reading)
+  return { code: timedOut ? null : code, stdout: cap(out.stdout), stderr: cap(out.stderr), timedOut }
 }
 
 /**
@@ -405,12 +478,13 @@ async function runLeashed(
  */
 export function unconfinedSandbox(): Sandbox {
   const argv = plainShell
-  const env = (spec: Omit<SandboxRun, 'timeoutMs'>) => ({ ...process.env, ...spec.env })
+  const env = (spec: Omit<SandboxRun, 'timeoutMs'>) => shellEnv({ ...process.env, ...spec.env })
   return {
     kind: 'unconfined',
     argv,
     run: (spec) => runLeashed(argv(spec), spec, env(spec)),
     start: (spec) => startConfined(argv(spec), spec, env(spec)),
+    env,
   }
 }
 
@@ -444,10 +518,12 @@ export function detectSandbox(options: { home?: string } = {}): Sandbox {
       argv,
       run: (spec) => spawnConfined(argv(spec), spec, home),
       start: (spec) => startConfined(argv(spec), spec, confinedEnv(spec, home)),
+      env: (spec) => confinedEnv(spec, home),
     }
   }
   const bwrap = process.platform === 'linux' ? Bun.which('bwrap') : null
   if (bwrap) {
+    const chmod = bwrapHasChmod(bwrap)
     const argv = (spec: Omit<SandboxRun, 'timeoutMs'>) => [
       bwrap,
       '--ro-bind',
@@ -457,8 +533,12 @@ export function detectSandbox(options: { home?: string } = {}): Sandbox {
       '/dev',
       '--proc',
       '/proc',
-      ...bwrapMounts(spec, home),
+      ...bwrapMounts(spec, home, { chmod }),
       '--unshare-pid',
+      // Its own session, with no controlling terminal: when Myrmidon runs in a terminal, a command could otherwise
+      // type into it (TIOCSTI) and have the shell run that after Myrmidon exits, outside the sandbox.
+      '--new-session',
+      // Stopped when Myrmidon (or the leash) is, however it ends.
       '--die-with-parent',
       '--chdir',
       spec.cwd,
@@ -471,6 +551,7 @@ export function detectSandbox(options: { home?: string } = {}): Sandbox {
       argv,
       run: (spec) => spawnConfined(argv(spec), spec, home),
       start: (spec) => startConfined(argv(spec), spec, confinedEnv(spec, home)),
+      env: (spec) => confinedEnv(spec, home),
     }
   }
   const argv = plainShell
@@ -479,5 +560,6 @@ export function detectSandbox(options: { home?: string } = {}): Sandbox {
     argv,
     run: (spec) => spawnConfined(argv(spec), spec, home),
     start: (spec) => startConfined(argv(spec), spec, confinedEnv(spec, home)),
+    env: (spec) => confinedEnv(spec, home),
   }
 }

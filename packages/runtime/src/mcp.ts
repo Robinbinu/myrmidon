@@ -1,7 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { AgentTool } from '@oh-my-pi/pi-agent-core'
 import { MCP_STARTUP_MS } from './config.ts'
+import type { AgentTool } from './omp/agent-core.ts'
+import { loadMcp } from './omp/mcp.ts'
 import { ownerOnly } from './owner-only.ts'
 
 /**
@@ -171,8 +172,7 @@ export class McpHub {
   }
 
   private async _connect() {
-    const { MCPManager } = await import('@oh-my-pi/pi-coding-agent/mcp/manager')
-    const { CustomToolAdapter } = await import('@oh-my-pi/pi-coding-agent/extensibility/custom-tools/wrapper')
+    const { MCPManager, CustomToolAdapter } = await loadMcp()
     // No discovery: Myrmidon connects exactly the servers in its own mcp.json.
     this._manager ??= new MCPManager(this.agentDir, null, async () => ({
       configs: {},

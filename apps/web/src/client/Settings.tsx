@@ -7,6 +7,7 @@ import {
   ChevronRight,
   CircleCheck,
   CircleX,
+  Combine,
   Download,
   ExternalLink,
   FoldVertical,
@@ -22,6 +23,7 @@ import {
   Trash2,
   TriangleAlert,
   UnfoldVertical,
+  X,
 } from 'lucide-react'
 import { AnimatePresence, motion, useReducedMotionConfig } from 'motion/react'
 import { type ReactNode, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -47,13 +49,24 @@ import { formatSize } from './chat/Attachments.tsx'
 import { TeamSettings } from './chat/Composer.tsx'
 import { ToolLibraryList } from './chat/MadeTools.tsx'
 import { ModelPicker, windowLabel } from './chat/ModelPicker.tsx'
-import { usersOf, withoutModel } from './chat/model-list.ts'
+import { modelName, usersOf, withoutModel } from './chat/model-list.ts'
 import { SpecialistEditor } from './chat/SpecialistEditor.tsx'
 import { copy } from './copy.ts'
+import {
+  AddSkills,
+  type InstalledFromView,
+  InstalledLine,
+  InstallReview,
+  Marketplaces,
+  type PluginPreviewView,
+  type Review,
+  type SkillPreviewView,
+} from './installs.tsx'
 import { type MascotPatch, SETTINGS_SAVED, withMascotDefaults } from './mascot.ts'
 import { MascotBehaviour, MascotPreview, MiniMascot } from './mascot-settings.tsx'
 import type { CatalogTool } from './permissions/describe.ts'
 import { type GlobalPermissions, PermissionsPage } from './permissions/PermissionsPage.tsx'
+import { PlanLimits } from './plan-limits.tsx'
 import { PluginSlot, usePluginSlots } from './plugins.tsx'
 import {
   cronToRule,
@@ -139,6 +152,7 @@ import { useToast } from './ui/Toast.tsx'
 import {
   AGENT_MIN_WINDOW,
   MASCOT_COLORS,
+  MAX_FALLBACKS,
   SETTINGS_NAV_COLLAPSE_PX,
   SETTINGS_SEARCH_COMBO,
   SUGGEST_MODEL_POLL_MS,
@@ -191,6 +205,13 @@ export interface ServerSettings {
     leadModel?: string
     workerModel?: string
     judgeModel?: string
+    /** The advisor's model; absent means no advisor. */
+    advisorModel?: string
+    /** Prewalk's carry-out model; absent means the lead keeps its own. */
+    carryOutModel?: string
+    /** Models the lead, and the crew, go on with when theirs fails; absent from older servers. */
+    leadFallbacks?: string[]
+    workerFallbacks?: string[]
     wallMinutes: number
     maxTurns: number
     costUsd: number
@@ -200,14 +221,24 @@ export interface ServerSettings {
   sandbox?: { read?: string[]; readHome?: boolean }
   /** Computer use (agents on the person's Mac); absent from older servers. */
   computerUse?: { enabled: boolean; engine?: 'cua' | 'omp' }
+  /** Remote hosts agents reach over SSH; absent from older servers. */
+  ssh?: { hosts: SshHostSetting[] }
+  /** Telemetry export over OTLP; absent from older servers. */
+  telemetry?: { enabled: boolean; endpoint: string }
+  /** Secrets reach model providers as placeholders; absent from older servers, which do not hide them. */
+  privacy?: { hideSecrets: boolean }
   verification: { threshold: number; rubric?: string; reviewer: 'off' | 'auto' | 'always' }
   instructions: { lead?: string; worker?: string }
   observer: { intervalSeconds: number }
   search: { provider: string }
+  /** The model generate_image uses (`provider/id`); none means the first that can. Absent from older servers. */
+  images?: { model?: string }
   models: { hidden: string[]; hiddenProviders: string[]; windows?: Record<string, number> }
   /** The global level of the permission model: the default preset, rules, who can use what. */
   permissions: GlobalPermissions
   profile?: { name?: string; greeting: 'model' | 'rules'; titles?: 'model' | 'first-message' }
+  /** Memory suggestions after chats; absent from older servers. */
+  memory?: { suggest: boolean }
   mascot?: MascotPatch
   /** VS Code themes the person imported; absent from older servers. */
   appearance?: { imported: ImportedTheme[] }
@@ -236,10 +267,20 @@ export interface ServerSettings {
   }
 }
 
+/** A remote host as Settings keeps it: a name for agents and rules, and where ssh connects. */
+export interface SshHostSetting {
+  name: string
+  host: string
+  user?: string
+  port?: number
+}
+
 export interface SettingsResponse {
   settings: ServerSettings
   providers: ProviderInfo[]
   searchProviders: { id: string; label: string }[]
+  /** Image models generate_image can use now, best first; absent from older servers. */
+  imageModels?: string[]
   customApis: Api[]
   sandbox: string
   /** Paths of the person's keys and Myrmidon's data, as typed and in full: a readable folder that opens one is warned about. */
@@ -710,8 +751,14 @@ export function Settings(props: {
                     onChange={(permissions, immediate) => update((s) => ({ ...s, permissions }), immediate)}
                     tools={data.toolCatalog}
                     servers={data.mcpServers ?? []}
+                    hosts={(data.settings.ssh?.hosts ?? []).map((h) => h.name)}
                     sandbox={data.sandbox}
-                    reads={<SandboxReads data={data} update={update} />}
+                    reads={
+                      <>
+                        <SandboxReads data={data} update={update} />
+                        <HideSecrets data={data} update={update} />
+                      </>
+                    }
                     computerUse={data.settings.computerUse?.enabled === true}
                     onSetUpComputer={() => setSection('computer')}
                   />
@@ -719,7 +766,7 @@ export function Settings(props: {
                 {section === 'instructions' && data && (
                   <InstructionsSection settings={data.settings} update={update} />
                 )}
-                {section === 'memory' && <MemorySection />}
+                {section === 'memory' && <MemorySection settings={data?.settings} update={update} />}
                 {section === 'skills' && <SkillsSection />}
                 {section === 'plugins' && <PluginsSection />}
                 {section === 'hooks' && <HooksSection onDirty={setHooksDirty} />}
@@ -1025,7 +1072,126 @@ function General(props: {
           </SettingField>
         )}
       </Card>
+      {props.data && <TelemetrySettings data={props.data} update={props.update} />}
     </>
+  )
+}
+
+/** Telemetry export over OTLP: the switch, the collector's address, its headers (kept in the vault) and a test. */
+function TelemetrySettings(props: {
+  data: SettingsResponse
+  update(p: (s: ServerSettings) => ServerSettings, immediate?: boolean): void
+}) {
+  const t = copy.settings.telemetry
+  const toast = useToast()
+  const telemetry = props.data.settings.telemetry ?? { enabled: false, endpoint: '' }
+  const [endpoint, setEndpoint] = useState(telemetry.endpoint)
+  const [headers, setHeaders] = useState('')
+  const [status, setStatus] = useState<{
+    headersSet?: boolean
+    last?: { at: string; ok: boolean; error?: string }
+  }>({})
+  const [busy, setBusy] = useState(false)
+  useEffect(() => {
+    api<typeof status>('/api/telemetry')
+      .then(setStatus)
+      .catch(() => setStatus({}))
+  }, [])
+  const valid = !endpoint.trim() || /^https?:\/\/\S+$/.test(endpoint.trim())
+  const saveHeaders = async (text: string) => {
+    setBusy(true)
+    try {
+      const r = text
+        ? await send<{ headersSet: boolean }>('PUT', '/api/telemetry/headers', { headers: text })
+        : await send<{ headersSet: boolean }>('DELETE', '/api/telemetry/headers')
+      setStatus((s) => ({ ...s, headersSet: r.headersSet }))
+      setHeaders('')
+      toast(text ? t.headersStored : t.headersRemoved, 'success')
+    } catch (err) {
+      toast(String((err as Error).message), 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+  const test = async () => {
+    setBusy(true)
+    try {
+      const r = await send<{ at: string; ok: boolean; error?: string }>('POST', '/api/telemetry/test')
+      setStatus((s) => ({ ...s, last: r }))
+      toast(r.ok ? t.testOk : t.testFailed(r.error ?? ''), r.ok ? 'success' : 'error')
+    } catch (err) {
+      toast(t.testFailed(String((err as Error).message)), 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div>
+      <SectionHeader
+        className="mb-2"
+        icon={<FEATURE_ICONS.telemetry className="size-4 text-muted" />}
+        title={t.title}
+        note={t.subtitle}
+      />
+      <Card>
+        <SettingField id="general.telemetry" inline>
+          <Switch
+            checked={telemetry.enabled}
+            label={t.enabled}
+            onChange={(v) => props.update((s) => ({ ...s, telemetry: { ...telemetry, enabled: v } }), true)}
+          />
+        </SettingField>
+        <SettingField id="general.telemetryEndpoint" {...(valid ? {} : { error: t.endpointInvalid })}>
+          <div className="flex items-center gap-2">
+            <TextInput
+              value={endpoint}
+              placeholder={t.endpointPlaceholder}
+              aria-label={t.endpoint}
+              onChange={(e) => {
+                const next = e.target.value
+                setEndpoint(next)
+                if (!next.trim() || /^https?:\/\/\S+$/.test(next.trim()))
+                  props.update((s) => ({ ...s, telemetry: { ...telemetry, endpoint: next.trim() } }))
+              }}
+              className="min-w-0 flex-1 font-mono"
+            />
+            <Button size="sm" disabled={busy || !telemetry.endpoint} onClick={() => void test()}>
+              {t.test}
+            </Button>
+          </div>
+          {status.last && (
+            <p className={cn('mt-1 text-small', status.last.ok ? 'text-muted' : 'text-bad-ink')}>
+              {t.last(new Date(status.last.at).toLocaleString(), status.last.ok, status.last.error)}
+            </p>
+          )}
+        </SettingField>
+        <SettingField id="general.telemetryHeaders" {...(status.headersSet ? { hint: t.headersSaved } : {})}>
+          <div className="flex items-center gap-2">
+            <TextInput
+              type="password"
+              value={headers}
+              placeholder={t.headersPlaceholder}
+              aria-label={t.headers}
+              autoComplete="off"
+              onChange={(e) => setHeaders(e.target.value)}
+              className="min-w-0 flex-1 font-mono"
+            />
+            <Button
+              size="sm"
+              disabled={busy || !headers.trim()}
+              onClick={() => void saveHeaders(headers.trim())}
+            >
+              {t.saveHeaders}
+            </Button>
+            {status.headersSet && (
+              <Button size="sm" variant="borderless" disabled={busy} onClick={() => void saveHeaders('')}>
+                {t.removeHeaders}
+              </Button>
+            )}
+          </div>
+        </SettingField>
+      </Card>
+    </div>
   )
 }
 
@@ -1770,6 +1936,7 @@ export function Providers(props: {
       )}
 
       <SignIns onProviders={props.onProviders} />
+      {!props.embedded && <PlanLimits />}
 
       <div {...settingRow('providers.list')} className="mb-2 flex items-center justify-between">
         <SectionHeader
@@ -2164,6 +2331,65 @@ function TeamSection(props: {
           </Card>
         </>
       )}
+      <SectionHeader as="h3" className="mb-2" title={copy.settings.team.fallbacksTitle} />
+      <Card className="mb-8">
+        <FallbackModels
+          id="team.leadFallbacks"
+          value={t.leadFallbacks ?? []}
+          models={props.models}
+          onChange={(leadFallbacks) => props.update((s) => ({ ...s, team: { ...s.team, leadFallbacks } }))}
+        />
+        <FallbackModels
+          id="team.workerFallbacks"
+          value={t.workerFallbacks ?? []}
+          models={props.models}
+          onChange={(workerFallbacks) =>
+            props.update((s) => ({ ...s, team: { ...s.team, workerFallbacks } }))
+          }
+        />
+      </Card>
+      <SectionHeader
+        as="h3"
+        className="mb-2"
+        icon={<FEATURE_ICONS.advisor className="size-4 text-muted" />}
+        title={copy.settings.team.advisorTitle}
+      />
+      <Card className="mb-8">
+        <OptionalModel
+          id="team.advisorModel"
+          value={t.advisorModel}
+          models={props.models}
+          choose={copy.settings.team.chooseAdvisor}
+          off={copy.settings.team.advisorOff}
+          onChange={(advisorModel) =>
+            props.update((s) => {
+              const { advisorModel: _, ...team } = s.team
+              return { ...s, team: advisorModel ? { ...team, advisorModel } : team }
+            })
+          }
+        />
+      </Card>
+      <SectionHeader
+        as="h3"
+        className="mb-2"
+        icon={<FEATURE_ICONS.prewalk className="size-4 text-muted" />}
+        title={copy.settings.team.prewalkTitle}
+      />
+      <Card className="mb-8">
+        <OptionalModel
+          id="team.carryOutModel"
+          value={t.carryOutModel}
+          models={props.models}
+          choose={copy.settings.team.chooseCarryOut}
+          off={copy.settings.team.carryOutOff}
+          onChange={(carryOutModel) =>
+            props.update((s) => {
+              const { carryOutModel: _, ...team } = s.team
+              return { ...s, team: carryOutModel ? { ...team, carryOutModel } : team }
+            })
+          }
+        />
+      </Card>
       <SectionHeader as="h3" className="mb-2" title={copy.settings.team.limitsTitle} />
       <Card className="mb-8">
         <SettingField id="team.wallMinutes" inline>
@@ -2220,6 +2446,89 @@ function TeamSection(props: {
       </Card>
       <ReviewerSettings settings={props.data.settings} update={props.update} />
     </>
+  )
+}
+
+/** An optional model (the advisor's, prewalk's carry-out), or a picker to choose one while there is none (off). */
+function OptionalModel(props: {
+  id: 'team.advisorModel' | 'team.carryOutModel'
+  value?: string
+  models: ModelOption[]
+  /** The picker's label while there is none. */
+  choose: string
+  /** The label of the button that turns it off, naming the model. */
+  off(model: string): string
+  onChange(v: string | undefined): void
+}) {
+  const ref = props.value
+  const name = ref ? modelName(props.models.find((m) => m.ref === ref)?.name ?? ref) : ''
+  return (
+    <SettingField id={props.id}>
+      {ref ? (
+        <span
+          title={ref}
+          className="inline-flex h-7 max-w-[260px] items-center gap-1 rounded-md border border-line bg-fill/60 pl-2 text-callout"
+        >
+          <span className="truncate">{name}</span>
+          <IconButton size="sm" label={props.off(name)} onClick={() => props.onChange(undefined)}>
+            <X className="size-3.5" />
+          </IconButton>
+        </span>
+      ) : (
+        <ModelPicker
+          variant="compact"
+          placement="down"
+          label={props.choose}
+          value=""
+          models={props.models}
+          onChange={(next) => props.onChange(next)}
+        />
+      )}
+    </SettingField>
+  )
+}
+
+/** An ordered list of fallback models: each with its place and a remove button, then a picker to add one more. */
+function FallbackModels(props: {
+  id: 'team.leadFallbacks' | 'team.workerFallbacks'
+  value: readonly string[]
+  models: ModelOption[]
+  onChange(v: string[]): void
+}) {
+  const t = copy.settings.team
+  const name = (ref: string) => modelName(props.models.find((m) => m.ref === ref)?.name ?? ref)
+  return (
+    <SettingField id={props.id}>
+      <div className="flex flex-wrap items-center gap-1.5">
+        {props.value.map((ref, i) => (
+          <span
+            key={ref}
+            title={ref}
+            className="inline-flex h-7 max-w-[260px] items-center gap-1 rounded-md border border-line bg-fill/60 pl-2 text-callout"
+          >
+            <span className="tabular-nums text-muted">{i + 1}</span>
+            <span className="truncate">{name(ref)}</span>
+            <IconButton
+              size="sm"
+              label={t.removeFallback(name(ref))}
+              onClick={() => props.onChange(props.value.filter((r) => r !== ref))}
+            >
+              <X className="size-3.5" />
+            </IconButton>
+          </span>
+        ))}
+        {props.value.length < MAX_FALLBACKS && (
+          <ModelPicker
+            variant="compact"
+            placement="down"
+            label={t.addFallback}
+            value=""
+            models={props.models.filter((m) => !props.value.includes(m.ref))}
+            onChange={(ref) => props.onChange([...props.value, ref])}
+          />
+        )}
+      </div>
+    </SettingField>
   )
 }
 
@@ -2352,6 +2661,34 @@ function SandboxReads(props: {
   )
 }
 
+/** Whether secrets reach model providers as placeholders (the runtime's provider-secrets.ts). */
+function HideSecrets(props: {
+  data: SettingsResponse
+  update(p: (s: ServerSettings) => ServerSettings, immediate?: boolean): void
+}) {
+  const t = copy.settings.tools.secrets
+  const on = props.data.settings.privacy?.hideSecrets ?? true
+  return (
+    <>
+      <SectionHeader
+        className="mb-2"
+        icon={<FEATURE_ICONS.hiddenSecrets className="size-4 text-muted" />}
+        title={t.title}
+        note={t.subtitle}
+      />
+      <Card className="mb-6">
+        <SettingField id="permissions.hideSecrets" hint={on ? t.hideHint : t.offHint} inline>
+          <Switch
+            checked={on}
+            label={t.hide}
+            onChange={(v) => props.update((s) => ({ ...s, privacy: { hideSecrets: v } }), true)}
+          />
+        </SettingField>
+      </Card>
+    </>
+  )
+}
+
 function ToolsSection(props: {
   data: SettingsResponse
   update(p: (s: ServerSettings) => ServerSettings, immediate?: boolean): void
@@ -2368,6 +2705,7 @@ function ToolsSection(props: {
         </Button>
       </Banner>
       <McpServers />
+      <SshHosts data={props.data} update={props.update} />
       <div {...settingRow('tools.library')}>
         <SectionHeader
           className="mb-2 mt-8"
@@ -2394,6 +2732,46 @@ function ToolsSection(props: {
             {props.data.searchProviders.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.label}
+              </option>
+            ))}
+          </Select>
+        </SettingField>
+      </Card>
+      <ImageModelSetting data={props.data} update={props.update} />
+    </>
+  )
+}
+
+/** The model generate_image makes pictures with: Automatic, or one of those the person's providers can run. */
+function ImageModelSetting(props: {
+  data: SettingsResponse
+  update(p: (s: ServerSettings) => ServerSettings, immediate?: boolean): void
+}) {
+  const t = copy.settings.tools
+  const models = props.data.imageModels ?? []
+  const chosen = props.data.settings.images?.model
+  return (
+    <>
+      <SectionHeader
+        className="mb-2 mt-8"
+        icon={<FEATURE_ICONS.imageGeneration className="size-4 text-muted" />}
+        title={t.imageGeneration}
+      />
+      <Card>
+        <SettingField id="tools.imageModel" {...(models.length ? {} : { hint: t.imageModelNone })} inline>
+          <Select
+            value={chosen ?? ''}
+            onChange={(e) =>
+              props.update((s) => ({ ...s, images: e.target.value ? { model: e.target.value } : {} }), true)
+            }
+            aria-label={t.imageModel}
+            className="min-w-44"
+          >
+            <option value="">{t.imageAuto}</option>
+            {chosen && !models.includes(chosen) && <option value={chosen}>{t.imageGone(chosen)}</option>}
+            {models.map((ref) => (
+              <option key={ref} value={ref}>
+                {ref}
               </option>
             ))}
           </Select>
@@ -2618,6 +2996,181 @@ function McpServers() {
             </CardRow>
           ))
         )}
+      </Card>
+    </div>
+  )
+}
+
+/** An alias of ~/.ssh/config, with what the file says it reaches. */
+interface SshConfigHost {
+  name: string
+  hostName?: string
+  user?: string
+  port?: number
+}
+
+const SSH_HOST_NAME = /^[A-Za-z0-9_.-]{1,100}$/
+const NO_SSH_FORM = { name: '', host: '', user: '', port: '' }
+
+/** Where a host connects, as ssh would be told: user@host:port. */
+const sshTarget = (h: SshHostSetting) => `${h.user ? `${h.user}@` : ''}${h.host}${h.port ? `:${h.port}` : ''}`
+
+/** Remote hosts agents reach over SSH: the person's list with a test each, and a form to add one or one from ~/.ssh/config. */
+function SshHosts(props: {
+  data: SettingsResponse
+  update(p: (s: ServerSettings) => ServerSettings, immediate?: boolean): void
+}) {
+  const t = copy.settings.ssh
+  const toast = useToast()
+  const hosts = props.data.settings.ssh?.hosts ?? []
+  const [config, setConfig] = useState<SshConfigHost[]>([])
+  const [form, setForm] = useState(NO_SSH_FORM)
+  const [testing, setTesting] = useState<string>()
+
+  useEffect(() => {
+    api<{ hosts?: SshConfigHost[] }>('/api/ssh/config')
+      .then((r) => setConfig(r.hosts ?? []))
+      .catch(() => setConfig([]))
+  }, [])
+
+  const save = (next: SshHostSetting[]) => props.update((s) => ({ ...s, ssh: { hosts: next } }), true)
+  const name = form.name.trim()
+  const port = Number(form.port)
+  const add = () => {
+    if (!SSH_HOST_NAME.test(name)) return toast(t.badName, 'error')
+    if (hosts.some((h) => h.name === name)) return toast(t.exists(name), 'error')
+    save([
+      ...hosts,
+      {
+        name,
+        host: form.host.trim(),
+        ...(form.user.trim() ? { user: form.user.trim() } : {}),
+        ...(Number.isInteger(port) && port > 0 ? { port } : {}),
+      },
+    ])
+    toast(t.added(name), 'success')
+    setForm(NO_SSH_FORM)
+  }
+  const test = async (host: string) => {
+    setTesting(host)
+    try {
+      const r = await send<{ ok: boolean; error?: string }>('POST', '/api/ssh/test', { name: host })
+      toast(r.ok ? t.testOk(host) : t.testFailed(host, r.error ?? ''), r.ok ? 'success' : 'error')
+    } catch (err) {
+      toast(t.testFailed(host, String((err as Error).message)), 'error')
+    } finally {
+      setTesting(undefined)
+    }
+  }
+  const unused = config.filter((c) => !hosts.some((h) => h.name === c.name))
+
+  return (
+    <div {...settingRow('tools.ssh')}>
+      <SectionHeader
+        className="mb-2 mt-8"
+        icon={<FEATURE_ICONS.sshHosts className="size-4 text-muted" />}
+        title={t.title}
+        note={t.subtitle}
+      />
+      <Card>
+        {hosts.length === 0 ? (
+          <CardRow>
+            <span className="text-body text-muted">{t.empty}</span>
+          </CardRow>
+        ) : (
+          hosts.map((h) => (
+            <CardRow key={h.name}>
+              <div className="flex items-center gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="text-reading font-medium">{h.name}</div>
+                  <div className="truncate font-mono text-footnote text-muted" title={sshTarget(h)}>
+                    {sshTarget(h)}
+                  </div>
+                </div>
+                <Button
+                  size="sm"
+                  variant="borderless"
+                  loading={testing === h.name}
+                  disabled={testing !== undefined}
+                  onClick={() => void test(h.name)}
+                  aria-label={t.testLabel(h.name)}
+                >
+                  {t.test}
+                </Button>
+                <ConfirmButton
+                  icon
+                  label={t.remove(h.name)}
+                  confirm={t.confirmRemove}
+                  onConfirm={() => {
+                    save(hosts.filter((x) => x.name !== h.name))
+                    toast(t.removed(h.name), 'success')
+                  }}
+                />
+              </div>
+            </CardRow>
+          ))
+        )}
+        <CardRow {...settingRow('tools.sshAdd')}>
+          <div className="mb-2 text-reading font-medium">{setting('tools.sshAdd').label}</div>
+          {unused.length > 0 && (
+            <Field label={t.fromConfig}>
+              <Select
+                value=""
+                onChange={(e) => {
+                  const alias = e.target.value
+                  if (alias) setForm({ ...NO_SSH_FORM, name: alias, host: alias })
+                }}
+              >
+                <option value="">{t.fromConfigNone}</option>
+                {unused.map((c) => (
+                  <option key={c.name} value={c.name}>
+                    {c.hostName ? `${c.name} (${c.user ? `${c.user}@` : ''}${c.hostName})` : c.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          )}
+          <div className="mt-2 grid gap-3 sm:grid-cols-4">
+            <Field label={t.name}>
+              <TextInput
+                value={form.name}
+                placeholder="build-box"
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+              />
+            </Field>
+            <Field label={t.host}>
+              <TextInput
+                value={form.host}
+                placeholder="build.example.com"
+                onChange={(e) => setForm({ ...form, host: e.target.value })}
+                className="font-mono"
+              />
+            </Field>
+            <Field label={t.user}>
+              <TextInput
+                value={form.user}
+                placeholder="deploy"
+                onChange={(e) => setForm({ ...form, user: e.target.value })}
+              />
+            </Field>
+            <Field label={t.port}>
+              <TextInput
+                value={form.port}
+                placeholder="22"
+                inputMode="numeric"
+                onChange={(e) => setForm({ ...form, port: e.target.value.replace(/\D/g, '') })}
+              />
+            </Field>
+          </div>
+          <div className="mt-3 flex items-center gap-3">
+            <p className="min-w-0 flex-1 text-callout text-muted">
+              {setting('tools.sshAdd').help} {t.note} {t.rulesHint}
+            </p>
+            <Button size="sm" variant="primary" disabled={!name || !form.host.trim()} onClick={add}>
+              {t.add}
+            </Button>
+          </div>
+        </CardRow>
       </Card>
     </div>
   )
@@ -5008,6 +5561,8 @@ export interface SkillEntry {
   source: 'myrmidon' | 'claude' | 'plugin' | 'project'
   enabled: boolean
   curation?: { uses: number; lastUsed?: string; stale: boolean; kept: boolean }
+  /** Installed from the skills registry, a repository or a folder. */
+  installed?: InstalledFromView
 }
 
 interface SkillsResponse {
@@ -5041,6 +5596,8 @@ export interface PluginEntry {
   settings: Record<string, { type: 'string' | 'number' | 'boolean'; description?: string; secret?: boolean }>
   values: Record<string, string | number | boolean>
   status?: { loaded: boolean; error?: string; tools: string[]; log: string[] }
+  /** Where it was installed from, pinned to a version or commit. */
+  installed?: InstalledFromView
 }
 
 /** A plugin's settings, saved one field at a time when it loses focus (or a switch flips). */
@@ -5099,17 +5656,29 @@ function PluginsSection() {
   useEffect(() => {
     void load()
   }, [])
+  const [review, setReview] = useState<Review>()
+  const [updating, setUpdating] = useState<string>()
   const add = async () => {
     setAdding(true)
     try {
-      const r = await send<{ plugin: PluginEntry }>('POST', '/api/plugins', { source })
-      toast(copy.settings.plugins.added(r.plugin.name), 'success')
+      const r = await post<{ preview: PluginPreviewView }>('/api/plugins', { source })
+      setReview({ kind: 'plugin', preview: r.preview })
       setSource('')
-      await load()
     } catch (err) {
       toast((err as Error).message, 'error')
     } finally {
       setAdding(false)
+    }
+  }
+  const update = async (name: string) => {
+    setUpdating(name)
+    try {
+      const r = await post<{ preview: PluginPreviewView }>(`/api/plugins/${name}/update`, {})
+      setReview({ kind: 'plugin', preview: r.preview })
+    } catch (err) {
+      toast((err as Error).message, 'error')
+    } finally {
+      setUpdating(undefined)
     }
   }
   const [logOpen, setLogOpen] = useState<string>()
@@ -5235,11 +5804,26 @@ function PluginsSection() {
                         )}
                       </div>
                     ) : null}
-                    <p className="mt-1 truncate font-mono text-footnote text-muted" title={p.dir}>
-                      {p.dir}
-                    </p>
+                    {p.installed ? (
+                      <InstalledLine from={p.installed} label={copy.settings.plugins.from} />
+                    ) : (
+                      <p className="mt-1 truncate font-mono text-footnote text-muted" title={p.dir}>
+                        {p.dir}
+                      </p>
+                    )}
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
+                    {p.installed && (
+                      <Button
+                        size="sm"
+                        variant="borderless"
+                        loading={updating === p.name}
+                        disabled={!!updating}
+                        onClick={() => void update(p.name)}
+                      >
+                        {updating === p.name ? copy.settings.plugins.updating : copy.settings.plugins.update}
+                      </Button>
+                    )}
                     <ConfirmButton
                       label={copy.settings.plugins.remove}
                       confirm={copy.settings.plugins.confirmRemove}
@@ -5267,6 +5851,19 @@ function PluginsSection() {
           <p className="mt-2 text-small text-muted">{copy.settings.plugins.applies}</p>
         </>
       )}
+      <Marketplaces installed={data?.plugins.map((p) => p.name) ?? []} onReview={setReview} />
+      <AnimatePresence>
+        {review && (
+          <InstallReview
+            review={review}
+            onClose={() => setReview(undefined)}
+            onInstalled={() => {
+              setReview(undefined)
+              void load()
+            }}
+          />
+        )}
+      </AnimatePresence>
     </>
   )
 }
@@ -5313,6 +5910,19 @@ function SkillsSection() {
   const toast = useToast()
   const [data, setData] = useState<SkillsResponse>()
   const [proposed, setProposed] = useState<SkillProposalView[]>([])
+  const [review, setReview] = useState<Review>()
+  const [updating, setUpdating] = useState<string>()
+  const update = async (name: string) => {
+    setUpdating(name)
+    try {
+      const r = await post<{ preview: SkillPreviewView }>(`/api/skills/${name}/update`, {})
+      setReview({ kind: 'skill', preview: r.preview })
+    } catch (err) {
+      toast((err as Error).message, 'error')
+    } finally {
+      setUpdating(undefined)
+    }
+  }
   const load = () => {
     api<{ proposals: SkillProposalView[] }>('/api/skill-proposals')
       .then((r) => setProposed(r.proposals))
@@ -5338,6 +5948,7 @@ function SkillsSection() {
         {data?.retire &&
           ` ${copy.settings.skills.retireIntro(data.retire.staleDays, data.retire.archiveDays)}`}
       </PageHeader>
+      <AddSkills installed={data?.skills.map((s) => s.name) ?? []} onReview={setReview} />
       {proposed.length > 0 && (
         <div {...settingRow('skills.proposed')} className="mb-6 flex flex-col gap-3">
           <SectionHeader title={copy.settings.skills.proposed(proposed.length)} />
@@ -5377,6 +5988,7 @@ function SkillsSection() {
                     )}
                   </div>
                   <SkillDescription text={s.description} dir={s.dir} />
+                  {s.installed && <InstalledLine from={s.installed} label={copy.settings.skills.from} />}
                   {s.curation && (
                     <div className="mt-1 text-footnote text-muted">
                       {copy.settings.skills.uses(
@@ -5386,6 +5998,29 @@ function SkillsSection() {
                     </div>
                   )}
                 </div>
+                {s.installed && (
+                  <>
+                    <Button
+                      size="sm"
+                      variant="borderless"
+                      loading={updating === s.name}
+                      disabled={!!updating}
+                      onClick={() => void update(s.name)}
+                    >
+                      {copy.settings.skills.update}
+                    </Button>
+                    <ConfirmButton
+                      label={copy.settings.skills.remove}
+                      confirm={copy.settings.skills.confirmRemove}
+                      onConfirm={() =>
+                        void send('DELETE', `/api/skills/${s.name}`)
+                          .then(() => toast(copy.settings.skills.removed(s.name), 'success'))
+                          .then(load)
+                          .catch((err: Error) => toast(err.message, 'error'))
+                      }
+                    />
+                  </>
+                )}
                 {s.curation && (
                   <Button
                     size="sm"
@@ -5449,6 +6084,18 @@ function SkillsSection() {
           </Card>
         </div>
       )}
+      <AnimatePresence>
+        {review && (
+          <InstallReview
+            review={review}
+            onClose={() => setReview(undefined)}
+            onInstalled={() => {
+              setReview(undefined)
+              void load()
+            }}
+          />
+        )}
+      </AnimatePresence>
     </>
   )
 }
@@ -5459,19 +6106,40 @@ interface MemoryEntry {
   kind: 'preference' | 'decision' | 'lesson' | 'fact'
   project?: string
   status: 'active' | 'proposed'
-  source: { by: 'person' | 'agent'; agent?: string; why?: string }
+  /** A proposal that merges or corrects kept memories: keeping it removes these. */
+  replaces?: string[]
+  source: { by: 'person' | 'agent' | 'extract' | 'reflect'; agent?: string; why?: string }
   updatedAt: string
 }
 
 const MEMORY_KINDS = ['preference', 'decision', 'lesson', 'fact'] as const
 
-/** What Myrmidon keeps across chats: add, edit, re-scope and remove memories, and decide on agents' proposals. */
-function MemorySection() {
+/** Whether a memory holds every word of a search, in any order. */
+function memoryMatches(m: MemoryEntry, query: string): boolean {
+  const text = m.text.toLowerCase()
+  return query
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean)
+    .every((w) => text.includes(w))
+}
+
+/**
+ * What Myrmidon keeps across chats: add, search, edit, re-scope and remove memories, decide on what agents and the
+ * memory reviewer suggest, and ask for a tidy-up.
+ */
+function MemorySection(props: {
+  settings?: ServerSettings | undefined
+  update(p: (s: ServerSettings) => ServerSettings, immediate?: boolean): void
+}) {
   const toast = useToast()
+  const t = copy.settings.memory
   const [memories, setMemories] = useState<MemoryEntry[]>()
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([])
   const [draft, setDraft] = useState({ text: '', kind: 'preference', project: '' })
   const [editing, setEditing] = useState<{ id: string; text: string }>()
+  const [query, setQuery] = useState('')
+  const [tidying, setTidying] = useState(false)
   const load = () =>
     api<{ memories: MemoryEntry[] }>('/api/memory')
       .then((r) => setMemories(r.memories))
@@ -5491,45 +6159,102 @@ function MemorySection() {
       toast((err as Error).message, 'error')
     }
   }
+  const tidy = async () => {
+    setTidying(true)
+    try {
+      const r = await send<{ suggested: number; memories: MemoryEntry[] }>('POST', '/api/memory/tidy')
+      setMemories(r.memories)
+      toast(r.suggested ? t.tidied(r.suggested) : t.tidiedNone, r.suggested ? 'success' : 'info')
+    } catch (err) {
+      toast((err as Error).message, 'error')
+    } finally {
+      setTidying(false)
+    }
+  }
   const scopeName = (project?: string) =>
-    project ? (projects.find((p) => p.id === project)?.name ?? project) : copy.settings.memory.everyChat
-  const groups = [...new Set((memories ?? []).map((m) => m.project ?? ''))].sort((a, b) =>
+    project ? (projects.find((p) => p.id === project)?.name ?? project) : t.everyChat
+  const kept = (memories ?? []).filter((m) => m.status === 'active')
+  const waiting = (memories ?? []).filter((m) => m.status === 'proposed')
+  const shown = kept.filter((m) => memoryMatches(m, query))
+  const groups = [...new Set(shown.map((m) => m.project ?? ''))].sort((a, b) =>
     a === '' ? -1 : b === '' ? 1 : scopeName(a).localeCompare(scopeName(b)),
   )
+  const origin = (m: MemoryEntry) =>
+    m.source.by === 'agent'
+      ? t.fromAgent(m.source.agent ?? t.anAgent)
+      : m.source.by === 'extract'
+        ? t.fromChat
+        : m.source.by === 'reflect'
+          ? t.fromTidy
+          : t.addedByYou
+  const suggest = props.settings?.memory?.suggest ?? true
   return (
     <>
-      <PageHeader title={copy.settings.memory.title}>{copy.settings.memory.intro}</PageHeader>
+      <PageHeader title={t.title}>{t.intro}</PageHeader>
+      <Card className="mb-6">
+        {props.settings && (
+          <SettingField id="memory.suggest" inline>
+            <Switch
+              checked={suggest}
+              label={t.suggest}
+              onChange={(v) => props.update((s) => ({ ...s, memory: { suggest: v } }), true)}
+            />
+          </SettingField>
+        )}
+        <CardRow {...settingRow('memory.tidy')}>
+          <div className="flex items-center gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="text-body">{t.tidy}</div>
+              <p className="text-small text-muted">{t.tidyHint}</p>
+            </div>
+            <Button
+              size="sm"
+              disabled={tidying || kept.length < 2}
+              icon={
+                tidying ? (
+                  <LoaderCircle className="size-3.5 animate-spin" />
+                ) : (
+                  <Combine className="size-3.5" />
+                )
+              }
+              onClick={() => void tidy()}
+            >
+              {tidying ? t.tidying : t.tidy}
+            </Button>
+          </div>
+        </CardRow>
+      </Card>
       <Card className="mb-6">
         <CardRow {...settingRow('memory.add')}>
-          <Field label={copy.settings.memory.remember} hint={copy.settings.memory.rememberHint}>
+          <Field label={t.remember} hint={t.rememberHint}>
             <TextArea
               value={draft.text}
               onChange={(e) => setDraft({ ...draft, text: e.target.value })}
-              placeholder={copy.settings.memory.rememberPlaceholder}
+              placeholder={t.rememberPlaceholder}
               rows={2}
             />
           </Field>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <Select
-              aria-label={copy.settings.memory.kind}
+              aria-label={t.kind}
               value={draft.kind}
               onChange={(e) => setDraft({ ...draft, kind: e.target.value })}
             >
               {MEMORY_KINDS.map((k) => (
                 <option key={k} value={k}>
-                  {copy.settings.memory.kinds[k]}
+                  {t.kinds[k]}
                 </option>
               ))}
             </Select>
             <Select
-              aria-label={copy.settings.memory.appliesTo}
+              aria-label={t.appliesTo}
               value={draft.project}
               onChange={(e) => setDraft({ ...draft, project: e.target.value })}
             >
-              <option value="">{copy.settings.memory.everyChat}</option>
+              <option value="">{t.everyChat}</option>
               {projects.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {copy.settings.memory.onlyProject(p.name)}
+                  {t.onlyProject(p.name)}
                 </option>
               ))}
             </Select>
@@ -5546,148 +6271,193 @@ function MemorySection() {
                 })
               }
             >
-              {copy.settings.memory.rememberButton}
+              {t.rememberButton}
             </Button>
           </div>
         </CardRow>
       </Card>
+      {waiting.length > 0 && (
+        <section {...settingRow('memory.waiting')} className="mb-6">
+          <h4 className="mb-2 section-label text-muted">{t.waitingTitle}</h4>
+          <Card>
+            {waiting.map((m) => (
+              <CardRow key={m.id}>
+                <div className="flex items-start gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-reading leading-relaxed">
+                      <span className="mr-1.5 section-label text-muted">{t.kinds[m.kind]}</span>
+                      {m.text}
+                    </p>
+                    {m.replaces?.length ? (
+                      <div className="mt-1.5 text-small text-muted">
+                        <span className="section-label">{t.replaces}</span>
+                        <ul className="mt-0.5 flex flex-col gap-0.5">
+                          {m.replaces.map((id) => (
+                            <li key={id} className="line-through">
+                              {kept.find((k) => k.id === id)?.text ?? id}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
+                    <p className="mt-1.5 text-small text-muted">
+                      {scopeName(m.project)} · {origin(m)} · {day(m.updatedAt)}
+                    </p>
+                    {m.source.why && (
+                      <p className="mt-1 text-small text-muted">
+                        {m.source.by === 'extract' ? t.said(m.source.why) : t.why(m.source.why)}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <Button
+                      size="sm"
+                      variant="borderless"
+                      icon={<X className="size-3.5" />}
+                      onClick={() =>
+                        void act(() => send('POST', `/api/memory/${m.id}/decide`, { keep: false }))
+                      }
+                    >
+                      {t.discard}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      icon={<Check className="size-3.5" />}
+                      onClick={() =>
+                        void act(() => send('POST', `/api/memory/${m.id}/decide`, { keep: true }))
+                      }
+                    >
+                      {t.keep}
+                    </Button>
+                  </div>
+                </div>
+              </CardRow>
+            ))}
+          </Card>
+        </section>
+      )}
       {!memories ? (
         <div className="flex items-center gap-2 text-body text-muted">
-          <LoaderCircle className="size-4 animate-spin" /> {copy.settings.memory.loading}
+          <LoaderCircle className="size-4 animate-spin" /> {t.loading}
         </div>
-      ) : memories.length === 0 ? (
-        <Empty icon={<FEATURE_ICONS.memory className="size-5" />} title={copy.settings.memory.emptyTitle}>
-          {copy.settings.memory.emptyBody}
+      ) : kept.length === 0 ? (
+        <Empty icon={<FEATURE_ICONS.memory className="size-5" />} title={t.emptyTitle}>
+          {t.emptyBody}
         </Empty>
       ) : (
-        <div {...settingRow('memory.list')}>
-          {groups.map((g) => (
-            <section key={g || 'all'} className="mb-6">
-              <h4 className="mb-2 section-label text-muted">{scopeName(g || undefined)}</h4>
-              <Card>
-                {memories
-                  .filter((m) => (m.project ?? '') === g)
-                  .map((m) => (
-                    <CardRow key={m.id}>
-                      <div className="flex items-start gap-3">
-                        <div className="min-w-0 flex-1">
-                          {editing?.id === m.id ? (
-                            <TextArea
-                              autoFocus
-                              rows={2}
-                              value={editing.text}
-                              onChange={(e) => setEditing({ id: m.id, text: e.target.value })}
-                            />
-                          ) : (
-                            <button
-                              type="button"
-                              title={copy.settings.memory.edit}
-                              onClick={() => setEditing({ id: m.id, text: m.text })}
-                              className="w-full text-left text-reading leading-relaxed hover:text-fg-2"
-                            >
-                              {m.text}
-                            </button>
-                          )}
-                          <div className="mt-1.5 flex flex-wrap items-center gap-2 text-small text-muted">
-                            <Select
-                              aria-label={copy.settings.memory.kind}
-                              value={m.kind}
-                              onChange={(e) =>
-                                void act(() => send('PATCH', `/api/memory/${m.id}`, { kind: e.target.value }))
-                              }
-                            >
-                              {MEMORY_KINDS.map((k) => (
-                                <option key={k} value={k}>
-                                  {copy.settings.memory.kinds[k]}
-                                </option>
-                              ))}
-                            </Select>
-                            <Select
-                              aria-label={copy.settings.memory.appliesTo}
-                              value={m.project ?? ''}
-                              onChange={(e) =>
-                                void act(() =>
-                                  send('PATCH', `/api/memory/${m.id}`, { project: e.target.value || null }),
-                                )
-                              }
-                            >
-                              <option value="">{copy.settings.memory.everyChat}</option>
-                              {projects.map((p) => (
-                                <option key={p.id} value={p.id}>
-                                  {copy.settings.memory.onlyProject(p.name)}
-                                </option>
-                              ))}
-                            </Select>
-                            <span>
-                              {m.source.by === 'agent'
-                                ? copy.settings.memory.fromAgent(
-                                    m.source.agent ?? copy.settings.memory.anAgent,
+        <>
+          <div {...settingRow('memory.search')} className="relative mb-4">
+            <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted" />
+            <TextInput
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={t.search}
+              aria-label={t.search}
+              className="pl-8"
+            />
+          </div>
+          {shown.length === 0 && <p className="text-callout text-muted">{t.noMatch(query.trim())}</p>}
+          <div {...settingRow('memory.list')}>
+            {groups.map((g) => (
+              <section key={g || 'all'} className="mb-6">
+                <h4 className="mb-2 section-label text-muted">{scopeName(g || undefined)}</h4>
+                <Card>
+                  {shown
+                    .filter((m) => (m.project ?? '') === g)
+                    .map((m) => (
+                      <CardRow key={m.id}>
+                        <div className="flex items-start gap-3">
+                          <div className="min-w-0 flex-1">
+                            {editing?.id === m.id ? (
+                              <TextArea
+                                autoFocus
+                                rows={2}
+                                value={editing.text}
+                                onChange={(e) => setEditing({ id: m.id, text: e.target.value })}
+                              />
+                            ) : (
+                              <button
+                                type="button"
+                                title={t.edit}
+                                onClick={() => setEditing({ id: m.id, text: m.text })}
+                                className="w-full text-left text-reading leading-relaxed hover:text-fg-2"
+                              >
+                                {m.text}
+                              </button>
+                            )}
+                            <div className="mt-1.5 flex flex-wrap items-center gap-2 text-small text-muted">
+                              <Select
+                                aria-label={t.kind}
+                                value={m.kind}
+                                onChange={(e) =>
+                                  void act(() =>
+                                    send('PATCH', `/api/memory/${m.id}`, { kind: e.target.value }),
                                   )
-                                : copy.settings.memory.addedByYou}{' '}
-                              · {day(m.updatedAt)}
-                            </span>
-                            {m.status === 'proposed' && (
-                              <Badge tone="warn">{copy.settings.memory.waiting}</Badge>
+                                }
+                              >
+                                {MEMORY_KINDS.map((k) => (
+                                  <option key={k} value={k}>
+                                    {t.kinds[k]}
+                                  </option>
+                                ))}
+                              </Select>
+                              <Select
+                                aria-label={t.appliesTo}
+                                value={m.project ?? ''}
+                                onChange={(e) =>
+                                  void act(() =>
+                                    send('PATCH', `/api/memory/${m.id}`, { project: e.target.value || null }),
+                                  )
+                                }
+                              >
+                                <option value="">{t.everyChat}</option>
+                                {projects.map((p) => (
+                                  <option key={p.id} value={p.id}>
+                                    {t.onlyProject(p.name)}
+                                  </option>
+                                ))}
+                              </Select>
+                              <span>
+                                {origin(m)} · {day(m.updatedAt)}
+                              </span>
+                            </div>
+                            {m.source.why && (
+                              <p className="mt-1 text-small text-muted">
+                                {m.source.by === 'extract' ? t.said(m.source.why) : t.why(m.source.why)}
+                              </p>
                             )}
                           </div>
-                          {m.source.why && (
-                            <p className="mt-1 text-small text-muted">
-                              {copy.settings.memory.why(m.source.why)}
-                            </p>
-                          )}
-                        </div>
-                        <div className="flex shrink-0 items-center gap-1">
-                          {editing?.id === m.id ? (
-                            <Button
-                              size="sm"
-                              variant="primary"
-                              onClick={() =>
-                                void act(async () => {
-                                  await send('PATCH', `/api/memory/${m.id}`, { text: editing.text })
-                                  setEditing(undefined)
-                                })
-                              }
-                            >
-                              {copy.settings.shared.save}
-                            </Button>
-                          ) : m.status === 'proposed' ? (
-                            <Button
-                              size="sm"
-                              variant="primary"
-                              icon={<Check className="size-3.5" />}
-                              onClick={() =>
-                                void act(() => send('POST', `/api/memory/${m.id}/decide`, { keep: true }))
-                              }
-                            >
-                              {copy.settings.memory.keep}
-                            </Button>
-                          ) : null}
-                          {m.status === 'proposed' ? (
-                            <IconButton
-                              size="sm"
-                              label={copy.settings.memory.forget}
-                              onClick={() =>
-                                void act(() => send('POST', `/api/memory/${m.id}/decide`, { keep: false }))
-                              }
-                            >
-                              <Trash2 className="size-4" />
-                            </IconButton>
-                          ) : (
+                          <div className="flex shrink-0 items-center gap-1">
+                            {editing?.id === m.id && (
+                              <Button
+                                size="sm"
+                                variant="primary"
+                                onClick={() =>
+                                  void act(async () => {
+                                    await send('PATCH', `/api/memory/${m.id}`, { text: editing.text })
+                                    setEditing(undefined)
+                                  })
+                                }
+                              >
+                                {copy.settings.shared.save}
+                              </Button>
+                            )}
                             <ConfirmButton
                               icon
-                              label={copy.settings.memory.forget}
-                              confirm={copy.settings.memory.confirmForget}
+                              label={t.forget}
+                              confirm={t.confirmForget}
                               onConfirm={() => void act(() => send('DELETE', `/api/memory/${m.id}`))}
                             />
-                          )}
+                          </div>
                         </div>
-                      </div>
-                    </CardRow>
-                  ))}
-              </Card>
-            </section>
-          ))}
-        </div>
+                      </CardRow>
+                    ))}
+                </Card>
+              </section>
+            ))}
+          </div>
+        </>
       )}
     </>
   )

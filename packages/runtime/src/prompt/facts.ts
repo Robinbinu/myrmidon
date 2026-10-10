@@ -13,6 +13,7 @@ import {
 } from '../patterns.ts'
 import { levelsOf } from '../permissions.ts'
 import type { ProjectGit } from '../project-context.ts'
+import type { ProjectRule } from '../rule-files.ts'
 import { hostShell, type ShellSyntax } from '../shell.ts'
 import type { AgentSpec, ColonySpec, Tier } from '../spec.ts'
 
@@ -143,6 +144,8 @@ export interface PromptFacts {
     readonly web: boolean
     readonly browser: boolean
     readonly computer: boolean
+    /** The person's remote hosts the agent may reach over SSH, by name; none in a round they did not start. */
+    readonly remotes: readonly string[]
     /** The preset the round runs under, from the chat, project and global levels (nearest wins). */
     readonly preset: PermissionPreset
     /** Command prefixes a rule lets run without asking, for the Ask preset's line. */
@@ -151,6 +154,8 @@ export interface PromptFacts {
     readonly worktree?: { readonly path: string; readonly branch: string }
     /** Folders the person opened for reading beyond the defaults. */
     readonly reads: readonly string[]
+    /** Secrets in what the agent reads reach its model as placeholders. */
+    readonly secretsHidden?: boolean
   }
   readonly review: {
     /** What happens to the speaker's final answer. */
@@ -186,6 +191,8 @@ export interface PromptFacts {
   }
   readonly context: {
     readonly memory: readonly string[]
+    /** Kept memories not in `memory`, which the agent can search with recall. */
+    readonly memoryMore: number
     /** `fits`: the request may need it, so its description is shown. */
     readonly skills: readonly {
       readonly name: string
@@ -197,6 +204,8 @@ export interface PromptFacts {
     readonly checks: readonly { readonly name: string; readonly command: string }[]
     readonly instructions?: { readonly files: readonly string[]; readonly text: string }
     readonly nested: readonly string[]
+    /** Other tools' rules for some files or tasks only, listed without their text (see rule-files.ts). */
+    readonly rules: readonly Omit<ProjectRule, 'text'>[]
   }
 }
 
@@ -317,6 +326,7 @@ export function factsFor(spec: ColonySpec, agent: AgentSpec, env: Environment): 
       web: env.web,
       browser: env.browser,
       computer: env.computer ?? false,
+      remotes: spec.askAll ? [] : (spec.remotes ?? []).map((h) => h.name),
       preset,
       allow,
       ...(project
@@ -331,6 +341,7 @@ export function factsFor(spec: ColonySpec, agent: AgentSpec, env: Environment): 
         ? { worktree: { path: env.worktree.workdir, branch: env.worktree.branch } }
         : {}),
       reads: spec.askAll ? [] : (spec.reads ?? []),
+      secretsHidden: env.secretsHidden === true,
     },
     review: reviewOf(spec),
     audience: { owner: !spec.askAll, voice: spec.chat?.voice ?? false },
@@ -347,12 +358,14 @@ export function factsFor(spec: ColonySpec, agent: AgentSpec, env: Environment): 
     },
     context: {
       memory: spec.chat?.memory ?? [],
+      memoryMore: spec.chat?.memoryMore ?? 0,
       skills: skills.map((s) => ({ name: s.name, description: s.description, fits: fits.has(s) })),
       plugins: env.plugins ?? [],
       ...(project && env.project?.layout ? { layout: env.project.layout } : {}),
       checks: project ? (env.project?.checks ?? []) : [],
       ...(project && guide?.text ? { instructions: { files: guide.files, text: guide.text } } : {}),
       nested: project ? (guide?.nested ?? []) : [],
+      rules: project ? (guide?.rules ?? []).map(({ text: _text, ...rule }) => rule) : [],
     },
   }
 }

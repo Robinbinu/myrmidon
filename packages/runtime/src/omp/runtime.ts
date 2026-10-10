@@ -5,6 +5,7 @@ import { join, relative } from 'node:path'
 import type { Api, Model } from '@oh-my-pi/pi-ai'
 import { ownerOnly } from '../owner-only.ts'
 import type { VoiceKeys } from '../voice/providers.ts'
+import { createQuotaReader, type QuotaReader } from './usage.ts'
 
 /**
  * Myrmidon embeds omp's (oh-my-pi) agent libraries in-process: its settings, credential vault, model
@@ -75,6 +76,27 @@ export interface ProviderUpdate {
   readonly models: readonly string[]
 }
 
+/** What generate_image asks an image model for (omp's `ImageGenerationRequest`). */
+export interface ImageRequest {
+  readonly prompt: string
+  /** Pictures to edit or draw from, as base64. */
+  readonly inputImages?: readonly { readonly data: string; readonly mimeType: string }[]
+  readonly aspectRatio?: string
+  readonly imageSize?: string
+  readonly count?: number
+}
+
+export interface GeneratedImages {
+  /** The model that made them, `provider/id`: the one the provider reports when it runs another (Codex does). */
+  readonly model: string
+  readonly images: readonly { readonly data: string; readonly mimeType: string; readonly size?: string }[]
+  /** Words the model wrote beside the pictures, if any. */
+  readonly text?: string
+  readonly tokens: { readonly input: number; readonly output: number; readonly total: number }
+  /** USD, from what the provider reported or the catalog's prices; undefined when neither says. */
+  readonly cost?: number
+}
+
 /** A subscription or account sign-in omp supports (Claude Pro/Max, ChatGPT, Gemini, …). */
 export interface LoginOption {
   readonly id: string
@@ -141,13 +163,33 @@ export interface OmpRuntime {
   /** The speech models omp can call now, as `provider/id`, for Settings → Voice. */
   speechModels(): { stt: string[]; tts: string[] }
   /**
+   * The image models omp can call now, as `provider/id`, in the order generate_image tries them when none is chosen:
+   * omp's own preference for its image role first, then the rest.
+   */
+  imageModels(): string[]
+  /**
+   * Generates (or, with input images, edits) pictures with `model` (`provider/id`), or else with the first of
+   * imageModels() that answers. Throws when none can.
+   */
+  generateImage(
+    request: ImageRequest,
+    options?: { model?: string; signal?: AbortSignal },
+  ): Promise<GeneratedImages>
+  /**
    * Voice providers' keys, in the same vault as the model providers' (`agent.db`), so a voice provider whose API is a
    * model provider's (OpenAI, Groq, Gemini) uses the key already added for it, and none sits in a file of its own.
    */
   readonly voiceKeys: VoiceKeys
+  /**
+   * Every credential the vault and `models.yml` hold (API keys, sign-ins' tokens, voice providers' keys), so what goes
+   * to model providers can be kept free of them (provider-secrets.ts). Never shown or logged.
+   */
+  secretValues(): string[]
   search(query: string, options?: SearchOptions): Promise<string>
   read(url: string, signal?: AbortSignal): Promise<ReadResult>
   searchProviders(): { id: string; label: string }[]
+  /** How close each signed-in account is to its plan's limits, cached briefly (see omp/usage.ts). */
+  readonly quota: QuotaReader
   /** omp's `modelRoles.default` from `config.yml`, as `provider/model-id`. */
   defaultModel(): string | undefined
   /** Reopens the credential vault and settings, e.g. after importing an omp setup. */
@@ -194,12 +236,21 @@ async function start(home: string): Promise<OmpRuntime> {
   const { Settings } = await import('@oh-my-pi/pi-coding-agent/config/settings')
   const { discoverAuthStorage } = await import('@oh-my-pi/pi-coding-agent/sdk')
   const { ModelRegistry } = await import('@oh-my-pi/pi-coding-agent/config/model-registry')
+  const { AgentStorage } = await import('@oh-my-pi/pi-coding-agent/session/agent-storage')
   const { getOAuthProviders } = await import('@oh-my-pi/pi-ai/registry/oauth/index')
+  const { collectStoredAccounts } = await import(
+    '@oh-my-pi/pi-coding-agent/slash-commands/helpers/usage-accounts'
+  )
   const search = await import('@oh-my-pi/pi-coding-agent/web/search/index')
   const searchTypes = await import('@oh-my-pi/pi-coding-agent/web/search/types')
   const fetchTool = await import('@oh-my-pi/pi-coding-agent/tools/fetch')
   const { transcribeAudio } = await import('@oh-my-pi/pi-ai/transcription/index')
   const { isSpeechApi, synthesizeSpeech } = await import('@oh-my-pi/pi-ai/speech/index')
+  const images = await import('@oh-my-pi/pi-ai/images/index')
+  const { ProviderHttpError } = await import('@oh-my-pi/pi-ai/error')
+  const { calculateCost } = await import('@oh-my-pi/pi-catalog')
+  const { resolveRoleChain } = await import('@oh-my-pi/pi-coding-agent/config/model-resolver')
+  const { isAuthenticated } = await import('@oh-my-pi/pi-coding-agent/config/model-registry')
   const modelsPath = join(agentDir, 'models.yml')
 
   type Credentials = {
@@ -207,7 +258,10 @@ async function start(home: string): Promise<OmpRuntime> {
     storeLoginApiKey(provider: string, key: string): Promise<void>
     remove(provider: string): Promise<void>
     hasOAuth(provider: string): boolean
-    list(provider: string): { id: number; credential: { type: 'api_key' | 'oauth' } }[]
+    list(provider?: string): {
+      id: number
+      credential: { type: 'api_key'; key: string } | { type: 'oauth'; access: string; refresh: string }
+    }[]
     removeById(provider: string, id: number): Promise<boolean>
   }
   const open = async () => {
@@ -269,6 +323,73 @@ async function start(home: string): Promise<OmpRuntime> {
     const info = runtime.providers().find((p) => p.id === name)
     if (!info) throw new Error(`omp did not load provider ${name}`)
     return info
+  }
+
+  const ref = (m: { provider: string; id: string }) => `${m.provider}/${m.id}`
+
+  /** Image models omp can call, best first: what omp's image role prefers (as its generate_image does), then the rest. */
+  const imagePool = (): Model<Api>[] => {
+    const pool = core.registry.getAvailable('image').filter((m) => images.isImageGenerationApi(m.api))
+    const preferred = resolveRoleChain('image', core.settings, pool).map((c) => c.model)
+    const first = new Set(preferred.map(ref))
+    return [...preferred, ...pool.filter((m) => !first.has(ref(m)))]
+  }
+
+  /**
+   * The chat model that carries a hosted image model's `image_generation` call (OpenAI Responses, ChatGPT sign-ins):
+   * the model itself when it can, else the cheapest one on its provider that can, as omp's generate_image picks.
+   */
+  const imageCarrier = (model: Model<Api>): Model<Api> | undefined => {
+    if (model.hostedImage) return model
+    let carrier: Model<Api> | undefined
+    for (const m of core.registry.getAvailable('chat'))
+      if (m.provider === model.provider && m.hostedImage && (!carrier || m.cost.input < carrier.cost.input))
+        carrier = m
+    return carrier
+  }
+
+  /** One image model's attempt: why it was skipped, or what it made. Provider errors are thrown for the caller. */
+  const imageAttempt = async (
+    model: Model<Api>,
+    request: ImageRequest,
+    signal: AbortSignal | undefined,
+  ): Promise<GeneratedImages | string> => {
+    const key = await core.registry.getApiKey(model)
+    if (!isAuthenticated(key)) return 'no credentials'
+    if (model.api === 'google-gemini-cli' && !images.parseAntigravityCredentials(key))
+      return 'invalid credentials'
+    let carrier: Model<Api> | undefined
+    let apiKey = core.registry.resolver(model)
+    if (model.api === 'openai-responses' || model.api === 'openai-codex-responses') {
+      carrier = imageCarrier(model)
+      if (!carrier) return 'no chat model on its provider to carry it'
+      if (!isAuthenticated(await core.registry.getApiKey(carrier))) return 'no credentials for its carrier'
+      apiKey = core.registry.resolver(carrier)
+    }
+    const result = await images.generateImage(
+      model,
+      {
+        prompt: request.prompt,
+        ...(request.inputImages?.length ? { inputImages: [...request.inputImages] } : {}),
+        ...(request.aspectRatio ? { aspectRatio: request.aspectRatio } : {}),
+        ...(request.imageSize ? { imageSize: request.imageSize } : {}),
+        count: request.count ?? 1,
+      },
+      { apiKey, ...(carrier ? { carrier } : {}), ...(signal ? { signal } : {}) },
+    )
+    // What the provider billed when it says; the catalog's per-token prices otherwise.
+    const cost = result.usage.cost.total || calculateCost(model, result.usage).total
+    return {
+      model: result.model && result.model !== model.id ? `${model.provider}/${result.model}` : ref(model),
+      images: result.images.map((i) => ({
+        data: i.data,
+        mimeType: i.mimeType,
+        ...(i.size ? { size: i.size } : {}),
+      })),
+      ...(result.text?.trim() ? { text: result.text.trim() } : {}),
+      tokens: { input: result.usage.input, output: result.usage.output, total: result.usage.totalTokens },
+      ...(cost > 0 ? { cost } : {}),
+    }
   }
 
   const runtime: OmpRuntime = {
@@ -441,7 +562,6 @@ async function start(home: string): Promise<OmpRuntime> {
       return { audio: result.audio, mimeType: result.mimeType }
     },
     speechModels() {
-      const ref = (m: { provider: string; id: string }) => `${m.provider}/${m.id}`
       return {
         stt: core.registry.getAvailable('stt').map(ref),
         tts: core.registry
@@ -449,6 +569,30 @@ async function start(home: string): Promise<OmpRuntime> {
           .filter((m) => isSpeechApi(m.api))
           .map(ref),
       }
+    },
+    imageModels: () => imagePool().map(ref),
+    async generateImage(request, options = {}) {
+      const pool = imagePool()
+      let candidates = pool
+      if (options.model) {
+        const chosen = pool.find((m) => ref(m) === options.model)
+        if (!chosen) throw new Error(`the image model ${options.model} cannot be used now`)
+        candidates = [chosen]
+      }
+      if (candidates.length === 0) throw new Error('no image model')
+      // Like omp's generate_image: a model that cannot be reached or refuses (a provider error) hands over to the next.
+      const failed: string[] = []
+      for (const model of candidates) {
+        try {
+          const made = await imageAttempt(model, request, options.signal)
+          if (typeof made !== 'string') return made
+          failed.push(`${ref(model)} (${made})`)
+        } catch (err) {
+          if (!(err instanceof ProviderHttpError) || options.signal?.aborted) throw err
+          failed.push(`${ref(model)} (${err.message})`)
+        }
+      }
+      throw new Error(`no image model could make it: ${failed.join('; ')}`)
     },
     voiceKeys: {
       // omp's cascade: a stored key, else the provider's environment variable when omp knows one.
@@ -495,13 +639,41 @@ async function start(home: string): Promise<OmpRuntime> {
         id,
         label,
       })),
+    // Through `core` on each call, so a reload's new vault is the one read.
+    quota: createQuotaReader({
+      reports: (signal) =>
+        core.auth.usage.reports({
+          baseUrlResolver: (provider) => core.registry.getProviderBaseUrl(provider),
+          signal,
+        }),
+      accounts: () => collectStoredAccounts(core.auth),
+      supported: (provider) => core.auth.usage.providerFor(provider as never) !== undefined,
+      invalidate: () => core.auth.usage.invalidate(),
+    }),
     defaultModel: () => core.settings.getModelRole('default'),
+    secretValues() {
+      const values = core.credentials
+        .list()
+        .flatMap(({ credential: c }) => (c.type === 'api_key' ? [c.key] : [c.access, c.refresh]))
+      // A models.yml key may instead name an environment variable, or a command (`!cmd`) that prints the key: hiding
+      // the name or the command would hide words, so the variable's value is hidden instead.
+      for (const entry of Object.values(readModelsYml().providers)) {
+        const key = entry.apiKey
+        if (typeof key !== 'string' || key.startsWith('!')) continue
+        values.push(/^[A-Z][A-Z0-9_]*$/.test(key) ? (process.env[key] ?? '') : key)
+      }
+      return values.filter((v) => typeof v === 'string' && v.length > 0)
+    },
     async reload() {
       const previous = core
       core = await open()
       previous.auth.close()
     },
-    close: () => core.auth.close(),
+    close: () => {
+      core.auth.close()
+      // Settings keep agent.db open through omp's process-wide storage, which the vault's close leaves be.
+      AgentStorage.close()
+    },
   }
   return runtime
 }

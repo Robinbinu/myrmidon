@@ -1,5 +1,5 @@
-import type { ToolCall } from '@oh-my-pi/pi-ai'
 import { VOICE_REALTIME_TRANSCRIPT_MS } from '../../config.ts'
+import type { ToolCall } from '../../omp/ai.ts'
 import { prompts } from '../../prompts.ts'
 import { Resampler } from '../audio.ts'
 import { type CallOptions, type CallOutput, CallSession, callTime, VOICE_TOOLS } from '../call.ts'
@@ -67,6 +67,7 @@ export class RealtimeCallSession extends CallSession {
   }
 
   override async start() {
+    if (this._ended) return
     this.emit({
       type: 'hello',
       talk: this._voice,

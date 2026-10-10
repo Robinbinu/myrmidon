@@ -1,15 +1,26 @@
 import { afterAll, expect, test } from 'bun:test'
-import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { expectOwnerOnly } from '../../../tests/platform.ts'
 import { bootOmp, ModelResolver, pointOmpAt } from '../src/index.ts'
 
 const home = mkdtempSync(join(tmpdir(), 'myr-omp-'))
 pointOmpAt(home)
-afterAll(() => rmSync(home, { recursive: true, force: true }))
+/** Every omp a test booted, closed before the folder goes: its credential vault is a database held open. */
+const booted: { close(): void }[] = []
+const boot = async () => {
+  const omp = await bootOmp(home)
+  booted.push(omp)
+  return omp
+}
+afterAll(() => {
+  for (const omp of booted) omp.close()
+  rmSync(home, { recursive: true, force: true })
+})
 
 test('custom providers go to models.yml, keys to the vault, and models resolve through omp', async () => {
-  const omp = await bootOmp(home)
+  const omp = await boot()
   const resolver = new ModelResolver(omp)
   expect(() => resolver.resolve('lmstudio/qwen3-8b')).toThrow('unknown model')
 
@@ -23,7 +34,7 @@ test('custom providers go to models.yml, keys to the vault, and models resolve t
   expect(info).toMatchObject({ id: 'lmstudio', custom: true, ready: true, models: 1 })
   const yml = join(home, 'agent', 'models.yml')
   expect(readFileSync(yml, 'utf8')).toContain('http://localhost:1234/v1')
-  expect(statSync(yml).mode & 0o777).toBe(0o600)
+  expectOwnerOnly(yml)
 
   const { model } = resolver.resolve('lmstudio/qwen3-8b')
   expect(model.baseUrl).toBe('http://localhost:1234/v1')
@@ -51,14 +62,14 @@ test('custom providers go to models.yml, keys to the vault, and models resolve t
 })
 
 test('search providers come from omp', async () => {
-  const omp = await bootOmp(home)
+  const omp = await boot()
   const ids = omp.searchProviders().map((p) => p.id)
   expect(ids).toContain('duckduckgo')
   expect(ids.length).toBeGreaterThan(10)
 })
 
 test('signing out keeps an API key stored for the same provider', async () => {
-  const omp = await bootOmp(home)
+  const omp = await boot()
   await omp.setApiKey('anthropic', 'sk-ant-test-123456')
   expect(omp.providers().find((p) => p.id === 'anthropic')?.stored).toBe(true)
   expect(omp.logins().find((l) => l.provider === 'anthropic')?.signedIn).toBe(false)
@@ -71,7 +82,7 @@ test('signing out keeps an API key stored for the same provider', async () => {
 })
 
 test("a custom endpoint's model can be deleted from its list, but not its only one or a built-in provider's", async () => {
-  const omp = await bootOmp(home)
+  const omp = await boot()
   await omp.addProvider({
     name: 'localai',
     baseUrl: 'http://localhost:1235/v1',
@@ -96,7 +107,7 @@ test("a custom endpoint's model can be deleted from its list, but not its only o
 })
 
 test("voice providers' keys live in the same vault as the model providers', and share a model provider's key", async () => {
-  const omp = await bootOmp(home)
+  const omp = await boot()
   const keys = omp.voiceKeys
   await keys.set('deepgram', ' dg-key-123 ')
   expect(await keys.get('deepgram')).toBe('dg-key-123')

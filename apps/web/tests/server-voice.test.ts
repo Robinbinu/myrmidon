@@ -12,7 +12,7 @@ import {
   SmartTurn,
   wav,
 } from '@myrmidon/runtime'
-import { createMockModel } from '@oh-my-pi/pi-ai/providers/mock'
+import { createMockModel } from '../../../packages/runtime/src/omp/mock.ts'
 import { needsFull } from '../src/devices.ts'
 import { startServer, type WebServer } from '../src/server.ts'
 
@@ -117,7 +117,9 @@ test('a call over the WebSocket: the person speaks, the call model answers aloud
     }
   }
   await until(() => said.length === 1)
-  expect(said[0]).toBe("Hi Robin, I'm listening.")
+  // The greeting is drawn from the moment and the chats; it greets by name and asks the person to go on.
+  expect(said[0]).toContain('Robin')
+  expect(said[0]?.split(' ').length).toBeLessThanOrEqual(25)
   const loud = Int16Array.from({ length: 320 }, (_, i) => Math.round(3000 * Math.sin(i / 3)))
   for (let i = 0; i < 25; i++) ws.send(loud)
   for (let i = 0; i < 50; i++) ws.send(new Int16Array(320))
@@ -307,7 +309,7 @@ test('a refused call opens and closes with a code and a reason the page can show
   expect(reason).toContain('voice calls are off')
 })
 
-test('a call whose page closes while the engines warm up is never made', async () => {
+test('a call hung up while the engines warm up is never made', async () => {
   let release: () => void = () => {}
   const slowModels = new Promise<void>((resolve) => {
     release = resolve
@@ -315,8 +317,10 @@ test('a call whose page closes while the engines warm up is never made', async (
   const { call, spoken } = gateway({ slowModels })
   const early = await call('chat=c1')
   await until(() => early.messages.some((m) => m.state === 'preparing'))
-  early.ws.close()
-  await early.closed
+  // The page hangs up as it does (hangup, then close). Waiting on the page's own close would not do: Bun can report
+  // it before the server has read it, and a server that has not seen it rightly makes the call.
+  early.ws.send(JSON.stringify({ type: 'hangup' }))
+  expect((await early.closed).code).toBe(1000)
   release()
   // The next call in the chat is not refused as a second one, and only it greets.
   const next = await call('chat=c1')

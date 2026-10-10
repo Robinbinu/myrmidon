@@ -1,10 +1,11 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { EventPayloads, MyrEvent } from '@myrmidon/protocol'
-import { completeSimple } from '@oh-my-pi/pi-ai'
 import { SKILL_DIGEST_CHARS, SKILL_REVIEW_MS } from './config.ts'
 import type { ModelResolver } from './models.ts'
+import { completeSimple } from './omp/ai.ts'
 import { prompts } from './prompts.ts'
+import { hideInContext } from './provider-secrets.ts'
 import type { SkillLibrary } from './skills.ts'
 
 /**
@@ -177,8 +178,8 @@ export async function reviewRound(input: {
   }
   const signal = AbortSignal.timeout(SKILL_REVIEW_MS)
   const reply = resolved.streamFn
-    ? await (await resolved.streamFn(resolved.model, context, { apiKey, signal })).result()
-    : await completeSimple(resolved.model, context, { apiKey, signal })
+    ? await (await resolved.streamFn(resolved.model, hideInContext(context), { apiKey, signal })).result()
+    : await completeSimple(resolved.model, hideInContext(context), { apiKey, signal })
   if (reply.stopReason === 'error') throw new Error(reply.errorMessage ?? 'the reviewer failed')
   const review = parseReview(reply.content.flatMap((c) => (c.type === 'text' ? [c.text] : [])).join(''))
   if (!review) return undefined
