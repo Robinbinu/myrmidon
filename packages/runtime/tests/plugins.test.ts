@@ -11,6 +11,10 @@ let dir: string
 let home: string
 let source: string
 
+/** The person's two steps: review what was fetched, then say yes. */
+const install = async (plugins: PluginStore, from: string) =>
+  plugins.confirm((await plugins.prepare(from)).id)
+
 /** A plugin as Claude Code lays one out: manifest, a skill, a command, a hook and an MCP server. */
 function claudePlugin(at: string) {
   const write = (path: string, text: string) => {
@@ -66,7 +70,7 @@ afterEach(() => rmSync(dir, { recursive: true, force: true }))
 
 test('a Claude Code plugin installs from a folder and every part reaches Myrmidon', async () => {
   const plugins = new PluginStore(home)
-  const installed = await plugins.install(source)
+  const installed = await install(plugins, source)
   const root = join(home, 'plugins', 'nova-kit')
   expect(installed).toMatchObject({
     name: 'nova-kit',
@@ -127,7 +131,7 @@ test('a plugin installs from a git repository, without its history', async () =>
   sh(source, ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'plugin'])
   sh(dir, ['clone', '-q', '--bare', source, repo])
   const plugins = new PluginStore(home)
-  expect((await plugins.install(repo)).name).toBe('nova-kit')
+  expect((await install(plugins, repo)).name).toBe('nova-kit')
   expect(existsSync(join(home, 'plugins', 'nova-kit', '.git'))).toBe(false)
 })
 
@@ -136,16 +140,16 @@ test('a folder with nothing a plugin adds is refused, and a name can only be tak
   const empty = join(dir, 'empty')
   mkdirSync(empty)
   writeFileSync(join(empty, 'README.md'), 'hi')
-  await expect(plugins.install(empty)).rejects.toThrow('not a plugin')
-  await plugins.install(source)
-  await expect(plugins.install(source)).rejects.toThrow('already installed')
+  await expect(install(plugins, empty)).rejects.toThrow('not a plugin')
+  await install(plugins, source)
+  await expect(install(plugins, source)).rejects.toThrow('already installed')
   expect(plugins.list().map((p) => p.name)).toEqual(['nova-kit'])
 })
 
 test('a broken part is reported and the rest of the plugin still loads', async () => {
   writeFileSync(join(source, 'hooks', 'hooks.json'), '{ not json')
   const plugins = new PluginStore(home)
-  const p = await plugins.install(source)
+  const p = await install(plugins, source)
   expect(p.error).toContain('hooks/hooks.json')
   expect(p.skills).toEqual(['palette'])
   expect(plugins.hooks()).toEqual({ hooks: {} })
@@ -168,7 +172,7 @@ test("an agent's draft belongs to its round, and a plugin the person installed i
   expect(() => writeDraft(plugins, 'round-a', { name: 'greeter', description: 'Changed', files })).toThrow(
     'already exists',
   )
-  await plugins.install(source)
+  await install(plugins, source)
   expect(() =>
     writeDraft(plugins, 'round-a', { name: 'nova-kit', description: 'Replace it', files }),
   ).toThrow('already exists')
