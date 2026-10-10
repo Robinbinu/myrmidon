@@ -228,6 +228,36 @@ test('shake elides old bulky tool output and keeps the recent part, stopping bef
   expect(compacted).toHaveLength(1)
 })
 
+/** The header of a 1000×1000 PNG: enough for its size to be read, which is what a provider bills it by. */
+function largePng(): string {
+  const header = Buffer.alloc(33)
+  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(header, 0)
+  header.writeUInt32BE(13, 8)
+  header.write('IHDR', 12, 'ascii')
+  header.writeUInt32BE(1000, 16)
+  header.writeUInt32BE(1000, 20)
+  return header.toString('base64')
+}
+
+test('shake also elides an old result that is only an image', async () => {
+  const { compactor, compacted } = ordered(createMockModel({ contextWindow: 40_000 }).model)
+  const messages = bulkyHistory(10, 8_000, 24_000)
+  const picture = {
+    role: 'toolResult',
+    toolCallId: 'pic',
+    toolName: 'fs_read',
+    content: [{ type: 'image', mimeType: 'image/png', data: largePng() }],
+    isError: false,
+    timestamp: 1,
+  } as unknown as AgentMessage
+  messages.splice(1, 0, call('pic'), picture)
+  const view = await compactor.transform(messages)
+  expect(compacted[0]?.methods).toEqual(['shake'])
+  expect(shown(view[2])).toContain('1 image')
+  expect(shown(view[2])).not.toContain('"type":"image"')
+  expect(shown(messages[2])).toContain('"type":"image"')
+})
+
 test('when shaking is not enough a text-only model goes on to the summary, skipping snapcompact', async () => {
   const { compactor, passes, compacted } = ordered(createMockModel({ contextWindow: 40_000 }).model)
   const view = await compactor.transform(bulkyHistory(10, 8_000, 39_000))

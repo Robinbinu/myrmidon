@@ -269,7 +269,8 @@ export class ContextCompactor {
   /**
    * Bulky tool results old enough to elide, chosen by omp's shake (outside the recent part, not a protected tool, not
    * elided before), with their images, or none when the pass would free too little to be worth the prompt cache it
-   * breaks. Myrmidon's tools return text with any image, so every result with an image has a text region here too.
+   * breaks. omp's shake keeps images and passes over results without text, so results that are only images (an
+   * image read with fs_read) are added here by the same recent-part rule.
    */
   private _shakePlan(
     messages: readonly AgentMessage[],
@@ -295,12 +296,26 @@ export class ContextCompactor {
       // Judged below with images counted, which omp's shake leaves out.
       minSavings: 0,
       protectedTools: [...SHAKE_KEPT_TOOLS],
-    })
+    }).filter(
+      // Fenced blocks in messages stay: those are the person's and crewmates' words, which the summary keeps verbatim.
+      (r): r is ToolResultShakeRegion => r.kind === 'toolResult',
+    )
+    const withText = new Set<SessionEntry>(regions.map((r) => r.entry))
+    let after = 0
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const entry = entries[i] as ToolResultShakeRegion['entry']
+      const old = after >= protect
+      after += tokenizer.countMessage(entry.message)
+      const result = entry.message as ToolResultMessage
+      if (!old || withText.has(entry) || result.role !== 'toolResult' || result.prunedAt !== undefined)
+        continue
+      if (SHAKE_KEPT_TOOLS.includes(result.toolName) || !result.content.some((c) => c.type === 'image'))
+        continue
+      regions.push({ kind: 'toolResult', entry, tokens: 0, originalText: '', label: result.toolName })
+    }
     const plan: Shaken[] = []
     let freed = 0
     for (const region of regions) {
-      // Fenced blocks in messages stay: those are the person's and crewmates' words, which the summary keeps verbatim.
-      if (region.kind !== 'toolResult') continue
       const images = (region.entry.message as ToolResultMessage).content.filter(
         (c): c is ImageContent => c.type === 'image',
       )
@@ -326,6 +341,11 @@ export class ContextCompactor {
       ;(region.entry as { message: AgentMessage }).message = copy as AgentMessage
       applyShakeRegions([{ region, replacement: placeholder }])
       copy.content = copy.content.filter((c) => c.type !== 'image')
+      // A result that was only images has no text for omp's shake to replace.
+      if (!copy.content.some((c) => c.type === 'text' && c.text === placeholder)) {
+        copy.content = [{ type: 'text', text: placeholder }]
+        copy.prunedAt = Date.now()
+      }
       this._shaken.set(stored, copy as AgentMessage)
       freed += before - estimate([copy as AgentMessage])
     }
