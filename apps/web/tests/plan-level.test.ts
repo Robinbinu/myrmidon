@@ -1,5 +1,10 @@
 import { expect, test } from 'bun:test'
-import { planLevel, type QuotaSnapshot } from '../src/client/plan-limits.tsx'
+import type { QuotaSnapshot } from '../src/client/plan-limits.tsx'
+import { withDom } from './dom.ts'
+
+// plan-limits reads the page's address (its API client) when it loads.
+withDom()
+const { planLevel } = await import('../src/client/plan-limits.tsx')
 
 const snap = (
   ...accounts: { used?: number; status?: 'ok' | 'warning' | 'exhausted' }[][]
@@ -37,4 +42,9 @@ test('no battery without a reported use: an API key, another provider, or no num
   expect(planLevel(undefined, 'anthropic')).toBeUndefined()
   expect(planLevel(snap([{ used: 10 }]), 'openai')).toBeUndefined()
   expect(planLevel(snap([{}]), 'anthropic')).toBeUndefined()
+})
+
+test('the tooltip names every window, the one the battery shows first', () => {
+  const text = planLevel(snap([{ used: 16 }, { used: 71 }]), 'anthropic')?.text ?? ''
+  expect(text.split('\n')).toEqual(['Weekly: 29% left', '5-hour: 84% left'])
 })

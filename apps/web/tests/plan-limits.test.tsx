@@ -51,7 +51,7 @@ const settle = async () => {
   for (let i = 0; i < 4; i++) await act(async () => await Bun.sleep(10))
 }
 
-test('each account shows a meter per window: used share, reset, plan, and why an account has none', async () => {
+test('each account shows a meter per window: share left, reset, plan, and why an account has none', async () => {
   const asked = serveUsage(snapshot(Date.now()))
   const { PlanLimits } = await import('../src/client/plan-limits.tsx')
   const { copy } = await import('../src/client/copy.ts')
@@ -59,10 +59,11 @@ test('each account shows a meter per window: used share, reset, plan, and why an
   await settle()
   const meters = [...view.host.querySelectorAll('meter')]
   expect(meters.map((m) => [m.getAttribute('aria-label'), m.getAttribute('value')])).toEqual([
-    ['Claude 5 Hour', '92'],
-    ['Claude 7 Day', '30'],
+    // What is left of each window, as the bar shows it.
+    ['Claude 5 Hour', '8'],
+    ['Claude 7 Day', '70'],
   ])
-  expect(meters[0]?.getAttribute('aria-valuetext')).toBe('Claude 5 Hour: 92% used, resets in 1h 5m')
+  expect(meters[0]?.getAttribute('aria-valuetext')).toBe('Claude 5 Hour: 8% left, resets in 1h 5m')
   // The bar's colour follows the window's status: near its limit is yellow, with room is green.
   const bars = [...view.host.querySelectorAll('[aria-hidden] > div')].map((b) => b.className)
   expect(bars[0]).toContain('bg-warn')
@@ -97,7 +98,7 @@ test("the composer's model chip warns only when every account its provider could
   const now = 1_800_000_000_000
   const near = snapshot(now)
   expect(limitNotice(near as never, 'anthropic', now)).toBe(
-    'Claude 5 Hour is 92% used, resets in 1h 5m: agents on this model may slow down or stop',
+    'Claude 5 Hour has only 8% left, resets in 1h 5m: agents on this model may slow down or stop',
   )
   // Another Claude account with room: omp moves to it, so nothing to warn about.
   const roomy = {
