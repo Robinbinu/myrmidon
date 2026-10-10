@@ -7,7 +7,7 @@ import {
   Ellipsis,
   EthernetPort,
   ExternalLink,
-  FileUp,
+  FileInput,
   Link,
   LoaderCircle,
   Maximize2,
@@ -818,7 +818,7 @@ export function BrowserMenu(props: {
                     onSelect={act(() => void screenshot())}
                   />
                   <MenuItem
-                    icon={<FileUp className="size-4 text-muted" />}
+                    icon={<FileInput className="size-4 text-muted" />}
                     title={m.openFile}
                     onSelect={act(() => picker.current?.click())}
                   />
