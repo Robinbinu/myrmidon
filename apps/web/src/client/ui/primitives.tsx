@@ -359,8 +359,9 @@ export function Segmented<T extends string>(props: {
   id: string
 }) {
   return (
-    // Never squeezed by a long description beside it: each label stays on one line.
-    <div className="inline-flex shrink-0 rounded-md bg-fill-strong p-[2px]">
+    // Never squeezed by a long description beside it: each label stays on one line. Its own width even in a column,
+    // which would otherwise stretch the track past its segments.
+    <div className="inline-flex w-fit shrink-0 rounded-md bg-fill-strong p-[2px]">
       {props.options.map((o) => (
         <button
           key={o.value}
