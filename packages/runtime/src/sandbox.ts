@@ -7,6 +7,7 @@ import {
   SANDBOX_HIDDEN_TMP,
   SANDBOX_MAX_OUTPUT,
   SANDBOX_TEMP_READABLE,
+  SANDBOX_TIMED_OUT_READ_MS,
   sandboxSystemBins,
 } from './config.ts'
 import { spawnLeashed } from './leashed.ts'
@@ -452,13 +453,18 @@ async function runLeashed(
     timedOut = true
     proc.stdin.end()
   }, spec.timeoutMs)
-  const [stdout, stderr, code] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ])
+  const out = { stdout: '', stderr: '' }
+  const read = async (stream: ReadableStream<Uint8Array>, into: 'stdout' | 'stderr') => {
+    const decoder = new TextDecoder()
+    for await (const chunk of stream) out[into] += decoder.decode(chunk, { stream: true })
+  }
+  const reading = Promise.all([read(proc.stdout, 'stdout'), read(proc.stderr, 'stderr')])
+  const code = await proc.exited
   clearTimeout(timer)
-  return { code: timedOut ? null : code, stdout: cap(stdout), stderr: cap(stderr), timedOut }
+  // Once the leash has stopped a command that ran too long, what is left holding its output open is outside the
+  // tree it could find (on Windows, a process whose Git Bash parent handed it on and exited): the run ends anyway.
+  await (timedOut ? Promise.race([reading, Bun.sleep(SANDBOX_TIMED_OUT_READ_MS)]) : reading)
+  return { code: timedOut ? null : code, stdout: cap(out.stdout), stderr: cap(out.stderr), timedOut }
 }
 
 /**
