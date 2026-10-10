@@ -1406,7 +1406,18 @@ Reply with JSON only: {"lines": ["...", "...", "..."]}.`,
     portWasInUse: (port: number) =>
       `the server printed a URL on port ${port}, but that port was already in use before it started; start it on a free port and pass port`,
     readerProgram:
-      'web_fetch does not run other programs: they would reach the network without its address checks',
+      'web_fetch does not run other programs, only its page readers (yt-dlp, trafilatura, lynx) and only through its address checks',
+    readerInstall: 'web_fetch does not install programs; it uses the page readers already on this computer',
+    /** web_fetch on a YouTube video when yt-dlp, which reads its details and transcript, is not installed. */
+    noTranscriptReader: (url: string) =>
+      `${url} is a YouTube video, but yt-dlp is not installed on this computer, so its title, description and ` +
+      'transcript cannot be read. Installing yt-dlp (macOS: brew install yt-dlp; Linux: pipx install yt-dlp or the ' +
+      "system's package; Windows: winget install yt-dlp) and restarting Myrmidon enables it; tell the person if " +
+      'the transcript matters.',
+    /** Above a page web_fetch could only return as raw HTML, when neither trafilatura nor lynx is installed. */
+    noPageReader:
+      'No reader turned this page into text, so its HTML follows. Installing trafilatura (pipx install ' +
+      'trafilatura) or lynx gives web_fetch more readers to try.',
     browserBlocked: (url: string, reason?: string) =>
       `the browser did not load ${url}: ${reason ?? 'it, or a redirect from it, goes to a private or local network address. Agents can reach only the public internet, plus the localhost ports of servers they started with start_server in this round'}`,
     /** fs_read's header over a range of lines, and how to read on. */
@@ -2058,7 +2069,8 @@ Reply with JSON only: {"lines": ["...", "...", "..."]}.`,
       /** `read`: the agent has fs_read, so a long page is saved for it to read on. */
       description: (read: boolean) =>
         'Read a public URL as clean text: web pages, PDFs and documents, GitHub repos and issues, npm and PyPI ' +
-        'packages, arXiv papers and more get dedicated readers. Use it to check a fact or number before you rely on ' +
+        'packages, arXiv papers, YouTube videos (with their transcripts) and more get dedicated readers. Use it to ' +
+        'check a fact or number before you rely on ' +
         'it, preferring primary sources (official docs, the paper, the announcement). Pages that need JavaScript, a ' +
         `sign-in or clicks need the browser instead. ${
           read
