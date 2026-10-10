@@ -1,16 +1,16 @@
 import { afterEach, expect, test } from 'bun:test'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { BlobStore, colonyId, SqliteLogStore } from '@myrmidon/core'
-import { expectOwnerOnly } from '../../../tests/platform.ts'
+import { expectOwnerOnly, removeTempDir } from '../../../tests/platform.ts'
 import { startServer, type WebServer } from '../src/server.ts'
 
 const homes: string[] = []
 const servers: WebServer[] = []
 afterEach(async () => {
   for (const s of servers.splice(0)) await s.stop().catch(() => {})
-  for (const h of homes.splice(0)) rmSync(h, { recursive: true, force: true })
+  for (const h of homes.splice(0)) removeTempDir(h)
 })
 
 function home() {

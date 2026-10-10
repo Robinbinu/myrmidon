@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { chmodSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, rmSync, statSync, writeFileSync } from 'node:fs'
 
 /** The platforms a test may be pending on. macOS is the reference platform: nothing is ever pending there. */
 type Pending = 'linux' | 'win32'
@@ -18,21 +18,57 @@ export const GAPS = {
     'call in the chat is spoken twice (apps/web voice gateway; seen on Linux every run)',
   sqliteHandles:
     'SQLite stores close with db.close() while prepared statements live (core sqlite-store.ts), so the file stays ' +
-    'open until GC and Windows cannot delete the folder (EBUSY)',
+    'open until GC and Windows cannot delete the folder (EBUSY); close(true) would release it at once',
   serverJsonAfterKill:
     'when the desktop app is killed, the leash stops its server without letting it remove server.json on Windows',
   cuaDriverOnWindows:
-    'computer use starts the Cua Driver daemon on a unix socket in the data folder; on Windows it never comes up',
+    'computer use cannot start a Cua Driver on Windows (its manifest and daemon never answer), so every computer ' +
+    'tool fails there',
   dataFolderOnWindows:
-    "a project's file and git views still serve Myrmidon's data folder and keys inside it on Windows",
+    "the project file and git views, and readProjectFile, still serve Myrmidon's data folder (credentials.json) " +
+    'and keys inside a project on Windows',
   terminalForeground:
-    "the terminal panel on Windows does not report what runs in each terminal's foreground (ConPTY), and its " +
-    'folder stays busy after the server stops',
+    "the terminal panel on Windows does not report what runs in each terminal's foreground (ConPTY)",
   bunWindowsSockets:
     'Bun 1.3.14 on Windows crashes (segfault, or exit 127) in the IRC raw-socket tests, ending the whole run',
+  processTreeTests:
+    'children.test.ts reads process trees with `ps` and drives sh/sleep/trap and POSIX signals; it needs a ' +
+    'Windows port (a test-side change, using processes.ts to list trees)',
+  fileToolPathsOnWindows:
+    'file tools (fs_read, grep, glob) on Windows refuse paths inside the project or scratch ("path is outside ' +
+    'your … directory: .")',
+  windowsShellPath:
+    "commands run through Git's sh.exe with a PATH that lacks Git's usr\\bin, so mkdir, touch and the rest are " +
+    "'command not found'",
+  worktreesOnWindows:
+    'agent worktrees on Windows: `git add` trips over the linked node_modules ("paths are ignored"), so workers ' +
+    'cannot commit and merge',
+  osSeparatorsInText:
+    "paths shown to agents use \\ on Windows (nested AGENTS.md list, a skill's file list) where macOS and Linux " +
+    'show /',
 } as const
 
 export type Gap = keyof typeof GAPS
+
+/**
+ * Tests of one system's own mechanism that mean nothing on another: an SBPL profile or bubblewrap mounts built from
+ * Windows paths, or POSIX PATH handling (cross-platform.test.ts covers each system's rules). Not gaps: nothing is
+ * meant to change.
+ */
+export const OTHER_SYSTEMS = {
+  macProfile:
+    "Seatbelt profiles take only macOS paths; a Windows host's paths (with \\) are refused by design",
+  bwrapMounts: 'bubblewrap mounts are built from Linux paths; Windows has no bubblewrap (its sandbox is WSL)',
+  posixPath:
+    "the POSIX PATH (':' separated, /usr/bin) is checked here; cross-platform.test.ts checks Windows'",
+} as const
+
+/** A test of a mechanism `on` does not have: skipped there (the log says why), run everywhere else. */
+export function notOn(on: Pending | readonly Pending[], why: keyof typeof OTHER_SYSTEMS): typeof test {
+  const here = (typeof on === 'string' ? [on] : on).some((p) => p === process.platform)
+  if (here) console.warn(`not on ${process.platform}: ${why}: ${OTHER_SYSTEMS[why]}`)
+  return test.skipIf(here) as typeof test
+}
 
 const announced = new Set<Gap>()
 
@@ -75,8 +111,26 @@ export function bunShim(path: string, script: string): string {
 }
 
 /**
+ * Removes a test's temp folder. On Windows a SQLite file closed with db.close() stays open until its statements are
+ * garbage-collected (GAPS.sqliteHandles), so a busy folder is removed again after a full collection.
+ */
+export function removeTempDir(dir: string): void {
+  try {
+    rmSync(dir, { recursive: true, force: true })
+  } catch (err) {
+    if (process.platform !== 'win32' || (err as NodeJS.ErrnoException).code !== 'EBUSY') throw err
+    pendingHere('win32', 'sqliteHandles')
+    Bun.gc(true)
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+/** Entries Windows keeps on every private file: the system itself and administrators can always take ownership. */
+const WINDOWS_ALWAYS = ['NT AUTHORITY\\SYSTEM:(F)', 'BUILTIN\\Administrators:(F)']
+
+/**
  * Expects `path` to be readable by this account alone: mode 0600 where modes exist; on Windows, an access list with
- * full control for this account and nothing else, inherited or not (owner-only.ts).
+ * nothing inherited and full control for this account, beside only the system and administrators (owner-only.ts).
  */
 export function expectOwnerOnly(path: string): void {
   if (process.platform !== 'win32') {
@@ -88,5 +142,6 @@ export function expectOwnerOnly(path: string): void {
   const [first = '', ...rest] = out.split(/\r?\n\r?\n/)[0]?.split(/\r?\n/) ?? []
   const entries = [first.slice(path.length), ...rest].map((line) => line.trim()).filter(Boolean)
   const account = `${process.env.USERDOMAIN ? `${process.env.USERDOMAIN}\\` : ''}${process.env.USERNAME}`
-  expect(entries).toEqual([`${account}:(F)`])
+  expect(entries).toContain(`${account}:(F)`)
+  expect(entries.filter((e) => e !== `${account}:(F)` && !WINDOWS_ALWAYS.includes(e))).toEqual([])
 }

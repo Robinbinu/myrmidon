@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from 'bun:test'
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { chromeCandidates } from '../src/browser.ts'
@@ -10,6 +10,13 @@ import { expandHome, keysAt, readFolder, within } from '../src/read-access.ts'
 import { confinedEnvFor, sandboxPath } from '../src/sandbox.ts'
 import { PhononStream } from '../src/voice/phonon-stream.ts'
 import { phononInstall, phononListenArgs, phononUnsupported, socketFolder } from '../src/voice/stt.ts'
+
+/**
+ * The system folders a confined PATH adds after the person's own: those this computer has (none, but on a Windows
+ * host), less ones the person's PATH already named, compared as Windows does, ignoring case.
+ */
+const presentBesides = (system: readonly string[], named: readonly string[]) =>
+  system.filter((dir) => existsSync(dir) && !named.some((n) => n.toLowerCase() === dir.toLowerCase()))
 
 /**
  * Myrmidon runs on macOS, Linux and Windows. These check the Windows and Linux rules of the path and OS helpers with
@@ -116,6 +123,7 @@ test('a confined command’s PATH is split and joined with ; on Windows, keeping
   expect(sandboxPath(person, temp(), 'win32', system).split(';')).toEqual([
     'c:\\windows\\system32',
     'C:\\WINDOWS',
+    ...presentBesides(system, ['C:\\WINDOWS\\System32', 'C:\\WINDOWS']),
   ])
   expect(sandboxPath('/usr/bin:/opt/evil', temp(), 'linux', ['/usr/bin'])).toBe('/usr/bin')
 })
@@ -132,7 +140,11 @@ test('on Windows a confined command keeps the variables programs need and gets i
   }
   const dirs = { person: temp(), home: 'D:\\scratch\\.home', tmp: 'D:\\scratch\\.tmp' }
   const env = confinedEnvFor(base, dirs, 'win32')
-  expect(env.PATH).toBe('C:\\WINDOWS\\system32')
+  expect(env.PATH).toBe(
+    ['C:\\WINDOWS\\system32', ...presentBesides(sandboxSystemBins('win32'), ['C:\\WINDOWS\\system32'])].join(
+      ';',
+    ),
+  )
   expect(env.PATHEXT).toBe('.COM;.EXE;.BAT;.CMD')
   expect(env.SystemRoot).toBe('C:\\WINDOWS')
   expect(env.ComSpec).toBe('C:\\WINDOWS\\system32\\cmd.exe')

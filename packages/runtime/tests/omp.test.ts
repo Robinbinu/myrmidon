@@ -1,13 +1,13 @@
 import { afterAll, expect, test } from 'bun:test'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { expectOwnerOnly } from '../../../tests/platform.ts'
+import { expectOwnerOnly, removeTempDir } from '../../../tests/platform.ts'
 import { bootOmp, ModelResolver, pointOmpAt } from '../src/index.ts'
 
 const home = mkdtempSync(join(tmpdir(), 'myr-omp-'))
 pointOmpAt(home)
-afterAll(() => rmSync(home, { recursive: true, force: true }))
+afterAll(() => removeTempDir(home))
 
 test('custom providers go to models.yml, keys to the vault, and models resolve through omp', async () => {
   const omp = await bootOmp(home)
