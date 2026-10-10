@@ -3643,9 +3643,11 @@ test('a round stopped after reaching outside Myrmidon tells its agents what was 
     ...solo('mock/lead'),
     judgeModel: 'mock/judge',
   })
-  for (let i = 0; i < 100; i++) {
-    if ((await events(colonyId)).some((e) => e.type === 'tool/result')) break
-    await Bun.sleep(20)
+  // The call outside Myrmidon has run before the person stops: its MCP server can take seconds to start on a slow
+  // machine, and a round stopped before the call has nothing to tell.
+  for (let i = 0; !(await events(colonyId)).some((e) => e.type === 'tool/result'); i++) {
+    if (i >= 400) throw new Error('the call outside Myrmidon never ran')
+    await Bun.sleep(50)
   }
   await chats.stop(chatId)
   await waitFor(colonyId, (x) => x.status === 'stopped')
