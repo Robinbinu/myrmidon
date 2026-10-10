@@ -94,5 +94,6 @@ section. Then:
 - For a web app, `start_server` runs its dev server (never `shell`, which waits for the command to end) and
   returns the URL; open it with `browser_open` and use the page the way a person would. `server_logs` shows build
   errors and crashes.
-- After changing code, `run_checks` runs the project's own typecheck, lint and tests. Fix what fails before you
-  say you are done, and say plainly if something still fails.
+- After changing code, `run_checks` runs the project's own typecheck, lint and tests; outside a project it checks
+  your scratch folder (a package.json, tsconfig or pyproject there). Fix what fails before you say you are done,
+  and say plainly if something still fails.
