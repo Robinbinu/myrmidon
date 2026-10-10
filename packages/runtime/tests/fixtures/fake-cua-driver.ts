@@ -52,7 +52,7 @@ const tool = (name: string, properties: Record<string, unknown> = {}) => ({
   description: name,
   inputSchema: { type: 'object', properties },
 })
-const tools = [
+const base = [
   tool('list_apps'),
   tool('launch_app', { bundle_id: {} }),
   tool('list_windows', { pid: {} }),
@@ -77,6 +77,16 @@ const tools = [
   tool('zoom'),
   tool('check_permissions'),
 ]
+// FAKE_CUA_SESSIONS=1 stands in for a driver with sessions: one cursor per session, which can be hidden.
+const tools = process.env.FAKE_CUA_SESSIONS
+  ? [
+      ...base.map((t) => ({
+        ...t,
+        inputSchema: { ...t.inputSchema, properties: { ...t.inputSchema.properties, session: {} } },
+      })),
+      tool('set_agent_cursor_enabled', { session: {}, enabled: {} }),
+    ]
+  : base
 
 function answer(name: string, args: Record<string, unknown>) {
   const ok = (text: string, structuredContent?: unknown) => ({

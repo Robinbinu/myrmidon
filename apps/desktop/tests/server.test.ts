@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os'
 import { join, resolve, sep } from 'node:path'
 import { pendingOn } from '../../../tests/platform.ts'
-import { freePort, myrmidonHome, pageUrl, runningServer, startServer } from '../src/server.ts'
+import { freePort, myrmidonHome, overlayUrl, pageUrl, runningServer, startServer } from '../src/server.ts'
 
 const FAKE = [process.execPath, join(import.meta.dir, 'fake-cli.ts')]
 let home: string
@@ -149,4 +149,10 @@ test('another server writing server.json for the same home is not taken for the 
   } finally {
     other.kill('SIGKILL')
   }
+})
+
+test("the overlay windows load the dashboard's page at /overlay, with its token", () => {
+  expect(overlayUrl('http://127.0.0.1:4318/?chat=a#token=t0k')).toBe(
+    'http://127.0.0.1:4318/overlay#token=t0k',
+  )
 })
