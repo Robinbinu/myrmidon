@@ -5,8 +5,10 @@ import {
   mkdirSync,
   readdirSync,
   realpathSync,
+  rmdirSync,
   rmSync,
   symlinkSync,
+  unlinkSync,
 } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { SKIP_DIRS } from './workspace.ts'
@@ -54,6 +56,13 @@ async function run(
     proc.exited,
   ])
   return { code, out, err }
+}
+
+/** Removes a link to a folder, never what it points to: a junction on Windows is removed as an empty folder is. */
+function unlink(path: string) {
+  if (!lstatSync(path, { throwIfNoEntry: false })?.isSymbolicLink()) return
+  if (process.platform === 'win32') rmdirSync(path)
+  else unlinkSync(path)
 }
 
 async function git(cwd: string, args: string[], env: Record<string, string> = {}, input?: string) {
@@ -232,6 +241,8 @@ export class ProjectWorktrees {
         const base = (await git(this.top, ['rev-parse', tree.baseRef])).trim()
         kept = (await this.treeOf(tip)) !== (await this.treeOf(base))
         if (!kept) {
+          // The links go first, as links: Git for Windows leaves a worktree's folder behind when a junction is in it.
+          for (const link of tree.links) unlink(join(tree.path, link))
           await git(this.top, ['worktree', 'remove', '--force', tree.path])
           await git(this.top, ['branch', '-D', tree.branch])
           await git(this.top, ['update-ref', '-d', tree.baseRef])
