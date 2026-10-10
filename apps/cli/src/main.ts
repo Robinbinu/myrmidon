@@ -27,6 +27,7 @@ import {
   ColonyRun,
   ComputerHub,
   ContextWindows,
+  claimServerHome,
   detectSandbox,
   guardSecrets,
   HookStore,
@@ -334,6 +335,8 @@ async function main() {
       // from another server's for the same home. Taken out first, so nothing this server starts inherits it.
       const launch = process.env.MYRMIDON_LAUNCH_ID
       delete process.env.MYRMIDON_LAUNCH_ID
+      // Before anything opens the home's stores and logs, which a second server would share (server-lock.ts).
+      if (!claimServerHome(home)) throw new Error(setupCopy.serverRunning(home))
       const runtime = await bootRuntime(home)
       await recover(runtime)
       const settings = new SettingsStore(home)
