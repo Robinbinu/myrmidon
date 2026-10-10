@@ -3,12 +3,13 @@ import { closeSync, openSync, readFileSync, readSync, statSync } from 'node:fs'
 import { extname } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { notebookToEditableText, pdfToMarkdown } from '@oh-my-pi/pi-natives'
-import { BINARY_SNIFF_BYTES, isProbablyBinaryHeader } from '@oh-my-pi/pi-utils/binary'
+import { BINARY_SNIFF_BYTES } from '@oh-my-pi/pi-utils/binary'
 import { parseImageMetadata } from '@oh-my-pi/pi-utils/mime'
 import {
   READ_ARCHIVE_ENTRY_MAX_BYTES,
   READ_ARCHIVE_MAX_BYTES,
   READ_ARCHIVE_MAX_ENTRIES,
+  READ_BINARY_CONTROL_SHARE,
   READ_DOCUMENT_MAX_BYTES,
   READ_SQL_MAX_ROWS,
 } from './config.ts'
@@ -35,6 +36,19 @@ export interface ReadWant {
 }
 
 type DocumentKind = 'pdf' | 'image' | 'office' | 'notebook'
+
+/**
+ * Whether a file's first bytes are binary rather than text: a NUL byte, or more than a tenth control characters. Not
+ * "not valid UTF-8", as omp's check has it: a Latin-1 or Windows-1252 text file is still text, read with its odd
+ * bytes replaced, as fs_read always read it.
+ */
+export function looksBinary(head: Uint8Array): boolean {
+  if (head.includes(0)) return true
+  let control = 0
+  for (const b of head)
+    if (b < 0x20 && b !== 0x09 && b !== 0x0a && b !== 0x0c && b !== 0x0d && b !== 0x1b) control++
+  return head.length > 0 && control / head.length > READ_BINARY_CONTROL_SHARE
+}
 
 const SQLITE_MAGIC = 'SQLite format 3\0'
 
@@ -84,7 +98,7 @@ export async function readFileAs(path: string, name: string, want: ReadWant = {}
       throw new Error(prompts.toolResults.readTooBig(name, size, READ_DOCUMENT_MAX_BYTES))
     return convert(kind, name, ext, readFileSync(path))
   }
-  if (isProbablyBinaryHeader(head)) {
+  if (looksBinary(head)) {
     if (format) return readArchive(path, name)
     throw new Error(prompts.toolResults.readBinary(name, statSync(path).size))
   }
@@ -192,7 +206,7 @@ async function readArchive(path: string, name: string, entry?: string): Promise<
   const ext = extname(node.path).toLowerCase()
   const kind = documentKind(head, ext)
   if (kind) return convert(kind, label, ext, bytes)
-  if (isProbablyBinaryHeader(head)) throw new Error(t.readBinary(label, bytes.length))
+  if (looksBinary(head)) throw new Error(t.readBinary(label, bytes.length))
   return { text: new TextDecoder().decode(bytes) }
 }
 
