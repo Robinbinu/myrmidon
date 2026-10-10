@@ -304,6 +304,15 @@ function fakeServer(v: Variant = {}) {
           source: { by: 'person' },
           updatedAt: NOW,
         },
+        {
+          id: 'm2',
+          text: 'I prefer pnpm, never npm',
+          kind: 'preference',
+          status: 'proposed',
+          replaces: ['m1'],
+          source: { by: 'reflect', why: 'Both say the same' },
+          updatedAt: NOW,
+        },
       ],
     },
     '/api/hooks': {

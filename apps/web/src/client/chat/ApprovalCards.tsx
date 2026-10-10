@@ -740,8 +740,9 @@ export function LoginCards({ state }: { state: ColonyState }) {
 }
 
 /**
- * Memories an agent proposed this round: the person keeps or discards each. Kept ones reach every later chat
- * (or every chat in the project); Settings → Memory lists and edits them.
+ * Memories an agent proposed this round, or Myrmidon's reviewer suggested from what the person said: the person keeps
+ * or discards each. Kept ones reach every later chat (or every chat in the project), in place of any they replace;
+ * Settings → Memory lists and edits them.
  */
 export function MemoryCards({ state }: { state: ColonyState }) {
   const toast = useToast()
@@ -772,16 +773,39 @@ export function MemoryCards({ state }: { state: ColonyState }) {
         >
           <div className="flex items-center gap-2 text-reading">
             <BookmarkPlus className="size-4 shrink-0 text-accent-fg" />
-            <span>
-              <span className="font-semibold">{m.agent}</span> {copy.approvals.memory.wantsToRemember}
-              {m.project ? copy.approvals.memory.forProject : copy.approvals.memory.everyChat}
-            </span>
+            {m.suggested ? (
+              <span>
+                {copy.approvals.memory.suggested}
+                {m.project ? copy.approvals.memory.forProject : copy.approvals.memory.everyChat}
+              </span>
+            ) : (
+              <span>
+                <span className="font-semibold">{m.agent}</span> {copy.approvals.memory.wantsToRemember}
+                {m.project ? copy.approvals.memory.forProject : copy.approvals.memory.everyChat}
+              </span>
+            )}
           </div>
           <p className="rounded-xl bg-surface px-3 py-2 text-reading">
             <span className="mr-1.5 section-label text-muted">{m.kind}</span>
             {m.text}
           </p>
-          {m.why && <p className="text-small text-muted">{copy.approvals.memory.why(m.why)}</p>}
+          {m.replaces?.length ? (
+            <div className="text-small text-muted">
+              <span className="section-label">{copy.approvals.memory.replaces}</span>
+              <ul className="mt-1 flex flex-col gap-0.5">
+                {m.replaces.map((r) => (
+                  <li key={r.id} className="line-through">
+                    {r.text}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {m.why && (
+            <p className="text-small text-muted">
+              {m.suggested ? copy.approvals.memory.said(m.why) : copy.approvals.memory.why(m.why)}
+            </p>
+          )}
           <div className="flex justify-end gap-2">
             <Button
               size="sm"

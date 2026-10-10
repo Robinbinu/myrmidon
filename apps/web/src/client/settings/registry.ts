@@ -1197,6 +1197,28 @@ export const SETTINGS = {
   },
 
   // Memory
+  'memory.suggest': {
+    page: 'memory',
+    control: 'switch',
+    label: s.memory.suggest,
+    help: s.memory.suggestHint,
+    keywords: [...kw.memory, 'suggestions', 'extract', 'learn from chats'],
+    keys: ['memory.suggest'],
+  },
+  'memory.tidy': {
+    page: 'memory',
+    control: 'button',
+    label: s.memory.tidy,
+    help: s.memory.tidyHint,
+    keywords: [...kw.memory, 'merge', 'duplicates', 'consolidate', 'clean up'],
+  },
+  'memory.waiting': {
+    page: 'memory',
+    control: 'list',
+    label: s.memory.waitingTitle,
+    keywords: [...kw.memory, s.memory.keep, s.memory.discard],
+  },
+  'memory.search': { page: 'memory', control: 'text', label: s.memory.search, keywords: kw.memory },
   'memory.add': {
     page: 'memory',
     control: 'form',

@@ -7,6 +7,7 @@ import {
   ChevronRight,
   CircleCheck,
   CircleX,
+  Combine,
   Download,
   ExternalLink,
   FoldVertical,
@@ -232,6 +233,8 @@ export interface ServerSettings {
   /** The global level of the permission model: the default preset, rules, who can use what. */
   permissions: GlobalPermissions
   profile?: { name?: string; greeting: 'model' | 'rules'; titles?: 'model' | 'first-message' }
+  /** Memory suggestions after chats; absent from older servers. */
+  memory?: { suggest: boolean }
   mascot?: MascotPatch
   /** VS Code themes the person imported; absent from older servers. */
   appearance?: { imported: ImportedTheme[] }
@@ -750,7 +753,7 @@ export function Settings(props: {
                 {section === 'instructions' && data && (
                   <InstructionsSection settings={data.settings} update={update} />
                 )}
-                {section === 'memory' && <MemorySection />}
+                {section === 'memory' && <MemorySection settings={data?.settings} update={update} />}
                 {section === 'skills' && <SkillsSection />}
                 {section === 'plugins' && <PluginsSection />}
                 {section === 'hooks' && <HooksSection onDirty={setHooksDirty} />}
@@ -5795,19 +5798,40 @@ interface MemoryEntry {
   kind: 'preference' | 'decision' | 'lesson' | 'fact'
   project?: string
   status: 'active' | 'proposed'
-  source: { by: 'person' | 'agent'; agent?: string; why?: string }
+  /** A proposal that merges or corrects kept memories: keeping it removes these. */
+  replaces?: string[]
+  source: { by: 'person' | 'agent' | 'extract' | 'reflect'; agent?: string; why?: string }
   updatedAt: string
 }
 
 const MEMORY_KINDS = ['preference', 'decision', 'lesson', 'fact'] as const
 
-/** What Myrmidon keeps across chats: add, edit, re-scope and remove memories, and decide on agents' proposals. */
-function MemorySection() {
+/** Whether a memory holds every word of a search, in any order. */
+function memoryMatches(m: MemoryEntry, query: string): boolean {
+  const text = m.text.toLowerCase()
+  return query
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean)
+    .every((w) => text.includes(w))
+}
+
+/**
+ * What Myrmidon keeps across chats: add, search, edit, re-scope and remove memories, decide on what agents and the
+ * memory reviewer suggest, and ask for a tidy-up.
+ */
+function MemorySection(props: {
+  settings?: ServerSettings | undefined
+  update(p: (s: ServerSettings) => ServerSettings, immediate?: boolean): void
+}) {
   const toast = useToast()
+  const t = copy.settings.memory
   const [memories, setMemories] = useState<MemoryEntry[]>()
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([])
   const [draft, setDraft] = useState({ text: '', kind: 'preference', project: '' })
   const [editing, setEditing] = useState<{ id: string; text: string }>()
+  const [query, setQuery] = useState('')
+  const [tidying, setTidying] = useState(false)
   const load = () =>
     api<{ memories: MemoryEntry[] }>('/api/memory')
       .then((r) => setMemories(r.memories))
@@ -5827,45 +5851,102 @@ function MemorySection() {
       toast((err as Error).message, 'error')
     }
   }
+  const tidy = async () => {
+    setTidying(true)
+    try {
+      const r = await send<{ suggested: number; memories: MemoryEntry[] }>('POST', '/api/memory/tidy')
+      setMemories(r.memories)
+      toast(r.suggested ? t.tidied(r.suggested) : t.tidiedNone, r.suggested ? 'success' : 'info')
+    } catch (err) {
+      toast((err as Error).message, 'error')
+    } finally {
+      setTidying(false)
+    }
+  }
   const scopeName = (project?: string) =>
-    project ? (projects.find((p) => p.id === project)?.name ?? project) : copy.settings.memory.everyChat
-  const groups = [...new Set((memories ?? []).map((m) => m.project ?? ''))].sort((a, b) =>
+    project ? (projects.find((p) => p.id === project)?.name ?? project) : t.everyChat
+  const kept = (memories ?? []).filter((m) => m.status === 'active')
+  const waiting = (memories ?? []).filter((m) => m.status === 'proposed')
+  const shown = kept.filter((m) => memoryMatches(m, query))
+  const groups = [...new Set(shown.map((m) => m.project ?? ''))].sort((a, b) =>
     a === '' ? -1 : b === '' ? 1 : scopeName(a).localeCompare(scopeName(b)),
   )
+  const origin = (m: MemoryEntry) =>
+    m.source.by === 'agent'
+      ? t.fromAgent(m.source.agent ?? t.anAgent)
+      : m.source.by === 'extract'
+        ? t.fromChat
+        : m.source.by === 'reflect'
+          ? t.fromTidy
+          : t.addedByYou
+  const suggest = props.settings?.memory?.suggest ?? true
   return (
     <>
-      <PageHeader title={copy.settings.memory.title}>{copy.settings.memory.intro}</PageHeader>
+      <PageHeader title={t.title}>{t.intro}</PageHeader>
+      <Card className="mb-6">
+        {props.settings && (
+          <SettingField id="memory.suggest" inline>
+            <Switch
+              checked={suggest}
+              label={t.suggest}
+              onChange={(v) => props.update((s) => ({ ...s, memory: { suggest: v } }), true)}
+            />
+          </SettingField>
+        )}
+        <CardRow {...settingRow('memory.tidy')}>
+          <div className="flex items-center gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="text-body">{t.tidy}</div>
+              <p className="text-small text-muted">{t.tidyHint}</p>
+            </div>
+            <Button
+              size="sm"
+              disabled={tidying || kept.length < 2}
+              icon={
+                tidying ? (
+                  <LoaderCircle className="size-3.5 animate-spin" />
+                ) : (
+                  <Combine className="size-3.5" />
+                )
+              }
+              onClick={() => void tidy()}
+            >
+              {tidying ? t.tidying : t.tidy}
+            </Button>
+          </div>
+        </CardRow>
+      </Card>
       <Card className="mb-6">
         <CardRow {...settingRow('memory.add')}>
-          <Field label={copy.settings.memory.remember} hint={copy.settings.memory.rememberHint}>
+          <Field label={t.remember} hint={t.rememberHint}>
             <TextArea
               value={draft.text}
               onChange={(e) => setDraft({ ...draft, text: e.target.value })}
-              placeholder={copy.settings.memory.rememberPlaceholder}
+              placeholder={t.rememberPlaceholder}
               rows={2}
             />
           </Field>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <Select
-              aria-label={copy.settings.memory.kind}
+              aria-label={t.kind}
               value={draft.kind}
               onChange={(e) => setDraft({ ...draft, kind: e.target.value })}
             >
               {MEMORY_KINDS.map((k) => (
                 <option key={k} value={k}>
-                  {copy.settings.memory.kinds[k]}
+                  {t.kinds[k]}
                 </option>
               ))}
             </Select>
             <Select
-              aria-label={copy.settings.memory.appliesTo}
+              aria-label={t.appliesTo}
               value={draft.project}
               onChange={(e) => setDraft({ ...draft, project: e.target.value })}
             >
-              <option value="">{copy.settings.memory.everyChat}</option>
+              <option value="">{t.everyChat}</option>
               {projects.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {copy.settings.memory.onlyProject(p.name)}
+                  {t.onlyProject(p.name)}
                 </option>
               ))}
             </Select>
@@ -5882,148 +5963,193 @@ function MemorySection() {
                 })
               }
             >
-              {copy.settings.memory.rememberButton}
+              {t.rememberButton}
             </Button>
           </div>
         </CardRow>
       </Card>
+      {waiting.length > 0 && (
+        <section {...settingRow('memory.waiting')} className="mb-6">
+          <h4 className="mb-2 section-label text-muted">{t.waitingTitle}</h4>
+          <Card>
+            {waiting.map((m) => (
+              <CardRow key={m.id}>
+                <div className="flex items-start gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-reading leading-relaxed">
+                      <span className="mr-1.5 section-label text-muted">{t.kinds[m.kind]}</span>
+                      {m.text}
+                    </p>
+                    {m.replaces?.length ? (
+                      <div className="mt-1.5 text-small text-muted">
+                        <span className="section-label">{t.replaces}</span>
+                        <ul className="mt-0.5 flex flex-col gap-0.5">
+                          {m.replaces.map((id) => (
+                            <li key={id} className="line-through">
+                              {kept.find((k) => k.id === id)?.text ?? id}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
+                    <p className="mt-1.5 text-small text-muted">
+                      {scopeName(m.project)} · {origin(m)} · {day(m.updatedAt)}
+                    </p>
+                    {m.source.why && (
+                      <p className="mt-1 text-small text-muted">
+                        {m.source.by === 'extract' ? t.said(m.source.why) : t.why(m.source.why)}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <Button
+                      size="sm"
+                      variant="borderless"
+                      icon={<X className="size-3.5" />}
+                      onClick={() =>
+                        void act(() => send('POST', `/api/memory/${m.id}/decide`, { keep: false }))
+                      }
+                    >
+                      {t.discard}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      icon={<Check className="size-3.5" />}
+                      onClick={() =>
+                        void act(() => send('POST', `/api/memory/${m.id}/decide`, { keep: true }))
+                      }
+                    >
+                      {t.keep}
+                    </Button>
+                  </div>
+                </div>
+              </CardRow>
+            ))}
+          </Card>
+        </section>
+      )}
       {!memories ? (
         <div className="flex items-center gap-2 text-body text-muted">
-          <LoaderCircle className="size-4 animate-spin" /> {copy.settings.memory.loading}
+          <LoaderCircle className="size-4 animate-spin" /> {t.loading}
         </div>
-      ) : memories.length === 0 ? (
-        <Empty icon={<FEATURE_ICONS.memory className="size-5" />} title={copy.settings.memory.emptyTitle}>
-          {copy.settings.memory.emptyBody}
+      ) : kept.length === 0 ? (
+        <Empty icon={<FEATURE_ICONS.memory className="size-5" />} title={t.emptyTitle}>
+          {t.emptyBody}
         </Empty>
       ) : (
-        <div {...settingRow('memory.list')}>
-          {groups.map((g) => (
-            <section key={g || 'all'} className="mb-6">
-              <h4 className="mb-2 section-label text-muted">{scopeName(g || undefined)}</h4>
-              <Card>
-                {memories
-                  .filter((m) => (m.project ?? '') === g)
-                  .map((m) => (
-                    <CardRow key={m.id}>
-                      <div className="flex items-start gap-3">
-                        <div className="min-w-0 flex-1">
-                          {editing?.id === m.id ? (
-                            <TextArea
-                              autoFocus
-                              rows={2}
-                              value={editing.text}
-                              onChange={(e) => setEditing({ id: m.id, text: e.target.value })}
-                            />
-                          ) : (
-                            <button
-                              type="button"
-                              title={copy.settings.memory.edit}
-                              onClick={() => setEditing({ id: m.id, text: m.text })}
-                              className="w-full text-left text-reading leading-relaxed hover:text-fg-2"
-                            >
-                              {m.text}
-                            </button>
-                          )}
-                          <div className="mt-1.5 flex flex-wrap items-center gap-2 text-small text-muted">
-                            <Select
-                              aria-label={copy.settings.memory.kind}
-                              value={m.kind}
-                              onChange={(e) =>
-                                void act(() => send('PATCH', `/api/memory/${m.id}`, { kind: e.target.value }))
-                              }
-                            >
-                              {MEMORY_KINDS.map((k) => (
-                                <option key={k} value={k}>
-                                  {copy.settings.memory.kinds[k]}
-                                </option>
-                              ))}
-                            </Select>
-                            <Select
-                              aria-label={copy.settings.memory.appliesTo}
-                              value={m.project ?? ''}
-                              onChange={(e) =>
-                                void act(() =>
-                                  send('PATCH', `/api/memory/${m.id}`, { project: e.target.value || null }),
-                                )
-                              }
-                            >
-                              <option value="">{copy.settings.memory.everyChat}</option>
-                              {projects.map((p) => (
-                                <option key={p.id} value={p.id}>
-                                  {copy.settings.memory.onlyProject(p.name)}
-                                </option>
-                              ))}
-                            </Select>
-                            <span>
-                              {m.source.by === 'agent'
-                                ? copy.settings.memory.fromAgent(
-                                    m.source.agent ?? copy.settings.memory.anAgent,
+        <>
+          <div {...settingRow('memory.search')} className="relative mb-4">
+            <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted" />
+            <TextInput
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={t.search}
+              aria-label={t.search}
+              className="pl-8"
+            />
+          </div>
+          {shown.length === 0 && <p className="text-callout text-muted">{t.noMatch(query.trim())}</p>}
+          <div {...settingRow('memory.list')}>
+            {groups.map((g) => (
+              <section key={g || 'all'} className="mb-6">
+                <h4 className="mb-2 section-label text-muted">{scopeName(g || undefined)}</h4>
+                <Card>
+                  {shown
+                    .filter((m) => (m.project ?? '') === g)
+                    .map((m) => (
+                      <CardRow key={m.id}>
+                        <div className="flex items-start gap-3">
+                          <div className="min-w-0 flex-1">
+                            {editing?.id === m.id ? (
+                              <TextArea
+                                autoFocus
+                                rows={2}
+                                value={editing.text}
+                                onChange={(e) => setEditing({ id: m.id, text: e.target.value })}
+                              />
+                            ) : (
+                              <button
+                                type="button"
+                                title={t.edit}
+                                onClick={() => setEditing({ id: m.id, text: m.text })}
+                                className="w-full text-left text-reading leading-relaxed hover:text-fg-2"
+                              >
+                                {m.text}
+                              </button>
+                            )}
+                            <div className="mt-1.5 flex flex-wrap items-center gap-2 text-small text-muted">
+                              <Select
+                                aria-label={t.kind}
+                                value={m.kind}
+                                onChange={(e) =>
+                                  void act(() =>
+                                    send('PATCH', `/api/memory/${m.id}`, { kind: e.target.value }),
                                   )
-                                : copy.settings.memory.addedByYou}{' '}
-                              · {day(m.updatedAt)}
-                            </span>
-                            {m.status === 'proposed' && (
-                              <Badge tone="warn">{copy.settings.memory.waiting}</Badge>
+                                }
+                              >
+                                {MEMORY_KINDS.map((k) => (
+                                  <option key={k} value={k}>
+                                    {t.kinds[k]}
+                                  </option>
+                                ))}
+                              </Select>
+                              <Select
+                                aria-label={t.appliesTo}
+                                value={m.project ?? ''}
+                                onChange={(e) =>
+                                  void act(() =>
+                                    send('PATCH', `/api/memory/${m.id}`, { project: e.target.value || null }),
+                                  )
+                                }
+                              >
+                                <option value="">{t.everyChat}</option>
+                                {projects.map((p) => (
+                                  <option key={p.id} value={p.id}>
+                                    {t.onlyProject(p.name)}
+                                  </option>
+                                ))}
+                              </Select>
+                              <span>
+                                {origin(m)} · {day(m.updatedAt)}
+                              </span>
+                            </div>
+                            {m.source.why && (
+                              <p className="mt-1 text-small text-muted">
+                                {m.source.by === 'extract' ? t.said(m.source.why) : t.why(m.source.why)}
+                              </p>
                             )}
                           </div>
-                          {m.source.why && (
-                            <p className="mt-1 text-small text-muted">
-                              {copy.settings.memory.why(m.source.why)}
-                            </p>
-                          )}
-                        </div>
-                        <div className="flex shrink-0 items-center gap-1">
-                          {editing?.id === m.id ? (
-                            <Button
-                              size="sm"
-                              variant="primary"
-                              onClick={() =>
-                                void act(async () => {
-                                  await send('PATCH', `/api/memory/${m.id}`, { text: editing.text })
-                                  setEditing(undefined)
-                                })
-                              }
-                            >
-                              {copy.settings.shared.save}
-                            </Button>
-                          ) : m.status === 'proposed' ? (
-                            <Button
-                              size="sm"
-                              variant="primary"
-                              icon={<Check className="size-3.5" />}
-                              onClick={() =>
-                                void act(() => send('POST', `/api/memory/${m.id}/decide`, { keep: true }))
-                              }
-                            >
-                              {copy.settings.memory.keep}
-                            </Button>
-                          ) : null}
-                          {m.status === 'proposed' ? (
-                            <IconButton
-                              size="sm"
-                              label={copy.settings.memory.forget}
-                              onClick={() =>
-                                void act(() => send('POST', `/api/memory/${m.id}/decide`, { keep: false }))
-                              }
-                            >
-                              <Trash2 className="size-4" />
-                            </IconButton>
-                          ) : (
+                          <div className="flex shrink-0 items-center gap-1">
+                            {editing?.id === m.id && (
+                              <Button
+                                size="sm"
+                                variant="primary"
+                                onClick={() =>
+                                  void act(async () => {
+                                    await send('PATCH', `/api/memory/${m.id}`, { text: editing.text })
+                                    setEditing(undefined)
+                                  })
+                                }
+                              >
+                                {copy.settings.shared.save}
+                              </Button>
+                            )}
                             <ConfirmButton
                               icon
-                              label={copy.settings.memory.forget}
-                              confirm={copy.settings.memory.confirmForget}
+                              label={t.forget}
+                              confirm={t.confirmForget}
                               onConfirm={() => void act(() => send('DELETE', `/api/memory/${m.id}`))}
                             />
-                          )}
+                          </div>
                         </div>
-                      </div>
-                    </CardRow>
-                  ))}
-              </Card>
-            </section>
-          ))}
-        </div>
+                      </CardRow>
+                    ))}
+                </Card>
+              </section>
+            ))}
+          </div>
+        </>
       )}
     </>
   )
