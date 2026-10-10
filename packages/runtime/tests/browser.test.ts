@@ -1,9 +1,10 @@
 import { afterEach, expect, test } from 'bun:test'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { assertAgentControl, BrowserHub, findChrome, type LiveEvent } from '../src/browser.ts'
 import { BROWSER_PASTE_MAX_CHARS } from '../src/config.ts'
+import { detectSandbox } from '../src/sandbox.ts'
 
 const dirs: string[] = []
 const hubs: BrowserHub[] = []
@@ -57,6 +58,34 @@ test.skipIf(!findChrome())(
     unwatch()
     await hub.closeColony('c1')
     expect(await hub.tabs('c1')).toEqual([])
+  },
+  60_000,
+)
+
+test.skipIf(!findChrome() || detectSandbox().kind !== 'sandbox-exec')(
+  "a sandboxed command cannot reach Chrome's DevTools, which would hand it every tab and cookie",
+  async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'myr-browser-devtools-'))
+    dirs.push(dir)
+    const hub = new BrowserHub(join(dir, 'profile'))
+    hubs.push(hub)
+    const port = new URL((await hub.browser()).wsEndpoint()).port
+    // This process (outside the sandbox) does reach it, so the refusal below is the sandbox's.
+    expect(
+      ((await (await fetch(`http://127.0.0.1:${port}/json/version`)).json()) as { Browser: string }).Browser,
+    ).toBeTruthy()
+    const work = join(dir, 'work')
+    mkdirSync(work)
+    for (const host of ['127.0.0.1', 'localhost', '[::1]']) {
+      const r = await detectSandbox().run({
+        command: `curl -s -m 3 http://${host}:${port}/json/version`,
+        cwd: work,
+        writable: [work],
+        timeoutMs: 10_000,
+      })
+      expect(r.stdout).not.toContain('Browser')
+      expect(r.code).not.toBe(0)
+    }
   },
   60_000,
 )
