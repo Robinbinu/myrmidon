@@ -335,13 +335,13 @@ export const copy = {
   /** How close each signed-in account is to its plan's limits: Settings → Models & providers, the composer's model. */
   planLimits: {
     title: 'Plan limits',
-    note: 'how much of each subscription is used, window by window',
+    note: 'how much of each subscription is left, window by window',
     refresh: 'Check again',
     refreshing: 'Checking…',
     checked: (when: string) => `Checked ${when}`,
     failed: (error: string) => `Couldn’t read plan limits: ${error}`,
-    used: (percent: number) => `${percent}%`,
-    usedLong: (label: string, percent: number) => `${label}: ${percent}% used`,
+    remaining: (percent: number) => `${percent}% left`,
+    remainingLong: (label: string, percent: number) => `${label}: ${percent}% left`,
     noAmount: 'no amount given',
     resetsIn: (when: string) => `resets in ${when}`,
     unreachable: 'Couldn’t reach it: the sign-in may have expired, or the provider is busy',
@@ -352,7 +352,7 @@ export const copy = {
     left: (label: string, percent: number, resets?: string) =>
       `${label}: ${percent}% left${resets ? ` · ${resets}` : ''}`,
     nearLimit: (label: string, percent: number, resets?: string) =>
-      `${label} is ${percent}% used${resets ? `, ${resets}` : ''}: agents on this model may slow down or stop`,
+      `${label} has only ${percent}% left${resets ? `, ${resets}` : ''}: agents on this model may slow down or stop`,
     atLimit: (label: string, resets?: string) =>
       `${label} limit reached${resets ? `, ${resets}` : ''}: agents on this model will wait or fail until then`,
   },

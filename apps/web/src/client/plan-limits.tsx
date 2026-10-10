@@ -108,7 +108,11 @@ export function limitNotice(
   const resets = resetText(tightest, now)
   return tightest.status === 'exhausted'
     ? copy.planLimits.atLimit(tightest.label, resets)
-    : copy.planLimits.nearLimit(tightest.label, Math.round(tightest.usedPercent ?? 0), resets)
+    : copy.planLimits.nearLimit(
+        tightest.label,
+        Math.max(0, Math.round(100 - (tightest.usedPercent ?? 0))),
+        resets,
+      )
 }
 
 /** How full the battery on the model chip shows: what is left of the plan, in four steps. */
@@ -142,7 +146,18 @@ export function planLevel(
   const [full, mid] = PLAN_LEVEL_LEFT
   const level: PlanLevel =
     left <= 0 ? 'empty' : roomiest.status === 'warning' || left < mid ? 'low' : left < full ? 'mid' : 'full'
-  return { level, left, text: copy.planLimits.left(tightest.label, left, resetText(tightest, now)) }
+  // Every window, tightest first: the battery shows the lowest, and the tooltip says what each one has left.
+  const windows = [...roomiest.windows]
+    .filter((w) => w.usedPercent !== undefined || w.status === 'exhausted')
+    .sort((a, b) => (a === tightest ? -1 : b === tightest ? 1 : 0))
+    .map((w) =>
+      copy.planLimits.left(
+        w.label,
+        Math.max(0, Math.round(100 - (w.status === 'exhausted' ? 100 : (w.usedPercent ?? 0)))),
+        resetText(w, now),
+      ),
+    )
+  return { level, left, text: windows.join('\n') }
 }
 
 const BAR: Record<QuotaStatus, string> = {
@@ -154,7 +169,13 @@ const BAR: Record<QuotaStatus, string> = {
 
 function WindowMeter(props: { window: QuotaWindow; now: number }) {
   const w = props.window
-  const percent = w.usedPercent === undefined ? undefined : Math.round(w.usedPercent)
+  // What is left, as the battery shows it: the bar drains as the plan is used.
+  const percent =
+    w.status === 'exhausted'
+      ? 0
+      : w.usedPercent === undefined
+        ? undefined
+        : Math.max(0, Math.round(100 - w.usedPercent))
   const resets = resetText(w, props.now)
   return (
     <div className="grid grid-cols-[minmax(0,10rem)_1fr_auto] items-center gap-3 text-callout">
@@ -166,7 +187,9 @@ function WindowMeter(props: { window: QuotaWindow; now: number }) {
         <meter
           className="sr-only"
           aria-label={w.label}
-          aria-valuetext={[copy.planLimits.usedLong(w.label, percent), resets].filter(Boolean).join(', ')}
+          aria-valuetext={[copy.planLimits.remainingLong(w.label, percent), resets]
+            .filter(Boolean)
+            .join(', ')}
           min={0}
           max={100}
           value={Math.min(100, percent)}
@@ -175,11 +198,11 @@ function WindowMeter(props: { window: QuotaWindow; now: number }) {
       <div aria-hidden className="h-1.5 overflow-hidden rounded-full bg-fill-strong">
         <div
           className={cn('h-full rounded-full', BAR[w.status])}
-          style={{ width: `${Math.min(100, percent ?? (w.status === 'exhausted' ? 100 : 0))}%` }}
+          style={{ width: `${Math.min(100, percent ?? 0)}%` }}
         />
       </div>
       <span className="whitespace-nowrap text-right font-mono text-footnote tabular-nums text-muted">
-        {percent !== undefined ? copy.planLimits.used(percent) : copy.planLimits.noAmount}
+        {percent !== undefined ? copy.planLimits.remaining(percent) : copy.planLimits.noAmount}
         {resets && <span className="ml-2 font-sans">{resets}</span>}
       </span>
     </div>
