@@ -289,3 +289,32 @@ test('key combos match whatever order their modifiers come in; Return runs in a 
   expect(sendsOrRuns(key('Return'), 'com.apple.Notes')).toBe(false)
   expect(sendsOrRuns(key('option+delete'), 'com.apple.finder')).toBe(false)
 })
+
+test('the toolset is never named in a tool addition or removal, which Anthropic refuses for a toolset', () => {
+  // A real 400: find_tools loaded `computer` mid-chat, pi-ai marked it with tool_addition, and the swap left it.
+  const body = {
+    tools: [{ name: 'shell' }, { name: 'computer' }, { name: '_open_app' }],
+    messages: [
+      { role: 'user', content: [{ type: 'text', text: 'open notes' }] },
+      {
+        role: 'system',
+        content: [
+          { type: 'tool_addition', tool: { type: 'tool_reference', name: '_browser_open' } },
+          { type: 'tool_addition', tool: { type: 'tool_reference', name: 'computer' } },
+          { type: 'tool_addition', tool: { type: 'tool_reference', name: '_open_app' } },
+        ],
+      },
+      {
+        role: 'system',
+        content: [{ type: 'tool_removal', tool: { type: 'tool_reference', name: 'computer' } }],
+      },
+    ],
+  }
+  const out = anthropicToolsetPayload(body) as typeof body
+  const named = JSON.stringify(out.messages)
+  expect(named).not.toContain('"name":"computer"')
+  // Other tools' additions stay; a message left with nothing in it goes.
+  expect(named).toContain('_browser_open')
+  expect(named).toContain('_open_app')
+  expect(out.messages).toHaveLength(2)
+})

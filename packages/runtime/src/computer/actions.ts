@@ -433,9 +433,16 @@ export function anthropicToolsetPayload(params: unknown): unknown {
     ...(old?.cache_control ? { cache_control: old.cache_control } : {}),
   } as never
   const members = new Set<string>()
-  const messages = (body.messages ?? []).map((m) => {
-    if (!Array.isArray(m.content)) return m
-    const content = (m.content as Record<string, unknown>[]).map((block) => {
+  // The toolset is declared in `tools` and has no name: Anthropic refuses a tool_addition or tool_removal naming it
+  // (pi-ai adds one when find_tools loads `computer` mid-chat), so those markers go, and any message left empty.
+  const namesToolset = (block: Record<string, unknown>) =>
+    (block.type === 'tool_addition' || block.type === 'tool_removal') &&
+    (block.tool as { name?: unknown } | undefined)?.name === 'computer'
+  const messages = (body.messages ?? []).flatMap((m) => {
+    if (!Array.isArray(m.content)) return [m]
+    const kept = (m.content as Record<string, unknown>[]).filter((block) => !namesToolset(block))
+    if (kept.length === 0) return []
+    const content = kept.map((block) => {
       if (block.type === 'tool_use' && typeof block.name === 'string' && ANTHROPIC_MEMBERS.has(block.name)) {
         members.add(String(block.id))
         return { ...block, toolset_name: 'computer' }
@@ -444,7 +451,7 @@ export function anthropicToolsetPayload(params: unknown): unknown {
         return { ...block, toolset_name: 'computer' }
       return block
     })
-    return { ...m, content }
+    return [{ ...m, content }]
   })
   return { ...body, tools, messages }
 }
