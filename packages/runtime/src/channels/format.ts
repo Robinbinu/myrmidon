@@ -21,7 +21,8 @@ export function toolPhrase(tool: string, args: unknown): string {
     tool === 'lsp'
   )
     return t.doing.read(clip(lastPart(str('path') || str('name') || str('pattern') || '.')))
-  if (tool === 'fs_write' || tool === 'fs_edit' || tool === 'ast_edit') return t.doing.edit(clip(lastPart(str('path'))))
+  if (tool === 'fs_write' || tool === 'fs_edit' || tool === 'ast_edit')
+    return t.doing.edit(clip(lastPart(str('path'))))
   if (tool === 'web_search') return t.doing.search(clip(str('query')))
   if (tool === 'web_fetch') return t.doing.fetch
   if (tool.startsWith('browser_')) return t.doing.browser
