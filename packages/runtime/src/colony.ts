@@ -96,6 +96,7 @@ import {
 import { redactDeep } from './secrets.ts'
 import type { SkillLibrary } from './skills.ts'
 import type { AgentSpec, ColonySpec } from './spec.ts'
+import type { SshHub } from './ssh.ts'
 import type { StreamRule, StreamRuleStore } from './stream-rules.ts'
 import { cellAccess, guessMediaType } from './tools.ts'
 import { Verifier } from './verifier.ts'
@@ -179,6 +180,8 @@ export interface RunOptions {
   readonly browser?: BrowserHub
   /** Computer use (the person's Mac through Cua Driver), for rounds whose spec allows it. */
   readonly computer?: ComputerHub
+  /** The person's ssh client, for rounds whose spec names remote hosts. */
+  readonly ssh?: SshHub
   /** What the person keeps across chats; agents propose additions to it with remember. */
   readonly memory?: MemoryStore
   /** Skills agents can load by name (use_skill). */
@@ -434,6 +437,12 @@ export class ColonyRun implements ColonyHost {
     // A card asking to use the Mac would stay up until it timed out: nothing it allows can happen any more.
     for (const [id, waiting] of this._approvals)
       if (isComputerTool(waiting.tool)) void this.decideApproval(id, false, 'stopped').catch(() => {})
+  }
+
+  remotes() {
+    const hub = this.options.ssh
+    const hosts = this.spec.remotes ?? []
+    return hub && hosts.length && !this.spec.askAll ? { hub, hosts } : undefined
   }
 
   mcpTools() {

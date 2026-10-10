@@ -166,6 +166,12 @@ const matrix: [string, ColonySpec, AgentSpec, Partial<Environment>?][] = [
     { computer: true, computerEngine: 'omp' },
   ],
   ['solo a channel member opened', chat({ agents: [lead], askAll: true }), lead],
+  // The person's remote hosts (Settings → Tools): the ssh tool, which loads on demand, and what it may reach.
+  [
+    'solo with remote hosts',
+    chat({ agents: [lead], remotes: [{ name: 'box', host: 'build.example.com' }] }, inProject('auto')),
+    lead,
+  ],
   ['solo with plan first', chat({ agents: [lead], planFirst: true, review: 'auto' }), lead],
   ['colony lead', { ...chat({ agents: [lead, kai] }), chat: undefined, tier: undefined } as ColonySpec, lead],
   [
@@ -283,6 +289,10 @@ test('descriptions that depend on the round say what holds in it', () => {
     'an independent reviewer checks it',
   )
   expect(toolDescription('reply_user', facts('solo with plan first'))).toContain('(request_review)')
+  expect(toolDescription('ssh', facts('solo with remote hosts'))).toContain('remote hosts over SSH: box.')
+  expect(views.find((v) => v.label === 'solo with remote hosts')?.view.system.join('\n')).toContain(
+    'remote hosts (ssh): box (load with find_tools("ssh"))',
+  )
   // The answer tier is never told how to scope a build it cannot do.
   expect(views.find((v) => v.label === 'answer')?.view.system.join('\n')).not.toContain('before building')
   // Deferred tools say how to load them.

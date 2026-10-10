@@ -58,10 +58,11 @@ export function Explainer(props: {
   const id = useId()
   const [tool, setTool] = useState('shell')
   const [command, setCommand] = useState('git push origin main')
+  const [host, setHost] = useState('')
   const [where, setWhere] = useState('')
   const project = props.projects.find((p) => p.id === where)
   const chosen = props.tools.find((x) => x.name === tool) ?? { name: tool, description: '' }
-  const call = callFor(chosen, command)
+  const call = callFor(chosen, chosen.name === 'ssh' ? host : command)
   const levels = { global: props.global, ...(project?.permissions ? { project: project.permissions } : {}) }
   return (
     <div className="rounded-base border border-line bg-surface">
@@ -95,6 +96,20 @@ export function Explainer(props: {
             ))}
           </Select>
         </div>
+        {call.kind === 'ssh' && (
+          <div className="flex flex-col gap-1 sm:col-span-2">
+            <label htmlFor={`${id}host`} className="text-callout text-muted">
+              {t.host}
+            </label>
+            <TextInput
+              id={`${id}host`}
+              value={host}
+              placeholder={t.hostPlaceholder}
+              onChange={(e) => setHost(e.target.value)}
+              className="font-mono"
+            />
+          </div>
+        )}
         {call.kind === 'command' && (
           <div className="flex flex-col gap-1 sm:col-span-2">
             <label htmlFor={`${id}command`} className="text-callout text-muted">

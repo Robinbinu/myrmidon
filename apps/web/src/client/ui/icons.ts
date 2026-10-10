@@ -13,6 +13,7 @@ import {
   BellRing,
   BookMarked,
   Brain,
+  Cable,
   CalendarClock,
   Compass,
   Container,
@@ -184,6 +185,8 @@ export const FEATURE_ICONS = {
   mail: Mail,
   /** MCP servers and their tools. */
   mcp: Plug,
+  /** Remote hosts agents reach over SSH: Settings → Tools, their rules and who may use them. */
+  sshHosts: Cable,
   /** Specialists the person keeps. */
   specialists: UserCog,
   /** What agents remember across chats. */

@@ -25,16 +25,17 @@ const DECISION_TONE: Record<RuleDecision, string> = {
   deny: 'bg-bad-soft text-bad-ink',
 }
 
-/** What the server offers rules to name: every tool (built-in and MCP), and the MCP servers. */
+/** What the server offers rules to name: every tool (built-in and MCP), the MCP servers, and the remote hosts. */
 export interface RuleCatalog {
   tools: CatalogTool[]
   servers: string[]
+  hosts?: string[]
 }
 
 /**
- * One level's rules, grouped by what they name (tools, file changes, commands, MCP servers, MCP tools), with search,
- * an inline form to add one, and each rule's decision and who it applies to changeable in place. Rules remembered from
- * approval cards land here too.
+ * One level's rules, grouped by what they name (tools, file changes, commands, MCP servers, MCP tools, remote
+ * hosts), with search, an inline form to add one, and each rule's decision and who it applies to changeable in place.
+ * Rules remembered from approval cards land here too.
  */
 export function RulesEditor(props: {
   rules: readonly PermissionRule[]
@@ -240,6 +241,7 @@ function AddRule(props: {
     if (kind === 'tool') return tools.filter((x) => !x.mcp).map((x) => x.name)
     if (kind === 'mcp-tool') return tools.filter((x) => x.mcp && x.name !== 'mcp').map((x) => x.name)
     if (kind === 'mcp-server') return ['*', ...(props.catalog?.servers ?? [])]
+    if (kind === 'ssh-host') return ['*', ...(props.catalog?.hosts ?? [])]
     if (kind === 'command') return ['*', 'bun test', 'bun run', 'git status', 'git commit', 'npm test']
     return ['*']
   }, [kind, props.catalog])

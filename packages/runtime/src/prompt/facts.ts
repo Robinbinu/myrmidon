@@ -144,6 +144,8 @@ export interface PromptFacts {
     readonly web: boolean
     readonly browser: boolean
     readonly computer: boolean
+    /** The person's remote hosts the agent may reach over SSH, by name; none in a round they did not start. */
+    readonly remotes: readonly string[]
     /** The preset the round runs under, from the chat, project and global levels (nearest wins). */
     readonly preset: PermissionPreset
     /** Command prefixes a rule lets run without asking, for the Ask preset's line. */
@@ -322,6 +324,7 @@ export function factsFor(spec: ColonySpec, agent: AgentSpec, env: Environment): 
       web: env.web,
       browser: env.browser,
       computer: env.computer ?? false,
+      remotes: spec.askAll ? [] : (spec.remotes ?? []).map((h) => h.name),
       preset,
       allow,
       ...(project

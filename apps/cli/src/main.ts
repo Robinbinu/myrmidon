@@ -49,6 +49,7 @@ import {
   SkillLibrary,
   SkillProposalStore,
   SpecialistStore,
+  SshHub,
   StreamRuleStore,
   ToolLibrary,
   type VoiceFiles,
@@ -362,6 +363,7 @@ async function main() {
         // macOS names the app this server runs in (the desktop app, or the terminal) for the driver's diagnostics.
         ...(process.env.__CFBundleIdentifier ? { hostBundleId: process.env.__CFBundleIdentifier } : {}),
       })
+      const ssh = new SshHub({ controlDir: join(home, 'ssh') })
       const projects = new ProjectStore(home)
       const specialists = new SpecialistStore(home)
       const skillProposals = new SkillProposalStore(home)
@@ -400,6 +402,7 @@ async function main() {
         mcp,
         browser,
         computer,
+        ssh,
         projects,
         specialists,
         skillProposals,
@@ -421,6 +424,7 @@ async function main() {
         mcp,
         browser,
         computer,
+        ssh,
         projects,
         specialists,
         skillProposals,
@@ -496,6 +500,7 @@ async function main() {
           await chats.stopAll()
           await browser.close().catch(() => {})
           await computer.stop().catch(() => {})
+          await ssh.close().catch(() => {})
           await mcp.close().catch(() => {})
           await server.stop()
           await runtime.dispose()

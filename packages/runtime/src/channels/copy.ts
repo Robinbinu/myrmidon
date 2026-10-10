@@ -265,7 +265,11 @@ export const channelCopy = {
                 ? r.target === '*'
                   ? 'every MCP tool'
                   : `every ${r.target} tool`
-                : r.target,
+                : r.kind === 'ssh-host'
+                  ? r.target === '*'
+                    ? 'every remote host'
+                    : `everything on ${r.target}`
+                  : r.target,
         )
         .join(' and '),
     deny: 'Deny',
