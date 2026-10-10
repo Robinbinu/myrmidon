@@ -46,6 +46,7 @@ import {
 import { Advisor } from './advisor.ts'
 import { ColonyAgent, type ModelError } from './agent.ts'
 import type { BrowserHub } from './browser.ts'
+import { namingModel } from './catalog.ts'
 import { cellKernels } from './cells.ts'
 import type { ComputerHub } from './computer/driver.ts'
 import { COMPUTER_TOOL_NAMES } from './computer/names.ts'
@@ -67,6 +68,7 @@ import {
   WIND_DOWN_MESSAGES,
 } from './config.ts'
 import { registerColonyEvents } from './events.ts'
+import { chatJudge } from './find.ts'
 import { type HookEvent, type HookOutcome, type HookStore, hookToolInput, runHooks } from './hooks.ts'
 import { agentActor, type ColonyHost, type ReviewDecision, type TodoItem } from './host.ts'
 import type { ToolLibrary } from './made-tools.ts'
@@ -381,6 +383,22 @@ export class ColonyRun implements ColonyHost {
 
   get browser() {
     return this.options.browser?.available ? this.options.browser : undefined
+  }
+
+  /**
+   * find's judge: a small yes-or-no job, so the cheapest model the person can use, else the agent's own. A model that
+   * no longer resolves leaves find to rank by words, which it says.
+   */
+  judge(agent: string) {
+    const model = this.spec.agents.find((a) => a.name === agent)?.model
+    if (!model) return undefined
+    const omp = this.resolver.omp
+    try {
+      return chatJudge(this.resolver, omp ? namingModel(omp, undefined, model) : model)
+    } catch (err) {
+      console.error(`[${agent}] find has no judge:`, err instanceof Error ? err.message : err)
+      return undefined
+    }
   }
 
   /**

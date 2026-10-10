@@ -42,6 +42,7 @@ const BUILD = [
   'fs_list',
   'grep',
   'glob',
+  'find',
   'ast_grep',
   'ast_edit',
   'lsp',
@@ -53,6 +54,7 @@ const BUILD = [
   'server_logs',
   'stop_server',
   'create_tool',
+  'github',
   ...BROWSER,
   'mcp',
   ...ACCESS_GROUPS.computer,
@@ -98,7 +100,9 @@ function baseRoleTools(spec: ColonySpec, agent: AgentSpec): string[] {
         // "What's on my screen", "check this in Notes": only when the person switched computer use on.
         ...ACCESS_GROUPS.computer,
         // In a project, quick questions are often about its code: reading it needs no team.
-        ...(spec.chat.project ? ['fs_read', 'fs_list', 'grep', 'glob', 'ast_grep', 'request_read'] : []),
+        ...(spec.chat.project
+          ? ['fs_read', 'fs_list', 'grep', 'glob', 'find', 'ast_grep', 'request_read']
+          : []),
         'list_artifacts',
         'read_artifact',
         'read_docs',
@@ -176,10 +180,11 @@ function baseRoleTools(spec: ColonySpec, agent: AgentSpec): string[] {
 
 /**
  * Tools an agent loads when it needs them (find_tools) instead of carrying their definitions in every model call:
- * the browser, dev servers, tool making, the person's MCP servers, made tools, and rarely used lookups. Anything
- * not listed here is always loaded.
+ * the browser, dev servers, tool making, GitHub (omp marks it discoverable), the person's MCP servers, made tools,
+ * and rarely used lookups. Anything not listed here is always loaded.
  */
 const ON_DEMAND = new Set([
+  'github',
   'request_login',
   'start_server',
   'server_logs',
@@ -203,7 +208,7 @@ export function withCompanions(names: readonly string[]): string[] {
 
 /**
  * On-demand tools a request plainly calls for, loaded from the start so the agent does not spend a step asking:
- * a URL or web page means the browser, a dev server means the server tools.
+ * a URL or web page means the browser, a dev server means the server tools, a pull request or CI means github.
  */
 export function preloaded(request: string, names: readonly string[]): string[] {
   const browser =
@@ -220,6 +225,10 @@ export function preloaded(request: string, names: readonly string[]): string[] {
     /\b(repl|notebook|jupyter|pandas|numpy|dataframes?|data ?analysis|analy[sz]e (the )?data|crunch|interactive(ly)?)\b/i.test(
       request,
     )
+  const github =
+    /\bgithub\b|\bpull requests?\b|\bPRs?\b|\bPR ?#?\d+|\bissue ?#\d+|\bCI\b|\bworkflow runs?\b|\bactions? runs?\b/i.test(
+      request,
+    )
   const computer =
     /\b(my (mac|screen|desktop|computer)|on (my|the) screen|desktop app|native app|the app\b|open (the )?\w+ app|finder|system settings|simulator|xcode|computer use)\b/i.test(
       request,
@@ -231,6 +240,7 @@ export function preloaded(request: string, names: readonly string[]): string[] {
       (plugin && (PLUGIN.includes(n) || n === 'read_docs')) ||
       (code && CODE_INTEL.includes(n)) ||
       (cells && CELLS.includes(n)) ||
+      (github && n === 'github') ||
       (computer && ACCESS_GROUPS.computer.includes(n)),
   )
 }

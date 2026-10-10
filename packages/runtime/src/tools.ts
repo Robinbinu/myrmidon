@@ -82,6 +82,7 @@ import {
 import {
   FETCH_SHOWN_CHARS,
   FIND_TOOLS_LIMIT,
+  GITHUB,
   GLOB_LIMIT,
   GREP_LIMIT,
   LSP_PROJECT_CHECK_MS,
@@ -94,7 +95,22 @@ import {
   RULE_MAX_TEXT,
 } from './config.ts'
 import { readFileAs } from './file-read.ts'
+import { find } from './find.ts'
 import { gitCommitChanges, gitWorkingChanges } from './git.ts'
+import {
+  type GhScope,
+  GITHUB_OPS,
+  ghBinary,
+  ghEnv,
+  ghToken,
+  githubWriteCommand,
+  githubWrites,
+  posixLine,
+  runGithub,
+  runGithubWrite,
+  scrubToken,
+  shellLine,
+} from './github.ts'
 import { agentActor, type ColonyHost, type ReviewDecision } from './host.ts'
 import {
   browserSteps,
@@ -115,6 +131,7 @@ import { type Place, prompts } from './prompts.ts'
 import { within } from './read-access.ts'
 import { ruleMatches } from './rule-files.ts'
 import { SANDBOX_DIRS, type SandboxRun } from './sandbox.ts'
+import { hostShell } from './shell.ts'
 import { assertArtifactName, SKIP_DIRS } from './workspace.ts'
 
 /** A short, stable file name for a fetched URL. */
@@ -450,7 +467,7 @@ function tierOf(def: Pick<ToolDef, 'tier' | 'tierOf'>, params: unknown): Tier {
 }
 
 /** File tools that read from the working directory, which is the person's project in a chat that has one. */
-const PROJECT_READS = new Set(['fs_read', 'fs_list', 'grep', 'glob', 'ast_grep', 'lsp'])
+const PROJECT_READS = new Set(['fs_read', 'fs_list', 'grep', 'glob', 'find', 'ast_grep', 'lsp'])
 
 /**
  * Whether a call reads the person's project rather than the agent's own scratch. A round someone else started
@@ -484,7 +501,13 @@ const GUARDED = new Set([
   'start_server',
   'run_checks',
   'propose',
+  'github',
 ])
+/**
+ * Guarded tools whose reads are commands too, decided as the commands they run (the github tool's `gh pr view`): the
+ * harness leaves all their calls to them, so a rule naming the tool is not asked about twice.
+ */
+const GUARDS_READS = new Set(['github'])
 
 /** Tools that reach the web, in the agent's own fetcher or browser. */
 const WEB_TOOL = (name: string) =>
@@ -889,6 +912,47 @@ function codeScope(host: ColonyHost, agent: string, tool: string, params: unknow
   }
 }
 
+/**
+ * Where the github tool's `gh` runs: where the agent's commands run, in its working directory, so gh finds the
+ * checkout's repository. A read is decided as the commands it runs (command rules, the preset, a round that asks for
+ * everything): a deny refuses any of them, and the person is asked at most once per call, about the first that asks,
+ * not once for every page of a run's jobs. A write was approved whole before it runs. Inside the sandbox gh's HOME
+ * is private and cannot hold the person's sign-in, so it gets their token in its environment; unconfined it runs as
+ * them and reads its own.
+ */
+function githubScope(host: ColonyHost, agent: string, bin: string, write: boolean): GhScope {
+  // Asked for on the first command, so a call refused for its arguments never reaches gh at all.
+  let token: Promise<string | undefined> | undefined
+  const confined = host.sandbox.kind === 'sandbox-exec' || host.sandbox.kind === 'bubblewrap'
+  const syntax = confined ? 'posix' : hostShell().syntax
+  const confinement = host.workspace.confinement()
+  let asked = write
+  return {
+    async run(args, timeoutMs = GITHUB.commandMs) {
+      const line = `gh ${posixLine(args)}`
+      const verdict = host.permit(agent, { tool: 'github', kind: 'command', command: line, readOnly: false })
+      if (verdict.decision === 'deny') throw denied('this command', verdict)
+      if (verdict.decision === 'ask' && !asked) {
+        await guardProjectCommand(host, agent, 'github', line)
+        asked = true
+      }
+      token ??= host.sandbox.kind === 'unconfined' ? Promise.resolve(undefined) : ghToken(bin)
+      const secret = await token
+      const r = await host.sandbox.run({
+        command: shellLine([bin, ...args], syntax),
+        cwd: host.workspace.workdir(agent),
+        writable: writableFor(host, agent),
+        ...confinement,
+        // gh may live in a folder the sandbox hides, such as a toolchain folder in the person's home.
+        readable: [...confinement.readable, bin],
+        timeoutMs,
+        env: ghEnv(secret),
+      })
+      return { ...r, stdout: scrubToken(r.stdout, secret), stderr: scrubToken(r.stderr, secret) }
+    },
+  }
+}
+
 /** Tools whose results are outside content an agent must treat as data, never as instructions. */
 const UNTRUSTED = new Set([
   // The log quotes tool results, web pages among them.
@@ -907,14 +971,17 @@ const UNTRUSTED = new Set([
   'browser_press',
   'browser_console',
   'browser_eval',
+  // Issues, pull requests, comments and CI logs are written by anyone who can open one.
+  'github',
 ])
 /** Tools whose command is checked against recent web content before it runs. */
 const COPY_CHECKED = new Set(['shell', 'start_server', 'eval'])
 
 function untrustedSource(tool: string, params: unknown, output: string): string {
-  const args = (params ?? {}) as { url?: unknown; query?: unknown }
+  const args = (params ?? {}) as { url?: unknown; query?: unknown; op?: unknown }
   if (tool === 'web_fetch' && typeof args.url === 'string') return args.url
   if (tool === 'web_search' && typeof args.query === 'string') return `search: ${args.query}`
+  if (tool === 'github' && typeof args.op === 'string') return `github ${args.op}`
   // Browser snapshots start with the page's URL.
   const page = /^url: (\S+)/m.exec(output)?.[1]
   return page ? `${tool} ${page}` : tool
@@ -1875,6 +1942,31 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     },
   },
   {
+    name: 'find',
+    tier: 'read',
+    description: prompts.tools.find.description(PLACE),
+    describe: (f) => prompts.tools.find.description(placeOf(f)),
+    parameters: type({
+      query: type('string').atLeastLength(1).describe(prompts.tools.find.params.query),
+      'keywords?': type('string[]').describe(prompts.tools.find.params.keywords),
+      'path?': type('string').describe(prompts.tools.find.params.path),
+    }),
+    async run(args, agent, host) {
+      const target = host.workspace.resolveForRead(agent, args.path ?? '.')
+      if (!existsSync(target)) throw new Error(`no such file or folder: ${args.path}`)
+      const judge = host.judge?.(agent)
+      const scope = {
+        root: host.workspace.workdir(agent),
+        target,
+        isFile: statSync(target).isFile(),
+        // A readable folder can hold what stays hidden (the person's keys in a home they opened).
+        mayRead: (path: string) => host.workspace.mayRead(agent, path),
+        ...(judge ? { judge } : {}),
+      }
+      return clip(await find(scope, { query: args.query, keywords: args.keywords ?? [] }))
+    },
+  },
+  {
     name: 'ast_grep',
     tier: 'read',
     description: prompts.tools.ast_grep.description(PLACE),
@@ -1986,6 +2078,65 @@ export const TOOL_DEFS: readonly ToolDef[] = [
         images: [],
         preface: prompts.toolResults.savedPage(head, page.output.length, where),
       }
+    },
+  },
+  {
+    name: 'github',
+    tier: 'read',
+    tierOf: (args) => (githubWrites(args) ? 'write' : 'read'),
+    description: prompts.tools.github.description,
+    parameters: type({
+      op: type.enumerated(...GITHUB_OPS).describe(prompts.tools.github.params.op),
+      'repo?': type('string').describe(prompts.tools.github.params.repo),
+      'issue?': type('string').describe(prompts.tools.github.params.issue),
+      'pr?': type('string').describe(prompts.tools.github.params.pr),
+      'run?': type('string').describe(prompts.tools.github.params.run),
+      'branch?': type('string').describe(prompts.tools.github.params.branch),
+      'state?': type("'open' | 'closed' | 'merged' | 'all'").describe(prompts.tools.github.params.state),
+      'label?': type('string[]').describe(prompts.tools.github.params.label),
+      'assignee?': type('string[]').describe(prompts.tools.github.params.assignee),
+      'reviewer?': type('string[]').describe(prompts.tools.github.params.reviewer),
+      'limit?': type('number').describe(prompts.tools.github.params.limit),
+      'query?': type('string').describe(prompts.tools.github.params.query),
+      'since?': type('string').describe(prompts.tools.github.params.since),
+      'until?': type('string').describe(prompts.tools.github.params.until),
+      'dateField?': type("'created' | 'updated'").describe(prompts.tools.github.params.dateField),
+      'comments?': type('boolean').describe(prompts.tools.github.params.comments),
+      'title?': type('string').describe(prompts.tools.github.params.title),
+      'body?': type('string').describe(prompts.tools.github.params.body),
+      'base?': type('string').describe(prompts.tools.github.params.base),
+      'head?': type('string').describe(prompts.tools.github.params.head),
+      'draft?': type('boolean').describe(prompts.tools.github.params.draft),
+      'method?': type("'merge' | 'squash' | 'rebase'").describe(prompts.tools.github.params.method),
+      'event?': type("'approve' | 'request_changes' | 'comment'").describe(prompts.tools.github.params.event),
+      'reason?': type("'completed' | 'not planned'").describe(prompts.tools.github.params.reason),
+      'failedOnly?': type('boolean').describe(prompts.tools.github.params.failedOnly),
+      'tail?': type('number').describe(prompts.tools.github.params.tail),
+    }),
+    async run(args, agent, host) {
+      if (host.sandbox.kind === 'none' && !host.unsafeNoSandbox) throw new Error(prompts.github.needsSandbox)
+      const bin = ghBinary()
+      if (!bin) throw new Error(prompts.github.missing)
+      const write = githubWrites(args)
+      let edited = false
+      if (write) {
+        // Anything that changes GitHub speaks for the person in public: no preset runs it unasked, only a rule
+        // (perhaps one this card offers). The card shows the call with its text rewritable, so a comment or title
+        // the person changes is what gets posted.
+        const command = `gh ${posixLine(githubWriteCommand(args))}`
+        const key = receiptKey(host, agent, 'github', args)
+        edited = await askFirst(
+          host,
+          agent,
+          'github',
+          args,
+          { tool: 'github', kind: 'command', command, readOnly: false, asks: true },
+          key,
+        )
+      }
+      const scope = githubScope(host, agent, bin, write)
+      const out = write ? await runGithubWrite(scope, args) : await runGithub(scope, args)
+      return `${clip(out)}${edited ? prompts.toolResults.editedByPerson : ''}`
     },
   },
   {
@@ -3464,7 +3615,7 @@ function harnessTools(
             if (COPY_CHECKED.has(def.name)) await flagIfCopied(host, agent, def.name, params)
             // File changes, commands and proposals are decided where the change is known (guardProject*).
             const edited =
-              GUARDED.has(def.name) && tier !== 'read'
+              GUARDED.has(def.name) && (tier !== 'read' || GUARDS_READS.has(def.name))
                 ? false
                 : await askFirst(
                     host,
