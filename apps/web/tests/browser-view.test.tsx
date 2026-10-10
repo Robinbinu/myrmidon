@@ -265,3 +265,87 @@ test('links in chats open here only when asked, and only where a Browser view ta
   await unmount()
   localStorage.removeItem(BROWSER_LINKS_KEY)
 })
+
+test('the page gets the keyboard with its modifiers, copy comes back out, and a page cannot ask to be allowed', async () => {
+  FakeSocket.all = []
+  globalThis.WebSocket = FakeSocket as unknown as typeof WebSocket
+  const state = { tabs: [tab('t1', 'http://localhost:4372/', 'Myrmidon'), tab('t2', 'about:blank', '')] }
+  const { asked } = serverOf(state)
+  const { BrowserView } = await import('../src/client/chat/BrowserView.tsx')
+  const { isMac } = await import('../src/client/ui/platform.ts')
+  const { host, unmount } = await mount(
+    <MotionConfig reducedMotion="always">
+      <BrowserView />
+    </MotionConfig>,
+  )
+  await settle()
+  const ws = FakeSocket.all.at(-1) as FakeSocket
+  const keys = host.querySelector('textarea[aria-label^="Type into"]') as HTMLTextAreaElement
+  // happy-dom's events do not reach React's handlers here (as for typing, see the Explorer's test): they get called.
+  const handlers = (el: Element) =>
+    Object.entries(el).find(([k]) => k.startsWith('__reactProps'))?.[1] as Record<
+      string,
+      (e: unknown) => void
+    >
+  const press = (key: string, init: { shiftKey?: boolean; metaKey?: boolean; ctrlKey?: boolean } = {}) =>
+    act(async () => {
+      handlers(keys).onKeyDown?.({
+        key,
+        shiftKey: false,
+        altKey: false,
+        metaKey: false,
+        ctrlKey: false,
+        ...init,
+        getModifierState: () => false,
+        nativeEvent: { isComposing: false },
+        preventDefault() {},
+      })
+    })
+  const mod = isMac ? { metaKey: true } : { ctrlKey: true }
+  const modName = isMac ? 'Meta' : 'Control'
+  ws.sent = []
+  await press('Tab', { shiftKey: true })
+  await press('ArrowLeft', { shiftKey: true })
+  await press('a', mod)
+  await press('c', mod)
+  await press('x', mod)
+  await press('😀')
+  await press('A', { shiftKey: true })
+  // An app shortcut stays the app's: nothing goes to the page.
+  await press('j', mod)
+  expect(ws.sent).toEqual([
+    { type: 'key', key: 'Tab', modifiers: ['Shift'] },
+    { type: 'key', key: 'ArrowLeft', modifiers: ['Shift'] },
+    { type: 'key', key: 'a', modifiers: [modName] },
+    { type: 'copy' },
+    { type: 'copy', cut: true },
+    { type: 'text', text: '😀' },
+    { type: 'text', text: 'A' },
+  ])
+  // Text an input method composed arrives whole.
+  await act(async () => {
+    handlers(keys).onCompositionEnd?.({ data: '日本', currentTarget: { value: '日本' } })
+  })
+  expect(ws.sent.at(-1)).toEqual({ type: 'text', text: '日本' })
+
+  // A page that tried to open a local port is named, and offers nothing to allow.
+  await act(async () =>
+    ws.push({ type: 'refused', site: 'localhost:8888', from: 'evil.example', local: true }),
+  )
+  const alert = host.querySelector('[role="alert"]')
+  expect(alert?.textContent).toContain('evil.example tried to open localhost:8888')
+  expect([...(alert?.querySelectorAll('button') ?? [])].map((b) => b.textContent)).toEqual([''])
+
+  // Delete on a focused tab closes it, so a tab that is not shown can be closed from the keyboard too.
+  const first = host.querySelector('[data-tab="t1"]') as HTMLButtonElement
+  await act(async () => {
+    handlers(first.closest('ul') as Element).onKeyDown?.({
+      key: 'Delete',
+      target: first,
+      preventDefault() {},
+    })
+  })
+  await settle()
+  expect(asked).toContain('DELETE /api/browser/tabs/t1')
+  await unmount()
+})

@@ -89,6 +89,10 @@ test.skipIf(!findChrome())(
     const other = await call('POST', `/api/browser/tabs/${tab.id}/go`, { url: 'localhost:1' })
     expect(other.status).toBe(403)
     expect(await other.json()).toMatchObject({ code: 'blocked', site: 'localhost:1' })
+    // The local network is refused outright, with nothing to allow.
+    const lan = await call('POST', `/api/browser/tabs/${tab.id}/go`, { url: 'http://192.168.1.1/' })
+    expect(lan.status).toBe(403)
+    expect(await lan.json()).toMatchObject({ code: 'private' })
 
     // A socket without an Origin is refused, like the terminal's; the dashboard's own page gets the stream.
     const live = `ws://${base.host}/api/browser/tabs/${tab.id}/live`
@@ -114,8 +118,16 @@ test.skipIf(!findChrome())(
     expect(await settings.json()).toMatchObject({
       settings: { cookies: 'never', allowedSites: ['localhost:3000'], viewport: 'phone' },
     })
-    expect((await call('POST', '/api/browser/clear', {})).status).toBe(200)
-    expect(await (await call('DELETE', `/api/browser/tabs/${tab.id}`)).json()).toMatchObject({ tabs: [] })
+    // Clearing drops the whole context; the tab opens again where it was, under a new id.
+    const cleared = (await (await call('POST', '/api/browser/clear', {})).json()) as {
+      tabs: { id: string; url: string }[]
+    }
+    expect(cleared.tabs).toHaveLength(1)
+    expect(cleared.tabs[0]?.url).toBe(tab.url)
+    expect(cleared.tabs[0]?.id).not.toBe(tab.id)
+    expect(await (await call('DELETE', `/api/browser/tabs/${cleared.tabs[0]?.id}`)).json()).toMatchObject({
+      tabs: [],
+    })
   },
   60_000,
 )

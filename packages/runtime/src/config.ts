@@ -137,6 +137,13 @@ export const PERSON_BROWSER_MAX_SCALE = 2
 export const PERSON_BROWSER_HTML_MAX_BYTES = 2_000_000
 /** The largest favicon kept for a tab; bigger ones show the generic glyph. */
 export const PERSON_BROWSER_FAVICON_MAX_BYTES = 32_000
+/**
+ * How often cookies kept Always are saved while the browser is open, besides on closing a tab and on quitting: a
+ * sign-in a page's script makes (fetch, document.cookie) sends no event to save on.
+ */
+export const PERSON_BROWSER_COOKIE_SAVE_MS = 10_000
+/** The longest text one copy out of the page brings back. */
+export const PERSON_BROWSER_COPY_MAX_CHARS = 100_000
 /** Fixed viewports in CSS pixels; Responsive follows the panel instead. */
 export const PERSON_BROWSER_VIEWPORTS = {
   phone: { width: 390, height: 844, isMobile: true, hasTouch: true },
