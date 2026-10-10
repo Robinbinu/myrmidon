@@ -43,6 +43,7 @@ import {
   type Runtime,
   recoverOrphans,
   ScheduleStore,
+  SessionImports,
   SettingsStore,
   SkillLibrary,
   SkillProposalStore,
@@ -77,6 +78,8 @@ Usage:
   myrmidon ask "<request>" [--chat ID] [--project ID] [--wait]
                Send a request to the running server (from \`serve\`); --wait prints the final answer
   myrmidon import-omp          Copy an existing omp setup (keys, logins, models.yml) from ~/.omp
+  myrmidon import-session [ID "<message>"] [--project ID]
+               List your Claude Code and Codex sessions; with an ID and a message, continue that session as a new chat
   myrmidon ls
   myrmidon events <colony-id> [--json]
   myrmidon export <colony-id> [--out file.jsonl]
@@ -364,9 +367,11 @@ async function main() {
         .start()
         .catch((err) => console.error(c.yellow(`MCP: ${err instanceof Error ? err.message : err}`)))
       const shelf = new ChatShelf(home)
+      const imports = new SessionImports(home, { projects })
       const chats = new ChatService(runtime, {
         resolver,
         shelf,
+        imports,
         settings,
         web: ompWebTools(omp, () => settings.get().search.provider),
         unsafeNoSandbox: values['unsafe-no-sandbox'],
@@ -404,6 +409,7 @@ async function main() {
         pluginHost,
         schedules: new ScheduleStore(home),
         shelf,
+        imports,
         sandboxKind: sandbox.kind,
         noAuth: values.dev,
         ...(values.host ? { host: values.host } : {}),
@@ -507,6 +513,8 @@ async function main() {
       if (report.skipped.length) console.log(c.dim(`not found: ${report.skipped.join(', ')}`))
       return
     }
+    case 'import-session':
+      return importSession(arg, positionals[2])
     case 'ls': {
       await recoverOnly()
       const store = new SqliteLogStore(home)
@@ -607,6 +615,34 @@ async function pair() {
 }
 
 /** Sends a request to the running server, like typing it in the composer; with --wait, prints the answer. */
+/** Lists other tools' sessions (read here, no server needed), or continues one as a new chat on the running server. */
+async function importSession(id: string | undefined, request: string | undefined) {
+  const sessions = await new SessionImports(home, { projects: new ProjectStore(home) }).list()
+  if (!id) {
+    if (!sessions.length) return console.log('No Claude Code or Codex sessions found.')
+    for (const s of sessions.slice(0, 30))
+      console.log(
+        `${c.dim(s.updatedAt.slice(0, 16).replace('T', ' '))}  ${(s.source === 'claude' ? 'Claude Code' : 'Codex').padEnd(11)}  ${s.id}  ${s.title ?? s.preview ?? ''}${c.dim(`  ${s.cwd}`)}`,
+      )
+    return console.log(c.dim('Continue one: myrmidon import-session <id> "<message>"'))
+  }
+  if (!request?.trim()) throw new Error('usage: myrmidon import-session <id> "<message>" [--project ID]')
+  const found = sessions.find((s) => s.id === id)
+  if (!found) throw new Error(`no Claude Code or Codex session ${id}`)
+  const { call } = await runningServer()
+  const imported = await call<{ id: string; project?: { id: string } }>('POST', '/api/import-sessions', {
+    source: found.source,
+    id,
+  })
+  const project = values.project ?? imported.project?.id
+  const sent = await call<{ chatId: string }>('POST', '/api/chats', {
+    text: request,
+    importOf: imported.id,
+    ...(project ? { project } : {}),
+  })
+  console.log(`${c.green('sent')} chat ${sent.chatId}`)
+}
+
 async function ask(request: string | undefined) {
   if (!request?.trim()) throw new Error('usage: myrmidon ask "<request>" [--chat ID] [--project ID] [--wait]')
   const { call } = await runningServer()

@@ -564,6 +564,46 @@ export interface ChatSummary {
   group?: string
   /** The chat it was forked from. */
   forkOf?: string
+  /** The imported Claude Code or Codex session it continues. */
+  importOf?: string
+}
+
+export type ImportSource = 'claude' | 'codex'
+
+/** Another tool's session on the server's machine, as the import list shows it. */
+export interface ImportableSession {
+  source: ImportSource
+  id: string
+  cwd: string
+  title?: string
+  preview?: string
+  updatedAt: string
+  messages?: number
+  bytes: number
+  project?: { id: string; name: string }
+}
+
+/** One message of an imported conversation. */
+export interface ImportedTurn {
+  role: 'user' | 'assistant' | 'tool' | 'summary'
+  text: string
+  tool?: string
+  result?: string
+  error?: boolean
+}
+
+/** An imported session a new chat starts from (redacted and clipped on the server). */
+export interface ImportedSession {
+  id: string
+  source: ImportSource
+  sourceId: string
+  title: string
+  cwd: string
+  project?: { id: string; name: string }
+  updatedAt: string
+  importedAt: string
+  turns: ImportedTurn[]
+  omitted: number
 }
 
 /** A section of the chat list the person named. */

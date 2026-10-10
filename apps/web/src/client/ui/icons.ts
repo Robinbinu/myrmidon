@@ -30,6 +30,7 @@ import {
   Globe,
   Goal,
   GraduationCap,
+  Import,
   Keyboard,
   KeyRound,
   LifeBuoy,
@@ -226,4 +227,6 @@ export const FEATURE_ICONS = {
   alerts: BellRing,
   /** Searching Settings: the field over the section list and its results. */
   settingsSearch: TextSearch,
+  /** Importing a Claude Code or Codex session into a new chat, and the imported transcript it starts from. */
+  sessionImport: Import,
 } as const
