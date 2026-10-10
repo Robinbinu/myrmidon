@@ -2899,6 +2899,51 @@ test('a follow-up continues the same colony, and its agent remembers the earlier
   await chats.stopAll()
 })
 
+test('a follow-up sent as the last round stops waits for it to end: one answer gets one review, and both rounds end', async () => {
+  const resolver = new ModelResolver()
+  scripted(
+    resolver,
+    'mock/lead',
+    Array.from({ length: 12 }, () => [tool('reply_user', { text: 'Done.', final: true })]),
+  )
+  judge(resolver, 0.1)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo') })
+  const config = { ...solo('mock/lead'), judgeModel: 'mock/judge' }
+  const first = await chats.send('Write notes', config)
+  // Sent the moment round 1 is logged as stopped, while that round is still shutting down.
+  const second = new Promise<{ chatId: string; colonyId: string }>((resolve, reject) => {
+    const off = runtime.ctx.on('log/appended', (colonyId, appended) => {
+      if (colonyId !== first.colonyId || !appended.some((e) => e.type === 'colony/stopped')) return
+      off()
+      chats.send('And a summary', config, first.chatId).then(resolve, reject)
+    })
+  })
+  const { colonyId } = await second
+  const s = await waitFor(colonyId, (x) => x.rounds.length === 2 && x.status === 'stopped')
+  expect(s.statusReason).toBe('verification failed 3 times; see the last verdict')
+  const log = await events(colonyId)
+  const round2 = log.slice(log.findIndex((e) => e.type === 'round/started'))
+  const answers = round2.filter((e) => e.type === 'chat/reply' && (e.payload as { final?: boolean }).final)
+  expect(answers).toHaveLength(3)
+  expect(round2.filter((e) => e.type === 'verifier/requested')).toHaveLength(3)
+  expect(round2.filter((e) => e.type === 'colony/stopped')).toHaveLength(1)
+  const stopped = round2.findIndex((e) => e.type === 'colony/stopped')
+  expect(round2.slice(stopped).filter((e) => e.type === 'llm/response' || e.type === 'tool/call')).toEqual([])
+  // Both rounds have wound up, so shutting down does not wait on either.
+  const t = Date.now()
+  await chats.stopAll()
+  expect(Date.now() - t).toBeLessThan(1000)
+})
+
+test('shutting down waits a few seconds at most for a round that cannot finish wrapping up', async () => {
+  const chats = new ChatService(runtime, { resolver: new ModelResolver(), classify: fixed('answer') })
+  // A wrap-up that never settles (an end checkpoint stuck on git, say).
+  ;(chats as unknown as { _wrapUps: Set<Promise<unknown>> })._wrapUps.add(new Promise(() => {}))
+  const t = Date.now()
+  await chats.stopAll()
+  expect(Date.now() - t).toBeLessThan(5000)
+})
+
 test('on-demand tools stay out of model calls until find_tools loads them', async () => {
   const resolver = new ModelResolver()
   const offered: string[][] = []
