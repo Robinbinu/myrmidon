@@ -93,11 +93,13 @@ which is Windows today), no Chrome, no Kitten or Pythia model, and the opt-in en
 ```sh
 gh workflow run ci.yml --ref <branch> -f os=windows-latest
 gh workflow run ci.yml --ref <branch> -f os=ubuntu-latest -f tests="sandbox read-access"
+gh workflow run ci.yml --ref <branch> -f os=windows-latest -f pending=true
 gh run watch
 ```
 
 `os` is `all`, `macos-latest`, `ubuntu-latest` or `windows-latest`; `tests` takes path fragments, as `bun test`
-does. Or use **Actions → CI → Run workflow** on GitHub.
+does; `pending` also runs the tests pending on that OS (`MYR_RUN_PENDING=1`, which works locally too), to see
+whether a fix closes their gap and how they fail if it does not. Or use **Actions → CI → Run workflow** on GitHub.
 
 ## Minutes
 

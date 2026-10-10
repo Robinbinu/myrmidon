@@ -17,6 +17,10 @@ on:
         description: Only test files whose path contains one of these words (space-separated); empty runs all
         type: string
         default: ''
+      pending:
+        description: Also run the tests pending on this OS (tests/platform.ts), to see whether a fix closes their gap
+        type: boolean
+        default: false
 
 concurrency:
   group: ci-${{ github.ref }}-${{ inputs.os || 'all' }}
@@ -92,5 +96,6 @@ jobs:
         shell: bash
         env:
           TESTS: ${{ inputs.tests }}
+          MYR_RUN_PENDING: ${{ inputs.pending && '1' || '' }}
         # TESTS is deliberately unquoted: it is a list of path filters.
         run: bun test --timeout 30000 $TESTS
