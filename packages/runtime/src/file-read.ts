@@ -1,5 +1,5 @@
 import type { Database } from 'bun:sqlite'
-import { closeSync, openSync, readFileSync, readSync, statSync } from 'node:fs'
+import { closeSync, existsSync, openSync, readFileSync, readSync, statSync } from 'node:fs'
 import { extname } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { notebookToEditableText, pdfToMarkdown } from '@oh-my-pi/pi-natives'
@@ -198,8 +198,8 @@ async function readArchive(path: string, name: string, entry?: string): Promise<
 
 /**
  * Opens a database for reading without writing beside it: no journal or WAL sidecar files appear in the person's
- * folder. A WAL database whose sidecars are missing cannot open read-only, so it opens immutable instead (as the
- * file stands on disk).
+ * folder. A WAL database whose sidecars are missing opens immutable (as the file stands on disk): read-only it cannot
+ * open on macOS and Linux, and on Windows it would create them.
  */
 async function openReadOnly(path: string): Promise<Database> {
   const { Database } = await import('bun:sqlite')
@@ -214,11 +214,25 @@ async function openReadOnly(path: string): Promise<Database> {
       throw err
     }
   }
+  const immutable = () => ready(new Database(`${pathToFileURL(path).href}?immutable=1`, { readonly: true }))
+  if (walWithoutSidecar(path)) return immutable()
   try {
     return ready(new Database(path, { readonly: true }))
   } catch {
-    return ready(new Database(`${pathToFileURL(path).href}?immutable=1`, { readonly: true }))
+    return immutable()
   }
+}
+
+/** Whether a database is in WAL mode (its header's read and write versions are 2) with no -wal file beside it. */
+function walWithoutSidecar(path: string): boolean {
+  const header = Buffer.alloc(20)
+  const fd = openSync(path, 'r')
+  try {
+    readSync(fd, header, 0, 20, 0)
+  } finally {
+    closeSync(fd)
+  }
+  return header[18] === 2 && header[19] === 2 && !existsSync(`${path}-wal`)
 }
 
 /** Leading comments, then the statement's first word: only queries that read may run. */
