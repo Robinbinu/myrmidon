@@ -3,7 +3,6 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ProjectStore } from '@myrmidon/runtime'
-import { pendingOn } from '../../../tests/platform.ts'
 import { startServer, type WebServer } from '../src/server.ts'
 
 const homes: string[] = []
@@ -68,45 +67,41 @@ async function until(check: () => boolean, shown: () => unknown = () => '', ms =
   }
 }
 
-pendingOn('win32', 'terminalForeground')(
-  'several terminals run their own shells, and each says what runs in its foreground',
-  async () => {
-    const home = mkdtempSync(join(tmpdir(), 'myr-term-'))
-    homes.push(home)
-    const projects = {
-      get: (id: string) => ({ id, name: 'here', path: home, addedAt: '' }),
-    } as unknown as ProjectStore
-    const server = startServer({ home, port: 0, projects })
-    servers.push(server)
-    const one = openTerminal(server, 'p1')
-    const two = openTerminal(server, 'p1')
-    try {
-      await Promise.all([one.opened, two.opened])
-      // The arithmetic is done by the shell, so the typed line's echo alone never satisfies the check.
-      one.type('echo first-$((20+1))\r')
-      two.type('echo second-$((40+2))\r')
-      const seen = () => ({ one: one.seen, two: two.seen })
-      await until(() => one.seen.text.includes('first-21') && two.seen.text.includes('second-42'), seen)
-      expect(one.seen.text).not.toContain('second-42')
-      expect(two.seen.text).not.toContain('first-21')
+test('several terminals run their own shells, and each says what runs in its foreground', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'myr-term-'))
+  homes.push(home)
+  const projects = {
+    get: (id: string) => ({ id, name: 'here', path: home, addedAt: '' }),
+  } as unknown as ProjectStore
+  const server = startServer({ home, port: 0, projects })
+  servers.push(server)
+  const one = openTerminal(server, 'p1')
+  const two = openTerminal(server, 'p1')
+  try {
+    await Promise.all([one.opened, two.opened])
+    // The arithmetic is done by the shell, so the typed line's echo alone never satisfies the check.
+    one.type('echo first-$((20+1))\r')
+    two.type('echo second-$((40+2))\r')
+    const seen = () => ({ one: one.seen, two: two.seen })
+    await until(() => one.seen.text.includes('first-21') && two.seen.text.includes('second-42'), seen)
+    expect(one.seen.text).not.toContain('second-42')
+    expect(two.seen.text).not.toContain('first-21')
 
-      // A program, not PowerShell's own sleep (Start-Sleep), which runs inside the shell and is no process to name.
-      // Under ConPTY PowerShell drops the first key of the line after a command, typed this way: a space goes first.
-      await until(() => /first-21\s*\S/.test(one.seen.text), seen)
-      one.type(process.platform === 'win32' ? ' sleep.exe 30\r' : 'sleep 30\r')
-      await until(() => one.seen.controls.some((c) => c.type === 'process' && c.name === 'sleep 30'), seen)
-      // Back at the prompt the shell is idle again: no command runs in the foreground.
-      one.type('\x03')
-      await until(() => one.seen.controls.at(-1)?.name === null, seen)
-      // The idle terminal never had anything to report.
-      expect(two.seen.controls).toEqual([])
-    } finally {
-      one.ws.close()
-      two.ws.close()
-    }
-  },
-  60_000,
-)
+    // A program, not PowerShell's own sleep (Start-Sleep), which runs inside the shell and is no process to name.
+    // Under ConPTY PowerShell drops the first key of the line after a command, typed this way: a space goes first.
+    await until(() => /first-21\s*\S/.test(one.seen.text), seen)
+    one.type(process.platform === 'win32' ? ' sleep.exe 30\r' : 'sleep 30\r')
+    await until(() => one.seen.controls.some((c) => c.type === 'process' && c.name === 'sleep 30'), seen)
+    // Back at the prompt the shell is idle again: no command runs in the foreground.
+    one.type('\x03')
+    await until(() => one.seen.controls.at(-1)?.name === null, seen)
+    // The idle terminal never had anything to report.
+    expect(two.seen.controls).toEqual([])
+  } finally {
+    one.ws.close()
+    two.ws.close()
+  }
+}, 60_000)
 
 test('more terminals than allowed at once are refused with a reason, even when asked for together', async () => {
   const home = mkdtempSync(join(tmpdir(), 'myr-term-'))
