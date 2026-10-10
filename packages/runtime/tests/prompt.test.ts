@@ -394,8 +394,13 @@ test('on Windows an agent with a shell is told which shell runs its commands, an
     expect(found).toEqual([])
     expect(told).toBeGreaterThan(0)
   }
-  // macOS and Linux prompts say nothing of it: sh is what agents assume.
-  for (const { view } of views) expect(view.system.join('\n')).not.toContain('Commands run in')
+  // macOS and Linux prompts say nothing of it: sh is what agents assume. (The views are this host's, which may be
+  // Windows, so each is drawn again for the other two.)
+  for (const platform of ['darwin', 'linux'])
+    for (const { view } of views) {
+      const facts = { ...view.facts, env: { ...view.facts.env, platform, shell: undefined } }
+      expect(viewOf(facts).system.join('\n')).not.toContain('Commands run in')
+    }
 })
 
 test('every prompt stays within its word budgets', () => {

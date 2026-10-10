@@ -111,17 +111,23 @@ export function bunShim(path: string, script: string): string {
 }
 
 /**
- * Removes a test's temp folder. On Windows a SQLite file closed with db.close() stays open until its statements are
- * garbage-collected (GAPS.sqliteHandles), so a busy folder is removed again after a full collection.
+ * Removes a test's temp folder. On Windows a SQLite file closed with db.close() stays open while its statements are
+ * reachable (GAPS.sqliteHandles), so a folder still busy after a full collection is left in the runner's temp folder
+ * and logged: no test asserts on removing it, and its own assertions still decide whether it passes.
  */
 export function removeTempDir(dir: string): void {
+  const remove = () => rmSync(dir, { recursive: true, force: true })
   try {
-    rmSync(dir, { recursive: true, force: true })
+    remove()
   } catch (err) {
     if (process.platform !== 'win32' || (err as NodeJS.ErrnoException).code !== 'EBUSY') throw err
     pendingHere('win32', 'sqliteHandles')
     Bun.gc(true)
-    rmSync(dir, { recursive: true, force: true })
+    try {
+      remove()
+    } catch {
+      console.warn(`left ${dir}: still open (sqliteHandles)`)
+    }
   }
 }
 
