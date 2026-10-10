@@ -1,5 +1,13 @@
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import {
   type ColonyState,
@@ -82,6 +90,7 @@ import {
   PAGE_EXCERPT,
   READ_LOG_RESULT_CHARS,
   REVIEW_MAX_CHARS,
+  RULE_MAX_TEXT,
 } from './config.ts'
 import { readFileAs } from './file-read.ts'
 import { gitCommitChanges, gitWorkingChanges } from './git.ts'
@@ -103,6 +112,7 @@ import { type ProjectCheck, scratchChecks } from './project-context.ts'
 import type { PromptFacts } from './prompt/facts.ts'
 import { type Place, prompts } from './prompts.ts'
 import { within } from './read-access.ts'
+import { ruleMatches } from './rule-files.ts'
 import { SANDBOX_DIRS } from './sandbox.ts'
 import { assertArtifactName, SKIP_DIRS } from './workspace.ts'
 
@@ -598,6 +608,47 @@ async function askFirst(
   const edits = Object.entries(decision.edits ?? {})
   for (const [k, v] of edits) (params as Record<string, unknown>)[k] = v
   return edits.length > 0
+}
+
+/** The file-scoped rules each agent of a round was shown already, so a rule comes with one file, not with every read. */
+const shownRules = new WeakMap<ColonyHost, Map<string, Set<string>>>()
+
+/**
+ * The project's rules for a file an agent just read or wrote (`glob` rules from other tools, see rule-files.ts), each
+ * the first time one of its files comes up, the way Cursor attaches a rule when a matching file enters the chat. Its
+ * globs are relative to the project, or to the agent's worktree, which is a copy of it. Empty for any other file.
+ */
+function rulesForFile(host: ColonyHost, agent: string, path: string): string {
+  const rules = host.project?.instructions?.rules.filter((r) => r.mode === 'glob') ?? []
+  if (rules.length === 0) return ''
+  const root = host.workspace.isolation(agent)?.workdir ?? host.workspace.project
+  if (!root) return ''
+  let base: string
+  try {
+    base = realpathSync(root)
+  } catch {
+    return ''
+  }
+  if (path === base || !within(path, base)) return ''
+  const file = relative(base, path).split(sep).join('/')
+  const byAgent = shownRules.get(host) ?? new Map<string, Set<string>>()
+  shownRules.set(host, byAgent)
+  const shown = byAgent.get(agent) ?? new Set<string>()
+  byAgent.set(agent, shown)
+  return rules
+    .filter((r) => !shown.has(r.name) && ruleMatches(r, file))
+    .map((r) => {
+      shown.add(r.name)
+      const cut = r.text.length > RULE_MAX_TEXT
+      return prompts.toolResults.projectRule(
+        r.name,
+        r.file,
+        r.globs ?? [],
+        cut ? r.text.slice(0, RULE_MAX_TEXT) : r.text,
+        cut,
+      )
+    })
+    .join('')
 }
 
 /**
@@ -1617,7 +1668,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       })
       mkdirSync(dirname(path), { recursive: true })
       writeFileSync(path, content)
-      return `wrote ${args.path} (${Buffer.byteLength(content)} bytes)${edited ? prompts.toolResults.editedByPerson : ''}`
+      return `wrote ${args.path} (${Buffer.byteLength(content)} bytes)${edited ? prompts.toolResults.editedByPerson : ''}${rulesForFile(host, agent, path)}`
     },
   },
   {
@@ -1647,7 +1698,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
         key: receiptKey(host, agent, 'fs_edit', args),
       })
       writeFileSync(path, content)
-      return `edited ${args.path} (${args.all ? count : 1} replacement${count > 1 && args.all ? 's' : ''})${edited ? prompts.toolResults.editedByPerson : ''}`
+      return `edited ${args.path} (${args.all ? count : 1} replacement${count > 1 && args.all ? 's' : ''})${edited ? prompts.toolResults.editedByPerson : ''}${rulesForFile(host, agent, path)}`
     },
   },
   {
@@ -1663,9 +1714,10 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       'sql?': type('string').describe(prompts.tools.fs_read.params.sql),
     }),
     async run(args, agent, host) {
-      const read = await readFileAs(host.workspace.resolveForRead(agent, args.path), args.path, args)
+      const path = host.workspace.resolveForRead(agent, args.path)
+      const read = await readFileAs(path, args.path, args)
       if (read.image) return { text: read.head ?? '', images: [read.image] }
-      const text = readRange(read.text, args.offset, args.limit)
+      const text = `${readRange(read.text, args.offset, args.limit)}${rulesForFile(host, agent, path)}`
       return read.head ? { text, images: [], preface: `${read.head}\n` } : text
     },
   },

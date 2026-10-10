@@ -254,6 +254,19 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
         })
         break
       }
+      case 'colony/started': {
+        const p = e.payload as EventPayloads['colony/started']
+        if (!p.rules?.length) break
+        out.push({
+          ...base,
+          kind: 'file',
+          agent: 'system',
+          lead: copy.steps.followedRules(p.rules.length),
+          tail: cut(p.rules.join(', '), 140),
+          detail: p.rules.join('\n'),
+        })
+        break
+      }
       case 'skill/used': {
         const p = e.payload as EventPayloads['skill/used']
         out.push({
