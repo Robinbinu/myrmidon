@@ -24,11 +24,16 @@ async function typeInto(probe: ShellProbe, line: string, until: string) {
         rows: 24,
         env: { ...process.env, TERM: 'xterm-256color' },
         onData: (c) => {
-          out += new TextDecoder().decode(c)
+          const text = new TextDecoder().decode(c)
+          out += text
+          // ConPTY asks where the cursor is before it takes input, as a terminal would answer.
+          if (text.includes('\x1b[6n')) term?.write('\x1b[1;1R')
         },
       },
       probe,
     )
+    // Typed at the prompt, as a person types: a shell still starting may drop what comes before it.
+    for (let i = 0; i < 100 && !/[>$%#]/.test(out); i++) await Bun.sleep(50)
     term.write(`${line}\r`)
     for (let i = 0; i < 100 && !out.includes(until); i++) await Bun.sleep(50)
     return { out, pid: term.pid }
