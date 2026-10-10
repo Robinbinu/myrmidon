@@ -80,7 +80,8 @@ export class SqliteLogStore implements LogStore {
     expectedHead?: number,
   ): Promise<MyrEvent[]> {
     const db = this._open(colonyId, true)
-    const insert = db.prepare(
+    // query(), not prepare(): the database caches it and finalizes it on close, so nothing keeps the file open.
+    const insert = db.query(
       `insert into events (seq, id, time, type, actor_kind, actor_id, caused_by, trace_id, span_id, parent_span_id, schema, payload)
        values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
@@ -143,9 +144,12 @@ export class SqliteLogStore implements LogStore {
       .sort()
   }
 
-  /** Closes this store's handle on a colony so another process or call can remove it. */
+  /**
+   * Closes this store's handle on a colony so another process or call can remove it. close(true) releases the file at
+   * once or throws; plain close() would leave it open while any statement lives, and Windows cannot delete an open file.
+   */
   forget(colonyId: ColonyId) {
-    this._dbs.get(colonyId)?.close()
+    this._dbs.get(colonyId)?.close(true)
     this._dbs.delete(colonyId)
   }
 
@@ -159,7 +163,7 @@ export class SqliteLogStore implements LogStore {
   }
 
   close() {
-    for (const db of this._dbs.values()) db.close()
+    for (const db of this._dbs.values()) db.close(true)
     this._dbs.clear()
   }
 }

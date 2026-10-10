@@ -50,7 +50,7 @@ pendingOn('win32', 'worktreesOnWindows')('workers edit their own worktrees…', 
 `pendingOn(os, gap)` skips the test on that OS only and logs the gap's reason once. Every gap is an entry in
 `GAPS` in `tests/platform.ts`: when a fix lands, delete the entry and typecheck points at every test to un-mark.
 `notOn(os, why)` is the same for tests of another system's own mechanism (a Seatbelt profile, bubblewrap mounts),
-which are not gaps. `removeTempDir` and `expectOwnerOnly` keep cleanup and the private-file check honest on Windows.
+which are not gaps. `expectOwnerOnly` checks a private file the way each system keeps one (a mode, or an access list).
 
 ### Pending on Linux (Ubuntu 24.04)
 
@@ -76,7 +76,6 @@ which are not gaps. `removeTempDir` and `expectOwnerOnly` keep cleanup and the p
 | `settingsPosixPaths` | read-access: *a folder listed in Settings opens for every chat…* | Settings' `sandbox.read` accepts only `~`, `~/…` or `/…` |
 | `serverJsonAfterKill` | desktop server: *the server the app started stops when the app is killed…* | killing the app leaves `server.json` behind on Windows |
 | `terminalForeground` | server-terminal: *several terminals run their own shells…* | terminals do not report their foreground program (ConPTY) |
-| `sqliteHandles` | chat: *deleting a chat removes every round and its data* (and `removeTempDir` leaves busy test folders, logged) | `db.close()` with live prepared statements keeps the SQLite file open until GC (`core/sqlite-store.ts`), so deleting a chat fails with EBUSY; `close(true)` would release it |
 
 ### Not on Windows (by design)
 

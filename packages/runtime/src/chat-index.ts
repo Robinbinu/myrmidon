@@ -222,8 +222,9 @@ export class ChatIndex {
     })()
   }
 
+  // close(true) releases the file at once (or throws), so Windows can delete the data folder after.
   close() {
-    this._db.close()
+    this._db.close(true)
   }
 
   /** Changes whenever the colony's log is written: WAL appends grow or touch `-wal`, checkpoints touch the db. */

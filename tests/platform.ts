@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { chmodSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, statSync, writeFileSync } from 'node:fs'
 
 /** The platforms a test may be pending on. macOS is the reference platform: nothing is ever pending there. */
 type Pending = 'linux' | 'win32'
@@ -16,10 +16,6 @@ export const GAPS = {
   voiceWarmupRace:
     'a voice call whose page closed while the engines warmed up still greets once they are ready, so the next ' +
     'call in the chat is spoken twice (apps/web voice gateway; seen on Linux every run)',
-  sqliteHandles:
-    'SQLite stores close with db.close() while prepared statements live (core sqlite-store.ts), so the file stays ' +
-    'open until GC: on Windows deleting a chat fails with EBUSY (deleteColony) and test folders stay busy; ' +
-    'close(true) would release it at once',
   serverJsonAfterKill:
     'when the desktop app is killed, the leash stops its server without letting it remove server.json on Windows',
   cuaDriverOnWindows:
@@ -119,27 +115,6 @@ export function bunShim(path: string, script: string): string {
   writeFileSync(path, `#!/bin/sh\nexec "${process.execPath}" "${script}" "$@"\n`)
   chmodSync(path, 0o755)
   return path
-}
-
-/**
- * Removes a test's temp folder. On Windows a SQLite file closed with db.close() stays open while its statements are
- * reachable (GAPS.sqliteHandles), so a folder still busy after a full collection is left in the runner's temp folder
- * and logged: no test asserts on removing it, and its own assertions still decide whether it passes.
- */
-export function removeTempDir(dir: string): void {
-  const remove = () => rmSync(dir, { recursive: true, force: true })
-  try {
-    remove()
-  } catch (err) {
-    if (process.platform !== 'win32' || (err as NodeJS.ErrnoException).code !== 'EBUSY') throw err
-    pendingHere('win32', 'sqliteHandles')
-    Bun.gc(true)
-    try {
-      remove()
-    } catch {
-      console.warn(`left ${dir}: still open (sqliteHandles)`)
-    }
-  }
 }
 
 /** Entries Windows keeps on every private file: the system itself and administrators can always take ownership. */
