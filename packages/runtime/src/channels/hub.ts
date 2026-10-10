@@ -299,6 +299,16 @@ export class ChannelHub {
     this._ledger.close()
   }
 
+  /** Every channel's saved secret values (bot tokens, app passwords), to keep them from model providers. */
+  secretValues(): string[] {
+    return Object.entries(this.options.kinds()).flatMap(([id, kind]) => {
+      const values = this.store.get(id).values
+      return kind.fields
+        .filter((f) => f.secret)
+        .flatMap((f) => (values[f.key] ? [values[f.key] as string] : []))
+    })
+  }
+
   list(): ChannelInfo[] {
     return Object.entries(this.options.kinds()).map(([id, kind]) => {
       const c = this.store.get(id)

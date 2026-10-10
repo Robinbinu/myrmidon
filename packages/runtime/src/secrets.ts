@@ -1,10 +1,11 @@
 /**
  * Keeps secrets out of what Myrmidon stores: the event log and agents' transcripts are written to disk and replayed
  * in the UI, so a key an agent read from a .env file, a token in a command's output, or one the person pasted
- * must not land there in clear. The live model call is untouched; only what is persisted is redacted.
+ * must not land there in clear. What goes to model providers is guarded separately (provider-secrets.ts), with
+ * placeholders the agent can write back instead of marks that lose the value.
  */
 
-const PATTERNS: [kind: string, re: RegExp][] = [
+export const PATTERNS: [kind: string, re: RegExp][] = [
   ['private key', /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g],
   ['aws key', /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g],
   ['github token', /\b(?:gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{22,})\b/g],
@@ -17,11 +18,11 @@ const PATTERNS: [kind: string, re: RegExp][] = [
 ]
 
 /** `NAME_KEY=value`, `"apiToken": "value"`, `password: value`: the name stays, the value goes. */
-const ASSIGNMENT =
+export const ASSIGNMENT =
   /((?:^|[\s"'{,])[A-Za-z0-9_.-]*(?:api[_-]?key|secret|token|password|passwd|pwd|credential|access[_-]?key)[A-Za-z0-9_.-]*["']?\s*[:=]\s*["']?)([^\s"',}]{8,})/gim
 
 /** Secret values the server itself holds in its environment, matched exactly wherever they appear. */
-const known = (() => {
+export const ENV_SECRETS: readonly string[] = (() => {
   const values: string[] = []
   for (const [name, value] of Object.entries(process.env))
     if (value && value.length >= 12 && /KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL/i.test(name)) values.push(value)
@@ -33,7 +34,7 @@ const mark = (kind: string) => `[${kind} redacted]`
 export function redactSecrets(text: string): string {
   if (text.length < 8) return text
   let out = text
-  for (const value of known) if (out.includes(value)) out = out.replaceAll(value, mark('secret'))
+  for (const value of ENV_SECRETS) if (out.includes(value)) out = out.replaceAll(value, mark('secret'))
   for (const [kind, re] of PATTERNS) out = out.replace(re, mark(kind))
   return out.replace(ASSIGNMENT, (whole, name: string, value: string) =>
     value.startsWith('[') && value.endsWith(']') ? whole : `${name}${mark('secret')}`,

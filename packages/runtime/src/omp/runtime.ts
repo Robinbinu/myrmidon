@@ -145,6 +145,11 @@ export interface OmpRuntime {
    * model provider's (OpenAI, Groq, Gemini) uses the key already added for it, and none sits in a file of its own.
    */
   readonly voiceKeys: VoiceKeys
+  /**
+   * Every credential the vault and `models.yml` hold (API keys, sign-ins' tokens, voice providers' keys), so what goes
+   * to model providers can be kept free of them (provider-secrets.ts). Never shown or logged.
+   */
+  secretValues(): string[]
   search(query: string, options?: SearchOptions): Promise<string>
   read(url: string, signal?: AbortSignal): Promise<ReadResult>
   searchProviders(): { id: string; label: string }[]
@@ -207,7 +212,10 @@ async function start(home: string): Promise<OmpRuntime> {
     storeLoginApiKey(provider: string, key: string): Promise<void>
     remove(provider: string): Promise<void>
     hasOAuth(provider: string): boolean
-    list(provider: string): { id: number; credential: { type: 'api_key' | 'oauth' } }[]
+    list(provider?: string): {
+      id: number
+      credential: { type: 'api_key'; key: string } | { type: 'oauth'; access: string; refresh: string }
+    }[]
     removeById(provider: string, id: number): Promise<boolean>
   }
   const open = async () => {
@@ -496,6 +504,19 @@ async function start(home: string): Promise<OmpRuntime> {
         label,
       })),
     defaultModel: () => core.settings.getModelRole('default'),
+    secretValues() {
+      const values = core.credentials
+        .list()
+        .flatMap(({ credential: c }) => (c.type === 'api_key' ? [c.key] : [c.access, c.refresh]))
+      // A models.yml key may instead name an environment variable, or a command (`!cmd`) that prints the key: hiding
+      // the name or the command would hide words, so the variable's value is hidden instead.
+      for (const entry of Object.values(readModelsYml().providers)) {
+        const key = entry.apiKey
+        if (typeof key !== 'string' || key.startsWith('!')) continue
+        values.push(/^[A-Z][A-Z0-9_]*$/.test(key) ? (process.env[key] ?? '') : key)
+      }
+      return values.filter((v) => typeof v === 'string' && v.length > 0)
+    },
     async reload() {
       const previous = core
       core = await open()

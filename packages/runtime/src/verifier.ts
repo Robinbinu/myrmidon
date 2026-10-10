@@ -14,6 +14,7 @@ import {
 import type { ColonyHost } from './host.ts'
 import type { ModelResolver } from './models.ts'
 import { prompts } from './prompts.ts'
+import { hideInContext } from './provider-secrets.ts'
 import type { AcceptanceCheck } from './spec.ts'
 import { pickChecks, runProjectChecks, spotlight } from './tools.ts'
 import { assertPublicUrl } from './web.ts'
@@ -370,8 +371,8 @@ export class Verifier {
     }
     const apiKey = await this.resolver.requireApiKey(resolved.model)
     const reply = resolved.streamFn
-      ? await (await resolved.streamFn(resolved.model, context, { apiKey })).result()
-      : await completeSimple(resolved.model, context, { apiKey })
+      ? await (await resolved.streamFn(resolved.model, hideInContext(context), { apiKey })).result()
+      : await completeSimple(resolved.model, hideInContext(context), { apiKey })
     if (reply.stopReason === 'error')
       throw new Error(`judge model failed: ${reply.errorMessage ?? 'unknown error'}`)
     const text = reply.content.flatMap((c) => (c.type === 'text' ? [c.text] : [])).join('')

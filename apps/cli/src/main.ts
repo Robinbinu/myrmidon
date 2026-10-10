@@ -16,6 +16,7 @@ import {
   roundSlice,
 } from '@myrmidon/protocol'
 import {
+  addKnownSecrets,
   alive,
   BrowserHub,
   bootOmp,
@@ -27,6 +28,7 @@ import {
   ComputerHub,
   ContextWindows,
   detectSandbox,
+  guardSecrets,
   HookStore,
   importFromOmp,
   loadColonySpec,
@@ -238,6 +240,10 @@ async function run(path: string) {
   const sandbox = detectSandbox()
   const omp = await bootOmp(home)
   const settings = new SettingsStore(home)
+  // As `serve` does (apps/web/src/server.ts): secrets reach model providers as placeholders unless the person said no.
+  const hide = settings.get().privacy.hideSecrets
+  guardSecrets({ enabled: () => hide, keyFile: join(home, 'secret-placeholder.key') })
+  addKnownSecrets(() => omp.secretValues())
   const colony = new ColonyRun(runtime, spec, {
     unsafeNoSandbox: values['unsafe-no-sandbox'],
     sandbox,
