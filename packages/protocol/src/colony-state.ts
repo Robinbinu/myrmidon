@@ -700,6 +700,16 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
       }
       break
     }
+    case 'tool/result': {
+      const p = event.payload as EventPayloads['tool/result']
+      const view = state.agents[p.agent]
+      // A tool's own spend is added when known; one that reports none leaves the agent's cost as it was.
+      if (view && p.usage) {
+        view.tokens += p.usage.totalTokens
+        if (p.usage.cost !== undefined) view.cost += p.usage.cost
+      }
+      break
+    }
     case 'tool/call': {
       const p = event.payload as EventPayloads['tool/call']
       const view = state.agents[p.agent]

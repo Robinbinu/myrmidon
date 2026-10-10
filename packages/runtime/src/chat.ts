@@ -46,6 +46,7 @@ import { parseGoal } from './goal.ts'
 import type { HookStore } from './hooks.ts'
 import type { ToolLibrary } from './made-tools.ts'
 import type { McpHub } from './mcp.ts'
+import type { MediaTools } from './media.ts'
 import { type MemoryStore, memoryLines } from './memory.ts'
 import type { ModelResolver } from './models.ts'
 import { pickName } from './names.ts'
@@ -313,6 +314,8 @@ export class ChatService {
       unsafeNoSandbox?: boolean
       settings?: SettingsStore
       web?: WebTools
+      /** Pictures and speech for agents (generate_image, tts). */
+      media?: MediaTools
       /** Fixes a new round's size; by default every round starts with the lead alone (see `leadFirst`). */
       classify?: Classify
       /** MCP servers whose tools colonies may use. */
@@ -745,6 +748,7 @@ export class ChatService {
       resolver: this.options.resolver,
       ...(this.options.quietMs !== undefined ? { quietMs: this.options.quietMs } : {}),
       ...(this.options.web ? { web: this.options.web } : {}),
+      ...(this.options.media ? { media: this.options.media } : {}),
       ...(this.options.unsafeNoSandbox ? { unsafeNoSandbox: true } : {}),
       ...(this.options.mcp ? { mcp: this.options.mcp } : {}),
       ...(this.options.plugins ? { plugins: this.options.plugins } : {}),
@@ -1374,6 +1378,7 @@ export class ChatService {
       resumeId: last.id as ColonyId,
       ...(this.options.quietMs !== undefined ? { quietMs: this.options.quietMs } : {}),
       ...(this.options.web ? { web: this.options.web } : {}),
+      ...(this.options.media ? { media: this.options.media } : {}),
       ...(this.options.unsafeNoSandbox ? { unsafeNoSandbox: true } : {}),
       ...(this.options.mcp ? { mcp: this.options.mcp } : {}),
       ...(this.options.plugins ? { plugins: this.options.plugins } : {}),

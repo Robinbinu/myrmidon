@@ -30,6 +30,7 @@ import {
   Globe,
   Goal,
   GraduationCap,
+  ImagePlus,
   Import,
   Keyboard,
   KeyRound,
@@ -201,6 +202,8 @@ export const FEATURE_ICONS = {
   phoneCalls: PhoneIncoming,
   /** The web: search, fetching pages, a page an agent opened. */
   web: Globe,
+  /** Pictures agents make and edit (generate_image): the image model in Settings → Tools. */
+  imageGeneration: ImagePlus,
   /** Scratch files: private drafts before publishing. */
   scratchFiles: SlidersHorizontal,
   /** Files the crew published. */

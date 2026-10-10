@@ -17,6 +17,9 @@ import {
   GREP_LIMIT,
   LOGIN_MS,
   MAX_ARTIFACT_BYTES,
+  MAX_IMAGE_INPUTS,
+  MAX_IMAGES_PER_CALL,
+  MAX_MEDIA_BYTES,
   MAX_READ_CHARS,
   MAX_SERVERS,
   PAGE_EXCERPT,
@@ -24,6 +27,7 @@ import {
   READ_SQL_MAX_ROWS,
   SERVER_START_MS,
   SNAPSHOT_CHARS,
+  TTS_MAX_CHARS,
   VOICE_GREETING_WORDS,
 } from './config.ts'
 import type { ShellSyntax } from './shell.ts'
@@ -1544,6 +1548,39 @@ Reply with JSON only: {"lines": ["...", "...", "..."]}.`,
       `The person allowed reading ${path}${readers(tools) ? `: read it with ${readers(tools)}` : ''}. It stays read-only.`,
     readAllowedKeys: (path: string, tools: readonly string[]) =>
       `The person allowed reading ${path}, which holds keys or sign-ins${readers(tools) ? `: read it with ${readers(tools)}` : ''}. It stays read-only. Never print private key contents or tokens into your replies; file names, fingerprints and public keys are fine.`,
+    noMedia: 'pictures and speech are not available in this run',
+    noImageModel:
+      'no image model is set up, so no picture can be made. Tell the person: add a key for a provider that makes ' +
+      'images (OpenAI, Google Gemini, OpenRouter, xAI) or sign in with ChatGPT in Settings → Models & providers; ' +
+      'Settings → Tools → Image generation then uses the first one, or the one they choose',
+    imageModelGone: (model: string) =>
+      `the image model chosen in Settings → Tools (${model}) cannot be used now: its provider has no key or sign-in. ` +
+      'Tell the person to set it up again in Settings → Models & providers, or to switch Image generation to Automatic',
+    noVoice: 'speech is not available here: the voice engines run with the Myrmidon app or `myr serve`',
+    voiceNotReady:
+      'the voice chosen in Settings → Voice is Kitten TTS, which runs on this computer and is not downloaded yet. Tell ' +
+      'the person: turning on Voice in Settings → Voice downloads it, or they can choose a cloud voice there',
+    nothingToSay: 'nothing is left to say once markdown, links and code are taken out; give plain sentences',
+    tooManyInputs: (max: number) => `give at most ${max} input pictures`,
+    mediaTooLarge: (name: string, bytes: number) =>
+      `${name} is ${Math.round(bytes / 1024 / 1024)} MB, over the ${MAX_MEDIA_BYTES / 1024 / 1024} MB limit`,
+    notAPicture: (ref: string) => `${ref} is not a PNG, JPEG, GIF or WebP picture`,
+    /** The image model answered without a picture; `said`: what it wrote instead. */
+    noPicture: (model: string, said?: string) =>
+      `${model} made no picture${said ? `; it said: ${said}` : ''}. Some subjects are refused: reword the prompt once, or tell the person`,
+    /** `copy`: where the scratch copy is (relative to scratch, or a full path in a project). */
+    picturesMade: (
+      model: string,
+      files: readonly { name: string; version: number; copy: string }[],
+      said?: string,
+    ) =>
+      `Made ${files.length === 1 ? 'a picture' : `${files.length} pictures`} with ${model}. Published for the person, ` +
+      `who sees ${files.length === 1 ? 'it' : 'them'} in the chat: ${files.map((f) => `${f.name} v${f.version}`).join(', ')}. ` +
+      `A copy is in your scratch directory: ${files.map((f) => f.copy).join(', ')}.` +
+      (said ? `\nThe model said: ${said}` : ''),
+    speechMade: (file: { name: string; version: number; copy: string }, voice: string, seconds: number) =>
+      `Spoke ${seconds.toFixed(1)} s of audio in ${voice}. Published ${file.name} v${file.version} for the person, ` +
+      `who can play it in the chat. A copy is in your scratch directory: ${file.copy}.`,
     alreadyDone: (output: string) =>
       `Already done: the person approved this exact call earlier and it ran, so it was not run again. Its result was:\n${output}`,
     checkIn: 'check-in sent; carry on with your assumption. An answer arrives as a [user] message.',
@@ -2185,6 +2222,44 @@ Reply with JSON only: {"lines": ["...", "...", "..."]}.`,
         fromScratch:
           'Path of a file in your working directory or scratch to publish as it is, e.g. "dist/app.js"',
         mediaType: 'The media type, e.g. "text/html" (default: guessed from the extension)',
+      },
+    },
+    // After Codex's imagegen ("use it when the user requests an image ... or wants to modify an attached or
+    // previously generated image"; edit only the images named) and omp's image-gen.md (one detailed subject; name each
+    // input's role; "sharp, legible, correctly spelled" text).
+    generate_image: {
+      description:
+        'Make pictures from a description, or edit pictures you give it: illustrations, logos, icons, photos, ' +
+        'mockups, a new background. Use it whenever the person asks for an image or a change to one, without asking ' +
+        'them to confirm; do not draw pictures with code unless they ask for that. Write one detailed prompt: the ' +
+        'subject, what it is doing, the setting, composition, lighting and style. To edit, put the pictures in ' +
+        'inputs and say what to change and what to keep; with several, say what each is for ("the layout of image 1, ' +
+        'the colours of image 2"). Text in a picture comes out best short, quoted, and asked for as sharp and ' +
+        'correctly spelled. Each picture is published for the person, who sees it in the chat, with a copy in your ' +
+        'scratch directory, and comes back to you to look at. A picture takes up to a minute or two and costs money: ' +
+        'make one unless more were asked for, and fix small things by editing it rather than starting over.',
+      params: {
+        prompt:
+          'What to draw, or what to change in the inputs, in detail: subject, setting, composition, lighting, style; any text in quotes',
+        inputs: `Pictures to edit or work from, up to ${MAX_IMAGE_INPUTS}: published file names (e.g. "images/logo.png") or paths of image files you can read`,
+        aspectRatio: 'The shape, e.g. "16:9" for a banner or "1:1" for an icon (default: the model\'s)',
+        size: 'Size in pixels, for models that take one: "1024x1024", "1536x1024" (wide) or "1024x1536" (tall)',
+        count: `How many different pictures, 1-${MAX_IMAGES_PER_CALL} (default 1); each is billed`,
+        name: 'File name to publish it under, e.g. "logo.png"; several get -1, -2… (default: images/ and words of the prompt)',
+      },
+    },
+    // After omp's tts.md (text to a speech file through the configured speech backend) and Hermes' text_to_speech
+    // (write for the ear); the voice is the person's own choice in Settings → Voice, so the tool takes none.
+    tts: {
+      description:
+        "Turn text into a spoken audio file (WAV) in the person's voice from Settings → Voice: Kitten TTS on this " +
+        'computer, or the cloud voice they chose. Use it when they ask for something read aloud, narrated or as ' +
+        'audio: a voice-over, a spoken summary, how a word sounds. Write the text for the ear: plain sentences, ' +
+        'numbers and abbreviations as they are said, no markdown, links or code. The file is published for the ' +
+        `person, who can play it in the chat, with a copy in your scratch directory. Up to ${n(TTS_MAX_CHARS)} characters.`,
+      params: {
+        text: 'The words to speak, written as they should sound',
+        name: 'File name to publish it under, e.g. "intro.wav" (default: audio/ and the first words)',
       },
     },
     read_artifact: {

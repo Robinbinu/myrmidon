@@ -76,6 +76,27 @@ export interface ProviderUpdate {
   readonly models: readonly string[]
 }
 
+/** What generate_image asks an image model for (omp's `ImageGenerationRequest`). */
+export interface ImageRequest {
+  readonly prompt: string
+  /** Pictures to edit or draw from, as base64. */
+  readonly inputImages?: readonly { readonly data: string; readonly mimeType: string }[]
+  readonly aspectRatio?: string
+  readonly imageSize?: string
+  readonly count?: number
+}
+
+export interface GeneratedImages {
+  /** The model that made them, `provider/id`: the one the provider reports when it runs another (Codex does). */
+  readonly model: string
+  readonly images: readonly { readonly data: string; readonly mimeType: string; readonly size?: string }[]
+  /** Words the model wrote beside the pictures, if any. */
+  readonly text?: string
+  readonly tokens: { readonly input: number; readonly output: number; readonly total: number }
+  /** USD, from what the provider reported or the catalog's prices; undefined when neither says. */
+  readonly cost?: number
+}
+
 /** A subscription or account sign-in omp supports (Claude Pro/Max, ChatGPT, Gemini, …). */
 export interface LoginOption {
   readonly id: string
@@ -141,6 +162,19 @@ export interface OmpRuntime {
   ): Promise<{ audio: Uint8Array; mimeType: string }>
   /** The speech models omp can call now, as `provider/id`, for Settings → Voice. */
   speechModels(): { stt: string[]; tts: string[] }
+  /**
+   * The image models omp can call now, as `provider/id`, in the order generate_image tries them when none is chosen:
+   * omp's own preference for its image role first, then the rest.
+   */
+  imageModels(): string[]
+  /**
+   * Generates (or, with input images, edits) pictures with `model` (`provider/id`), or else with the first of
+   * imageModels() that answers. Throws when none can.
+   */
+  generateImage(
+    request: ImageRequest,
+    options?: { model?: string; signal?: AbortSignal },
+  ): Promise<GeneratedImages>
   /**
    * Voice providers' keys, in the same vault as the model providers' (`agent.db`), so a voice provider whose API is a
    * model provider's (OpenAI, Groq, Gemini) uses the key already added for it, and none sits in a file of its own.
@@ -211,6 +245,11 @@ async function start(home: string): Promise<OmpRuntime> {
   const fetchTool = await import('@oh-my-pi/pi-coding-agent/tools/fetch')
   const { transcribeAudio } = await import('@oh-my-pi/pi-ai/transcription/index')
   const { isSpeechApi, synthesizeSpeech } = await import('@oh-my-pi/pi-ai/speech/index')
+  const images = await import('@oh-my-pi/pi-ai/images/index')
+  const { ProviderHttpError } = await import('@oh-my-pi/pi-ai/error')
+  const { calculateCost } = await import('@oh-my-pi/pi-catalog')
+  const { resolveRoleChain } = await import('@oh-my-pi/pi-coding-agent/config/model-resolver')
+  const { isAuthenticated } = await import('@oh-my-pi/pi-coding-agent/config/model-registry')
   const modelsPath = join(agentDir, 'models.yml')
 
   type Credentials = {
@@ -283,6 +322,73 @@ async function start(home: string): Promise<OmpRuntime> {
     const info = runtime.providers().find((p) => p.id === name)
     if (!info) throw new Error(`omp did not load provider ${name}`)
     return info
+  }
+
+  const ref = (m: { provider: string; id: string }) => `${m.provider}/${m.id}`
+
+  /** Image models omp can call, best first: what omp's image role prefers (as its generate_image does), then the rest. */
+  const imagePool = (): Model<Api>[] => {
+    const pool = core.registry.getAvailable('image').filter((m) => images.isImageGenerationApi(m.api))
+    const preferred = resolveRoleChain('image', core.settings, pool).map((c) => c.model)
+    const first = new Set(preferred.map(ref))
+    return [...preferred, ...pool.filter((m) => !first.has(ref(m)))]
+  }
+
+  /**
+   * The chat model that carries a hosted image model's `image_generation` call (OpenAI Responses, ChatGPT sign-ins):
+   * the model itself when it can, else the cheapest one on its provider that can, as omp's generate_image picks.
+   */
+  const imageCarrier = (model: Model<Api>): Model<Api> | undefined => {
+    if (model.hostedImage) return model
+    let carrier: Model<Api> | undefined
+    for (const m of core.registry.getAvailable('chat'))
+      if (m.provider === model.provider && m.hostedImage && (!carrier || m.cost.input < carrier.cost.input))
+        carrier = m
+    return carrier
+  }
+
+  /** One image model's attempt: why it was skipped, or what it made. Provider errors are thrown for the caller. */
+  const imageAttempt = async (
+    model: Model<Api>,
+    request: ImageRequest,
+    signal: AbortSignal | undefined,
+  ): Promise<GeneratedImages | string> => {
+    const key = await core.registry.getApiKey(model)
+    if (!isAuthenticated(key)) return 'no credentials'
+    if (model.api === 'google-gemini-cli' && !images.parseAntigravityCredentials(key))
+      return 'invalid credentials'
+    let carrier: Model<Api> | undefined
+    let apiKey = core.registry.resolver(model)
+    if (model.api === 'openai-responses' || model.api === 'openai-codex-responses') {
+      carrier = imageCarrier(model)
+      if (!carrier) return 'no chat model on its provider to carry it'
+      if (!isAuthenticated(await core.registry.getApiKey(carrier))) return 'no credentials for its carrier'
+      apiKey = core.registry.resolver(carrier)
+    }
+    const result = await images.generateImage(
+      model,
+      {
+        prompt: request.prompt,
+        ...(request.inputImages?.length ? { inputImages: [...request.inputImages] } : {}),
+        ...(request.aspectRatio ? { aspectRatio: request.aspectRatio } : {}),
+        ...(request.imageSize ? { imageSize: request.imageSize } : {}),
+        count: request.count ?? 1,
+      },
+      { apiKey, ...(carrier ? { carrier } : {}), ...(signal ? { signal } : {}) },
+    )
+    // What the provider billed when it says; the catalog's per-token prices otherwise.
+    const cost = result.usage.cost.total || calculateCost(model, result.usage).total
+    return {
+      model: result.model && result.model !== model.id ? `${model.provider}/${result.model}` : ref(model),
+      images: result.images.map((i) => ({
+        data: i.data,
+        mimeType: i.mimeType,
+        ...(i.size ? { size: i.size } : {}),
+      })),
+      ...(result.text?.trim() ? { text: result.text.trim() } : {}),
+      tokens: { input: result.usage.input, output: result.usage.output, total: result.usage.totalTokens },
+      ...(cost > 0 ? { cost } : {}),
+    }
   }
 
   const runtime: OmpRuntime = {
@@ -455,7 +561,6 @@ async function start(home: string): Promise<OmpRuntime> {
       return { audio: result.audio, mimeType: result.mimeType }
     },
     speechModels() {
-      const ref = (m: { provider: string; id: string }) => `${m.provider}/${m.id}`
       return {
         stt: core.registry.getAvailable('stt').map(ref),
         tts: core.registry
@@ -463,6 +568,30 @@ async function start(home: string): Promise<OmpRuntime> {
           .filter((m) => isSpeechApi(m.api))
           .map(ref),
       }
+    },
+    imageModels: () => imagePool().map(ref),
+    async generateImage(request, options = {}) {
+      const pool = imagePool()
+      let candidates = pool
+      if (options.model) {
+        const chosen = pool.find((m) => ref(m) === options.model)
+        if (!chosen) throw new Error(`the image model ${options.model} cannot be used now`)
+        candidates = [chosen]
+      }
+      if (candidates.length === 0) throw new Error('no image model')
+      // Like omp's generate_image: a model that cannot be reached or refuses (a provider error) hands over to the next.
+      const failed: string[] = []
+      for (const model of candidates) {
+        try {
+          const made = await imageAttempt(model, request, options.signal)
+          if (typeof made !== 'string') return made
+          failed.push(`${ref(model)} (${made})`)
+        } catch (err) {
+          if (!(err instanceof ProviderHttpError) || options.signal?.aborted) throw err
+          failed.push(`${ref(model)} (${err.message})`)
+        }
+      }
+      throw new Error(`no image model could make it: ${failed.join('; ')}`)
     },
     voiceKeys: {
       // omp's cascade: a stored key, else the provider's environment variable when omp knows one.
