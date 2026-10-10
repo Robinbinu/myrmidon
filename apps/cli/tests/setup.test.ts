@@ -208,6 +208,7 @@ test('doctor says whether agents run sandboxed or with full access', async () =>
     start: () => {
       throw new Error('not used')
     },
+    env: () => ({}),
   }
   const report = async (projects: unknown) => {
     const { call } = api({
