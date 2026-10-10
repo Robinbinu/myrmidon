@@ -545,6 +545,11 @@ Open work, in the order it will be done:
       settings schema (settings.ts) has no registry entry or an explicit "not shown" mark; (3) dynamic rows (providers,
       models, MCP servers, plugins, specialists, channels) are indexed from live data through the same registry hook;
       (4) a short rule in CLAUDE.md/AGENTS.md: add a setting by adding a registry entry. Then tidy the page groups.
+12x. - [ ] **Works properly on macOS, Linux and Windows** (asked 2026-10-10: "the software should work properly on
+      all platforms") — x64 and arm64; web app, CLI and desktop app. CI: GitHub Actions matrix (macos, ubuntu,
+      windows) runs typecheck and the full suite on every PR to main and push to develop. Windows sandbox: commands
+      run inside WSL2 with bubblewrap when available, otherwise every command asks and Settings says why. Start
+      from the cross-platform audit; fix blockers first.
 12l. - [x] **Full access, no sandbox** (asked 2026-10-09, like Hermes) — global switch in Settings → Tools (default on)
       and a per-project Full access; lifts the command sandbox, file-path limits and the private-address rule; approvals
       still apply; channel members and read-only projects stay sandboxed. Left: Windows (unconfined commands still use
