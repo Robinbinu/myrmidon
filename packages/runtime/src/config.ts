@@ -156,6 +156,19 @@ export const FETCH_SHOWN_CHARS = 16_000
 export const FIND_TOOLS_LIMIT = 12
 /** The most characters a tool result carries into the conversation before it is cut. */
 export const MAX_READ_CHARS = 40_000
+/**
+ * The largest PDF, office document, notebook or image fs_read loads to convert: each is read whole into memory, and
+ * a bigger one is better taken apart with the shell.
+ */
+export const READ_DOCUMENT_MAX_BYTES = 50 * 1024 * 1024
+/** Most members an archive may hold for fs_read to open it; the index is built in memory. */
+export const READ_ARCHIVE_MAX_ENTRIES = 200_000
+/** Most bytes a stream archive (tar.gz and the like) decompresses to in memory before fs_read refuses it. */
+export const READ_ARCHIVE_MAX_BYTES = 256 * 1024 * 1024
+/** The largest archive member fs_read extracts to read, so a small zip cannot unpack into gigabytes. */
+export const READ_ARCHIVE_ENTRY_MAX_BYTES = 16 * 1024 * 1024
+/** Most rows an fs_read SQL query returns; a LIMIT and OFFSET in the query page through the rest. */
+export const READ_SQL_MAX_ROWS = 200
 /** How much of each tool result read_log shows under its call; read_log(entry) shows one in full. */
 export const READ_LOG_RESULT_CHARS = 400
 /** Consecutive failures after which an MCP server's tools are refused for the rest of the round. */
