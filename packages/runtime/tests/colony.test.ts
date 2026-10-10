@@ -12,6 +12,7 @@ import {
   parseColonySpec,
   type Runtime,
 } from '../src/index.ts'
+import { prompts } from '../src/prompts.ts'
 
 let home: string
 let runtime: Runtime
@@ -109,6 +110,31 @@ test('failed verification does not complete the colony', async () => {
   expect(final.status).toBe('stopped')
   expect(final.statusReason).toContain('stalled')
   expect(final.verdicts.some((v) => v.target === 'colony' && !v.pass)).toBe(true)
+})
+
+test('two reviews asked for at the same moment start only one', async () => {
+  const resolver = new ModelResolver()
+  scripted(resolver, 'mock/solo', [])
+  const spec = parseColonySpec({
+    name: 'Twice',
+    mission: 'Publish out.txt containing ok.',
+    agents: [{ name: 'solo', model: 'mock/solo' }],
+    acceptance: [{ verifier: 'checks', rules: [{ artifact: 'out.txt', contains: 'ok' }] }],
+    budget: { wall: '30s' },
+  })
+  const run = new ColonyRun(runtime, spec, { resolver, quietMs: 20_000 })
+  await run.start()
+  const finals = await Promise.all([
+    run.requestFinalVerification('solo', 'first'),
+    run.requestFinalVerification('solo', 'second'),
+  ])
+  const reviews = await Promise.all([run.requestReview('solo', 'first'), run.requestReview('solo', 'second')])
+  await run.stop('test over')
+  await run.done
+  expect(finals.filter((r) => r === prompts.colony.verificationRunning)).toHaveLength(1)
+  expect(reviews.filter((r) => r === prompts.colony.reviewRunning)).toHaveLength(1)
+  const asked = (await runtime.ctx.log.read(run.id)).filter((e) => e.type === 'verifier/requested')
+  expect(asked).toHaveLength(2)
 })
 
 test('grep and glob search the working directory', async () => {

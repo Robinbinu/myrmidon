@@ -750,6 +750,11 @@ export const VOICE_KITTEN_MODELS = {
     },
   },
 } as const
+/**
+ * A voice model download fails once its connection has sent nothing for this long (waiting for the server to answer,
+ * or between parts of a file): a stuck connection (seen: IPv6 stuck in SYN_SENT to the CDN) otherwise hangs it.
+ */
+export const VOICE_DOWNLOAD_IDLE_MS = 30_000
 /** Model calls the call agent may make for one turn (each tool call takes one), and how much of a round's answer it is told. */
 export const VOICE_STEPS = 4
 export const VOICE_ANSWER_CHARS = 2_000

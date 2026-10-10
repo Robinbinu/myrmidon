@@ -13,6 +13,11 @@ afterEach(async () => {
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
 })
 
+/** Waits for Chrome to report something: a loaded machine can take seconds, so the bound is the test's, not a guess. */
+async function until(check: () => boolean, ms = 20_000) {
+  for (const end = Date.now() + ms; !check() && Date.now() < end; ) await Bun.sleep(25)
+}
+
 test.skipIf(!findChrome())(
   'a person can watch an agent tab, take control, type, and hand it back',
   async () => {
@@ -25,7 +30,7 @@ test.skipIf(!findChrome())(
 
     const events: LiveEvent[] = []
     const unwatch = await hub.watch('c1', 'wren', (e) => events.push(e))
-    for (let i = 0; i < 40 && !events.some((e) => e.type === 'frame'); i++) await Bun.sleep(50)
+    await until(() => events.some((e) => e.type === 'frame'))
     expect(events.some((e) => e.type === 'frame')).toBe(true)
     expect(await hub.tabs('c1')).toMatchObject([{ agent: 'wren', controlledBy: 'agent' }])
 

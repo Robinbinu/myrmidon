@@ -593,3 +593,32 @@ test('an OpenAI computer-use model gets the app tools beside its native tool, op
   ])
   expect(results[1]?.output).toContain('Notes')
 })
+
+test("the person's Stop takes down the round's waiting computer card at once; the round goes on", async () => {
+  const resolver = lead([[tool('open_app', { app: 'Notes' })]], [])
+  const chats = new ChatService(runtime, { resolver, settings, mcp, computer: hub })
+  const sent = await chats.send('Open Notes on my Mac', config)
+  let card: string | undefined
+  for (let i = 0; i < 200 && !card; i++) {
+    const s = foldColony(sent.colonyId, await runtime.ctx.log.read(sent.colonyId as never))
+    card = Object.values(s.approvals).find((a) => !a.decided)?.id
+    if (!card) await Bun.sleep(25)
+  }
+  expect(card).toBeDefined()
+  expect(hub.stopAll()).toBe(1)
+  const s = await finished(sent.colonyId)
+  expect(s.status).toBe('completed')
+  const events = await runtime.ctx.log.read(sent.colonyId as never)
+  const decided = events.findIndex(
+    (e) => e.type === 'approval/decided' && (e.payload as { id: string }).id === card,
+  )
+  expect(events[decided]?.payload).toMatchObject({ approved: false, by: 'stopped' })
+  // Closed by the Stop itself, not left up until the round ends (or the card times out).
+  const result = events.findIndex(
+    (e) => e.type === 'tool/result' && (e.payload as { tool: string }).tool === 'open_app',
+  )
+  expect(decided).toBeLessThan(result)
+  expect((events[result]?.payload as { output?: string } | undefined)?.output).toContain(
+    'stopped computer use',
+  )
+})

@@ -337,10 +337,12 @@ test('a round gets the desktop tool with omp’s engine and the computer tools w
         await Bun.sleep(25)
       }
     }
-    expect(offered[0]).toContain('desktop')
-    expect(offered[0]?.filter((n) => ['computer', 'open_app', 'list_apps'].includes(n))).toEqual([])
-    expect(offered.at(-1)).toEqual(expect.arrayContaining(['computer', 'open_app', 'list_apps']))
-    expect(offered.at(-1)).not.toContain('desktop')
+    // The lead's calls only: the chat's title is asked of the same model, with no tools, whenever it gets to it.
+    const lead = offered.filter((tools) => tools.includes('reply_user'))
+    expect(lead[0]).toContain('desktop')
+    expect(lead[0]?.filter((n) => ['computer', 'open_app', 'list_apps'].includes(n))).toEqual([])
+    expect(lead.at(-1)).toEqual(expect.arrayContaining(['computer', 'open_app', 'list_apps']))
+    expect(lead.at(-1)).not.toContain('desktop')
   } finally {
     await runtime.dispose()
   }
