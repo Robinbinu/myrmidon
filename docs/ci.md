@@ -93,7 +93,8 @@ gh run watch
 
 `os` is `all`, `macos-latest`, `ubuntu-latest` or `windows-latest`; `tests` takes path fragments, as `bun test`
 does; `pending` also runs the tests pending on that OS (`MYR_RUN_PENDING=1`, which works locally too), to see
-whether a fix closes their gap and how they fail if it does not. Or use **Actions → CI → Run workflow** on GitHub.
+whether a fix closes their gap and how they fail if it does not; `bun` runs with another Bun version than the
+`engines` floor, to see whether a newer one fixes a crash. Or use **Actions → CI → Run workflow** on GitHub.
 
 ## Minutes
 
