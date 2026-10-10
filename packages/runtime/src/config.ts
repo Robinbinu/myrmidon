@@ -733,6 +733,8 @@ export const RECOVERY_GRACE_MS = 60_000
 /** The most chats one message search returns, and how much of the matching message shows around the match. */
 export const CHAT_SEARCH_LIMIT = 50
 /** The person's past messages the composer learns its suggestions from, most recent first. */
+/** Above this share of control characters in its first bytes, a file without NUL bytes is read as binary. */
+export const READ_BINARY_CONTROL_SHARE = 0.1
 export const SUGGEST_CORPUS = 2_000
 /** The longest name a chat group may have, as it fits a sidebar heading. */
 export const CHAT_GROUP_NAME_MAX = 40
