@@ -28,6 +28,7 @@ import {
 import { COMPUTER_STOP_KEYS, WINDOW_SIZE } from '../src/config.ts'
 import { desktopCopy } from '../src/copy.ts'
 import { setDockBadge } from '../src/dock.ts'
+import { prepareOverlayWindow } from '../src/overlay-window.ts'
 import { asPlatform, executableName, menuFor, titlebarInset, windowChrome } from '../src/platform.ts'
 import {
   freePort,
@@ -120,7 +121,8 @@ async function answer(request: Request): Promise<unknown> {
 /**
  * While an agent drives the Mac, a see-through window over each display (the page's /overlay): a glow round the edge
  * and each agent's cursor, so it is plain the computer is in an agent's hands. Clicks pass through, and the windows
- * open without taking focus from the app the person is in.
+ * open without taking focus from the app the person is in. On macOS they cover the menu bar and every Space
+ * (src/overlay-window.ts).
  */
 let overlays: BrowserWindow[] = []
 function showOverlays(on: boolean) {
@@ -140,8 +142,10 @@ function showOverlays(on: boolean) {
       passthrough: true,
       hidden: true,
     })
-    w.setAlwaysOnTop(true)
-    w.setVisibleOnAllWorkspaces(true)
+    if (!prepareOverlayWindow(w.ptr, w.webview.ptr)) {
+      w.setAlwaysOnTop(true)
+      w.setVisibleOnAllWorkspaces(true)
+    }
     w.showInactive()
     overlays.push(w)
   }
