@@ -3210,6 +3210,19 @@ export const copy = {
         memory: ['remember', 'memories', 'facts', 'preferences', 'knowledge'],
         skills: ['skill', 'playbook', 'playbooks', 'skill.md', 'agent skills'],
         mcp: ['mcp', 'model context protocol', 'tool server', 'connectors', 'integrations'],
+        telemetry: [
+          'telemetry',
+          'opentelemetry',
+          'otel',
+          'otlp',
+          'traces',
+          'metrics',
+          'observability',
+          'grafana',
+          'honeycomb',
+          'datadog',
+          'export',
+        ],
         ssh: ['ssh', 'remote', 'server', 'vps', 'host', 'machine', 'ssh config', 'openssh'],
         webSearch: ['search engine', 'brave', 'exa', 'duckduckgo', 'google', 'internet'],
         imageGeneration: [
@@ -3545,6 +3558,33 @@ export const copy = {
       remove: (name: string) => `Remove ${name}`,
       confirmRemove: 'Yes, remove server',
       removed: (name: string) => `Removed ${name}`,
+    },
+    /** Telemetry export over OTLP (Settings → General). */
+    telemetry: {
+      title: 'Telemetry export (OTLP)',
+      subtitle: 'send each finished run to your own collector',
+      enabled: 'Export runs over OTLP',
+      enabledHint:
+        'Off by default. Each finished run goes to your collector as a trace (turns, model and tool calls) and metrics (tokens, cost, calls). Only names, counts and timings: never prompts, replies or tool output.',
+      endpoint: 'Collector address',
+      endpointHint:
+        'OTLP over HTTP with JSON, e.g. http://localhost:4318; /v1/traces and /v1/metrics are added. Nothing is sent until there is one.',
+      endpointPlaceholder: 'http://localhost:4318',
+      endpointInvalid: 'Use an http:// or https:// address.',
+      headers: 'Headers',
+      headersHint:
+        'name=value, separated by commas (an API key, say). Kept in the credential vault, never shown again.',
+      headersSaved: 'Saved in the vault; type new ones to replace them',
+      headersPlaceholder: 'x-api-key=…',
+      saveHeaders: 'Save headers',
+      removeHeaders: 'Remove headers',
+      headersStored: 'Headers saved',
+      headersRemoved: 'Headers removed',
+      test: 'Send a test',
+      testOk: 'The collector took the test span',
+      testFailed: (error: string) => `The collector did not take it: ${error}`,
+      last: (at: string, ok: boolean, error?: string) =>
+        ok ? `Last sent ${at}` : `Last send failed ${at}${error ? `: ${error}` : ''}`,
     },
     /** Remote hosts agents reach over SSH (Settings → Tools). */
     ssh: {

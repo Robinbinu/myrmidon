@@ -558,7 +558,8 @@ Open work, in the order it will be done:
          the `autoresearch` tool (start, trial, finish, status) with `experiment/*` events in the log.
       5. SSH remote hosts agents can work on (omp ssh). Done: Settings → Tools → Remote hosts, the `ssh` tool,
          `ssh-host` rules and the Remote hosts group.
-      6. Telemetry export over OTLP (omp telemetry-export-otlp); plus a security-scan tool (omp security-scan).
+      6. Telemetry export over OTLP (omp telemetry-export-otlp); plus a security-scan tool (omp security-scan). Done:
+         the OTLP export (Settings → General → Telemetry export). Left: the security-scan tool.
 12l. - [x] **Full access, no sandbox** (asked 2026-10-09, like Hermes) — global switch in Settings → Tools (default on)
       and a per-project Full access; lifts the command sandbox, file-path limits and the private-address rule; approvals
       still apply; channel members and read-only projects stay sandboxed. Left: Windows (unconfined commands still use

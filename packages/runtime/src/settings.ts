@@ -102,6 +102,12 @@ export interface MyrSettings {
    */
   ssh: { hosts: SshHost[] }
   /**
+   * Telemetry export over OTLP (telemetry.ts): each finished round's trace and metrics go to the collector at
+   * `endpoint` (a base address such as http://localhost:4318). Off by default; nothing is sent until it is on and has
+   * an address. Its headers (an API key) are in the credential vault, never here.
+   */
+  telemetry: { enabled: boolean; endpoint: string }
+  /**
    * `hideSecrets`: keys, tokens and passwords reach model providers as placeholders (provider-secrets.ts). On unless
    * the person turns it off: Myrmidon keeps their data on their machine, and a key read in a .env file should not leave
    * it by accident, while the model still sees that a secret is there and Myrmidon writes the value back into the
@@ -304,6 +310,15 @@ export const settingsSchema = Schema.object({
     )
       .max(SSH.maxHosts)
       .default([]),
+  }).default({}),
+  telemetry: Schema.object({
+    enabled: Schema.boolean().default(false),
+    endpoint: Schema.union([
+      Schema.const(''),
+      Schema.string()
+        .pattern(/^https?:\/\/\S+$/)
+        .max(500),
+    ]).default(''),
   }).default({}),
   privacy: Schema.object({ hideSecrets: Schema.boolean().default(true) }).default({}),
   search: Schema.object({
@@ -566,6 +581,7 @@ function parse(input: unknown): MyrSettings {
       enabled: s.computerUse.enabled,
       ...(s.computerUse.engine === 'omp' ? { engine: 'omp' as const } : {}),
     },
+    telemetry: { enabled: s.telemetry.enabled, endpoint: s.telemetry.endpoint.trim() },
     ssh: {
       hosts: [...new Map(s.ssh.hosts.map((h) => [h.name, h])).values()].map((h) => ({
         name: h.name,

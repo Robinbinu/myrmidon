@@ -109,6 +109,7 @@ import {
   sniffAudio,
   sniffImage,
   startScheduler,
+  type TelemetryExport,
   TerminalUnavailable,
   TOOL_DEFS,
   type ToolLibrary,
@@ -188,6 +189,8 @@ export interface ServeOptions {
   readonly computer?: ComputerHub
   /** The person's ssh client, for the remote hosts in Settings → Tools (their ~/.ssh/config, a connection test). */
   readonly ssh?: SshHub
+  /** Sends finished rounds to the person's OTLP collector (Settings → General), with its headers in the vault. */
+  readonly telemetry?: TelemetryExport
   /** Project folders chats can work in. */
   readonly projects?: ProjectStore
   readonly specialists?: SpecialistStore
@@ -2560,6 +2563,39 @@ export function startServer(options: ServeOptions): WebServer {
           return json({ error: err instanceof Error ? err.message : String(err) }, 400)
         }
       }),
+      // Telemetry export (Settings → General): whether headers are kept and how the last send went; never the headers.
+      '/api/telemetry': {
+        GET: guard(() => {
+          if (!options.telemetry) return json({ error: 'telemetry needs the chat runtime' }, 503)
+          const last = options.telemetry.status()
+          return json({ headersSet: options.telemetry.headersSet(), ...(last ? { last } : {}) })
+        }),
+      },
+      '/api/telemetry/headers': {
+        PUT: guard(async (req) => {
+          if (!options.telemetry) return json({ error: 'telemetry needs the chat runtime' }, 503)
+          const { headers } = (await req.json().catch(() => ({}))) as { headers?: unknown }
+          if (typeof headers !== 'string' || headers.length > 8_000)
+            return json({ error: 'headers must be text: name=value, separated by commas' }, 400)
+          try {
+            await options.telemetry.setHeaders(headers)
+            return json({ headersSet: options.telemetry.headersSet() })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
+        }),
+        DELETE: guard(async () => {
+          if (!options.telemetry) return json({ error: 'telemetry needs the chat runtime' }, 503)
+          await options.telemetry.setHeaders('')
+          return json({ headersSet: options.telemetry.headersSet() })
+        }),
+      },
+      '/api/telemetry/test': {
+        POST: guard(async () => {
+          if (!options.telemetry) return json({ error: 'telemetry needs the chat runtime' }, 503)
+          return json(await options.telemetry.test())
+        }),
+      },
       // Remote hosts (Settings → Tools): the aliases in the person's ~/.ssh/config to add from, and a connection test.
       '/api/ssh/config': {
         GET: guard(() => json({ hosts: readSshConfig() })),
