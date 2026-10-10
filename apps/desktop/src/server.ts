@@ -3,9 +3,10 @@
  * through `<home>/server.json`: a server already running for this home is used as it is, otherwise the shell starts
  * one and stops it again on quit.
  */
-import { readFileSync } from 'node:fs'
+import { readFileSync, rmSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { alive } from '../../../packages/runtime/src/leash.ts'
 import { spawnLeashed } from '../../../packages/runtime/src/leashed.ts'
 import { LAUNCH_ID_ENV, SERVER_POLL_MS, SERVER_START_TIMEOUT_MS, SERVER_STOP_TIMEOUT_MS } from './config.ts'
 import { desktopCopy } from './copy.ts'
@@ -42,12 +43,21 @@ export function pageUrl(server: ServerFile): string {
   return url.toString()
 }
 
+/**
+ * The server.json of a server still running. One whose process has gone is removed: on Windows a stopped server
+ * never gets to remove its own (it cannot be signalled, only ended), and a crash leaves it everywhere.
+ */
 function readServerFile(home: string): ServerFile | undefined {
+  const file = join(home, 'server.json')
   try {
-    const raw: unknown = JSON.parse(readFileSync(join(home, 'server.json'), 'utf8'))
+    const raw: unknown = JSON.parse(readFileSync(file, 'utf8'))
     if (!raw || typeof raw !== 'object') return undefined
     const { url, token, pid, launch } = raw as Record<string, unknown>
     if (typeof url !== 'string' || typeof token !== 'string' || typeof pid !== 'number') return undefined
+    if (!alive(pid)) {
+      rmSync(file, { force: true })
+      return undefined
+    }
     return { url, token, pid, ...(typeof launch === 'string' ? { launch } : {}) }
   } catch {
     return undefined
@@ -129,6 +139,8 @@ export async function startServer(options: {
     // Not SIGKILL, which would kill only the leash: ending its stdin stops the server and all it started.
     child.stdin.end()
     await child.exited
+    // A server stopped without a chance to remove its server.json (always so on Windows) leaves it behind.
+    readServerFile(options.home)
   }
 
   const timeoutMs = options.timeoutMs ?? SERVER_START_TIMEOUT_MS

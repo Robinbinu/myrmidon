@@ -16,6 +16,7 @@ import {
   roundSlice,
 } from '@myrmidon/protocol'
 import {
+  alive,
   BrowserHub,
   bootOmp,
   bootRuntime,
@@ -49,6 +50,7 @@ import { startServer } from '@myrmidon/web'
 import { channels } from './channels.ts'
 import { setupCopy } from './copy.ts'
 import { type Call, doctor, key, login, model, type ServerInfo, setup } from './setup.ts'
+import { shutdownSignals } from './shutdown.ts'
 import { style, terminal } from './terminal.ts'
 
 const HELP = `myrmidon — run and watch colonies of collaborating agents
@@ -443,6 +445,8 @@ async function main() {
         },
       )
       ownerOnly(serverFile)
+      // Also on an exit no handler below sees (an uncaught error); a kill leaves it, and readers check its pid.
+      process.on('exit', () => rmSync(serverFile, { force: true }))
       // Once, however many ways the stop arrives (the desktop app's request, then its signal if that is slow).
       let stopping: Promise<void> | undefined
       const shutdown = () =>
@@ -457,9 +461,8 @@ async function main() {
           await runtime.dispose()
           process.exit(0)
         })())
-      process.on('SIGINT', shutdown)
-      // systemd stops a service with SIGTERM.
-      process.on('SIGTERM', shutdown)
+      // SIGINT and SIGTERM (systemd) everywhere; Windows adds Ctrl+Break and closing the console window.
+      for (const sig of shutdownSignals(process.platform)) process.on(sig, shutdown)
       return
     }
     case 'ask':
@@ -543,7 +546,12 @@ main().catch((err) => {
 async function runningServer(): Promise<{ call: Call; info: ServerInfo }> {
   const file = join(home, 'server.json')
   if (!existsSync(file)) throw new Error(setupCopy.noServer(home))
-  const info = JSON.parse(readFileSync(file, 'utf8')) as ServerInfo & { token: string }
+  const info = JSON.parse(readFileSync(file, 'utf8')) as ServerInfo & { token: string; pid?: number }
+  // Left by a server that was killed (on Windows, any server stopped from outside).
+  if (info.pid !== undefined && !alive(info.pid)) {
+    rmSync(file, { force: true })
+    throw new Error(setupCopy.noServer(home))
+  }
   const call: Call = async <T>(method: string, path: string, body?: unknown): Promise<T> => {
     const res = await fetch(new URL(path, info.url), {
       method,

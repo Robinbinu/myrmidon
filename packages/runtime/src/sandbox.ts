@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, realpathSync, statSync } from 'node:fs'
-import { homedir } from 'node:os'
+import { constants, homedir } from 'node:os'
 import { dirname, join, sep } from 'node:path'
+import { Process } from '@oh-my-pi/pi-natives'
 import {
   SANDBOX_HIDDEN_ROOTS,
   SANDBOX_HIDDEN_TMP,
@@ -11,6 +12,7 @@ import {
 import { spawnLeashed } from './leashed.ts'
 import { presetOf } from './permissions.ts'
 import { pathOf, realOrNone, realPath, toolchainPaths, within } from './read-access.ts'
+import { hostShell } from './shell.ts'
 import type { ColonySpec } from './spec.ts'
 
 export interface SandboxRun {
@@ -342,19 +344,13 @@ function startConfined(
   }
 }
 
-/** Signals a process and all its descendants: a dev server is usually a shell running npm running the real server. */
+/**
+ * Signals a process and all its descendants, children first: a dev server is usually a shell running npm running the
+ * real server. Windows has no signals, so there the whole tree is ended at once.
+ */
 function killTree(pid: number, signal: 'SIGTERM' | 'SIGKILL') {
-  const children = new TextDecoder()
-    .decode(Bun.spawnSync(['pgrep', '-P', String(pid)]).stdout)
-    .split('\n')
-    .map(Number)
-    .filter((n) => n > 0)
-  for (const child of children) killTree(child, signal)
-  try {
-    process.kill(pid, signal)
-  } catch {
-    // Already gone.
-  }
+  // Null when it has already gone.
+  Process.fromPid(pid)?.killTree(constants.signals[signal])
 }
 
 async function spawnConfined(argv: string[], spec: SandboxRun, home: string): Promise<SandboxResult> {
@@ -365,6 +361,7 @@ async function spawnConfined(argv: string[], spec: SandboxRun, home: string): Pr
     stderr: 'pipe',
     timeout: spec.timeoutMs,
     killSignal: 'SIGKILL',
+    windowsHide: true,
   })
   const [stdout, stderr, code] = await Promise.all([
     new Response(proc.stdout).text(),
@@ -375,7 +372,8 @@ async function spawnConfined(argv: string[], spec: SandboxRun, home: string): Pr
   return { code: timedOut ? null : code, stdout: cap(stdout), stderr: cap(stderr), timedOut }
 }
 
-const plainShell = (spec: Omit<SandboxRun, 'timeoutMs'>) => ['/bin/sh', '-c', spec.command]
+/** No confinement: the command in this OS's shell (Git Bash, else PowerShell, on Windows; see shell.ts). */
+const plainShell = (spec: Omit<SandboxRun, 'timeoutMs'>) => hostShell().argv(spec.command)
 
 /**
  * A command run to completion on a leash: when it times out, the leash stops its whole tree (killing the leash alone

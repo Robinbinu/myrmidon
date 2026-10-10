@@ -32,6 +32,15 @@ test('a server.json left by a crash does not count as a running server', async (
   expect(await runningServer(home)).toBeUndefined()
 })
 
+test('a server.json whose server has gone is removed, so nothing takes it for a running server', async () => {
+  const gone = Bun.spawn([process.execPath, '-e', ''])
+  await gone.exited
+  const file = join(home, 'server.json')
+  writeFileSync(file, JSON.stringify({ url: `http://127.0.0.1:${freePort()}/`, token: 't', pid: gone.pid }))
+  expect(await runningServer(home)).toBeUndefined()
+  expect(existsSync(file)).toBe(false)
+})
+
 test('a server that exits while starting is reported, not waited on', async () => {
   await expect(
     startServer({ command: [...FAKE, '--crash'], home, port: freePort(), pollMs: 20 }),

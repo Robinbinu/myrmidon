@@ -351,6 +351,8 @@ function environment(f: PromptFacts): string {
       (f.access.fullAccess
         ? env.shellFull({ start: shellStart(f), runtimes })
         : f.access.sandbox !== 'none' && env.shell({ start: shellStart(f), runtimes })),
+    // Only Windows has a choice of shells, and agents assume sh unless told.
+    shell && f.env.platform === 'win32' && f.env.shell && env.shellSyntax(f.env.shell),
     f.env.boundary !== undefined && outsideSources(f).length > 0 && env.untrusted(f.env.boundary),
   ].filter((s): s is string => typeof s === 'string')
   return `<environment>\n${lines.join('\n')}\n</environment>`
