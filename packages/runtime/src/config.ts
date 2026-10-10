@@ -548,6 +548,11 @@ export const CUA_DRIVER_FALLBACK_ENV = ['PATH', 'HOME', 'USER', 'LOGNAME', 'SHEL
 export const COMPUTER_START_MS = 15_000
 export const COMPUTER_CALL_MS = 60_000
 /** How long a computer action waits for another agent to let go of the app (or the foreground) before it gives up. */
+/**
+ * The desktop app's overlay asks for the agents' pointers a few times a second while an agent drives the Mac; when it
+ * has not asked for this long it is gone, and the driver draws its own cursor again.
+ */
+export const COMPUTER_OVERLAY_SEEN_MS = 3_000
 export const COMPUTER_LOCK_WAIT_MS = 30_000
 /** Accessibility elements listed with a screenshot, and walked per window (Electron apps have tens of thousands). */
 export const COMPUTER_ELEMENTS_SHOWN = 120
