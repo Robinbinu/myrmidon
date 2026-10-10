@@ -18,6 +18,8 @@ export interface ChatPlace {
   readonly group?: string
   /** The chat this one was forked from: its first round starts from that chat's conversation. */
   readonly forkOf?: string
+  /** The Claude Code or Codex session this chat was imported from (an import in SessionImports). */
+  readonly importOf?: string
 }
 
 interface Shelf {
@@ -74,6 +76,12 @@ export class ChatShelf {
     const shelf = this._read()
     const { group } = shelf.chats[from] ?? {}
     this._write(this._set(shelf, chatId, { forkOf: from, ...(group ? { group } : {}) }))
+  }
+
+  /** Notes that a new chat continues an imported session's conversation. */
+  imported(chatId: string, importId: string): void {
+    const shelf = this._read()
+    this._write(this._set(shelf, chatId, { ...shelf.chats[chatId], importOf: importId }))
   }
 
   addGroup(name: string): ChatGroup {

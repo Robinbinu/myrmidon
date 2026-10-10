@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
+  TTS_SENTENCE_GAP_MS,
   VOICE_MAX_CALLS,
   VOICE_PHONON_MODEL_BYTES,
   VOICE_SMART_TURN_BYTES,
@@ -15,7 +16,7 @@ import {
 import type { ModelResolver } from '../models.ts'
 import { prompts } from '../prompts.ts'
 import { type MyrSettings, VOICE_LEGACY_KEYS, type VoiceEndpoint } from '../settings.ts'
-import { trimSilence } from './audio.ts'
+import { resample, trimSilence, wav } from './audio.ts'
 import { type CallChats, type CallOptions, type CallOutput, CallSession, type CallTurn } from './call.ts'
 import { CallGreeter, type CallGreetingFacts } from './greeting.ts'
 import {
@@ -30,6 +31,7 @@ import {
 } from './providers.ts'
 import { RealtimeCallSession } from './realtime/session.ts'
 import { SmartTurn } from './smart-turn.ts'
+import { SpeechSplitter } from './speech.ts'
 import { FunctionStt, OpenAiCompatibleStt, type PhononState, PhononStt, type SpeechToText } from './stt.ts'
 import {
   FunctionTts,
@@ -591,6 +593,45 @@ export class VoiceHub {
     await this.loadKeys()
     const speech = await this.tts().speak(text)
     return { pcm: trimSilence(speech.pcm, speech.sampleRate), sampleRate: speech.sampleRate }
+  }
+
+  /**
+   * Text as one WAV file in the voice chosen in Settings → Voice, for agents' tts tool: said a sentence at a time
+   * (Kitten speaks one at a time, and a cloud voice's request stays small), each trimmed and set apart by a pause.
+   */
+  async speakFile(text: string, signal?: AbortSignal): Promise<{ audio: Uint8Array; voice: string }> {
+    const { voice } = this.options.settings()
+    const kitten = this.kitten.status().state
+    // With voice off nothing is downloaded: Kitten's model comes with turning voice on, never with an agent's call.
+    if (voice.tts.provider === 'kitten' && !voice.enabled && kitten !== 'ready' && kitten !== 'running')
+      throw new Error(prompts.toolResults.voiceNotReady)
+    await this.loadKeys()
+    const tts = this.tts()
+    const sentences = new SpeechSplitter().push(text, true)
+    if (sentences.length === 0) throw new Error(prompts.toolResults.nothingToSay)
+    const parts: Int16Array[] = []
+    let rate = 0
+    for (const sentence of sentences) {
+      if (signal?.aborted) throw new Error('the call was stopped')
+      const speech = await tts.speak(sentence, signal)
+      rate ||= speech.sampleRate
+      const pcm = trimSilence(speech.pcm, speech.sampleRate)
+      parts.push(speech.sampleRate === rate ? pcm : resample(pcm, speech.sampleRate, rate))
+      parts.push(new Int16Array(Math.round((TTS_SENTENCE_GAP_MS / 1000) * rate)))
+    }
+    parts.pop()
+    const all = new Int16Array(parts.reduce((n, p) => n + p.length, 0))
+    let at = 0
+    for (const p of parts) {
+      all.set(p, at)
+      at += p.length
+    }
+    const t = voice.tts
+    const named =
+      t.provider === 'kitten'
+        ? `Kitten TTS (${t.voice})`
+        : `${t.provider.replace(/^endpoint:/, '')}${t.voiceId ? ` (${t.voiceId})` : ''}`
+    return { audio: wav(all, rate), voice: named }
   }
 
   /** Whether voice calls are on in Settings → Voice. */

@@ -63,6 +63,11 @@ export interface Sandbox {
   run(spec: SandboxRun): Promise<SandboxResult>
   /** Starts a process that keeps running (no timeout) until stopped; same confinement as `run`. */
   start(spec: Omit<SandboxRun, 'timeoutMs'>): SandboxProcess
+  /**
+   * The environment `run` and `start` give a command: confined, its private HOME and TMPDIR and the sandboxed PATH.
+   * For a process started some other way inside `argv` (a language server, which needs its own pipes).
+   */
+  env(spec: Omit<SandboxRun, 'timeoutMs'>): Record<string, string | undefined>
 }
 
 function cap(text: string) {
@@ -411,7 +416,7 @@ function startConfined(
  * Signals a process and all its descendants, children first: a dev server is usually a shell running npm running the
  * real server. Windows has no signals, so there the whole tree is ended at once.
  */
-function killTree(pid: number, signal: 'SIGTERM' | 'SIGKILL') {
+export function killTree(pid: number, signal: 'SIGTERM' | 'SIGKILL') {
   // Null when it has already gone.
   Process.fromPid(pid)?.killTree(constants.signals[signal])
 }
@@ -479,6 +484,7 @@ export function unconfinedSandbox(): Sandbox {
     argv,
     run: (spec) => runLeashed(argv(spec), spec, env(spec)),
     start: (spec) => startConfined(argv(spec), spec, env(spec)),
+    env,
   }
 }
 
@@ -512,6 +518,7 @@ export function detectSandbox(options: { home?: string } = {}): Sandbox {
       argv,
       run: (spec) => spawnConfined(argv(spec), spec, home),
       start: (spec) => startConfined(argv(spec), spec, confinedEnv(spec, home)),
+      env: (spec) => confinedEnv(spec, home),
     }
   }
   const bwrap = process.platform === 'linux' ? Bun.which('bwrap') : null
@@ -544,6 +551,7 @@ export function detectSandbox(options: { home?: string } = {}): Sandbox {
       argv,
       run: (spec) => spawnConfined(argv(spec), spec, home),
       start: (spec) => startConfined(argv(spec), spec, confinedEnv(spec, home)),
+      env: (spec) => confinedEnv(spec, home),
     }
   }
   const argv = plainShell
@@ -552,5 +560,6 @@ export function detectSandbox(options: { home?: string } = {}): Sandbox {
     argv,
     run: (spec) => spawnConfined(argv(spec), spec, home),
     start: (spec) => startConfined(argv(spec), spec, confinedEnv(spec, home)),
+    env: (spec) => confinedEnv(spec, home),
   }
 }

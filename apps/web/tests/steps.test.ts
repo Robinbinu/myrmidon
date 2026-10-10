@@ -192,3 +192,18 @@ test("a step on the person's Mac shows in the chat with its screenshot, and a bl
     tail: copy.computerUse.blocked.grants('Accessibility'),
   })
 })
+
+test("a round's activity names the project rule files its agents were given, and only when there are some", () => {
+  const rules = ['AGENTS.md', '.cursor/rules/style.mdc', '.github/instructions/py.instructions.md']
+  expect(deriveSteps([ev('colony/started', { pid: 1, rules })])).toEqual([
+    expect.objectContaining({
+      kind: 'file',
+      agent: 'system',
+      lead: copy.steps.followedRules(3),
+      tail: rules.join(', '),
+      detail: rules.join('\n'),
+    }),
+  ])
+  expect(deriveSteps([ev('colony/started', { pid: 1, rules: [] })])).toEqual([])
+  expect(deriveSteps([ev('colony/started', { pid: 1 })])).toEqual([])
+})

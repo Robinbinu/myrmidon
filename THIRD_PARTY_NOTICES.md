@@ -55,3 +55,46 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 ```
+
+## oh-my-pi (omp)
+
+The rule-file discovery in `packages/runtime/src/rule-files.ts` (which files each tool keeps rules in, how their
+frontmatter decides when a rule applies, and the check that skips a file already contained in another), the github
+tool in `packages/runtime/src/github.ts` (the `gh` operations, their arguments and the Actions run report, after
+omp's `tools/gh*.ts`), the find tool's search cascade in `packages/runtime/src/find.ts` (after omp's
+`tools/jfind/cascade.ts`), and the stream rules (time-traveling stream rules) in `packages/runtime/src/stream-rules.ts`
+and `packages/runtime/src/rule-draft.ts` (the rule-building step of `discovery/helpers.ts`, the stream check and retry
+of `session/ttsr-coordinator.ts`, and the guidance and rule-drafting prompts of `prompts/system/ttsr-interrupt.md` and
+`prompts/system/omfg-user.md`, adapted in `packages/runtime/src/prompts.ts`) are ported from oh-my-pi 18.8.7
+(https://github.com/can1357/oh-my-pi), MIT License. So are, in `packages/runtime/src/`: the skills
+registry client in `skill-registry.ts` (from `skillshare/client.ts`, `skillshare/installer.ts` and
+`pi-wire/src/skillshare.ts`: package specs, routes, version resolution), the resolution of a marketplace plugin's
+source in `marketplaces.ts` (from `extensibility/plugins/marketplace/source-resolver.ts` and `fetcher.ts`), and the npm
+package-name check in `install-sources.ts` (from `extensibility/plugins/installer.ts`). `install-sources.ts` and
+`marketplaces.ts` also call omp's git URL parser, marketplace catalog parser and tar reader as a library:
+
+```
+MIT License
+
+Copyright (c) 2025 Mario Zechner
+Copyright (c) 2025-2026 Can Bölük
+Copyright (c) 2026 Stencil Labs, Inc.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```

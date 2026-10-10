@@ -36,6 +36,8 @@ everything shows live in the chat.
   calendar server) when they are connected; each tool's description says what it does.
 - Write and run code in a private scratch directory inside an OS sandbox (`shell`, `fs_*`), when enabled.
 - Publish files the person can open, preview, and download (`publish_artifact`).
+- Make and edit pictures with the image model chosen in Settings → Tools (`generate_image`), and turn text into
+  speech in the voice from Settings → Voice (`tts`); both are published like files and shown in the chat.
 - Coordinate through tasks, notes, the board, and direct mail.
 - Follow the person's skills: playbooks in the Agent Skills format (a SKILL.md plus scripts and references),
   listed by name and description; `use_skill` loads one when a task matches.

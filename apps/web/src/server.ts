@@ -22,6 +22,7 @@ import {
 } from '@myrmidon/protocol'
 import {
   accountName,
+  addKnownSecrets,
   type BrowserHub,
   BUILT_IN_CHANNELS,
   buildCatalog,
@@ -53,6 +54,7 @@ import {
   gitUnstage,
   gitWorkingChanges,
   guardedPaths,
+  guardSecrets,
   type HookStore,
   importFromOmp,
   type LiveInput,
@@ -85,6 +87,7 @@ import {
   type ProjectStore,
   personInput,
   projectSecret,
+  RuleExistsError,
   readProjectFile,
   refuseProjectSecret,
   requestScreenRecording,
@@ -92,6 +95,7 @@ import {
   ruleGreeting,
   type Schedule,
   type ScheduleStore,
+  type SessionImports,
   type SettingsStore,
   type SileroVad,
   type SkillLibrary,
@@ -100,6 +104,7 @@ import {
   type SpecialistInput,
   type SpecialistStore,
   setupHave,
+  sniffAudio,
   sniffImage,
   startScheduler,
   TerminalUnavailable,
@@ -107,6 +112,7 @@ import {
   type ToolLibrary,
   TWILIO_API,
   VOICE_ENDPOINT_ID,
+  type VoiceFiles,
   VoiceHub,
   voiceProvider,
   wav,
@@ -196,6 +202,8 @@ export interface ServeOptions {
   readonly schedules?: ScheduleStore
   /** Where the person filed chats: pins, archive, groups, forks (the same store the chat runtime reads). */
   readonly shelf?: ChatShelf
+  /** Claude Code and Codex sessions on this machine, to start chats from (the same store the chat runtime reads). */
+  readonly imports?: SessionImports
   /** Shown in settings so users know whether the shell tool is confined. */
   readonly sandboxKind?: string
   /** The speech detector and end-of-turn model for calls; downloaded into the home unless given (tests stay offline). */
@@ -224,6 +232,8 @@ export interface WebServer {
   pairingLink(scope: DeviceScope): { code: string; link: string }
   /** Loads and warms the speech engines voice calls use, so the first call does not wait on them. */
   warmVoice(): Promise<void>
+  /** Speech in the voice chosen in Settings → Voice, for agents' tts tool; absent without the chat runtime. */
+  readonly voice?: VoiceFiles
   stop(): Promise<void>
 }
 
@@ -359,14 +369,23 @@ function sendProblem(raw: unknown): string | undefined {
   return undefined
 }
 
+const importSchema = Schema.object({
+  source: Schema.union(['claude', 'codex']).required(),
+  id: Schema.string().min(1).max(200).required(),
+})
+
 const sendSchema = Schema.object({
   text: Schema.string().min(1).max(MAX_MESSAGE_CHARS).required(),
   chatId: Schema.string().pattern(/^chat-[a-z0-9-]{1,40}$/),
   delivery: Schema.union(['steer', 'queue']),
   plan: Schema.boolean(),
+  // Goal mode: the text is `<condition>: <request>`, and the round goes on until the condition holds.
+  goal: Schema.boolean(),
   project: Schema.string().pattern(/^[a-z0-9-]{1,80}$/),
   // A new chat that continues another's conversation (Fork in the chat list).
   forkOf: Schema.string().pattern(/^chat-[a-z0-9-]{1,40}$/),
+  // A new chat that continues an imported Claude Code or Codex session (Import a session).
+  importOf: Schema.string().pattern(/^import-[a-z0-9-]{1,40}$/),
   // A new chat's own permission level, chosen in the composer before its first message (checked by normalizeLevel).
   permissions: Schema.any(),
   // An answer given on a question card: the card shows it, so the chat need not repeat it as a message.
@@ -698,6 +717,22 @@ export function startServer(options: ServeOptions): WebServer {
     .catch((err) => console.error(`channels: ${err instanceof Error ? err.message : err}`))
   // A plugin that adds or drops a platform is picked up without a restart.
   const offPlugins = options.pluginHost?.onChange(() => void channels?.refresh())
+  // What reaches model providers is kept free of secrets as the person chose (Settings → Permissions), the credentials
+  // this server holds included, whatever their shape: its token, gateways', channels' and the vault's.
+  let secretsHidden = settingsStore?.get().privacy.hideSecrets ?? true
+  const offSecretsSetting = settingsStore?.onChange((next) => {
+    secretsHidden = next.privacy.hideSecrets
+  })
+  // A dashboard without settings (`myrmidon run --ui`) leaves the choice to the process that has them.
+  const unguardSecrets = settingsStore
+    ? guardSecrets({ enabled: () => secretsHidden, keyFile: join(options.home, 'secret-placeholder.key') })
+    : undefined
+  const offKnownSecrets = addKnownSecrets(() => [
+    token,
+    ...gateways.list().map((g) => g.token),
+    ...(channels?.secretValues() ?? []),
+    ...(options.omp?.secretValues() ?? []),
+  ])
   // Agents can message the owner on a channel (OpenClaw's core `message` tool), e.g. when long work is done.
   if (channels) options.pluginHost?.addBuiltIn('channels', [channelSendTool(channels)])
   /** Starts a schedule's round as a new chat; with `deliver`, the channel follows it and sends the answer. */
@@ -1464,6 +1499,21 @@ export function startServer(options: ServeOptions): WebServer {
           composer,
         })
       }),
+      // How close each signed-in account is to its plan's limits: Settings → Models & providers, the composer's warning.
+      // Any paired device may read it, since it picks models too; a chats-only device gets the limits without whose
+      // accounts they are, and cannot make the gateway ask every provider again (`refresh`).
+      '/api/usage': guard(async (_req, url, access) => {
+        if (!options.omp) return json({ fetchedAt: Date.now(), accounts: [] })
+        const full = access.scope === 'full'
+        const snapshot = await options.omp.quota.read({
+          force: full && url.searchParams.get('refresh') === '1',
+        })
+        if (full) return json(snapshot)
+        return json({
+          ...snapshot,
+          accounts: snapshot.accounts.map(({ account: _account, ...rest }) => rest),
+        })
+      }),
       '/api/models/test': {
         POST: guard(async (req) => {
           if (!options.resolver) return json({ error: 'model testing needs the chat runtime' }, 503)
@@ -1524,6 +1574,8 @@ export function startServer(options: ServeOptions): WebServer {
             settings: options.settings.get(),
             providers: options.omp?.providers() ?? [],
             searchProviders: options.omp?.searchProviders() ?? [],
+            // For Settings → Tools → Image generation: the models generate_image can use now, best first.
+            imageModels: options.omp?.imageModels() ?? [],
             customApis: CUSTOM_APIS,
             sandbox: options.sandboxKind ?? 'unknown',
             home: options.home,
@@ -1895,14 +1947,89 @@ export function startServer(options: ServeOptions): WebServer {
       },
       '/api/plugins': {
         GET: guard(() => json({ plugins: pluginList(), dir: options.plugins?.dir })),
+        // Fetches a plugin and says what it holds; nothing installs until the person confirms that review
+        // (/api/plugin-installs/:id). Agents have no tool that reaches here: installing is the person's action.
+        POST: guard(async (req) => {
+          if (!options.plugins) return json({ error: 'plugins need the chat runtime' }, 503)
+          const body = (await req.json().catch(() => ({}))) as {
+            source?: unknown
+            marketplace?: unknown
+            plugin?: unknown
+          }
+          const from =
+            typeof body.marketplace === 'string' && typeof body.plugin === 'string'
+              ? { marketplace: body.marketplace, plugin: body.plugin }
+              : typeof body.source === 'string'
+                ? body.source
+                : undefined
+          if (!from) return json({ error: 'give a folder, a git URL or npm:<package>' }, 400)
+          try {
+            return json({ preview: await options.plugins.prepare(from) })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 422)
+          }
+        }),
+      },
+      '/api/plugins/:name/update': {
+        POST: guard(async (req) => {
+          if (!options.plugins) return json({ error: 'plugins need the chat runtime' }, 503)
+          try {
+            return json({ preview: await options.plugins.prepareUpdate(req.params.name ?? '') })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 422)
+          }
+        }),
+      },
+      '/api/plugin-installs/:id': {
+        POST: guard(async (req) => {
+          if (!options.plugins) return json({ error: 'plugins need the chat runtime' }, 503)
+          const plugins = options.plugins
+          try {
+            // An update replaces the folder its code runs from: stop that code first, start the new one after.
+            const updating = plugins.reviewed(req.params.id ?? '')
+            if (updating?.replaces) await options.pluginHost?.unload(updating.name)
+            const plugin = await plugins
+              .confirm(req.params.id ?? '')
+              .finally(() => Promise.all([options.mcp?.start(), options.pluginHost?.sync()]))
+            return json({ plugin, plugins: pluginList() })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 422)
+          }
+        }),
+        DELETE: guard((req) => {
+          options.plugins?.cancel(req.params.id ?? '')
+          return json({ ok: true })
+        }),
+      },
+      '/api/plugin-marketplaces': {
+        GET: guard(() => json({ marketplaces: options.plugins?.marketplaces.list() ?? [] })),
         POST: guard(async (req) => {
           if (!options.plugins) return json({ error: 'plugins need the chat runtime' }, 503)
           const { source } = (await req.json().catch(() => ({}))) as { source?: unknown }
-          if (typeof source !== 'string') return json({ error: 'give a folder or a git URL' }, 400)
+          if (typeof source !== 'string') return json({ error: 'give a GitHub owner/repo or a git URL' }, 400)
           try {
-            const plugin = await options.plugins.install(source)
-            await Promise.all([options.mcp?.start(), options.pluginHost?.sync()])
-            return json({ plugin, plugins: pluginList() })
+            const marketplace = await options.plugins.marketplaces.add(source)
+            return json({ marketplace, marketplaces: options.plugins.marketplaces.list() })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 422)
+          }
+        }),
+      },
+      '/api/plugin-marketplaces/:name': {
+        POST: guard(async (req) => {
+          if (!options.plugins) return json({ error: 'plugins need the chat runtime' }, 503)
+          try {
+            await options.plugins.marketplaces.update(req.params.name ?? '')
+            return json({ marketplaces: options.plugins.marketplaces.list() })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 422)
+          }
+        }),
+        DELETE: guard((req) => {
+          if (!options.plugins) return json({ error: 'plugins need the chat runtime' }, 503)
+          try {
+            options.plugins.marketplaces.remove(req.params.name ?? '')
+            return json({ marketplaces: options.plugins.marketplaces.list() })
           } catch (err) {
             return json({ error: err instanceof Error ? err.message : String(err) }, 422)
           }
@@ -1978,6 +2105,65 @@ export function startServer(options: ServeOptions): WebServer {
           if (typeof enabled === 'boolean') options.skills.setEnabled(req.params.name ?? '', enabled)
           if (typeof kept === 'boolean') options.skills.setKept(req.params.name ?? '', kept)
           return json({ skills: options.skills.list() })
+        }),
+        DELETE: guard((req) => {
+          if (!options.skills) return json({ error: 'skills need the chat runtime' }, 503)
+          try {
+            options.skills.installs.remove(req.params.name ?? '')
+            return json({ skills: options.skills.list() })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 422)
+          }
+        }),
+      },
+      // Searching omp's skills registry; an empty search lists its popular skills.
+      '/api/skill-registry': guard(async (_req, url) => {
+        if (!options.skills) return json({ error: 'skills need the chat runtime' }, 503)
+        const q = url.searchParams.get('q')?.trim() ?? ''
+        const client = options.skills.installs.registry
+        try {
+          const hits = q ? (await client.search(q)).hits : (await client.home()).popular
+          return json({ hits, registry: client.url })
+        } catch (err) {
+          return json({ error: err instanceof Error ? err.message : String(err) }, 502)
+        }
+      }),
+      // As with plugins: fetch and review first, install on the person's confirmation.
+      '/api/skill-installs': {
+        POST: guard(async (req) => {
+          if (!options.skills) return json({ error: 'skills need the chat runtime' }, 503)
+          const { source } = (await req.json().catch(() => ({}))) as { source?: unknown }
+          if (typeof source !== 'string') return json({ error: 'give @scope/name or a git URL' }, 400)
+          try {
+            return json({ preview: await options.skills.installs.prepare(source) })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 422)
+          }
+        }),
+      },
+      '/api/skill-installs/:id': {
+        POST: guard((req) => {
+          if (!options.skills) return json({ error: 'skills need the chat runtime' }, 503)
+          try {
+            const names = options.skills.installs.confirm(req.params.id ?? '')
+            return json({ names, skills: options.skills.list() })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 422)
+          }
+        }),
+        DELETE: guard((req) => {
+          options.skills?.installs.cancel(req.params.id ?? '')
+          return json({ ok: true })
+        }),
+      },
+      '/api/skills/:name/update': {
+        POST: guard(async (req) => {
+          if (!options.skills) return json({ error: 'skills need the chat runtime' }, 503)
+          try {
+            return json({ preview: await options.skills.installs.prepareUpdate(req.params.name ?? '') })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 422)
+          }
         }),
       },
       '/api/skills/:name/restore': {
@@ -2072,6 +2258,60 @@ export function startServer(options: ServeOptions): WebServer {
             const proposal = await options.chats.learnNow(req.params.chatId ?? '')
             return json({ proposal: proposal ?? null })
           } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
+        }),
+      },
+      // `/rule`: the lead's model drafts a stream rule from the person's complaint about the last reply.
+      '/api/chats/:chatId/rule': {
+        POST: guard(async (req) => {
+          if (!options.chats) return json({ error: 'this server was started without the chat runtime' }, 503)
+          const body = (await req.json().catch(() => ({}))) as {
+            complaint?: unknown
+            amend?: { previous?: unknown; change?: unknown }
+          }
+          const complaint = typeof body.complaint === 'string' ? body.complaint.trim() : ''
+          if (!complaint) return json({ error: 'say what the reply got wrong' }, 400)
+          const amend =
+            typeof body.amend?.previous === 'string' &&
+            typeof body.amend.change === 'string' &&
+            body.amend.change.trim()
+              ? { previous: body.amend.previous, change: body.amend.change.trim() }
+              : undefined
+          try {
+            const draft = await options.chats.draftRule(req.params.chatId ?? '', complaint, amend)
+            return json({ draft })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
+        }),
+      },
+      // Saving a stream rule steers every agent from then on, as a setting does: full-access devices only.
+      '/api/rules': {
+        POST: guard(async (req) => {
+          if (!options.chats) return json({ error: 'this server was started without the chat runtime' }, 503)
+          const body = (await req.json().catch(() => ({}))) as {
+            name?: unknown
+            text?: unknown
+            where?: unknown
+            chatId?: unknown
+            replace?: unknown
+          }
+          if (typeof body.name !== 'string' || typeof body.text !== 'string')
+            return json({ error: 'a rule needs a name and its file' }, 400)
+          if (body.where !== 'person' && body.where !== 'project')
+            return json({ error: 'where is person or project' }, 400)
+          try {
+            const saved = await options.chats.saveRule({
+              name: body.name,
+              text: body.text,
+              where: body.where,
+              ...(typeof body.chatId === 'string' ? { chatId: body.chatId } : {}),
+              ...(body.replace === true ? { replace: true } : {}),
+            })
+            return json(saved)
+          } catch (err) {
+            if (err instanceof RuleExistsError) return json({ error: err.message, exists: err.rule }, 409)
             return json({ error: err instanceof Error ? err.message : String(err) }, 400)
           }
         }),
@@ -2375,6 +2615,37 @@ export function startServer(options: ServeOptions): WebServer {
           }
         }),
       },
+      // Other tools' sessions on this machine: listing and importing read their folders, so both need full access.
+      '/api/import-sessions': {
+        GET: guard(async () => {
+          if (!options.imports) return json({ error: 'this server imports no sessions' }, 503)
+          return json({ sessions: await options.imports.list() })
+        }),
+        POST: guard(async (req) => {
+          if (!options.imports) return json({ error: 'this server imports no sessions' }, 503)
+          let body: ReturnType<typeof importSchema>
+          try {
+            body = importSchema((await req.json()) as never)
+          } catch (err) {
+            return json(
+              { error: `invalid request: ${err instanceof Error ? err.message : String(err)}` },
+              400,
+            )
+          }
+          try {
+            return json(await options.imports.import(body.source, body.id))
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 422)
+          }
+        }),
+      },
+      // What a chat started from: already redacted and clipped, so any device that sees the chat may read it.
+      '/api/imported/:importId': {
+        GET: guard(async (req) => {
+          const session = options.imports?.get(req.params.importId ?? '')
+          return session ? json(session) : json({ error: 'no such import' }, 404)
+        }),
+      },
       '/api/chats': {
         GET: guard(async () => json(options.chats ? await options.chats.list() : [])),
         POST: guard(async (req, _url, access) => {
@@ -2406,8 +2677,10 @@ export function startServer(options: ServeOptions): WebServer {
               ...(body.delivery ? { delivery: body.delivery } : {}),
               attachments,
               planFirst: body.plan === true,
+              ...(body.goal ? { goal: true } : {}),
               ...(body.project ? { project: body.project } : {}),
               ...(body.forkOf && !body.chatId ? { forkOf: body.forkOf } : {}),
+              ...(body.importOf && !body.chatId && !body.forkOf ? { importOf: body.importOf } : {}),
               ...(calls ? { context: calls.context } : {}),
               ...(body.answers ? { answers: body.answers } : {}),
               // Like PUT /api/chats/:id/permissions, a chat's own level needs a device with full access.
@@ -3001,13 +3274,21 @@ export function startServer(options: ServeOptions): WebServer {
         if (!(await store.exists(id))) return json({ error: 'no such colony' }, 404)
         const blobs = new BlobStore(join(store.colonyDir(id), 'blobs'))
         // Browser keyframes are JPEGs; `as=image` (a picture in a chat) is served as an image only when its bytes
-        // are one (PNG, JPEG, GIF, WebP: never SVG, which can carry script); everything else as inert text.
+        // are one (PNG, JPEG, GIF, WebP: never SVG, which can carry script), and `as=audio` (speech an agent made) as
+        // sound only when they are WAV, MP3, Ogg or FLAC; everything else as inert text.
         const as = new URL(req.url).searchParams.get('as')
         const bytes = await blobs.get(req.params.hash ?? '')
-        const image = as === 'jpeg' ? 'image/jpeg' : as === 'image' ? sniffImage(bytes) : undefined
+        const media =
+          as === 'jpeg'
+            ? 'image/jpeg'
+            : as === 'image'
+              ? sniffImage(bytes)
+              : as === 'audio'
+                ? sniffAudio(bytes)
+                : undefined
         return new Response(Buffer.from(bytes), {
           headers: {
-            'content-type': image ?? 'text/plain; charset=utf-8',
+            'content-type': media ?? 'text/plain; charset=utf-8',
             'x-content-type-options': 'nosniff',
             'cache-control': 'private, max-age=31536000, immutable',
           },
@@ -3527,6 +3808,7 @@ export function startServer(options: ServeOptions): WebServer {
     pairingLink,
     token,
     warmVoice: () => voice?.warm() ?? Promise.resolve(),
+    ...(voice ? { voice } : {}),
     async stop() {
       await personBrowser?.shutdown()
       stopScheduler?.()
@@ -3547,6 +3829,9 @@ export function startServer(options: ServeOptions): WebServer {
       await channels?.stop()
       offVoiceSettings?.()
       voice?.stop()
+      offKnownSecrets()
+      unguardSecrets?.()
+      offSecretsSetting?.()
       store.close()
     },
   }

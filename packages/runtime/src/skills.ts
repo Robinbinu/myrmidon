@@ -18,8 +18,11 @@ import {
   SKILL_MAX_FILES,
   SKILL_STALE_DAYS,
 } from './config.ts'
+import type { InstalledFrom } from './install-sources.ts'
 import { prompts } from './prompts.ts'
 import { slashed } from './read-access.ts'
+import { SkillInstaller } from './skill-installs.ts'
+import type { SkillRegistryClient } from './skill-registry.ts'
 
 /**
  * Skills in the Agent Skills format (agentskills.io), as Claude Code, Codex and others use them: a folder with a
@@ -39,6 +42,8 @@ export interface Skill {
   readonly enabled: boolean
   /** For a skill Myrmidon learned: how much it is used, and whether it is on its way out. */
   readonly curation?: SkillCuration
+  /** For a skill installed from the registry, a repository or a folder: where from, and exactly what. */
+  readonly installed?: InstalledFrom
 }
 
 /** How a learned skill is used, after Hermes's curator: unused ones go stale, then to the archive. */
@@ -101,14 +106,18 @@ export class SkillLibrary {
     private readonly claudeDir = join(homedir(), '.claude', 'skills'),
     /** The skills folders of the person's enabled plugins. */
     private readonly pluginRoots: () => readonly string[] = () => [],
+    registry?: SkillRegistryClient,
   ) {
     this.dir = join(home, 'skills')
+    this.installs = new SkillInstaller(home, this.dir, registry)
     this._state = join(home, 'skills.json')
     this._usageFile = join(home, 'skills-usage.json')
     this._archivedFile = join(home, 'skills-archived.json')
     this._archive = join(this.dir, '.archive')
   }
 
+  /** Installing skills from the registry, a repository or a folder, after the person reviewed them. */
+  readonly installs: SkillInstaller
   private readonly _usageFile: string
   private readonly _archivedFile: string
   private readonly _archive: string
@@ -119,6 +128,7 @@ export class SkillLibrary {
   list(project?: string, now = Date.now()): Skill[] {
     const disabled = new Set(this._disabled())
     const usage = this._usage()
+    const installed = this.installs.installed()
     const sources: [string, SkillSource][] = [
       [this.dir, 'myrmidon'],
       [this.claudeDir, 'claude'],
@@ -149,6 +159,7 @@ export class SkillLibrary {
           source,
           enabled: !disabled.has(parsed.name),
           ...(learned ? { curation: this._curation(parsed.name, usage, now) } : {}),
+          ...(source === 'myrmidon' && installed[parsed.name] ? { installed: installed[parsed.name] } : {}),
         })
       }
     }

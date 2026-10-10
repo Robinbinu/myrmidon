@@ -322,6 +322,7 @@ test('on a computer with no sandbox, commands are refused unless the round has f
     start: () => {
       throw new Error('confined start on a machine with no sandbox')
     },
+    env: () => ({}),
   }
   const spec = (fullAccess: boolean) =>
     ({

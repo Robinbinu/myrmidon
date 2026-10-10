@@ -60,6 +60,7 @@ const CLAUDE_NAMES: Record<string, string> = {
   fs_edit: 'Edit',
   glob: 'Glob',
   grep: 'Grep',
+  lsp: 'LSP',
   web_fetch: 'WebFetch',
   web_search: 'WebSearch',
   update_todo: 'TodoWrite',

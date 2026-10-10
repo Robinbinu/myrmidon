@@ -16,14 +16,21 @@ export function toolPhrase(tool: string, args: unknown): string {
     tool === 'read_artifact' ||
     tool === 'fs_list' ||
     tool === 'glob' ||
-    tool === 'grep'
+    tool === 'grep' ||
+    tool === 'ast_grep' ||
+    tool === 'lsp'
   )
     return t.doing.read(clip(lastPart(str('path') || str('name') || str('pattern') || '.')))
-  if (tool === 'fs_write' || tool === 'fs_edit') return t.doing.edit(clip(lastPart(str('path'))))
+  if (tool === 'fs_write' || tool === 'fs_edit' || tool === 'ast_edit')
+    return t.doing.edit(clip(lastPart(str('path'))))
+  if (tool === 'find') return t.doing.find(clip(str('query')))
+  if (tool === 'github') return t.doing.github(str('op').replace(/_/g, ' '))
   if (tool === 'web_search') return t.doing.search(clip(str('query')))
   if (tool === 'web_fetch') return t.doing.fetch
   if (tool.startsWith('browser_')) return t.doing.browser
   if (tool === 'publish_artifact') return t.doing.publish(clip(str('name')))
+  if (tool === 'generate_image') return t.doing.picture(clip(str('prompt')))
+  if (tool === 'tts') return t.doing.speech
   if (tool === 'spawn_worker' || tool === 'add_crewmate') return t.doing.crewmate
   if (tool === 'ask_crewmate') return t.doing.askCrewmate(clip(str('to')))
   if (tool === 'create_task' || tool === 'assign_task' || tool === 'update_todo') return t.doing.tasks

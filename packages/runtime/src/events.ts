@@ -1,5 +1,6 @@
 import type SchemaType from '@deepseek-ai/schemastery'
 import { type EventLog, type EventTypeDefinition, Schema } from '@myrmidon/core'
+import { ADVICE_KINDS } from '@myrmidon/protocol'
 
 const str = () => Schema.string().required()
 const strs = () => Schema.array(Schema.string()).default([])
@@ -127,6 +128,16 @@ const colonySpec = Schema.object({
   review: Schema.union(['off', 'auto', 'always']),
   fullAccess: Schema.boolean(),
   computerUse: Schema.boolean(),
+  goal: optional(
+    Schema.object({
+      condition: str(),
+      check: Schema.object({ kind: oneOf('checks', 'command', 'judge'), run: Schema.string() }),
+      maxChecks: Schema.natural().required(),
+      judge: str(),
+      threshold: Schema.number().required(),
+    }),
+  ),
+  prewalk: Schema.string(),
   access: optional(roundAccess),
 })
 
@@ -142,6 +153,7 @@ const defs: EventTypeDefinition[] = [
       hostname: Schema.string(),
       resumed: Schema.boolean(),
       models: Schema.dict(Schema.string()),
+      rules: Schema.array(Schema.string()),
     }),
   },
   {
@@ -236,6 +248,19 @@ const defs: EventTypeDefinition[] = [
       ms: Schema.natural().required(),
       outcome: oneOf('ok', 'blocked', 'asked', 'feedback', 'failed'),
       message: Schema.string(),
+    }),
+  },
+  {
+    type: 'rule/fired',
+    version: 1,
+    actors: ['system'],
+    schema: Schema.object({
+      agent: str(),
+      rule: str(),
+      description: Schema.string(),
+      source: oneOf('text', 'thinking', 'tool'),
+      tool: Schema.string(),
+      path: str(),
     }),
   },
   {
@@ -399,6 +424,11 @@ const defs: EventTypeDefinition[] = [
       messages: Schema.natural().required(),
       tokens: Schema.natural().required(),
       summaryChars: Schema.natural().required(),
+      // Logs from before there were other methods only ever summarized.
+      methods: Schema.array(Schema.union(['shake', 'snapcompact', 'summary'])).default(['summary']),
+      elided: Schema.natural().default(0),
+      frames: Schema.natural().default(0),
+      tokensAfter: Schema.natural(),
     }),
   },
   {
@@ -419,6 +449,35 @@ const defs: EventTypeDefinition[] = [
     version: 1,
     actors: ['user'],
     schema: Schema.object({ agent: str(), model: str(), previous: str() }),
+  },
+  {
+    type: 'agent/handoff',
+    version: 1,
+    actors: ['system'],
+    schema: Schema.object({ agent: str(), model: str(), previous: str(), after: str() }),
+  },
+  {
+    type: 'agent/fallback',
+    version: 1,
+    actors: ['system'],
+    schema: Schema.object({
+      agent: str(),
+      model: str(),
+      previous: str(),
+      kind: oneOf('refusal', 'error'),
+      message: str(),
+    }),
+  },
+  {
+    type: 'agent/advised',
+    version: 1,
+    actors: ['system'],
+    schema: Schema.object({
+      agent: str(),
+      model: str(),
+      note: str(),
+      kind: Schema.union([...ADVICE_KINDS]),
+    }),
   },
   {
     type: 'tool/created',

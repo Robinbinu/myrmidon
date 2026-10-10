@@ -1007,6 +1007,42 @@ export const SETTINGS = {
     dependsOn: 'team.helpers',
     keys: ['team.mode', 'team.workerModel'],
   },
+  'team.advisorModel': {
+    page: 'team',
+    path: [s.team.advisorTitle],
+    control: 'button',
+    label: s.team.advisor,
+    help: s.team.advisorHint,
+    keywords: kw.advisor,
+    keys: ['team.advisorModel'],
+  },
+  'team.carryOutModel': {
+    page: 'team',
+    path: [s.team.prewalkTitle],
+    control: 'button',
+    label: s.team.carryOut,
+    help: s.team.carryOutHint,
+    keywords: kw.prewalk,
+    keys: ['team.carryOutModel'],
+  },
+  'team.leadFallbacks': {
+    page: 'team',
+    path: [s.team.fallbacksTitle],
+    control: 'list',
+    label: s.team.leadFallbacks,
+    help: s.team.leadFallbacksHint,
+    keywords: kw.fallbacks,
+    keys: ['team.leadFallbacks'],
+  },
+  'team.workerFallbacks': {
+    page: 'team',
+    path: [s.team.fallbacksTitle],
+    control: 'list',
+    label: s.team.workerFallbacks,
+    help: s.team.workerFallbacksHint,
+    keywords: [...kw.fallbacks, 'crewmates', 'workers', 'peers'],
+    keys: ['team.workerFallbacks'],
+  },
   'team.wallMinutes': {
     page: 'team',
     path: [s.team.limitsTitle],
@@ -1132,6 +1168,15 @@ export const SETTINGS = {
     keywords: kw.readFolders,
     keys: ['sandbox.read'],
   },
+  'permissions.hideSecrets': {
+    page: 'permissions',
+    path: [s.tools.secrets.title],
+    control: 'switch',
+    label: s.tools.secrets.hide,
+    help: s.tools.secrets.hideHint,
+    keywords: kw.secrets,
+    keys: ['privacy.hideSecrets'],
+  },
 
   // Instructions
   'instructions.lead': {
@@ -1168,6 +1213,20 @@ export const SETTINGS = {
     label: s.skills.proposedTitle,
     keywords: kw.skills,
   },
+  'skills.registry': {
+    page: 'skills',
+    path: [s.skills.add.title],
+    control: 'text',
+    label: s.skills.add.searchLabel,
+    keywords: ['registry', 'skills.omp.sh', 'skillshare', 'install', 'omp', ...kw.skills],
+  },
+  'skills.add': {
+    page: 'skills',
+    path: [s.skills.add.title],
+    control: 'text',
+    label: s.skills.add.sourceLabel,
+    keywords: ['install', 'git', 'github', 'repository', ...kw.skills],
+  },
   'skills.archived': {
     page: 'skills',
     control: 'list',
@@ -1199,13 +1258,30 @@ export const SETTINGS = {
     keywords: kw.webSearch,
     keys: ['search.provider'],
   },
+  'tools.imageModel': {
+    page: 'tools',
+    path: [s.tools.imageGeneration],
+    control: 'select',
+    label: s.tools.imageModel,
+    help: s.tools.imageModelHint,
+    keywords: kw.imageGeneration,
+    keys: ['images.model'],
+  },
 
   // Plugins, hooks, schedules
   'plugins.add': {
     page: 'plugins',
     control: 'text',
     label: s.plugins.sourceLabel,
-    keywords: [s.plugins.add, ...kw.plugins],
+    keywords: [s.plugins.add, 'install', 'npm', 'git', ...kw.plugins],
+  },
+  'plugins.marketplaces': {
+    page: 'plugins',
+    path: [s.plugins.marketplaces.title],
+    control: 'text',
+    label: s.plugins.marketplaces.sourceLabel,
+    help: s.plugins.marketplaces.intro,
+    keywords: ['marketplace', 'catalog', 'install', s.plugins.marketplaces.add, ...kw.plugins],
   },
   'hooks.list': {
     page: 'hooks',

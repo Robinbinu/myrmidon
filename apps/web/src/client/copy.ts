@@ -332,6 +332,28 @@ export const copy = {
     key: 'key',
   },
 
+  /** How close each signed-in account is to its plan's limits: Settings → Models & providers, the composer's model. */
+  planLimits: {
+    title: 'Plan limits',
+    note: 'how much of each subscription is used, window by window',
+    refresh: 'Check again',
+    refreshing: 'Checking…',
+    checked: (when: string) => `Checked ${when}`,
+    failed: (error: string) => `Couldn’t read plan limits: ${error}`,
+    used: (percent: number) => `${percent}%`,
+    usedLong: (label: string, percent: number) => `${label}: ${percent}% used`,
+    noAmount: 'no amount given',
+    resetsIn: (when: string) => `resets in ${when}`,
+    unreachable: 'Couldn’t reach it: the sign-in may have expired, or the provider is busy',
+    unsupported: 'This provider doesn’t report plan limits',
+    status: { warning: 'near limit', exhausted: 'limit reached' },
+    /** The composer's model chip, when every account the model's provider could use is near or at a limit. */
+    nearLimit: (label: string, percent: number, resets?: string) =>
+      `${label} is ${percent}% used${resets ? `, ${resets}` : ''}: agents on this model may slow down or stop`,
+    atLimit: (label: string, resets?: string) =>
+      `${label} limit reached${resets ? `, ${resets}` : ''}: agents on this model will wait or fail until then`,
+  },
+
   composer: {
     modes: {
       orchestrated: {
@@ -426,6 +448,8 @@ export const copy = {
       `Your “${(copy.settings.hooks.events as Record<string, string>)[event] ?? event}” hook failed (exit code ${code}):`,
     readSkillFile: (file: string) => `Read ${file} from skill`,
     usedSkill: 'Used skill',
+    /** The project's instruction and rule files (AGENTS.md, .cursor/rules, …) the round's agents were given. */
+    followedRules: (n: number) => `Following the project's ${n === 1 ? 'rule file' : `${n} rule files`}:`,
     proposedMemory: 'Proposed to remember:',
     ownBranch: 'Works on its own branch',
     merged: (n: number) => `Merged ${n} file${n === 1 ? '' : 's'} into the project`,
@@ -439,10 +463,24 @@ export const copy = {
     approved: 'Allowed',
     notApprovedInTime: 'Not answered in time',
     denied: 'Denied',
-    compacted: 'Summarized older messages to make room',
+    /** By the method that settled the pass; shake may have run before snapcompact or a summary. */
+    compacted: {
+      shake: 'Elided old tool output to make room',
+      snapcompact: 'Archived older messages as images to make room',
+      summary: 'Summarized older messages to make room',
+    },
     compactedTail: (messages: number, kTokens: number) => `${messages} messages, at ~${kTokens}k tokens`,
+    shakenTail: (results: number, kTokens: number) => `${results} tool outputs, at ~${kTokens}k tokens`,
     switchedTo: 'Switched to',
     switchedFrom: (model?: string) => `from ${model}, by you`,
+    fellBackTo: 'Went on with',
+    fellBackFrom: (model?: string) => `after ${model} failed`,
+    handedOffTo: 'Handed off to',
+    handedOffFrom: (model?: string) => `from ${model}, to carry out the plan`,
+    goalMet: 'Goal reached',
+    goalNotMet: (check: string) => `Goal not reached yet (check ${check})`,
+    advised: 'Got a note from the advisor:',
+    ruleStopped: (rule: string) => `Rule ${rule} stopped a reply and it was written again:`,
     askedJudge: 'Asked the reviewer to check the result',
     judgeApproved: 'Reviewer approved',
     judgeRejected: 'Reviewer asked for changes',
@@ -466,6 +504,8 @@ export const copy = {
       planningTasks: 'planning tasks',
       writingReply: 'writing a reply',
       usingMac: 'using your Mac',
+      drawing: 'making a picture',
+      recording: 'recording audio',
       using: (tool: string) => `using ${tool}`,
     },
   },
@@ -500,6 +540,7 @@ export const copy = {
       'skill/proposed': 'skill suggested',
       'skill/decided': 'skill kept or discarded',
       'hook/ran': 'hook ran',
+      'rule/fired': 'rule stopped a reply',
       'skill/used': 'skill used',
       'colony/escalated': 'run handed to a bigger crew',
       'agent/joined': 'crewmate joined',
@@ -527,9 +568,12 @@ export const copy = {
       'checkpoint/restored': 'files rewound',
       'permissions/changed': 'permissions changed',
       'plugin/event': 'plugin event',
-      'agent/compacted': 'older messages summarized',
+      'agent/compacted': 'context made to fit',
       'agent/prompt': 'prompt assembled',
       'agent/model': 'model switched',
+      'agent/fallback': 'went on with a fallback model',
+      'agent/handoff': 'handed off to the carry-out model',
+      'agent/advised': 'advisor note',
       'tool/created': 'tool made',
       'chat/user': 'message from you',
       'chat/reply': 'reply',
@@ -946,6 +990,11 @@ export const copy = {
     fromPlugin: (plugin: string) => `From the ${plugin} plugin`,
     list: {
       plan: { args: '<request>', description: 'Plan first: see the plan and approve it before any work' },
+      goal: {
+        args: '<condition>: <request>',
+        description:
+          'Keep working until a condition holds: "the tests pass", a `command` that must exit 0, or anything the reviewer can check',
+      },
       steer: { args: '<message>', description: 'Send now: the crew reads it at its next step' },
       queue: {
         args: '<message>',
@@ -983,6 +1032,10 @@ export const copy = {
       attach: { description: 'Attach files to your next message' },
       export: { description: 'Download this chat as Markdown' },
       learn: { description: 'Learn a skill from how this chat did its work' },
+      rule: {
+        args: '<what went wrong>',
+        description: 'Turn a complaint about the last reply into a rule that stops it next time',
+      },
       mcp: { description: 'Manage MCP servers (tool connectors)' },
       settings: { description: 'Open settings' },
       help: { description: 'Show every command' },
@@ -1042,7 +1095,10 @@ export const copy = {
       shortcuts: 'Keyboard shortcuts',
       export: 'Export this chat as Markdown',
       crewConsole: 'Open the crew console',
+      importSession: 'Import a Claude Code or Codex session',
     },
+    /** More words the import action answers to. */
+    importKeywords: 'continue resume claude codex transcript history',
     newChatIn: (name: string) => `New chat in ${name}`,
     noMatches: (query: string) => `Nothing matches “${query}”.`,
     footer: { move: 'move', open: 'open', close: 'close' },
@@ -1197,6 +1253,8 @@ export const copy = {
     previewOf: (name: string) => `Preview of ${name}`,
     noPreview:
       'This Myrmidon has no preview address for this device yet, so here is the code. docs/remote.md explains how to add one.',
+    /** A picture or sound that could not be loaded (gone, or not what its name says). */
+    mediaFailed: 'This file could not be shown here; download it to open it.',
   },
 
   /** The workspace's Explorer: the project folder as a tree, like an editor's. */
@@ -1565,7 +1623,7 @@ export const copy = {
       crewHint: 'workers, crewmates, an agent alone',
       groups: {
         files: { label: 'Files', hint: 'Read, search and change files' },
-        shell: { label: 'Commands', hint: 'Shell, checks, dev servers, tool making' },
+        shell: { label: 'Commands', hint: 'Shell, code cells, checks, dev servers, tool making' },
         web: { label: 'Web', hint: 'Search and read pages' },
         browser: { label: 'Browser', hint: 'Its own browser: click, type, sign in' },
         mcp: { label: 'MCP tools', hint: 'Tools of your MCP servers' },
@@ -1654,17 +1712,23 @@ export const copy = {
       /** Names people know for the built-in tools; one missing shows its id. */
       names: {
         shell: 'Run a command',
+        eval: 'Run a code cell',
         run_checks: 'Run checks',
         start_server: 'Start a dev server',
         server_logs: 'Read server logs',
         stop_server: 'Stop a dev server',
         create_tool: 'Make a tool',
+        github: 'Use GitHub',
         fs_read: 'Read a file',
         fs_list: 'List a folder',
         fs_write: 'Write a file',
         fs_edit: 'Edit a file',
         grep: 'Search file contents',
         glob: 'Find files by name',
+        find: 'Find code by what it does',
+        ast_grep: 'Search code by structure',
+        ast_edit: 'Rewrite code by structure',
+        lsp: 'Ask the language server',
         request_read: 'Ask to read a folder',
         propose: 'Propose changes',
         web_search: 'Search the web',
@@ -1705,6 +1769,8 @@ export const copy = {
         submit_task: 'Hand in a task',
         update_todo: 'Update the to-do list',
         publish_artifact: 'Publish a file',
+        generate_image: 'Make a picture',
+        tts: 'Read text aloud',
         read_artifact: 'Read a published file',
         list_artifacts: 'List published files',
         observe: 'Look in on the crew',
@@ -2093,6 +2159,62 @@ export const copy = {
     tryAgain: 'Try again',
     noModel: (window: string) => `No model with ${window} or more is set up. Add one in Settings → Models.`,
     kept: 'The work so far is kept; the failed reply is not.',
+    /** A line in the round: an agent's model failed and it went on with the next of the person's fallbacks. */
+    fellBack: (agent: string, previous: string, model: string) =>
+      `${agent}'s model, ${previous}, failed, so it went on with ${model}.`,
+    fellBackRefused: (agent: string, previous: string, model: string) =>
+      `${previous} declined to continue, so ${agent} went on with ${model}.`,
+    fellBackTitle: (message: string) => `Provider message: ${message}`,
+    /** A line in the round: prewalk handed the lead from the model it planned on to the cheaper one. */
+    handedOff: (agent: string, previous: string, model: string) =>
+      `${agent} planned on ${previous} and handed off to ${model} to carry out the plan.`,
+  },
+
+  /** Goal mode's lines in the round: each check of the goal, as it happens. */
+  goal: {
+    met: (condition: string) => `Goal reached: ${condition}`,
+    notMet: (check: number, why: string) => `Goal not reached yet (check ${check}): ${why}`,
+  },
+
+  /** Stream rules: the `/rule` sheet that drafts one from a complaint, and the line a rule leaves when it stops a reply. */
+  rules: {
+    /** A line in the round: a rule stopped an agent's reply as it was written, and the reply was written again. */
+    stopped: (agent: string, rule: string, where: string) =>
+      `${agent} broke the rule ${rule} ${where}, so it was stopped and wrote it again.`,
+    where: (source: 'text' | 'thinking' | 'tool', tool?: string) =>
+      source === 'tool'
+        ? `in a ${tool ?? 'tool'} call`
+        : source === 'thinking'
+          ? 'while thinking'
+          : 'in its reply',
+    stoppedTitle: (description: string | undefined, path: string) =>
+      `${description ? `${description} · ` : ''}${path}`,
+    sheet: {
+      title: 'New rule',
+      complaint: 'Your complaint',
+      drafting: 'Writing a rule that would have caught it…',
+      matched: 'It catches the reply you complained about.',
+      unconfirmed: 'Couldn’t confirm it catches the reply you complained about:',
+      name: 'Name',
+      pattern: 'Stops a reply when it matches',
+      scope: 'Watches',
+      guidance: 'What the agent is told instead',
+      file: 'The rule’s file',
+      saveMine: 'Save for all my chats',
+      saveProject: 'Save for this project',
+      replace: (name: string) => `Replace ${name}`,
+      exists: (name: string) => `A rule named ${name} is already saved.`,
+      amend: 'Ask for a change',
+      amendPlaceholder: 'e.g. only for TypeScript files written with fs_write',
+      redraft: 'Rewrite',
+      cancel: 'Cancel',
+      failed: (reason: string) => `Couldn’t write a rule: ${reason}`,
+      tryAgain: 'Try again',
+    },
+    saved: (name: string, project: boolean) =>
+      project ? `Rule ${name} saved for this project` : `Rule ${name} saved for all your chats`,
+    noChat: 'Open a chat to make a rule about its last reply',
+    usage: 'Say what the reply got wrong: /rule <complaint>',
   },
 
   outcome: {
@@ -2344,6 +2466,44 @@ export const copy = {
       remove: (site: string) => `Remove ${site}`,
       back: 'Back to options',
     },
+  },
+
+  /** Import a session: another tool's conversation, continued as a new chat. */
+  importSessions: {
+    title: 'Import a session',
+    /** The home screen's way in, under the composer. */
+    open: 'Continue a Claude Code or Codex session',
+    search: 'Search sessions',
+    loading: 'Reading your Claude Code and Codex sessions…',
+    failed: 'Could not list your sessions',
+    empty: 'No Claude Code or Codex sessions on this computer.',
+    emptyHint: 'Claude Code keeps them in ~/.claude/projects, Codex in ~/.codex/sessions.',
+    noMatch: (query: string) => `No session matches “${query}”.`,
+    tools: { claude: 'Claude Code', codex: 'Codex' },
+    untitled: 'Untitled session',
+    messages: (n: number) => `${n} message${n === 1 ? '' : 's'}`,
+    size: (bytes: number) =>
+      bytes < 1024 * 1024
+        ? `${Math.max(1, Math.round(bytes / 1024))} KB`
+        : `${(bytes / 1024 / 1024).toFixed(1)} MB`,
+    showAll: (n: number) => `Show all ${n}`,
+    importing: 'Importing…',
+    /** Under the list: what importing does, and what it leaves alone. */
+    footnote:
+      'The session is copied into a new chat (secrets hidden, long parts clipped); the original stays where it is.',
+    /** Above the new chat's composer, until its first message. */
+    note: (tool: string, title: string) =>
+      `Continues “${title}” from ${tool}: the crew reads it before your message.`,
+    cancel: 'Start fresh instead',
+    /** The imported transcript, folded at the top of the chat and above the composer. */
+    block: (tool: string) => `Imported from ${tool}`,
+    turns: (n: number) => `${n} message${n === 1 ? '' : 's'}`,
+    omitted: (n: number) => `${n} earlier message${n === 1 ? '' : 's'} left out`,
+    show: 'Show transcript',
+    hide: 'Hide transcript',
+    roles: { user: 'You', assistant: 'Assistant', summary: 'Summary of earlier work' },
+    failedResult: 'Failed',
+    gone: 'The imported transcript is no longer here.',
   },
 
   app: {
@@ -2890,7 +3050,35 @@ export const copy = {
           'voice api',
         ],
         leadModel: ['default model', 'main model', 'lead model'],
+        fallbacks: [
+          'fallback',
+          'failover',
+          'backup model',
+          'model outage',
+          'overloaded',
+          'rate limit',
+          'model down',
+        ],
         reviewer: ['review', 'judge', 'verifier', 'verification', 'check the work', 'quality'],
+        advisor: [
+          'advisor',
+          'watchdog',
+          'second opinion',
+          'supervisor',
+          'course correction',
+          'mistakes',
+          'notes',
+        ],
+        prewalk: [
+          'prewalk',
+          'carry out',
+          'cheaper model',
+          'plan then execute',
+          'hand off',
+          'handoff',
+          'save money',
+          'executor',
+        ],
         helpers: ['crewmates', 'workers', 'helpers', 'subagents', 'team size', 'parallel'],
         budget: ['budget', 'cost', 'money', 'dollars', 'price', 'spend', 'limit'],
         time: ['timeout', 'duration', 'minutes', 'how long'],
@@ -2909,11 +3097,34 @@ export const copy = {
         access: ['tool groups', 'lead tools', 'crew tools', 'allow tools', 'disable tools'],
         rules: ['allow', 'deny', 'ask', 'allowlist', 'blocklist', 'command rules', 'tool rules'],
         readFolders: ['read access', 'folders', 'home folder', 'documents', 'files agents can read'],
+        secrets: [
+          'redact',
+          'redaction',
+          'api keys',
+          'tokens',
+          'passwords',
+          'privacy',
+          'leak',
+          'placeholder',
+          'mask',
+        ],
         instructions: ['system prompt', 'prompt', 'house rules', 'custom instructions', 'rules for agents'],
         memory: ['remember', 'memories', 'facts', 'preferences', 'knowledge'],
         skills: ['skill', 'playbook', 'playbooks', 'skill.md', 'agent skills'],
         mcp: ['mcp', 'model context protocol', 'tool server', 'connectors', 'integrations'],
         webSearch: ['search engine', 'brave', 'exa', 'duckduckgo', 'google', 'internet'],
+        imageGeneration: [
+          'image model',
+          'generate image',
+          'pictures',
+          'drawing',
+          'dall-e',
+          'gpt-image',
+          'imagen',
+          'nano banana',
+          'grok imagine',
+          'art',
+        ],
         plugins: ['plugin', 'extension', 'extensions', 'add-on', 'claude code plugin'],
         hooks: ['hook', 'pre tool use', 'post tool use', 'script', 'lint on save', 'automation'],
         schedules: ['cron', 'recurring', 'every day', 'daily', 'weekly', 'timer', 'automation', 'routine'],
@@ -3137,6 +3348,28 @@ export const copy = {
       units: { minutes: 'min', dollars: '$', tokens: 'tok', seconds: 's' },
       crewTitle: 'Default crew',
       limitsTitle: 'Limits per run',
+      fallbacksTitle: 'If a model fails',
+      leadFallbacks: "Lead's fallback models",
+      leadFallbacksHint:
+        "When the lead's model is down, rate-limited past its retries, signed out or gone, the lead goes on with these, in order. None: the run pauses for you.",
+      workerFallbacks: "Crew's fallback models",
+      workerFallbacksHint:
+        'The same for crewmates and swarm peers. Each round starts on the chosen models again.',
+      addFallback: 'Add a fallback model',
+      removeFallback: (model: string) => `Remove ${model}`,
+      noFallbacks: 'None',
+      advisorTitle: 'Advisor',
+      advisor: 'Advisor model',
+      advisorHint:
+        'A second model reads each agent’s steps as it works and, when it spots a concrete problem (the wrong file, an ignored error, going in circles), sends the agent a short note. Off by default: each look is a model call, with a cap per run, and it stops as the run nears its spend or token limit.',
+      chooseAdvisor: 'Choose a model',
+      advisorOff: (model: string) => `Turn off the advisor (${model})`,
+      prewalkTitle: 'Prewalk',
+      carryOut: 'Carry-out model',
+      carryOutHint:
+        'The lead plans on its own model, then hands off once to this cheaper one to carry the plan out: at its first change (a file edit or a task), after you approve the plan in plan mode. Off by default. The chat shows the hand-off.',
+      chooseCarryOut: 'Choose a model',
+      carryOutOff: (model: string) => `Turn off prewalk (${model})`,
     },
     tools: {
       title: 'Tools',
@@ -3153,6 +3386,16 @@ export const copy = {
         guarded: (paths: readonly string[]) =>
           `Careful: ${paths.join(', ')} ${paths.length === 1 ? 'holds' : 'hold'} keys, sign-ins or every chat’s data. Agents in all your chats can read ${paths.length === 1 ? 'it' : 'them'}, and anything they read can leave over the network.`,
       },
+      /** Secrets kept from model providers (the runtime's provider-secrets.ts). */
+      secrets: {
+        title: 'Secrets and model providers',
+        subtitle: 'what leaves this machine with each model call',
+        hide: 'Hide secrets from model providers',
+        hideHint:
+          'API keys, tokens and passwords in what agents read, and the keys Myrmidon holds, reach the model as placeholders. Agents can still use them: Myrmidon puts the real value back in files in their own folder and in sandboxed commands.',
+        offHint:
+          'Off: a key in a file or a command’s output goes to the model provider as it is. Turn this off only when an agent must read a key itself.',
+      },
       libraryTitle: 'Your tool library',
       librarySubtitle: 'tools agents made that you kept; every new run starts with them',
       webSearch: 'Web search',
@@ -3160,6 +3403,15 @@ export const copy = {
       searchProviderHint:
         'Auto tries the search providers you have keys for first, then keyless ones like DuckDuckGo.',
       searchAuto: 'Auto',
+      imageGeneration: 'Image generation',
+      imageModel: 'Image model',
+      imageModelHint:
+        'The model agents make and edit pictures with. Automatic uses the first one your providers can run. Each picture is billed by its provider and counts toward a chat’s spending limit.',
+      imageModelNone:
+        'None of your providers can make pictures yet. Add an OpenAI, Google Gemini, OpenRouter or xAI key, or sign in with ChatGPT, in Models & providers.',
+      imageAuto: 'Automatic',
+      /** A chosen model its provider can no longer run (its key was removed). */
+      imageGone: (ref: string) => `${ref} (not available)`,
     },
     mcp: {
       added: (name: string) => `Added ${name}`,
@@ -3838,11 +4090,39 @@ export const copy = {
       title: 'Plugins',
       intro:
         'A plugin bundles skills, commands, hooks and MCP servers, on and off as one. Claude Code plugins work unchanged. It runs as you: add only plugins you trust.',
-      sourcePlaceholder: 'Folder path or git URL, e.g. ~/code/my-plugin or https://github.com/you/plugin',
-      sourceLabel: 'Plugin folder or git URL',
-      add: 'Add plugin',
-      adding: 'Adding…',
-      added: (name: string) => `Added ${name}`,
+      sourcePlaceholder:
+        'Folder, git URL or npm package, e.g. https://github.com/you/plugin or npm:my-plugin',
+      sourceLabel: 'Plugin folder, git URL or npm package',
+      add: 'Review plugin',
+      adding: 'Fetching…',
+      added: (name: string) => `Installed ${name}`,
+      updated: (name: string) => `Updated ${name}`,
+      update: 'Update',
+      updating: 'Fetching…',
+      from: (source: string) => `From ${source}`,
+      commit: (sha: string) => `commit ${sha.slice(0, 7)}`,
+      marketplaces: {
+        title: 'Marketplaces',
+        intro:
+          'Claude Code plugin marketplaces: catalogs of plugins in a git repository. Adding one only reads its list; each plugin you install from it is shown to you first.',
+        sourceLabel: 'Marketplace repository',
+        sourcePlaceholder: 'GitHub owner/repo or git URL, e.g. anthropics/claude-plugins-official',
+        add: 'Add marketplace',
+        adding: 'Adding…',
+        added: (name: string, n: number) => `Added ${name} (${n} plugin${n === 1 ? '' : 's'})`,
+        refresh: 'Refresh',
+        refreshed: (name: string) => `Refreshed ${name}`,
+        remove: 'Remove',
+        confirmRemove: 'Yes, remove marketplace',
+        removed: (name: string) => `Removed ${name}; plugins installed from it stay`,
+        by: (owner: string) => `by ${owner}`,
+        plugins: (n: number) => `${n} plugin${n === 1 ? '' : 's'}`,
+        browse: 'Show plugins',
+        hide: 'Hide plugins',
+        install: 'Install…',
+        installed: 'installed',
+        empty: 'No marketplaces yet.',
+      },
       loading: 'Loading plugins…',
       emptyTitle: 'No plugins yet',
       emptyBody: 'Add one above. It can be a Claude Code plugin folder or repository.',
@@ -3906,6 +4186,60 @@ export const copy = {
       restored: (name: string) => `Restored ${name}`,
       showMore: 'Show more',
       showLess: 'Show less',
+      add: {
+        title: 'Add skills',
+        intro:
+          "Search omp's skills registry, or install from a git repository. You see what a skill holds, including any scripts, before it is installed.",
+        searchLabel: 'Search the skills registry',
+        searchPlaceholder: 'e.g. pdf, testing, owner:ada',
+        search: 'Search',
+        searching: 'Searching…',
+        popular: 'Popular in the registry',
+        noHits: 'Nothing in the registry matches.',
+        downloads: (n: number) => `${n.toLocaleString()} this week`,
+        install: 'Install…',
+        sourceLabel: 'Skill git URL',
+        sourcePlaceholder: 'Git URL of a skill or a repository of skills, e.g. https://github.com/you/skills',
+        review: 'Review',
+        fetching: 'Fetching…',
+        installed: (names: string[]) => `Installed ${names.join(', ')}`,
+      },
+      from: (source: string) => `From ${source}`,
+      update: 'Update',
+      updated: (names: string[]) => `Updated ${names.join(', ')}`,
+      remove: 'Remove',
+      confirmRemove: 'Yes, remove skill',
+      removed: (name: string) => `Removed ${name}`,
+    },
+    /** The review shown before a plugin or skill is installed. */
+    installReview: {
+      pluginTitle: (name: string) => `Install ${name}?`,
+      updateTitle: (name: string) => `Update ${name}?`,
+      skillTitle: (n: number) => (n === 1 ? 'Install this skill?' : `Install these ${n} skills?`),
+      source: 'From',
+      version: 'Version',
+      pinned: 'Pinned to',
+      replaces: (version?: string, commit?: string) =>
+        `Replaces ${[version && `v${version}`, commit?.slice(0, 7)].filter(Boolean).join(' · ') || 'the installed copy'}`,
+      runs: 'What runs as you',
+      code: (entry: string) => `Server code (${entry}) runs in Myrmidon once it is on`,
+      ui: 'Adds its own screens to the app',
+      hooks: (n: number) => `${n} hook${n === 1 ? '' : 's'}: commands around every tool call`,
+      servers: (names: string[]) => `MCP server${names.length === 1 ? '' : 's'}: ${names.join(', ')}`,
+      nothingRuns: 'No code, hooks or servers: only skills and commands.',
+      adds: 'What it adds',
+      skills: (names: string[]) => `Skills: ${names.join(', ')}`,
+      commands: (names: string[]) => `Commands: ${names.map((n) => `/${n}`).join(', ')}`,
+      dependencies: (names: string[]) =>
+        `Installs ${names.length} npm package${names.length === 1 ? '' : 's'} it needs (${names.join(', ')}), with their install scripts off`,
+      files: (n: number) => `${n} file${n === 1 ? '' : 's'}`,
+      scripts: (files: string[]) =>
+        `Scripts an agent can run: ${files.join(', ')}. Nothing runs when it is installed.`,
+      warning: 'It runs as you, with your files and keys. Install it only if you trust where it comes from.',
+      install: 'Install',
+      update: 'Update',
+      installing: 'Installing…',
+      cancel: 'Cancel',
     },
     memory: {
       kinds: {

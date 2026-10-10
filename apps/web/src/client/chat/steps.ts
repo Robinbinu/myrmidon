@@ -13,6 +13,7 @@ export type StepKind =
   | 'talk'
   | 'signal'
   | 'think'
+  | 'advice'
   | 'computer'
   | 'computerSetup'
 
@@ -253,6 +254,19 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
         })
         break
       }
+      case 'colony/started': {
+        const p = e.payload as EventPayloads['colony/started']
+        if (!p.rules?.length) break
+        out.push({
+          ...base,
+          kind: 'file',
+          agent: 'system',
+          lead: copy.steps.followedRules(p.rules.length),
+          tail: cut(p.rules.join(', '), 140),
+          detail: p.rules.join('\n'),
+        })
+        break
+      }
       case 'skill/used': {
         const p = e.payload as EventPayloads['skill/used']
         out.push({
@@ -354,12 +368,17 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
       }
       case 'agent/compacted': {
         const p = e.payload as EventPayloads['agent/compacted']
+        const method = p.methods?.at(-1) ?? 'summary'
+        const kTokens = Math.round(p.tokens / 1000)
         out.push({
           ...base,
           kind: 'think',
           agent: p.agent,
-          lead: copy.steps.compacted,
-          tail: copy.steps.compactedTail(p.messages, Math.round(p.tokens / 1000)),
+          lead: copy.steps.compacted[method],
+          tail:
+            method === 'shake'
+              ? copy.steps.shakenTail(p.elided ?? 0, kTokens)
+              : copy.steps.compactedTail(p.messages, kTokens),
         })
         break
       }
@@ -375,6 +394,55 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
         })
         break
       }
+      case 'agent/handoff': {
+        const p = e.payload as EventPayloads['agent/handoff']
+        out.push({
+          ...base,
+          kind: 'team',
+          agent: p.agent,
+          lead: copy.steps.handedOffTo,
+          strong: p.model.split('/').pop() ?? p.model,
+          tail: copy.steps.handedOffFrom(p.previous.split('/').pop()),
+        })
+        break
+      }
+      case 'agent/fallback': {
+        const p = e.payload as EventPayloads['agent/fallback']
+        out.push({
+          ...base,
+          kind: 'error',
+          agent: p.agent,
+          lead: copy.steps.fellBackTo,
+          strong: p.model.split('/').pop() ?? p.model,
+          tail: copy.steps.fellBackFrom(p.previous.split('/').pop()),
+          detail: p.message,
+        })
+        break
+      }
+      case 'rule/fired': {
+        const p = e.payload as EventPayloads['rule/fired']
+        out.push({
+          ...base,
+          kind: 'signal',
+          agent: p.agent,
+          lead: copy.steps.ruleStopped(p.rule),
+          tail: copy.rules.where(p.source, p.tool),
+          detail: copy.rules.stoppedTitle(p.description, p.path),
+        })
+        break
+      }
+      case 'agent/advised': {
+        const p = e.payload as EventPayloads['agent/advised']
+        out.push({
+          ...base,
+          kind: 'advice',
+          agent: p.agent,
+          lead: copy.steps.advised,
+          tail: cut(p.note, 120),
+          detail: p.note,
+        })
+        break
+      }
       case 'verifier/requested': {
         const p = e.payload as EventPayloads['verifier/requested']
         out.push({ ...base, kind: 'verdict', agent: p.by, lead: copy.steps.askedJudge })
@@ -382,6 +450,17 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
       }
       case 'verifier/verdict': {
         const p = e.payload as EventPayloads['verifier/verdict']
+        // Goal mode's checks of the goal (goal#1, goal#2, …), each a step of its own.
+        if (p.target === 'goal') {
+          out.push({
+            ...base,
+            kind: p.pass ? 'verdict' : 'error',
+            agent: 'judge',
+            lead: p.pass ? copy.steps.goalMet : copy.steps.goalNotMet(p.verifierId.replace(/^goal#/, '')),
+            tail: p.pass ? undefined : cut(p.evidence, 160),
+          })
+          break
+        }
         // A round nobody reviews records its delivery as a verdict; no judge looked at it.
         if (p.target !== 'colony' || p.verifierId === DELIVERED_VERIFIER) break
         out.push({
@@ -493,6 +572,8 @@ export function currentStep(events: readonly MyrEvent[]): string | undefined {
         web_search: copy.steps.now.searching(cut(String(args.query ?? ''), 50)),
         web_fetch: copy.steps.now.reading(hostPath(String(args.url ?? ''))),
         publish_artifact: copy.steps.now.writing(args.name),
+        generate_image: copy.steps.now.drawing,
+        tts: copy.steps.now.recording,
         fs_write: copy.steps.now.drafting(args.path),
         fs_edit: copy.steps.now.editing(args.path),
         shell: copy.steps.now.runningCommand,

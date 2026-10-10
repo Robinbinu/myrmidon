@@ -52,11 +52,11 @@ import type { ColonyView, LiveReply } from '../use-colony.ts'
 import { AgentSheet } from './AgentSheet.tsx'
 import { Approval, LoginCards, MemoryCards, SkillCards } from './ApprovalCards.tsx'
 import { ArtifactViewer } from './ArtifactViewer.tsx'
-import { type SentFile, SentFiles } from './Attachments.tsx'
+import { MadeMedia, mediaOf, type SentFile, SentFiles } from './Attachments.tsx'
 import { awaitingApproval, type Pending, roundApprovals } from './approvals.ts'
 import { Markdown, plainText } from './Markdown.tsx'
 import { ModelPicker, windowLabel } from './ModelPicker.tsx'
-import { fallbackModel } from './model-list.ts'
+import { fallbackModel, modelName } from './model-list.ts'
 import { FullAccessBadge } from './ProjectPermissions.tsx'
 import { QuestionCard } from './QuestionCard.tsx'
 import { RoundChanges } from './RoundChanges.tsx'
@@ -89,6 +89,10 @@ type Item =
   | { seq: number; message: ChatEntry }
   | { seq: number; approval: Pending }
   | { seq: number; stream: string; live: LiveReply }
+  | { seq: number; id: string; fallback: EventPayloads['agent/fallback'] }
+  | { seq: number; id: string; handoff: EventPayloads['agent/handoff'] }
+  | { seq: number; id: string; goal: EventPayloads['verifier/verdict'] }
+  | { seq: number; id: string; rule: EventPayloads['rule/fired'] }
 
 const enter = { initial: { opacity: 0, y: 10 }, animate: { opacity: 1, y: 0 }, transition: softSpring }
 
@@ -234,6 +238,20 @@ export function RoundView(props: {
     ),
     // A reply still being written sits where it began, after what was in the log by then.
     ...streaming.map(([agent, live]) => ({ seq: live.since + 0.5, stream: agent, live })),
+    // An agent that went on with a fallback model, or handed off to its carry-out model (prewalk), says so where it
+    // happened; so does each check of a goal round's goal, and each reply one of the person's rules stopped.
+    ...events.flatMap((e): Item[] =>
+      e.type === 'agent/fallback'
+        ? [{ seq: e.seq, id: e.id, fallback: e.payload as EventPayloads['agent/fallback'] }]
+        : e.type === 'agent/handoff'
+          ? [{ seq: e.seq, id: e.id, handoff: e.payload as EventPayloads['agent/handoff'] }]
+          : e.type === 'verifier/verdict' &&
+              (e.payload as EventPayloads['verifier/verdict']).target === 'goal'
+            ? [{ seq: e.seq, id: e.id, goal: e.payload as EventPayloads['verifier/verdict'] }]
+            : e.type === 'rule/fired'
+              ? [{ seq: e.seq, id: e.id, rule: e.payload as EventPayloads['rule/fired'] }]
+              : [],
+    ),
   ].sort((a, b) => a.seq - b.seq)
   // The run card sits under the latest message sent mid-run, so what the colony did next reads in order.
   const split = timeline.findLastIndex((i) => 'message' in i && i.message.from === 'user') + 1
@@ -292,6 +310,14 @@ export function RoundView(props: {
   const item = (i: Item) =>
     'message' in i ? (
       message(i.message)
+    ) : 'fallback' in i ? (
+      <FallbackNote key={i.id} fallback={i.fallback} models={props.models} />
+    ) : 'handoff' in i ? (
+      <HandoffNote key={i.id} handoff={i.handoff} models={props.models} />
+    ) : 'goal' in i ? (
+      <GoalNote key={i.id} verdict={i.goal} goal={info?.goal?.condition} />
+    ) : 'rule' in i ? (
+      <RuleNote key={i.id} fired={i.rule} />
     ) : 'approval' in i ? (
       <Approval
         key={i.approval.id}
@@ -314,6 +340,13 @@ export function RoundView(props: {
   const files = Object.entries(state.artifacts).filter(([, v]) =>
     v.some((x) => x.seq >= from && x.seq <= to && x.author !== 'previous-round' && x.author !== 'user'),
   )
+  // Pictures and sound the crew made are shown in the chat itself, not only named among the files.
+  const made = files.flatMap(([name, versions]): SentFile[] => {
+    const latest = versions.at(-1)
+    return latest && mediaOf(latest.mediaType)
+      ? [{ name, mediaType: latest.mediaType, blob: latest.blob, size: latest.size }]
+      : []
+  })
 
   return (
     <section className="flex flex-col gap-4">
@@ -418,6 +451,11 @@ export function RoundView(props: {
             models={props.models}
           />
         )}
+        {made.length > 0 && (
+          <div className="px-4 py-3">
+            <MadeMedia colonyId={props.colonyId} files={made} onOpen={setFile} />
+          </div>
+        )}
         {files.length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5 px-4 py-2.5">
             <span className="mr-1 text-callout text-muted">{copy.round.files}</span>
@@ -474,6 +512,69 @@ export function RoundView(props: {
         )}
       </AnimatePresence>
     </section>
+  )
+}
+
+/** One quiet line in the round: an agent's model failed and it went on with the next of the person's fallbacks. */
+function FallbackNote(props: { fallback: EventPayloads['agent/fallback']; models: ModelOption[] }) {
+  const f = props.fallback
+  const name = (ref: string) => modelName(props.models.find((m) => m.ref === ref)?.name ?? ref)
+  const say = f.kind === 'refusal' ? copy.modelFailure.fellBackRefused : copy.modelFailure.fellBack
+  return (
+    <motion.p
+      {...enter}
+      title={copy.modelFailure.fellBackTitle(f.message)}
+      className="flex items-center gap-1.5 pl-11 text-callout text-muted"
+    >
+      <FEATURE_ICONS.fallback className="size-3.5 shrink-0" />
+      <span>{say(f.agent, name(f.previous), name(f.model))}</span>
+    </motion.p>
+  )
+}
+
+/** One quiet line in the round: prewalk handed the lead from the model it planned on to its carry-out model. */
+function HandoffNote(props: { handoff: EventPayloads['agent/handoff']; models: ModelOption[] }) {
+  const h = props.handoff
+  const name = (ref: string) => modelName(props.models.find((m) => m.ref === ref)?.name ?? ref)
+  return (
+    <motion.p {...enter} className="flex items-center gap-1.5 pl-11 text-callout text-muted">
+      <FEATURE_ICONS.prewalk className="size-3.5 shrink-0" />
+      <span>{copy.modelFailure.handedOff(h.agent, name(h.previous), name(h.model))}</span>
+    </motion.p>
+  )
+}
+
+/** One quiet line in the round: one of the person's stream rules stopped a reply, which was written again. */
+function RuleNote(props: { fired: EventPayloads['rule/fired'] }) {
+  const f = props.fired
+  return (
+    <motion.p
+      {...enter}
+      title={copy.rules.stoppedTitle(f.description, f.path)}
+      className="flex items-center gap-1.5 pl-11 text-callout text-muted"
+    >
+      <FEATURE_ICONS.streamRules className="size-3.5 shrink-0" />
+      <span>{copy.rules.stopped(f.agent, f.rule, copy.rules.where(f.source, f.tool))}</span>
+    </motion.p>
+  )
+}
+
+/** One quiet line in the round for each check of a goal round's goal; the check's full result is its tooltip. */
+function GoalNote(props: { verdict: EventPayloads['verifier/verdict']; goal: string | undefined }) {
+  const v = props.verdict
+  const check = Number(v.verifierId.replace(/^goal#/, '')) || 1
+  const why = v.evidence.split('\n')[0] ?? ''
+  return (
+    <motion.p
+      {...enter}
+      title={v.evidence}
+      className={`flex items-center gap-1.5 pl-11 text-callout ${v.pass ? 'text-ok-ink' : 'text-muted'}`}
+    >
+      <FEATURE_ICONS.goal className="size-3.5 shrink-0" />
+      <span className="truncate">
+        {v.pass ? copy.goal.met(props.goal ?? '') : copy.goal.notMet(check, why)}
+      </span>
+    </motion.p>
   )
 }
 

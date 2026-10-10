@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { Schema } from '@myrmidon/core'
-import type { PermissionLevels, ProjectPermissions } from '@myrmidon/protocol'
+import type { PermissionLevels, ProjectPermissions, RoundGoal } from '@myrmidon/protocol'
 
 export type AcceptanceCheck =
   | {
@@ -69,6 +69,18 @@ export interface ColonySpec {
   }
   /** How the team may grow at run time. */
   team?: TeamPolicy
+  /**
+   * Models an agent goes on with, in order, when its own fails in a way another model could get past: `lead` for the
+   * lead, `workers` for crewmates and swarm peers. Taken from the settings each time a round starts or resumes; not
+   * logged, the `agent/fallback` events say what happened.
+   */
+  fallbacks?: { lead?: string[]; workers?: string[] }
+  /**
+   * The advisor's model: it reads each agent's latest steps and steers the agent with a short note when it sees a
+   * concrete problem (advisor.ts). Taken from the team config or settings each time a round starts or resumes, like
+   * the fallbacks; absent, there is none.
+   */
+  advisor?: string
   /** Tools removed from every agent regardless of role. */
   disabledTools?: string[]
   /**
@@ -107,6 +119,16 @@ export interface ColonySpec {
   thinking?: 'low' | 'medium' | 'high'
   /** Plan mode: present the plan for approval (ask_user) before any work. */
   planFirst?: boolean
+  /**
+   * Goal mode: each final answer is checked against the goal's condition, and the round goes on while it fails, up to
+   * its cap (see `RoundGoal`, ColonyRun._goalHolds).
+   */
+  goal?: RoundGoal
+  /**
+   * Prewalk: the lead plans on its own (strong) model, then hands off once to this cheaper model to carry the plan out,
+   * at its first change (ColonyRun._handOff). Taken from the team config or settings when a round starts.
+   */
+  prewalk?: string
 }
 
 /** `answer`: one agent replies directly; `solo`: one agent with every tool; `team`: the configured team. */
