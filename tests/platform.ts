@@ -24,9 +24,6 @@ export const GAPS = {
     'us_internal_socket_close_and_notify or in a later malloc), in Bun 1.3.14 and 1.4.3 alike, ending the whole run ' +
     'in the IRC tests; the IRC client no longer ends a socket from its own close callbacks, which stopped it in the ' +
     'SASL and PASS tests, but a connection the server drops still crashes it',
-  timeoutStopOnWindows:
-    'a full-access command past its timeout is not stopped on Windows: run() does not return for the whole sleep ' +
-    '(sandbox.ts runLeashed, leash.ts)',
 } as const
 
 export type Gap = keyof typeof GAPS

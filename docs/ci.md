@@ -65,7 +65,6 @@ which are not gaps. `expectOwnerOnly` checks a private file the way each system 
 | --- | --- | --- |
 | `cuaDriverOnWindows` | computer: 14; server-computer: 1 | no Cua Driver on Windows: its manifest and daemon never answer, so computer tools fail |
 | `bunWindowsSockets` | channels-irc: 7 | Bun's Windows sockets corrupt its heap when a TCP connection ends or drops (a segfault in usockets' socket close, or a later malloc), in Bun 1.3.14 and 1.4.3 alike, ending the run; a Bun bug to report upstream, then a Bun upgrade |
-| `timeoutStopOnWindows` | sandbox: *a full-access command that runs too long is stopped* | `run()` does not return at its timeout on Windows |
 
 ### Not on Windows (by design)
 
