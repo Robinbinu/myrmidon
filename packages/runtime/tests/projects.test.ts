@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { pendingOn } from '../../../tests/platform.ts'
 import {
   findProjectFiles,
   listProjectDir,
@@ -135,35 +136,43 @@ test('a folder that is not a repository lists and finds its files without git', 
   expect((await findProjectFiles(root, 'plan')).paths).toEqual(['docs/plan.md'])
 })
 
-test("a project around the person's home hides their keys and Myrmidon's data, but not the project's own .env", async () => {
-  // A project one level above a home (as /Users is above ~): its .ssh and the data folder are inside it.
-  const root = join(folders, 'Users')
-  const home = join(root, 'ada')
-  const data = join(home, '.myrmidon')
-  mkdirSync(join(home, '.ssh'), { recursive: true })
-  mkdirSync(join(home, 'code'), { recursive: true })
-  mkdirSync(data)
-  writeFileSync(join(home, '.ssh', 'id_ed25519'), 'PRIVATE KEY')
-  writeFileSync(join(home, '.netrc'), 'machine x password y')
-  writeFileSync(join(data, 'credentials.json'), '{}')
-  writeFileSync(join(home, 'code', '.env'), 'API_KEY=mine')
-  symlinkSync(join(home, '.ssh', 'id_ed25519'), join(home, 'code', 'key'))
-  const guard = { home, dataDir: data }
+pendingOn('win32', 'dataFolderOnWindows')(
+  "a project around the person's home hides their keys and Myrmidon's data, but not the project's own .env",
+  async () => {
+    // A project one level above a home (as /Users is above ~): its .ssh and the data folder are inside it.
+    const root = join(folders, 'Users')
+    const home = join(root, 'ada')
+    const data = join(home, '.myrmidon')
+    mkdirSync(join(home, '.ssh'), { recursive: true })
+    mkdirSync(join(home, 'code'), { recursive: true })
+    mkdirSync(data)
+    writeFileSync(join(home, '.ssh', 'id_ed25519'), 'PRIVATE KEY')
+    writeFileSync(join(home, '.netrc'), 'machine x password y')
+    writeFileSync(join(data, 'credentials.json'), '{}')
+    writeFileSync(join(home, 'code', '.env'), 'API_KEY=mine')
+    symlinkSync(join(home, '.ssh', 'id_ed25519'), join(home, 'code', 'key'))
+    const guard = { home, dataDir: data }
 
-  for (const file of ['ada/.ssh/id_ed25519', 'ada/.netrc', 'ada/.myrmidon/credentials.json', 'ada/code/key'])
-    expect(() => readProjectFile(root, file, guard)).toThrow(/keys or sign-ins/)
-  // A missing key answers as a present one does, so nothing tells which exist.
-  expect(() => readProjectFile(root, 'ada/.ssh/id_rsa', guard)).toThrow(/keys or sign-ins/)
-  await expect(listProjectDir(root, 'ada/.ssh', guard)).rejects.toThrow(/keys or sign-ins/)
-  // A link into them is left out of the folder's listing too.
-  expect((await listProjectDir(root, 'ada/code', guard)).entries.map((e) => e.name)).toEqual(['.env'])
-  expect(
-    ['ada/.ssh/id_rsa', 'ada/code/key', 'ada/code/.env'].map((f) => projectSecret(root, f, guard)),
-  ).toEqual([true, true, false])
-  expect((await listProjectDir(root, 'ada', guard)).entries.map((e) => e.name)).toEqual(['code'])
-  expect((await findProjectFiles(root, '', guard)).paths).toEqual(['ada/code/.env'])
-  // The project's own files stay open, secrets-looking or not: full access is what guards those.
-  expect(readProjectFile(root, 'ada/code/.env', guard).text).toBe('API_KEY=mine')
-  // A project the person made inside one of those folders is theirs to read, as the sandbox lets its agents.
-  expect(readProjectFile(join(home, '.ssh'), 'id_ed25519', guard).text).toBe('PRIVATE KEY')
-})
+    for (const file of [
+      'ada/.ssh/id_ed25519',
+      'ada/.netrc',
+      'ada/.myrmidon/credentials.json',
+      'ada/code/key',
+    ])
+      expect(() => readProjectFile(root, file, guard)).toThrow(/keys or sign-ins/)
+    // A missing key answers as a present one does, so nothing tells which exist.
+    expect(() => readProjectFile(root, 'ada/.ssh/id_rsa', guard)).toThrow(/keys or sign-ins/)
+    await expect(listProjectDir(root, 'ada/.ssh', guard)).rejects.toThrow(/keys or sign-ins/)
+    // A link into them is left out of the folder's listing too.
+    expect((await listProjectDir(root, 'ada/code', guard)).entries.map((e) => e.name)).toEqual(['.env'])
+    expect(
+      ['ada/.ssh/id_rsa', 'ada/code/key', 'ada/code/.env'].map((f) => projectSecret(root, f, guard)),
+    ).toEqual([true, true, false])
+    expect((await listProjectDir(root, 'ada', guard)).entries.map((e) => e.name)).toEqual(['code'])
+    expect((await findProjectFiles(root, '', guard)).paths).toEqual(['ada/code/.env'])
+    // The project's own files stay open, secrets-looking or not: full access is what guards those.
+    expect(readProjectFile(root, 'ada/code/.env', guard).text).toBe('API_KEY=mine')
+    // A project the person made inside one of those folders is theirs to read, as the sandbox lets its agents.
+    expect(readProjectFile(join(home, '.ssh'), 'id_ed25519', guard).text).toBe('PRIVATE KEY')
+  },
+)

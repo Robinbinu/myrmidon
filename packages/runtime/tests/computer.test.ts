@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { BlobStore } from '@myrmidon/core'
@@ -16,7 +16,7 @@ import type { AgentTool, AgentToolResult } from '@oh-my-pi/pi-agent-core'
 import type { Model } from '@oh-my-pi/pi-ai'
 import { createMockModel, type MockContent } from '@oh-my-pi/pi-ai/providers/mock'
 import { AssistantMessageEventStream } from '@oh-my-pi/pi-ai/utils/event-stream'
-import { bunShim } from '../../../tests/platform.ts'
+import { bunShim, pendingOn, removeTempDir } from '../../../tests/platform.ts'
 import {
   appTool,
   bootRuntime,
@@ -70,7 +70,7 @@ afterEach(async () => {
   await mcp.close()
   await runtime.dispose()
   delete process.env.FAKE_CUA_LOG
-  rmSync(home, { recursive: true, force: true })
+  removeTempDir(home)
 })
 
 /** What the stand-in driver was asked, in order. */
@@ -129,241 +129,274 @@ const opener = (host: ColonyHost) => appTool('open_app', 'nova', host, () => moc
 const call = (tool: AgentTool, args: Record<string, unknown>, context?: unknown) =>
   tool.execute('c1', args as never, undefined, undefined, context as never)
 
-test('Cua Driver runs embedded under Myrmidon, as an internal MCP server agents never see as MCP tools', async () => {
-  expect(hub.driver()?.version).toBe('9.9.9')
-  await hub.ensure()
-  expect(hub.status().state).toBe('running')
-  // The stand-in refuses to run unless embedded mode is set, so reaching here means the daemon and proxy both had it.
-  expect(mcp.tools()).toHaveLength(0)
-  expect(mcp.servers()).toHaveLength(0)
-  expect(mcp.internalTool('myrmidon-computer', 'get_window_state')).toBeDefined()
-  const r = await hub.call('list_apps', {})
-  expect(r.isError).toBe(false)
-  expect((r.structured?.apps as unknown[] | undefined)?.length).toBe(5)
-  expect(hub.accepts('get_window_state', 'max_dimension')).toBe(true)
-  expect(hub.accepts('get_window_state', 'tree_format')).toBe(false)
-  await hub.stop()
-  expect(mcp.internalTool('myrmidon-computer', 'get_window_state')).toBeUndefined()
-  expect(hub.status().state).toBe('ready')
-})
+pendingOn('win32', 'cuaDriverOnWindows')(
+  'Cua Driver runs embedded under Myrmidon, as an internal MCP server agents never see as MCP tools',
+  async () => {
+    expect(hub.driver()?.version).toBe('9.9.9')
+    await hub.ensure()
+    expect(hub.status().state).toBe('running')
+    // The stand-in refuses to run unless embedded mode is set, so reaching here means the daemon and proxy both had it.
+    expect(mcp.tools()).toHaveLength(0)
+    expect(mcp.servers()).toHaveLength(0)
+    expect(mcp.internalTool('myrmidon-computer', 'get_window_state')).toBeDefined()
+    const r = await hub.call('list_apps', {})
+    expect(r.isError).toBe(false)
+    expect((r.structured?.apps as unknown[] | undefined)?.length).toBe(5)
+    expect(hub.accepts('get_window_state', 'max_dimension')).toBe(true)
+    expect(hub.accepts('get_window_state', 'tree_format')).toBe(false)
+    await hub.stop()
+    expect(mcp.internalTool('myrmidon-computer', 'get_window_state')).toBeUndefined()
+    expect(hub.status().state).toBe('ready')
+  },
+)
 
-test('opening an app asks the person once per chat, then each call returns a screenshot sized for the model', async () => {
-  const { host, events, cards } = fakeHost()
-  const tool = generic(host)
-  const opened = await call(opener(host), { app: 'Notes' })
-  expect(opened.isError).toBe(false)
-  expect(cards).toHaveLength(1)
-  expect(cards[0]).toContain('Notes')
-  expect(events.find((e) => e.type === 'computer/apps')?.payload).toEqual({
-    apps: [{ bundleId: 'com.apple.Notes', name: 'Notes', tier: 'full' }],
-  })
-  expect(events.find((e) => e.type === 'computer/control')?.payload).toEqual({
-    agent: 'nova',
-    app: 'Notes',
-    active: true,
-  })
-  expect(opened.content.some((c) => c.type === 'image')).toBe(true)
-  // Elements come numbered, inside the untrusted block: what an app shows is outside content.
-  expect(textOf(opened)).toContain('[1] Button "Send"')
-  expect(textOf(opened)).toContain('⟦untrusted b0undary')
-  const look = asked().find((c) => c.name === 'get_window_state')
-  expect(look?.args.max_dimension).toBe(
-    screenshotEdge({ width: 1600, height: 1000 }, { longEdge: 1568, megapixels: 1.15 }),
-  )
-  expect(events.some((e) => e.type === 'computer/keyframe')).toBe(true)
+pendingOn('win32', 'cuaDriverOnWindows')(
+  'opening an app asks the person once per chat, then each call returns a screenshot sized for the model',
+  async () => {
+    const { host, events, cards } = fakeHost()
+    const tool = generic(host)
+    const opened = await call(opener(host), { app: 'Notes' })
+    expect(opened.isError).toBe(false)
+    expect(cards).toHaveLength(1)
+    expect(cards[0]).toContain('Notes')
+    expect(events.find((e) => e.type === 'computer/apps')?.payload).toEqual({
+      apps: [{ bundleId: 'com.apple.Notes', name: 'Notes', tier: 'full' }],
+    })
+    expect(events.find((e) => e.type === 'computer/control')?.payload).toEqual({
+      agent: 'nova',
+      app: 'Notes',
+      active: true,
+    })
+    expect(opened.content.some((c) => c.type === 'image')).toBe(true)
+    // Elements come numbered, inside the untrusted block: what an app shows is outside content.
+    expect(textOf(opened)).toContain('[1] Button "Send"')
+    expect(textOf(opened)).toContain('⟦untrusted b0undary')
+    const look = asked().find((c) => c.name === 'get_window_state')
+    expect(look?.args.max_dimension).toBe(
+      screenshotEdge({ width: 1600, height: 1000 }, { longEdge: 1568, megapixels: 1.15 }),
+    )
+    expect(events.some((e) => e.type === 'computer/keyframe')).toBe(true)
 
-  // Approved for the chat: no second card.
-  const typed = await call(tool, { action: 'type', text: 'Groceries' })
-  expect(typed.isError).toBe(false)
-  expect(cards).toHaveLength(1)
-  expect(asked().find((c) => c.name === 'type_text')?.args).toMatchObject({
-    pid: 101,
-    window_id: 1010,
-    text: 'Groceries',
-  })
-})
+    // Approved for the chat: no second card.
+    const typed = await call(tool, { action: 'type', text: 'Groceries' })
+    expect(typed.isError).toBe(false)
+    expect(cards).toHaveLength(1)
+    expect(asked().find((c) => c.name === 'type_text')?.args).toMatchObject({
+      pid: 101,
+      window_id: 1010,
+      text: 'Groceries',
+    })
+  },
+)
 
-test('an app the person does not approve stays out of reach, and Myrmidon itself is never offered', async () => {
-  const { host } = fakeHost({ decide: () => false })
-  const denied = await call(opener(host), { app: 'Notes' })
-  expect(denied.isError).toBe(true)
-  expect(textOf(denied)).toContain('did not let you use Notes')
-  expect(asked().some((c) => c.name === 'launch_app')).toBe(false)
-  const own = await call(opener(host), { app: 'Myrmidon' })
-  expect(textOf(own)).toContain('never shown to or driven by agents')
-  const before = await call(generic(fakeHost().host), { action: 'left_click', coordinate: [1, 1] })
-  expect(textOf(before)).toContain('open_app')
-})
+pendingOn('win32', 'cuaDriverOnWindows')(
+  'an app the person does not approve stays out of reach, and Myrmidon itself is never offered',
+  async () => {
+    const { host } = fakeHost({ decide: () => false })
+    const denied = await call(opener(host), { app: 'Notes' })
+    expect(denied.isError).toBe(true)
+    expect(textOf(denied)).toContain('did not let you use Notes')
+    expect(asked().some((c) => c.name === 'launch_app')).toBe(false)
+    const own = await call(opener(host), { app: 'Myrmidon' })
+    expect(textOf(own)).toContain('never shown to or driven by agents')
+    const before = await call(generic(fakeHost().host), { action: 'left_click', coordinate: [1, 1] })
+    expect(textOf(before)).toContain('open_app')
+  },
+)
 
-test('browsers are view-only, terminals click-only until the person gives full control', async () => {
-  const { host, cards } = fakeHost()
-  const tool = generic(host)
-  await call(opener(host), { app: 'Safari' })
-  const click = await call(tool, { action: 'left_click', coordinate: [10, 10] })
-  expect(click.isError).toBe(true)
-  expect(textOf(click)).toContain('view-only')
-  expect(textOf(await call(opener(host), { app: 'Safari', full_control: true }))).toContain('cannot be given')
+pendingOn('win32', 'cuaDriverOnWindows')(
+  'browsers are view-only, terminals click-only until the person gives full control',
+  async () => {
+    const { host, cards } = fakeHost()
+    const tool = generic(host)
+    await call(opener(host), { app: 'Safari' })
+    const click = await call(tool, { action: 'left_click', coordinate: [10, 10] })
+    expect(click.isError).toBe(true)
+    expect(textOf(click)).toContain('view-only')
+    expect(textOf(await call(opener(host), { app: 'Safari', full_control: true }))).toContain(
+      'cannot be given',
+    )
 
-  await call(opener(host), { app: 'Terminal' })
-  expect((await call(tool, { action: 'left_click', coordinate: [10, 10] })).isError).toBe(false)
-  const typing = await call(tool, { action: 'type', text: 'ls' })
-  expect(textOf(typing)).toContain('click-only')
-  expect(cards).toHaveLength(2)
-  await call(opener(host), { app: 'Terminal', full_control: true })
-  expect(cards).toHaveLength(3)
-  expect(cards[2]).toContain('full control')
-  expect((await call(tool, { action: 'type', text: 'ls' })).isError).toBe(false)
-})
+    await call(opener(host), { app: 'Terminal' })
+    expect((await call(tool, { action: 'left_click', coordinate: [10, 10] })).isError).toBe(false)
+    const typing = await call(tool, { action: 'type', text: 'ls' })
+    expect(textOf(typing)).toContain('click-only')
+    expect(cards).toHaveLength(2)
+    await call(opener(host), { app: 'Terminal', full_control: true })
+    expect(cards).toHaveLength(3)
+    expect(cards[2]).toContain('full control')
+    expect((await call(tool, { action: 'type', text: 'ls' })).isError).toBe(false)
+  },
+)
 
-test('a consequential-looking step waits for the person, and secrets are never typed', async () => {
-  let allow = true
-  const { host, cards } = fakeHost({ decide: () => allow })
-  const tool = generic(host)
-  await call(opener(host), { app: 'Messages' })
-  allow = false
-  // Element 1 is the Send button; clicking its pixels counts too.
-  const send = await call(tool, { action: 'click_element', element: 1 })
-  expect(send.isError).toBe(true)
-  expect(textOf(send)).toContain('did not approve')
-  expect(cards.at(-1)).toContain('click element #1')
-  const pixel = await call(tool, { action: 'left_click', coordinate: [1220, 780] })
-  expect(textOf(pixel)).toContain('did not approve')
-  // Return sends in Messages.
-  expect(textOf(await call(tool, { action: 'key', text: 'Return' }))).toContain('did not approve')
-  // So does a newline in typed text.
-  expect(textOf(await call(tool, { action: 'type', text: 'on my way\n' }))).toContain('did not approve')
-  expect(asked().some((c) => c.name === 'type_text')).toBe(false)
-  expect(asked().some((c) => c.name === 'click' && c.args.element_index === 1)).toBe(false)
-  const secret = await call(tool, { action: 'type', text: 'my key is sk-ant-abcdefghijklmnopqrstuvwxyz' })
-  expect(textOf(secret)).toContain('never types secrets')
-  const outside = await call(tool, { action: 'left_click', coordinate: [5000, 10] })
-  expect(textOf(outside)).toContain('outside the latest screenshot')
-})
+pendingOn('win32', 'cuaDriverOnWindows')(
+  'a consequential-looking step waits for the person, and secrets are never typed',
+  async () => {
+    let allow = true
+    const { host, cards } = fakeHost({ decide: () => allow })
+    const tool = generic(host)
+    await call(opener(host), { app: 'Messages' })
+    allow = false
+    // Element 1 is the Send button; clicking its pixels counts too.
+    const send = await call(tool, { action: 'click_element', element: 1 })
+    expect(send.isError).toBe(true)
+    expect(textOf(send)).toContain('did not approve')
+    expect(cards.at(-1)).toContain('click element #1')
+    const pixel = await call(tool, { action: 'left_click', coordinate: [1220, 780] })
+    expect(textOf(pixel)).toContain('did not approve')
+    // Return sends in Messages.
+    expect(textOf(await call(tool, { action: 'key', text: 'Return' }))).toContain('did not approve')
+    // So does a newline in typed text.
+    expect(textOf(await call(tool, { action: 'type', text: 'on my way\n' }))).toContain('did not approve')
+    expect(asked().some((c) => c.name === 'type_text')).toBe(false)
+    expect(asked().some((c) => c.name === 'click' && c.args.element_index === 1)).toBe(false)
+    const secret = await call(tool, { action: 'type', text: 'my key is sk-ant-abcdefghijklmnopqrstuvwxyz' })
+    expect(textOf(secret)).toContain('never types secrets')
+    const outside = await call(tool, { action: 'left_click', coordinate: [5000, 10] })
+    expect(textOf(outside)).toContain('outside the latest screenshot')
+  },
+)
 
-test('computer set to ask in Settings asks before every step', async () => {
-  const { host, cards } = fakeHost({ rules: [{ kind: 'tool', target: 'computer', decision: 'ask' }] })
-  const tool = generic(host)
-  await call(opener(host), { app: 'Notes' })
-  await call(tool, { action: 'scroll', coordinate: [10, 10], scroll_direction: 'down' })
-  expect(cards.filter((c) => c.includes('Allow this step'))).toHaveLength(2)
-})
+pendingOn('win32', 'cuaDriverOnWindows')(
+  'computer set to ask in Settings asks before every step',
+  async () => {
+    const { host, cards } = fakeHost({ rules: [{ kind: 'tool', target: 'computer', decision: 'ask' }] })
+    const tool = generic(host)
+    await call(opener(host), { app: 'Notes' })
+    await call(tool, { action: 'scroll', coordinate: [10, 10], scroll_direction: 'down' })
+    expect(cards.filter((c) => c.includes('Allow this step'))).toHaveLength(2)
+  },
+)
 
-test("OpenAI's native computer call runs its batch and answers with a screenshot for the provider", async () => {
-  const { host, cards } = fakeHost()
-  const tool = generic(host)
-  await call(opener(host), { app: 'Notes' })
-  const meta = {
-    type: 'computer',
-    providerItemId: 'cu_1',
-    actions: [
-      { type: 'click', button: 'left', x: 20, y: 30 },
-      { type: 'type', text: 'hi' },
-    ],
-    pendingSafetyChecks: [],
-  }
-  const r = (await call(tool, {}, { toolCall: { providerMetadata: meta } })) as AgentToolResult & {
-    providerMetadata?: { screenshot: { image_url: string }; acknowledgedSafetyChecks: unknown[] }
-  }
-  expect(r.isError).toBe(false)
-  expect(r.providerMetadata?.screenshot.image_url).toStartWith('data:image/png;base64,')
-  const names = asked().map((c) => c.name)
-  expect(names.slice(names.indexOf('click'))).toEqual(['click', 'type_text', 'get_window_state'])
-  // A safety check from the provider is the person's to acknowledge.
-  const checked = {
-    ...meta,
-    pendingSafetyChecks: [{ id: 'sc1', code: 'malicious_instructions', message: 'Suspicious text' }],
-  }
-  const acknowledged = (await call(
-    tool,
-    {},
-    { toolCall: { providerMetadata: checked } },
-  )) as AgentToolResult & {
-    providerMetadata?: { acknowledgedSafetyChecks: unknown[] }
-  }
-  expect(cards.at(-1)).toContain('Suspicious text')
-  expect(acknowledged.providerMetadata?.acknowledgedSafetyChecks).toEqual(checked.pendingSafetyChecks)
-})
+pendingOn('win32', 'cuaDriverOnWindows')(
+  "OpenAI's native computer call runs its batch and answers with a screenshot for the provider",
+  async () => {
+    const { host, cards } = fakeHost()
+    const tool = generic(host)
+    await call(opener(host), { app: 'Notes' })
+    const meta = {
+      type: 'computer',
+      providerItemId: 'cu_1',
+      actions: [
+        { type: 'click', button: 'left', x: 20, y: 30 },
+        { type: 'type', text: 'hi' },
+      ],
+      pendingSafetyChecks: [],
+    }
+    const r = (await call(tool, {}, { toolCall: { providerMetadata: meta } })) as AgentToolResult & {
+      providerMetadata?: { screenshot: { image_url: string }; acknowledgedSafetyChecks: unknown[] }
+    }
+    expect(r.isError).toBe(false)
+    expect(r.providerMetadata?.screenshot.image_url).toStartWith('data:image/png;base64,')
+    const names = asked().map((c) => c.name)
+    expect(names.slice(names.indexOf('click'))).toEqual(['click', 'type_text', 'get_window_state'])
+    // A safety check from the provider is the person's to acknowledge.
+    const checked = {
+      ...meta,
+      pendingSafetyChecks: [{ id: 'sc1', code: 'malicious_instructions', message: 'Suspicious text' }],
+    }
+    const acknowledged = (await call(
+      tool,
+      {},
+      { toolCall: { providerMetadata: checked } },
+    )) as AgentToolResult & {
+      providerMetadata?: { acknowledgedSafetyChecks: unknown[] }
+    }
+    expect(cards.at(-1)).toContain('Suspicious text')
+    expect(acknowledged.providerMetadata?.acknowledgedSafetyChecks).toEqual(checked.pendingSafetyChecks)
+  },
+)
 
-test("Anthropic toolset members run in order and halt after the batch's first failure", async () => {
-  const { host } = fakeHost()
-  await call(opener(host), { app: 'Notes' })
-  const ctx = { toolCall: { batchId: 'b1' } }
-  const bad = await call(
-    computerMember('left_click', 'nova', host, () => mockModel),
-    { coordinate: [9999, 1] },
-    ctx,
-  )
-  expect(bad.isError).toBe(true)
-  const next = await call(
-    computerMember('type', 'nova', host, () => mockModel),
-    { text: 'x' },
-    ctx,
-  )
-  expect(textOf(next)).toBe('Not executed: an earlier computer action in this turn failed.')
-  expect(asked().some((c) => c.name === 'type_text')).toBe(false)
-  const later = await call(
-    computerMember('scroll', 'nova', host, () => mockModel),
-    { scroll_direction: 'down' },
-    {
-      toolCall: { batchId: 'b2' },
-    },
-  )
-  expect(later.isError).toBe(false)
-})
+pendingOn('win32', 'cuaDriverOnWindows')(
+  "Anthropic toolset members run in order and halt after the batch's first failure",
+  async () => {
+    const { host } = fakeHost()
+    await call(opener(host), { app: 'Notes' })
+    const ctx = { toolCall: { batchId: 'b1' } }
+    const bad = await call(
+      computerMember('left_click', 'nova', host, () => mockModel),
+      { coordinate: [9999, 1] },
+      ctx,
+    )
+    expect(bad.isError).toBe(true)
+    const next = await call(
+      computerMember('type', 'nova', host, () => mockModel),
+      { text: 'x' },
+      ctx,
+    )
+    expect(textOf(next)).toBe('Not executed: an earlier computer action in this turn failed.')
+    expect(asked().some((c) => c.name === 'type_text')).toBe(false)
+    const later = await call(
+      computerMember('scroll', 'nova', host, () => mockModel),
+      { scroll_direction: 'down' },
+      {
+        toolCall: { batchId: 'b2' },
+      },
+    )
+    expect(later.isError).toBe(false)
+  },
+)
 
-test('one agent drives an app at a time, and Stop ends a round’s computer use for good', async () => {
-  await hub.take({ name: 'Notes', bundleId: 'com.apple.Notes' }, { colonyId: 'a', agent: 'nova' })
-  await expect(
-    hub.take({ name: 'Notes', bundleId: 'com.apple.Notes' }, { colonyId: 'b', agent: 'kai' }, 300),
-  ).rejects.toThrow('nova is using Notes')
-  // Another app is free meanwhile.
-  await hub.take({ name: 'Safari', bundleId: 'com.apple.Safari' }, { colonyId: 'b', agent: 'kai' }, 300)
-  hub.release('a')
-  await hub.take({ name: 'Notes', bundleId: 'com.apple.Notes' }, { colonyId: 'b', agent: 'kai' }, 300)
-  expect(hub.controls().map((c) => `${c.agent}:${c.app}`)).toEqual(['kai:Notes'])
+pendingOn('win32', 'cuaDriverOnWindows')(
+  'one agent drives an app at a time, and Stop ends a round’s computer use for good',
+  async () => {
+    await hub.take({ name: 'Notes', bundleId: 'com.apple.Notes' }, { colonyId: 'a', agent: 'nova' })
+    await expect(
+      hub.take({ name: 'Notes', bundleId: 'com.apple.Notes' }, { colonyId: 'b', agent: 'kai' }, 300),
+    ).rejects.toThrow('nova is using Notes')
+    // Another app is free meanwhile.
+    await hub.take({ name: 'Safari', bundleId: 'com.apple.Safari' }, { colonyId: 'b', agent: 'kai' }, 300)
+    hub.release('a')
+    await hub.take({ name: 'Notes', bundleId: 'com.apple.Notes' }, { colonyId: 'b', agent: 'kai' }, 300)
+    expect(hub.controls().map((c) => `${c.agent}:${c.app}`)).toEqual(['kai:Notes'])
 
-  let stopped = 0
-  hub.newRound('colony-test', () => stopped++)
-  const { host } = fakeHost()
-  await call(opener(host), { app: 'Messages' })
-  expect(hub.stopAll()).toBe(2)
-  expect(stopped).toBe(1)
-  expect(hub.controls()).toHaveLength(0)
-  expect(textOf(await call(generic(host), { action: 'screenshot' }))).toContain('stopped computer use')
-  hub.newRound('colony-test', () => {})
-  expect(hub.stopped('colony-test')).toBe(false)
-})
+    let stopped = 0
+    hub.newRound('colony-test', () => stopped++)
+    const { host } = fakeHost()
+    await call(opener(host), { app: 'Messages' })
+    expect(hub.stopAll()).toBe(2)
+    expect(stopped).toBe(1)
+    expect(hub.controls()).toHaveLength(0)
+    expect(textOf(await call(generic(host), { action: 'screenshot' }))).toContain('stopped computer use')
+    hub.newRound('colony-test', () => {})
+    expect(hub.stopped('colony-test')).toBe(false)
+  },
+)
 
-test('Stop also ends rounds waiting for an app or on its approval card: they never take it after', async () => {
-  const { host } = fakeHost()
-  await call(generic(host), { action: 'open_app', app: 'Notes' })
-  // Another round waits for Notes; a third sits on its card for Messages.
-  const waiter = fakeHost({ id: 'colony-waits' })
-  let answer: (approved: boolean) => void = () => {}
-  const card = fakeHost({ id: 'colony-card', decide: () => new Promise<boolean>((r) => (answer = r)) })
-  hub.newRound('colony-waits', () => {})
-  hub.newRound('colony-card', () => {})
-  const waiting = call(
-    computerTool('kai', waiter.host, () => mockModel),
-    { action: 'open_app', app: 'Notes' },
-  )
-  const carded = call(
-    computerTool('ivy', card.host, () => mockModel),
-    { action: 'open_app', app: 'Messages' },
-  )
-  for (let i = 0; i < 100 && card.cards.length === 0; i++) await Bun.sleep(20)
-  const started = Date.now()
-  expect(hub.stopAll()).toBe(3)
-  expect(textOf(await waiting)).toContain('stopped computer use')
-  expect(textOf(await carded)).toContain('stopped computer use')
-  expect(Date.now() - started).toBeLessThan(5_000)
-  // Allowed after Stop, the app is neither recorded nor taken.
-  answer(true)
-  await Bun.sleep(50)
-  expect(card.events.some((e) => e.type === 'computer/apps')).toBe(false)
-  expect(hub.controls()).toHaveLength(0)
-  expect(hub.stopped('colony-waits')).toBe(true)
-}, 40_000)
+pendingOn('win32', 'cuaDriverOnWindows')(
+  'Stop also ends rounds waiting for an app or on its approval card: they never take it after',
+  async () => {
+    const { host } = fakeHost()
+    await call(generic(host), { action: 'open_app', app: 'Notes' })
+    // Another round waits for Notes; a third sits on its card for Messages.
+    const waiter = fakeHost({ id: 'colony-waits' })
+    let answer: (approved: boolean) => void = () => {}
+    const card = fakeHost({ id: 'colony-card', decide: () => new Promise<boolean>((r) => (answer = r)) })
+    hub.newRound('colony-waits', () => {})
+    hub.newRound('colony-card', () => {})
+    const waiting = call(
+      computerTool('kai', waiter.host, () => mockModel),
+      { action: 'open_app', app: 'Notes' },
+    )
+    const carded = call(
+      computerTool('ivy', card.host, () => mockModel),
+      { action: 'open_app', app: 'Messages' },
+    )
+    for (let i = 0; i < 100 && card.cards.length === 0; i++) await Bun.sleep(20)
+    const started = Date.now()
+    expect(hub.stopAll()).toBe(3)
+    expect(textOf(await waiting)).toContain('stopped computer use')
+    expect(textOf(await carded)).toContain('stopped computer use')
+    expect(Date.now() - started).toBeLessThan(5_000)
+    // Allowed after Stop, the app is neither recorded nor taken.
+    answer(true)
+    await Bun.sleep(50)
+    expect(card.events.some((e) => e.type === 'computer/apps')).toBe(false)
+    expect(hub.controls()).toHaveLength(0)
+    expect(hub.stopped('colony-waits')).toBe(true)
+  },
+  40_000,
+)
 
 test('a wait Stop ended never takes the app, even once a new round of its chat has started', async () => {
   await hub.take({ name: 'Notes', bundleId: 'com.apple.Notes' }, { colonyId: 'a', agent: 'nova' })
@@ -378,30 +411,33 @@ test('a wait Stop ended never takes the app, even once a new round of its chat h
   expect(hub.controls()).toHaveLength(0)
 })
 
-test('a driver the person installed runs with a minimal environment, and the log says it is their own', async () => {
-  const lines: string[] = []
-  process.env.MYR_TEST_SECRET = 'leaked'
-  const theirs = new ComputerHub(home, {
-    mcp,
-    enabled: () => true,
-    paths: [join(home, 'bin', 'cua-driver')],
-    platform: 'darwin',
-    grants: () => grants,
-    log: (line) => lines.push(line),
-  })
-  try {
-    await theirs.ensure()
-    for (let i = 0; i < 100 && !lines.some((l) => l.includes('env ')); i++) await Bun.sleep(20)
-  } finally {
-    delete process.env.MYR_TEST_SECRET
-    await theirs.stop()
-  }
-  expect(theirs.driver()?.own).toBe(false)
-  const env = lines.find((l) => l.includes('env '))
-  expect(env).toContain('HOME')
-  expect(env).not.toContain('MYR_TEST_SECRET')
-  expect(lines.some((l) => l.includes('your own install'))).toBe(true)
-})
+pendingOn('win32', 'cuaDriverOnWindows')(
+  'a driver the person installed runs with a minimal environment, and the log says it is their own',
+  async () => {
+    const lines: string[] = []
+    process.env.MYR_TEST_SECRET = 'leaked'
+    const theirs = new ComputerHub(home, {
+      mcp,
+      enabled: () => true,
+      paths: [join(home, 'bin', 'cua-driver')],
+      platform: 'darwin',
+      grants: () => grants,
+      log: (line) => lines.push(line),
+    })
+    try {
+      await theirs.ensure()
+      for (let i = 0; i < 100 && !lines.some((l) => l.includes('env ')); i++) await Bun.sleep(20)
+    } finally {
+      delete process.env.MYR_TEST_SECRET
+      await theirs.stop()
+    }
+    expect(theirs.driver()?.own).toBe(false)
+    const env = lines.find((l) => l.includes('env '))
+    expect(env).toContain('HOME')
+    expect(env).not.toContain('MYR_TEST_SECRET')
+    expect(lines.some((l) => l.includes('your own install'))).toBe(true)
+  },
+)
 
 test('missing grants are explained once in the chat and stop the call; a channel member never gets the computer', async () => {
   grants = { accessibility: false, screenRecording: true }

@@ -1,12 +1,13 @@
 import { afterAll, expect, test } from 'bun:test'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { colonyId, newEventId, SqliteLogStore } from '@myrmidon/core'
 import { DELIVERED_VERIFIER, type EventId } from '@myrmidon/protocol'
+import { removeTempDir } from '../../../tests/platform.ts'
 
 const home = mkdtempSync(join(tmpdir(), 'myr-cli-events-'))
-afterAll(() => rmSync(home, { recursive: true, force: true }))
+afterAll(() => removeTempDir(home))
 
 /** Writes a finished colony whose completion cites `verdicts`, and prints it with `myrmidon events`. */
 async function printed(name: string, verdicts: { id: EventId; verifierId: string }[]) {

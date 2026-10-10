@@ -6,6 +6,7 @@ import { newColonyId, SqliteLogStore } from '@myrmidon/core'
 import { type ColonyState, type EventPayloads, foldColony, type MyrEvent } from '@myrmidon/protocol'
 import type { Context as LlmContext } from '@oh-my-pi/pi-ai'
 import { createMockModel, type MockContent } from '@oh-my-pi/pi-ai/providers/mock'
+import { removeTempDir } from '../../../tests/platform.ts'
 import {
   BrowserHub,
   bootRuntime,
@@ -35,7 +36,7 @@ const opened: { close(): Promise<void> }[] = []
 afterEach(async () => {
   for (const o of opened.splice(0)) await o.close().catch(() => {})
   await runtime.dispose()
-  rmSync(home, { recursive: true, force: true })
+  removeTempDir(home)
 })
 
 const tool = (name: string, args: Record<string, unknown>): MockContent => ({
