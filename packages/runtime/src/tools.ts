@@ -1056,14 +1056,15 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     parameters: type({}),
     async run(_args, _agent, host) {
       const s = host.state()
-      return Object.values(s.agents)
-        .map((a) => {
-          const task = Object.values(s.tasks).find(
-            (t) => t.owner === a.info.name && t.status === 'in_progress',
-          )
-          return `${a.info.name} (${a.info.role}) ${a.status}${task ? ` working on ${task.id}` : ''}`
-        })
-        .join('\n')
+      const here = Object.values(s.agents).map((a) => {
+        const task = Object.values(s.tasks).find((t) => t.owner === a.info.name && t.status === 'in_progress')
+        return `${a.info.name} (${a.info.role}) ${a.status}${task ? ` working on ${task.id}` : ''}`
+      })
+      // A solo lead's crewmates on call are crew too, before ask_crewmate brings them in.
+      const onCall = (host.spec.team?.crewmates ?? [])
+        .filter((c) => !s.agents[c.name])
+        .map((c) => `${c.name} (${c.specialty ?? 'crewmate'}) on call`)
+      return [...here, ...onCall].join('\n')
     },
   },
   {
