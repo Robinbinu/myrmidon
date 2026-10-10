@@ -13,6 +13,7 @@ export type StepKind =
   | 'talk'
   | 'signal'
   | 'think'
+  | 'advice'
   | 'computer'
   | 'computerSetup'
 
@@ -390,6 +391,18 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
           strong: p.model.split('/').pop() ?? p.model,
           tail: copy.steps.fellBackFrom(p.previous.split('/').pop()),
           detail: p.message,
+        })
+        break
+      }
+      case 'agent/advised': {
+        const p = e.payload as EventPayloads['agent/advised']
+        out.push({
+          ...base,
+          kind: 'advice',
+          agent: p.agent,
+          lead: copy.steps.advised,
+          tail: cut(p.note, 120),
+          detail: p.note,
         })
         break
       }

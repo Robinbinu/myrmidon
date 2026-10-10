@@ -24,6 +24,7 @@ import {
   FolderTree,
   Gavel,
   GitBranch,
+  Glasses,
   Globe,
   GraduationCap,
   Keyboard,
@@ -115,6 +116,8 @@ export const FEATURE_ICONS = {
   models: Cpu,
   /** Fallback models: the ones an agent goes on with when its own fails (Settings → Crew & budget, the round's line). */
   fallback: LifeBuoy,
+  /** The advisor: the model that watches agents' steps and sends one a note (Settings → Crew & budget, its notes). */
+  advisor: Glasses,
   /** Models removed from pickers, listed under Hidden models in Settings → Models to restore. */
   hiddenModels: EyeOff,
   /** Providers and their keys. */

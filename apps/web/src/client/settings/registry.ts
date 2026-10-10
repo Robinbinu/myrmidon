@@ -1007,6 +1007,15 @@ export const SETTINGS = {
     dependsOn: 'team.helpers',
     keys: ['team.mode', 'team.workerModel'],
   },
+  'team.advisorModel': {
+    page: 'team',
+    path: [s.team.advisorTitle],
+    control: 'button',
+    label: s.team.advisor,
+    help: s.team.advisorHint,
+    keywords: kw.advisor,
+    keys: ['team.advisorModel'],
+  },
   'team.leadFallbacks': {
     page: 'team',
     path: [s.team.fallbacksTitle],

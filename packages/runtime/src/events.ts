@@ -1,5 +1,6 @@
 import type SchemaType from '@deepseek-ai/schemastery'
 import { type EventLog, type EventTypeDefinition, Schema } from '@myrmidon/core'
+import { ADVICE_KINDS } from '@myrmidon/protocol'
 
 const str = () => Schema.string().required()
 const strs = () => Schema.array(Schema.string()).default([])
@@ -435,6 +436,17 @@ const defs: EventTypeDefinition[] = [
       previous: str(),
       kind: oneOf('refusal', 'error'),
       message: str(),
+    }),
+  },
+  {
+    type: 'agent/advised',
+    version: 1,
+    actors: ['system'],
+    schema: Schema.object({
+      agent: str(),
+      model: str(),
+      note: str(),
+      kind: Schema.union([...ADVICE_KINDS]),
     }),
   },
   {

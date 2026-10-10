@@ -279,16 +279,39 @@ export class ColonyAgent {
       this._quiet.splice(0, Math.max(0, this._quiet.length - QUIET_KEPT))
       return
     }
-    if (this.working) {
-      this._stamp = Math.max(Date.now(), this._stamp + 1)
-      const message = { role: 'user' as const, content: render([item]), timestamp: this._stamp }
-      this._unread.set(message.timestamp, item)
-      if (item.queue) this._agent.followUp(message)
-      else this._agent.steer(message)
-      return
-    }
+    if (this.working) return this._inject(item)
     this.inbox.push(item)
     this._wake?.()
+  }
+
+  /** Puts `item` before the working agent: read at its next step, or with `queue` once its current work is done. */
+  private _inject(item: InboxItem) {
+    this._stamp = Math.max(Date.now(), this._stamp + 1)
+    const message = { role: 'user' as const, content: render([item]), timestamp: this._stamp }
+    this._unread.set(message.timestamp, item)
+    if (item.queue) this._agent.followUp(message)
+    else this._agent.steer(message)
+  }
+
+  /**
+   * Shows a step that called tools to the round's advisor, which reviews it beside the agent's next model call; the
+   * agent never waits on it.
+   */
+  private _showAdvisor(toolResults: number) {
+    const advisor = this.host.advisor
+    if (!advisor || toolResults === 0 || this._stopped || this._endAfterStep) return
+    void advisor.stepEnded(this.spec, this._agent.state.messages, (note) => this._advised(note))
+  }
+
+  /**
+   * The advisor's note: read at the agent's next step while it works. Otherwise, or once it has signed off, it waits
+   * quietly for whatever wakes the agent next: advice alone is no reason to start a turn or reopen a finished one.
+   */
+  private _advised(note: string) {
+    if (this._stopped) return
+    const item: InboxItem = { text: prompts.advisor.note(note), trigger: 'advisor', quiet: true }
+    if (this.working && !this._endAfterStep) this._inject(item)
+    else this.notify(item)
   }
 
   stop() {
@@ -621,7 +644,8 @@ export class ColonyAgent {
     for (const m of left) {
       const item = this._unread.get(m.timestamp)
       this._unread.delete(m.timestamp)
-      if (item) this.inbox.push(item)
+      // A quiet one (the advisor's note) waits for the next wake rather than being one.
+      if (item) (item.quiet ? this._quiet : this.inbox).push(item)
     }
   }
 
@@ -689,6 +713,7 @@ export class ColonyAgent {
     }
     if (e.type === 'turn_end') {
       this.host.batchEnded(this.name)
+      this._showAdvisor(e.toolResults.length)
       return
     }
     if (e.type !== 'message_end' || e.message.role !== 'assistant') return
