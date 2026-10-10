@@ -1,5 +1,14 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync } from 'node:fs'
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { detectSandbox, fullAccessIn, unconfinedSandbox } from '../src/sandbox.ts'
@@ -82,6 +91,164 @@ test('a full-access command that runs too long is stopped, with what it started'
   await Bun.sleep(3_500)
   expect(existsSync(marker)).toBe(false)
 }, 20_000)
+
+test.skipIf(detectSandbox().kind === 'none')(
+  "a sandboxed command cannot connect to a socket in a hidden folder or another run's /tmp/myr-*, only its own",
+  async () => {
+    const hidden = join(root, 'h')
+    const own = join(root, 'w')
+    const tmp = realpathSync(mkdtempSync('/tmp/myr-sock-'))
+    mkdirSync(hidden)
+    mkdirSync(own)
+    const sockets = [join(hidden, 'd.sock'), join(tmp, 'd.sock'), join(own, 'd.sock')]
+    const servers = sockets.map((unix) =>
+      Bun.listen({
+        unix,
+        socket: {
+          open(s) {
+            s.write('hi')
+            s.end()
+          },
+          data() {},
+        },
+      }),
+    )
+    try {
+      const sandbox = detectSandbox()
+      // The client is bun itself, which every sandbox may run.
+      const connect = (path: string) =>
+        sandbox.run({
+          command: `"${process.execPath}" -e 'await Bun.connect({ unix: "${path}", socket: { data(_, d) { process.stdout.write(d); process.exit(0) }, close() { process.exit(0) } } })'`,
+          cwd: own,
+          writable: [own],
+          hidden: [hidden],
+          timeoutMs: 10_000,
+        })
+      expect((await connect(sockets[2] as string)).stdout).toBe('hi')
+      for (const path of sockets.slice(0, 2)) {
+        const r = await connect(path as string)
+        expect(r.stdout).not.toContain('hi')
+        expect(r.code).not.toBe(0)
+      }
+    } finally {
+      for (const s of servers) s.stop(true)
+      rmSync(tmp, { recursive: true, force: true })
+    }
+  },
+)
+
+test.skipIf(detectSandbox().kind !== 'sandbox-exec')(
+  "a sandboxed command cannot capture the screen or drive apps with Myrmidon's privacy grants",
+  async () => {
+    const shot = join(root, 'shot.png')
+    const run = (command: string) =>
+      detectSandbox().run({ command, cwd: root, writable: [root], timeoutMs: 20_000 })
+    await run(`/usr/sbin/screencapture -x "${shot}"`)
+    expect(existsSync(shot)).toBe(false)
+    const events = await run(
+      `osascript -e 'with timeout of 5 seconds' -e 'tell application "System Events" to count processes' -e 'end timeout'`,
+    )
+    expect(events.code).not.toBe(0)
+    // The clipboard is out of reach: the probe only counts what kinds of data it holds, never reads them.
+    const clipboard = await run(
+      `osascript -l JavaScript -e 'ObjC.import("AppKit"); var t = $.NSPasteboard.generalPasteboard.types; "types=" + (t ? t.count : "none")'`,
+    )
+    expect(clipboard.stdout.trim()).toBe('types=none')
+  },
+  30_000,
+)
+
+test.skipIf(detectSandbox().kind !== 'sandbox-exec')(
+  'a sandboxed command cannot have LaunchServices start an app it wrote, outside the sandbox',
+  async () => {
+    const scratch = join(root, 'scratch')
+    const outside = join(root, 'outside')
+    const app = join(scratch, 'Probe.app')
+    mkdirSync(join(app, 'Contents', 'MacOS'), { recursive: true })
+    mkdirSync(outside)
+    writeFileSync(
+      join(app, 'Contents', 'Info.plist'),
+      `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleExecutable</key><string>run</string>
+<key>CFBundleIdentifier</key><string>dev.myrmidon.test.probe-${Date.now()}</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>LSBackgroundOnly</key><true/>
+</dict></plist>`,
+    )
+    // Started by LaunchServices it would run unconfined, and could write where the command cannot.
+    writeFileSync(join(app, 'Contents', 'MacOS', 'run'), `#!/bin/sh\ntouch "${outside}/escaped"\n`)
+    chmodSync(join(app, 'Contents', 'MacOS', 'run'), 0o755)
+    try {
+      const r = await detectSandbox().run({
+        command: `open -g -j "${app}"`,
+        cwd: scratch,
+        writable: [scratch],
+        timeoutMs: 20_000,
+      })
+      expect(r.code).not.toBe(0)
+      await Bun.sleep(1_500)
+      expect(existsSync(join(outside, 'escaped'))).toBe(false)
+    } finally {
+      Bun.spawnSync([
+        '/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister',
+        '-u',
+        app,
+      ])
+    }
+  },
+  30_000,
+)
+
+test.skipIf(detectSandbox().kind === 'none')(
+  "outside the home, other disks, the shared folder, temp folders and other runs' /tmp/myr-* stay unreadable",
+  async () => {
+    const project = join(root, 'project')
+    const scratch = join(root, 'scratch')
+    const other = realpathSync(mkdtempSync('/tmp/myr-other-'))
+    mkdirSync(project)
+    mkdirSync(scratch)
+    // The test's own folder is in the temp folder (macOS) or is a /tmp/myr-* folder (Linux): outside its project.
+    writeFileSync(join(root, 'left.txt'), 'left behind')
+    writeFileSync(join(other, 'run.txt'), 'another run')
+    writeFileSync(join(project, 'package.json'), JSON.stringify({ scripts: { hi: 'echo hi' } }))
+    const run = (command: string) =>
+      detectSandbox().run({ command, cwd: project, writable: [project, scratch], timeoutMs: 20_000 })
+    try {
+      expect((await run(`cat "${join(root, 'left.txt')}"`)).code).not.toBe(0)
+      expect((await run(`cat "${join(other, 'run.txt')}"`)).code).not.toBe(0)
+      // A readable /tmp does not open them again.
+      const tmpOpen = await detectSandbox().run({
+        command: `cat "${join(other, 'run.txt')}"`,
+        cwd: project,
+        writable: [project, scratch],
+        readable: ['/tmp'],
+        timeoutMs: 20_000,
+      })
+      expect(tmpOpen.code).not.toBe(0)
+      for (const dir of ['/Volumes', '/Users/Shared'].filter(existsSync))
+        expect((await run(`ls "${dir}"`)).code).not.toBe(0)
+      // What toolchains and the command's own temp need still works.
+      const commands = [
+        `"${process.execPath}" --version`,
+        // bun looks for the project's root in the folders above it.
+        `"${process.execPath}" run --silent hi`,
+        'echo x > "$TMPDIR/t" && cat "$TMPDIR/t"',
+        ...(Bun.which('bun') ? ['bun --version'] : []),
+        ...(Bun.which('python3') ? ['python3 -c 1'] : []),
+        ...(Bun.which('git') ? ['git init -q && git status --short'] : []),
+      ]
+      for (const command of commands) {
+        const r = await run(command)
+        expect({ command, code: r.code, stderr: r.stderr }).toEqual({ command, code: 0, stderr: '' })
+      }
+    } finally {
+      rmSync(other, { recursive: true, force: true })
+    }
+  },
+  60_000,
+)
 
 test('full access never holds for a round someone else wrote into, nor in a read-only project', () => {
   const chat = (preset: 'auto' | 'read-only' | 'full') => ({

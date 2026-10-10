@@ -66,8 +66,9 @@ import { useScope } from './DeviceGate.tsx'
 import { SETTINGS_SAVED } from './mascot.ts'
 import { ChatPermissions } from './permissions/ChatPermissions.tsx'
 import { syncPluginUI } from './plugins.tsx'
-import { SECTIONS, type Section, Settings } from './Settings.tsx'
+import { Settings } from './Settings.tsx'
 import { SystemPage } from './System.tsx'
+import { SECTIONS, type Section, sectionFor } from './settings/pages.ts'
 import { SetupNudge } from './setup/Nudge.tsx'
 import { Setup } from './setup/Setup.tsx'
 import {
@@ -83,6 +84,7 @@ import {
 } from './setup/state.ts'
 import { useStatus } from './status.tsx'
 import { useImportedThemes } from './themes/imported.ts'
+import { Drawer } from './ui/Drawer.tsx'
 import { desktop } from './ui/desktop.ts'
 import { anyDialogOpen } from './ui/dialog.ts'
 import {
@@ -104,6 +106,7 @@ import { Sheet } from './ui/Sheet.tsx'
 import { ShortcutList } from './ui/ShortcutList.tsx'
 import { SplitDivider, useSplitWidth } from './ui/SplitDivider.tsx'
 import { comboLabel, pressShortcut } from './ui/shortcuts.ts'
+import { useSidebarPlacement } from './ui/sidebar-placement.ts'
 import { needsYou, runPhase } from './ui/status.ts'
 import { useToast, useToastHandle } from './ui/Toast.tsx'
 import { Toolbar, ToolbarTitle } from './ui/Toolbar.tsx'
@@ -299,9 +302,15 @@ function viewFromAddress(): View {
   return VIEWS.find((view) => view === v) ?? 'chat'
 }
 
-/** The Settings section an address names; Settings shows its first section for a name it doesn't know. */
+/**
+ * Whether the address opens Settings, and at which section: a page that moved is found under its old name too, and
+ * a name no page has opens General.
+ */
+function settingsInAddress(): boolean {
+  return !!new URLSearchParams(location.search).get(SETTINGS_PARAM)
+}
 function sectionFromAddress(): Section | undefined {
-  return (new URLSearchParams(location.search).get(SETTINGS_PARAM) as Section | null) ?? undefined
+  return sectionFor(new URLSearchParams(location.search).get(SETTINGS_PARAM))
 }
 
 export function App() {
@@ -325,7 +334,19 @@ export function App() {
   const [colonyModal, setColonyModal] = useState<string>()
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
-  const [settingsOpen, setSettingsOpen] = useState(() => !!sectionFromAddress())
+  const [settingsOpen, setSettingsOpen] = useState(settingsInAddress)
+  const placement = useSidebarPlacement({
+    collapsed,
+    setCollapsed,
+    place: `${view} ${activeChat ?? ''} ${settingsOpen}`,
+    // Leaving the drawer for a chat or a page: the message box if there is one, else the page's first control.
+    onAway: () =>
+      composer.current
+        ? composer.current.focus()
+        : document.querySelector<HTMLElement>('main button, main a[href], main input')?.focus(),
+  })
+  const sidebarBeside = placement.beside
+  const toggleSidebar = placement.toggle
   // Plugins' commands join the slash menu and their UI fills its slots; a plugin switched or edited shows up here.
   const [pluginList] = usePoll<{ plugins: PluginSummary[] }>('/api/plugins', { plugins: [] }, 4000)
   useEffect(() => {
@@ -713,8 +734,8 @@ export function App() {
   openSettingsRef.current = openSettings
   useEffect(() => {
     const open = (e: Event) => {
-      const section = (e as CustomEvent<unknown>).detail
-      if (SECTIONS.some((s) => s.id === section)) openSettingsRef.current(section as Section)
+      const section = sectionFor(String((e as CustomEvent<unknown>).detail))
+      if (section) openSettingsRef.current(section)
     }
     window.addEventListener(OPEN_SETTINGS_EVENT, open)
     return () => window.removeEventListener(OPEN_SETTINGS_EVENT, open)
@@ -738,17 +759,19 @@ export function App() {
   const newTask = useCallback(
     (project?: string) =>
       leaveSettings(() => {
+        placement.away()
         setNewProject(project)
         setActiveChat(undefined)
         setView('chat')
         setSettingsOpen(false)
         requestAnimationFrame(() => composer.current?.focus())
       }),
-    [setActiveChat, leaveSettings],
+    [setActiveChat, leaveSettings, placement.away],
   )
 
   const openChat = (id: string) =>
     leaveSettings(() => {
+      placement.away()
       setActiveChat(id)
       setView('chat')
       setSettingsOpen(false)
@@ -781,7 +804,7 @@ export function App() {
     // With a sheet or menu open, ⌘. closes it instead (ui/dialog.ts).
     { combo: 'mod+.', run: () => !anyDialogOpen() && running && stop(), inInputs: true },
     { combo: '/', run: () => composer.current?.focus() },
-    { combo: 'mod+b', run: () => setCollapsed(!collapsed), inInputs: true },
+    { combo: 'mod+b', run: toggleSidebar, inInputs: true },
     // Only while a delete can be taken back, so ⌘Z is otherwise left alone.
     ...(deletes.undoLast ? [{ combo: UNDO_DELETE_COMBO, run: deletes.undoLast }] : []),
     {
@@ -1053,7 +1076,7 @@ export function App() {
       }
       onSettings={() => (fullAccess ? setSettingsOpen(true) : toast(copy.app.chatsOnly, 'info'))}
       onGateways={() => leaveSettings(() => openSettings('gateways'))}
-      onCollapse={() => setCollapsed(true)}
+      onCollapse={() => (placement.docked ? setCollapsed(true) : placement.close())}
     />
   )
 
@@ -1107,7 +1130,7 @@ export function App() {
         label: a.toggleSidebar,
         icon: <PanelLeft className={icon} />,
         combo: 'mod+b',
-        run: () => setCollapsed(!collapsed),
+        run: toggleSidebar,
       },
       {
         id: 'workspace',
@@ -1302,7 +1325,7 @@ export function App() {
               </button>
             )}
             <AnimatePresence initial={false}>
-              {!collapsed && (
+              {sidebarBeside && (
                 <motion.div
                   key="sidebar"
                   initial={{ width: 0, opacity: 0 }}
@@ -1315,7 +1338,16 @@ export function App() {
                 </motion.div>
               )}
             </AnimatePresence>
-            {!collapsed && <SplitDivider split={sidebarSplit} side="left" label={copy.app.resizeSidebar} />}
+            {sidebarBeside && (
+              <SplitDivider split={sidebarSplit} side="left" label={copy.app.resizeSidebar} />
+            )}
+            <AnimatePresence>
+              {placement.drawer && (
+                <Drawer label={copy.sidebar.label} width={sidebarSplit.width} onClose={placement.close}>
+                  {sidebar}
+                </Drawer>
+              )}
+            </AnimatePresence>
 
             <main className="flex min-w-0 flex-1 flex-col bg-surface">
               {settingsOpen ? (
@@ -1339,17 +1371,17 @@ export function App() {
                 />
               ) : (
                 <>
-                  <Toolbar inset={collapsed}>
-                    {collapsed && (
+                  <Toolbar inset={!sidebarBeside}>
+                    {!sidebarBeside && (
                       <IconButton
                         label={copy.app.showSidebar}
                         title={copy.app.showSidebarTitle(comboLabel('mod+b', isMac))}
-                        onClick={() => setCollapsed(false)}
+                        onClick={toggleSidebar}
                       >
                         <PanelLeft className="size-4" />
                       </IconButton>
                     )}
-                    {collapsed && (
+                    {!sidebarBeside && (
                       <IconButton
                         label={copy.app.newTask}
                         title={copy.app.newTaskTitle(comboLabel('mod+n', isMac))}

@@ -67,7 +67,9 @@
      white bezel, like Apple hardware on a light page, instead of a bare black slab. */
   --screen: #0b0b0d;
   --screen-cell: rgb(255 255 255 / 0.055);
-  --screen-ink: rgb(255 255 255 / 0.5);
+  /* The screen's caption and readout: a dim LED grey, opaque so its contrast on the screen (over 4.5:1) is what every
+     checker measures, not a guess at what a translucent white blends to. */
+  --screen-ink: #88888b;
   --screen-edge: rgb(255 255 255 / 0.06);
   --screen-frame:
     0 0 0 9px #fbfbfd, 0 0 0 10px rgb(0 0 0 / 0.09), 0 1px 0 10px rgb(255 255 255 / 0.9),
@@ -108,6 +110,26 @@
   --terminal-muted: #7a7a86;
   --terminal-error: #ff8a8a;
   --shell-log-bg: #0b0f17;
+  /* The person's own terminals (the workspace's Terminal view), which draw on the content surface: the 16 ANSI
+     colours programs print in, and the selection. On white the brights are darkened, as light terminal themes do, so
+     each reads at 4.5:1 (tests/contrast.test.ts); "white" and "bright white" become greys for the same reason. */
+  --term-black: #1d1d1f;
+  --term-red: #c4231f;
+  --term-green: #1a7f37;
+  --term-yellow: #8a5d00;
+  --term-blue: #0a5bd0;
+  --term-magenta: #a3268f;
+  --term-cyan: #0b7285;
+  --term-white: #6e6e73;
+  --term-bright-black: #57575d;
+  --term-bright-red: #cf222e;
+  --term-bright-green: #17803a;
+  --term-bright-yellow: #8f6400;
+  --term-bright-blue: #0550ae;
+  --term-bright-magenta: #8250df;
+  --term-bright-cyan: #0a7a8f;
+  --term-bright-white: #3a3a3f;
+  --term-selection: rgb(10 91 208 / 0.2);
   --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.05);
   --shadow-md: 0 1px 2px rgb(0 0 0 / 0.04), 0 8px 24px -6px rgb(0 0 0 / 0.1);
   --shadow-lg: 0 2px 6px rgb(0 0 0 / 0.05), 0 28px 64px -12px rgb(0 0 0 / 0.24);
@@ -174,9 +196,26 @@
     --code-bg: #0c0c0f;
     --add: #0f2a1d;
     --del: #351719;
+    /* "Black" is a grey here, so text a program prints in it still reads on the dark background. */
+    --term-black: #80808b;
+    --term-red: #ff6b6b;
+    --term-green: #5fd38d;
+    --term-yellow: #e5c07b;
+    --term-blue: #61afef;
+    --term-magenta: #c678dd;
+    --term-cyan: #56b6c2;
+    --term-white: #d7d7de;
+    --term-bright-black: #9a9aa5;
+    --term-bright-red: #ff8f8f;
+    --term-bright-green: #7ee2a8;
+    --term-bright-yellow: #f2d58a;
+    --term-bright-blue: #8cc4ff;
+    --term-bright-magenta: #dba2ee;
+    --term-bright-cyan: #86d7e0;
+    --term-bright-white: #ffffff;
+    --term-selection: rgb(140 196 255 / 0.3);
     --screen: #050506;
     --screen-cell: rgb(255 255 255 / 0.05);
-    --screen-ink: rgb(255 255 255 / 0.5);
     --screen-edge: rgb(255 255 255 / 0.06);
     --screen-frame: 0 0 0 1px rgb(255 255 255 / 0.06), 0 30px 70px -10px rgb(0 0 0 / 0.75);
     --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.5);

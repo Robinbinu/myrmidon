@@ -73,7 +73,7 @@ export function rankPalette(items: readonly PaletteItem[], rawQuery: string): Pa
 export function CommandPalette(props: { items: readonly PaletteItem[]; onClose(): void }) {
   const box = useRef<HTMLDivElement>(null)
   const list = useRef<HTMLDivElement>(null)
-  useDialog(box, props.onClose)
+  useDialog(box, props.onClose, { covers: true })
   const id = useId()
   const [query, setQuery] = useState('')
   const results = useMemo(() => rankPalette(props.items, query), [props.items, query])

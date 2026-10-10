@@ -413,20 +413,27 @@ export function PixelFace(props: {
   playId?: string | number
   /** A clip that does not loop has shown its last frame. */
   onClipEnd?: () => void
+  /** Holds the face still where it is (blinks, glances, a clip's frames) while nobody can see it. */
+  paused?: boolean
 }) {
   const cols = props.cols ?? 9
   const rows = props.rows ?? 7
   const cell = props.cell ?? 4
   const gap = props.gap ?? Math.max(1, Math.round(cell * 0.28))
   const reduce = useReducedMotionConfig()
+  const paused = props.paused ?? false
   const [frame, setFrame] = useState(0)
   const [blinking, setBlinking] = useState(false)
   const [glance, setGlance] = useState<readonly [number, number]>([0, 0])
   const following = props.look !== undefined
 
-  // Idle faces glance around now and then, so the screen never looks frozen.
+  // Idle faces glance around now and then, so the screen never looks frozen; held still, they keep their glance.
   useEffect(() => {
-    if (reduce || following || (props.mood !== 'idle' && props.mood !== 'waiting')) return
+    if (reduce || following || (props.mood !== 'idle' && props.mood !== 'waiting')) {
+      setGlance((g) => (g[0] === 0 && g[1] === 0 ? g : [0, 0]))
+      return
+    }
+    if (paused) return
     const spots = [
       [0, 0],
       [0, 0],
@@ -447,21 +454,19 @@ export function PixelFace(props: {
       )
     }
     next()
-    return () => {
-      clearTimeout(timer)
-      setGlance([0, 0])
-    }
-  }, [props.mood, reduce, following])
+    return () => clearTimeout(timer)
+  }, [props.mood, reduce, following, paused])
 
   useEffect(() => {
     const ms = TICK[props.mood]
-    if (!ms || reduce) return
+    if (!ms || reduce || paused) return
     const t = setInterval(() => setFrame((f) => f + 1), ms)
     return () => clearInterval(t)
-  }, [props.mood, reduce])
+  }, [props.mood, reduce, paused])
 
   useEffect(() => {
-    if (reduce || !['idle', 'listening', 'thinking', 'working', 'waiting'].includes(props.mood)) return
+    if (reduce || paused || !['idle', 'listening', 'thinking', 'working', 'waiting'].includes(props.mood))
+      return
     let timer: ReturnType<typeof setTimeout>
     const schedule = () => {
       timer = setTimeout(
@@ -476,8 +481,11 @@ export function PixelFace(props: {
       )
     }
     schedule()
-    return () => clearTimeout(timer)
-  }, [props.mood, reduce])
+    return () => {
+      clearTimeout(timer)
+      setBlinking(false)
+    }
+  }, [props.mood, reduce, paused])
 
   // The cursor shows at once on every change, then blinks while the text stays put.
   const [cursorOn, setCursorOn] = useState(true)
@@ -485,12 +493,18 @@ export function PixelFace(props: {
   // biome-ignore lint/correctness/useExhaustiveDependencies: a new text restarts the blink
   useEffect(() => {
     setCursorOn(true)
-    if (!spelling || reduce) return
+    if (!spelling || reduce || paused) return
     const t = setInterval(() => setCursorOn((on) => !on), MASCOT_TYPING.blinkMs)
     return () => clearInterval(t)
-  }, [props.text, spelling, reduce])
+  }, [props.text, spelling, reduce, paused])
 
-  const shown = useClip(props.clip, props.playId ?? props.clip?.name, reduce ?? false, props.onClipEnd)
+  const shown = useClip(
+    props.clip,
+    props.playId ?? props.clip?.name,
+    reduce ?? false,
+    props.onClipEnd,
+    paused,
+  )
   const lookX = props.look?.[0] ?? glance[0]
   const lookY = props.look?.[1] ?? glance[1]
   // Each lit cell's fill: the face's colour, a dot's own colour, or a dot's level of the face's colour.
@@ -582,6 +596,9 @@ export function PixelFace(props: {
         ...(halo
           ? {
               filter: `drop-shadow(0 0 ${Math.min(cell * halo.blur, halo.maxPx)}px color-mix(in srgb, ${props.color} ${halo.mix}%, transparent))`,
+              // Its own compositor layer, which applies the glow to the cells as drawn: a cell changing redraws only
+              // the cells, not the blur and the page under it with them.
+              willChange: 'filter',
             }
           : {}),
       }}

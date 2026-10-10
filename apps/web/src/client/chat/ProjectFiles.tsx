@@ -3,6 +3,7 @@ import { AnimatePresence } from 'motion/react'
 import { createContext, type ReactNode, useContext, useEffect, useState } from 'react'
 import { api } from '../api.ts'
 import { copy } from '../copy.ts'
+import { useScope } from '../DeviceGate.tsx'
 import { useCopy } from '../ui/hooks.ts'
 import { Button, Skeleton } from '../ui/primitives.tsx'
 import { Sheet } from '../ui/Sheet.tsx'
@@ -10,7 +11,10 @@ import { CodeLines } from './ArtifactViewer.tsx'
 
 const OpenFile = createContext<((path: string) => void) | undefined>(undefined)
 
-/** Opens a file of the chat's project folder; undefined outside a project chat, where there is no folder to open. */
+/**
+ * Opens a file of the chat's project folder; undefined outside a project chat, where there is no folder to open, and
+ * on a chats-only device, which the server does not let browse the folder.
+ */
 export const useOpenProjectFile = () => useContext(OpenFile)
 
 /**
@@ -22,8 +26,9 @@ export function ProjectFiles(props: {
   children: ReactNode
 }) {
   const [path, setPath] = useState<string>()
+  const full = useScope() === 'full'
   const { project } = props
-  if (!project) return props.children
+  if (!project || !full) return props.children
   return (
     <OpenFile.Provider value={setPath}>
       {props.children}

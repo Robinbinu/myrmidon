@@ -2,9 +2,11 @@ import { ExternalLink, Plus } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { api, send } from '../api.ts'
 import { copy } from '../copy.ts'
+import { settingItem, settingRow } from '../settings/Setting.tsx'
 import { baseUrlError, providerNameError } from '../settings-forms.ts'
 import { ConfirmButton } from '../ui/ConfirmButton.tsx'
 import { FEATURE_ICONS } from '../ui/icons.ts'
+import { ProviderLogo } from '../ui/ProviderGlyph.tsx'
 import { Badge, Button, Card, Dot, Field, SectionHeader, TextInput } from '../ui/primitives.tsx'
 import { useToast } from '../ui/Toast.tsx'
 import { plainHttp, type VoiceEndpointView, type VoiceProviderView } from './providers.ts'
@@ -49,7 +51,7 @@ export function VoiceProviders(props: { focus?: boolean }) {
   if (!data) return null
   const ready = data.providers.filter((p) => p.configured).length
   return (
-    <div ref={top} id="voice-providers" className="mt-10 scroll-mt-6">
+    <div ref={top} id="voice-providers" {...settingRow('voiceProviders.list')} className="mt-10 scroll-mt-6">
       <SectionHeader
         icon={<FEATURE_ICONS.voiceProviders className="size-4 text-muted" />}
         title={t.heading}
@@ -77,29 +79,35 @@ export function VoiceProviders(props: { focus?: boolean }) {
         ))}
       </Card>
 
-      <div className="mt-8 flex items-center justify-between">
-        <SectionHeader title={t.endpoints.heading} />
-        {!adding && (
-          <Button size="sm" onClick={() => setAdding(true)} icon={<Plus className="size-3.5" />}>
-            {t.endpoints.add}
-          </Button>
+      <div {...settingRow('voiceProviders.endpoints')}>
+        <div className="mt-8 flex items-center justify-between">
+          <SectionHeader title={t.endpoints.heading} />
+          {!adding && (
+            <Button size="sm" onClick={() => setAdding(true)} icon={<Plus className="size-3.5" />}>
+              {t.endpoints.add}
+            </Button>
+          )}
+        </div>
+        <p className="mb-3 mt-1 text-callout text-muted">{t.endpoints.note}</p>
+        {adding && (
+          <EndpointForm
+            existing={data.endpoints.map((e) => e.id)}
+            onCancel={() => setAdding(false)}
+            onSave={async (body) => {
+              if (await act(send('POST', '/api/voice/endpoints', body), t.endpoints.added(body.id)))
+                setAdding(false)
+            }}
+          />
         )}
       </div>
-      <p className="mb-3 mt-1 text-callout text-muted">{t.endpoints.note}</p>
-      {adding && (
-        <EndpointForm
-          existing={data.endpoints.map((e) => e.id)}
-          onCancel={() => setAdding(false)}
-          onSave={async (body) => {
-            if (await act(send('POST', '/api/voice/endpoints', body), t.endpoints.added(body.id)))
-              setAdding(false)
-          }}
-        />
-      )}
       {data.endpoints.length > 0 && (
         <Card>
           {data.endpoints.map((e) => (
-            <div key={e.id} className="flex items-center gap-3 px-4 py-2.5">
+            <div
+              key={e.id}
+              {...settingItem('voiceProviders.endpoint', e)}
+              className="flex items-center gap-3 px-4 py-2.5"
+            >
               <Dot status="ready" />
               <div className="min-w-0 flex-1">
                 <span className="font-mono text-body">{e.id}</span>
@@ -143,9 +151,10 @@ function ProviderRow(props: {
   ].filter((x): x is string => !!x)
   const needsRegion = !!p.region?.required && !p.region.value && !p.region.default
   return (
-    <div className="px-4 py-2.5" data-voice-provider={p.id}>
+    <div className="px-4 py-2.5" data-voice-provider={p.id} {...settingItem('voiceProviders.provider', p)}>
       <div className="flex items-center gap-3">
         <Dot status={p.configured ? 'ready' : 'idle'} />
+        <ProviderLogo provider={p.id} size={16} className="shrink-0" />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="text-body font-medium">{p.label}</span>

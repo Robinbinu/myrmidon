@@ -55,6 +55,11 @@ export const TOOLBAR_FOLD_SLACK_PX = 24
  * it opens only when asked for, never by itself because a chat has files.
  */
 export const WORKSPACE_DOCK_PX = 1280
+/**
+ * How long the Browser view waits after the panel stops changing size before the page is laid out again at the new
+ * size: each relayout restarts the page's stream, so dragging the divider should not cause dozens.
+ */
+export const BROWSER_RESIZE_MS = 150
 
 /* ------------------------------------------------------------------ command menu */
 
@@ -68,6 +73,12 @@ export const PALETTE_LIMITS = {
 
 /** How long typing in the chat search pauses before the server searches what was said; titles match at once. */
 export const MESSAGE_SEARCH_DELAY_MS = 200
+
+/**
+ * From this window width the sidebar sits beside the content; below it, it slides over the content when asked for
+ * (⌘B, the sidebar button), since next to it the page would be left too narrow to read.
+ */
+export const SIDEBAR_DOCK_PX = 720
 
 /* ------------------------------------------------------------------ scrolling */
 
@@ -120,8 +131,10 @@ export const AGENT_DOZE_MS = 15_000
 export const MASCOT_PAT_MS = 700
 /** The mascot sleeps after this long without the pointer moving. */
 export const MASCOT_DOZE_MS = 45_000
-/** The user's own pointer outranks the crew's for this long after it moves. */
+/** The user's own pointer outranks the crew's for this long after it moves (or they type). */
 export const MASCOT_USER_FOCUS_MS = 2500
+/** How far the pointer is from the mascot's centre, in px, for its eyes to look one cell that way. */
+export const MASCOT_GAZE_PX = { x: 110, y: 90 } as const
 /** The new-chat mascot spelling out what the person types in its own screen cells, with a blinking cursor bar. */
 export const MASCOT_TYPING = {
   /** This long without typing, its eyes come back (at once when the box is cleared). */
@@ -138,6 +151,8 @@ export const MASCOT_TYPING = {
  * box and the starters below the fold, and they matter more.
  */
 export const HERO_MASCOT_MIN_HEIGHT = 760
+/** The new-chat mascot's crew cursors show beside windows at least this wide (Tailwind's `lg`), and are not there in narrower ones. */
+export const HERO_CREW_MIN_WIDTH = 1024
 /** How many of the latest chats the new-chat view lists under its starters. */
 export const HERO_RECENT_CHATS = 5
 
@@ -287,8 +302,11 @@ export const MASCOT_CREW = {
   gain: 6,
   /** Arrival slows down within this distance of where it is going. */
   slowRadius: 140,
-  /** The wander circle: how far ahead, how big, and how fast its point drifts (radians/s at a jitter of 1). */
-  wander: { distance: 60, radius: 34, jitter: 5 },
+  /**
+   * The wander circle: how far ahead, how big, and how fast its point drifts (radians per √s at a jitter of 1: a
+   * random walk, so the same at any frame rate).
+   */
+  wander: { distance: 60, radius: 34, jitter: 0.65 },
   /** Cursors closer than this push each other away. */
   separationRadius: 110,
   /** How strongly each behaviour counts when they are added up. */
@@ -303,6 +321,30 @@ export const MASCOT_CREW = {
   edge: 24,
   tagRoom: 90,
   floorPad: 56,
+  /** Where each starts, px out from the screen's side; the crew stands in rows down this share of the screen's height. */
+  startOut: [90, 190],
+  rowSpread: 1.2,
+  /**
+   * Roaming spots: px out from the screen's side, and how high, as a share of the screen's half height (negative is
+   * up); of a few spots tried, the one furthest from where the others are headed.
+   */
+  roamOut: [50, 220],
+  roamRise: [-0.9, 0.7],
+  roamTries: 6,
+  /** How far from the screen's edge it waits while the mascot is happy, and creeps up to while it sleeps. */
+  gatherGap: 44,
+  sneakGap: 8,
+  /** Close enough, in px: to a roaming spot, to where a poke lands (moving slower than `pokeLandSpeed`), back on its feet. */
+  arrivedPx: 24,
+  pokeArrivedPx: 4,
+  pokeLandSpeed: 40,
+  risenPx: 20,
+  /** The chance a new roaming spot catches the mascot's eye. */
+  watchChance: 0.5,
+  /** Where on the screen a poke lands, at most this share of its half width and half height from the centre. */
+  pokeReach: [0.55, 0.45],
+  /** Scattering and lying dazed last this many times as long with no nerve, less the second number with full nerve. */
+  timid: [1.4, 0.8],
   /** How long it stays around one spot while roaming. */
   roamMs: [2800, 7000],
   /** Chance per second it flies over to poke the mascot, at full curiosity; the click and the pause after it. */
@@ -332,6 +374,20 @@ export const MASCOT_CREW = {
   /** How quickly the arrow turns to point where it goes (per second), and the speed at which it points fully along it. */
   turnRate: 9,
   fullTurnSpeed: 900,
+  /**
+   * With nobody about for `settleMs` (no pointer moving, no typing), the crew stops looking for things to do: each
+   * finishes what it is at and stands still, and once all are slower than `settledSpeed` (px/s) their physics stops
+   * until someone is back, so an untouched screen costs nothing.
+   */
+  settleMs: 15_000,
+  settledSpeed: 3,
+  /** The longest step the physics takes, so the first frame after a pause does not fling anyone off. */
+  maxStepS: 0.05,
+  /** Sizes to steer by before the page has been measured (and in a page with no layout). */
+  fallback: {
+    face: { hw: 225, hh: 160 },
+    bounds: { left: -640, right: 640, top: -320, bottom: 420 },
+  },
 } as const
 
 /** How bold the crew is: the range their curiosity (how often they poke) and nerve are drawn from. */
@@ -380,6 +436,33 @@ export const GATEWAY_POLL_MS = 30_000
  */
 export const SETTINGS_NAV_COLLAPSE_PX = 1100
 
+/** Focuses Settings' search field while Settings is open; ⌘K stays the app's command menu everywhere. */
+export const SETTINGS_SEARCH_COMBO = 'mod+f'
+
+/** Settings search: how it ranks, how many results it lists, and how a chosen setting is found and shown. */
+export const SETTINGS_SEARCH = {
+  /** Results listed at most; the best come first. */
+  limit: 40,
+  /** A query word this long or longer may be misspelt by one letter (two from `twoTyposFrom`). */
+  oneTypoFrom: 4,
+  twoTyposFrom: 8,
+  /**
+   * How long a chosen setting's row is looked for while its page loads its data, and how often; once the row it is
+   * under is on screen, only `fallbackMs` before that row is shown instead.
+   */
+  findMs: 2500,
+  fallbackMs: 700,
+  findEveryMs: 50,
+  /** How long the row it jumped to stays highlighted (matches the setting-found animation in styles.css). */
+  highlightMs: 1800,
+} as const
+
+/**
+ * Walking a preset choice with the arrow keys saves the one it rests on after this long (or at once on Space, Enter,
+ * or leaving the choices), not each preset passed on the way.
+ */
+export const PRESET_SETTLE_MS = 700
+
 /**
  * A two-step remove ignores its second step for this long after the first, so a double-click or a held Enter that
  * arms it cannot also confirm it.
@@ -410,9 +493,15 @@ export const ATTACH_THUMB_PX = 64
  * the content on the rest, travelling between the two on `travel`.
  */
 export const SETUP_MASCOT = {
-  /** Its screen's width, in px, in each place; beside the content in a window narrower than `narrowBelow`, smaller. */
-  width: { center: 340, side: 220, narrowSide: 150 },
+  /**
+   * Its screen's width, in px, in each place; beside the content on a stage narrower than `narrowBelow`, smaller. On a
+   * stage narrower than `stackBelow` there is no room beside the content: it sits above it instead (`stacked`), the
+   * content takes the stage's whole width, and both keep `stackEdge` from the sides.
+   */
+  width: { center: 340, side: 220, narrowSide: 150, stacked: 120 },
   narrowBelow: 860,
+  stackBelow: 768,
+  stackEdge: 16,
   /** On a stage shorter than this, it sits smaller in the centre place too. */
   shortBelow: 700,
   shortScale: 0.66,
@@ -423,6 +512,11 @@ export const SETUP_MASCOT = {
   contentMax: 640,
   gap: 48,
   edge: 32,
+  /**
+   * Beside the content, the content (and the mascot level with it) starts this far down the stage on every screen, so
+   * moving from one step to the next does not move the heading, or Back and Continue, up or down with its length.
+   */
+  sideTop: 64,
   /** Its dot screen's lettering, in px per dot, and the most letters it shows. */
   dot: 2.4,
   screenChars: 12,
@@ -481,6 +575,33 @@ export const APPROVAL_MENU_ROOM_PX = 340
 /** How tall the rules table grows before it scrolls. */
 export const RULES_LIST_MAX_PX = 420
 
+// The person's terminals (chat/TerminalPanel.tsx)
+
+/** Terminals one project (or home) may hold open at once; the server allows a few more across all of them. */
+export const MAX_TERMINAL_TABS = 6
+/** Line counts the ⋯ menu offers for how far back each terminal can scroll; every terminal stays in memory. */
+export const TERMINAL_SCROLLBACK_CHOICES = [1_000, 5_000, 10_000] as const
+/** The longest name a shell or program can give its tab. */
+export const MAX_TERMINAL_LABEL = 64
+/** How a terminal looks until the person picks otherwise in its ⋯ menu (Claude Code's defaults). */
+export const TERMINAL_DEFAULTS = {
+  cursorStyle: 'block',
+  cursorBlink: true,
+  copyOnSelect: false,
+  scrollback: 10_000,
+} as const
+/**
+ * Terminal shortcuts, answered while focus is in the Terminal view. ⌘T opens one on a Mac as in Terminal and iTerm;
+ * elsewhere Ctrl+Shift+T, since Ctrl+T is the shell's own (it swaps two letters). ⌃⇥ and ⌃⇧⇥ step between them, as
+ * terminal and browser tabs do (⇧⌘[ and ⇧⌘] already step between chats).
+ */
+export const TERMINAL_COMBOS = {
+  newMac: 'mod+t',
+  new: 'ctrl+shift+t',
+  next: 'ctrl+tab',
+  previous: 'ctrl+shift+tab',
+} as const
+
 // Suggestions in the composer (chat/suggest.ts)
 
 /** Characters typed before one of the person's past messages is offered back. */
@@ -495,3 +616,5 @@ export const SUGGEST_MAX_CHARS = 80
 export const SUGGEST_MODEL_DEBOUNCE_MS = 120
 /** How often settings checks on the model's download while it runs. */
 export const SUGGEST_MODEL_POLL_MS = 1_000
+/** About how big the next-word model's download is, for Settings search's text; the row shows the server's figure. */
+export const SUGGEST_MODEL_MB = 15

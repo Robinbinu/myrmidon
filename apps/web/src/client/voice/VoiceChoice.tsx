@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api.ts'
 import { copy } from '../copy.ts'
+import { SettingField, settingRow } from '../settings/Setting.tsx'
 import { FEATURE_ICONS } from '../ui/icons.ts'
-import { Button, Card, CardRow, Field, Segmented, Select, TextInput } from '../ui/primitives.tsx'
+import { Button, Card, Segmented, Select, TextInput } from '../ui/primitives.tsx'
 import {
   type EngineGroup,
   engineGroups,
@@ -26,6 +27,7 @@ type Patch<V> = (patch: (voice: V) => V) => void
 export function AddVoiceProvider(props: { onClick(): void }) {
   return (
     <Button
+      {...settingRow('voice.addProvider')}
       size="sm"
       variant="borderless"
       icon={<FEATURE_ICONS.voiceProviders className="size-3.5" />}
@@ -42,19 +44,17 @@ export function CallModeRow<V extends VoiceChoiceSettings>(props: { voice: V; se
   const t = copy.settings.voice
   const mode = props.voice.mode ?? 'pipeline'
   return (
-    <CardRow>
-      <Field label={t.mode} hint={t.modeHints[mode]}>
-        <Segmented
-          id="call-mode"
-          value={mode}
-          options={[
-            { value: 'pipeline', label: t.modes.pipeline },
-            { value: 'realtime', label: t.modes.realtime },
-          ]}
-          onChange={(m) => props.set((v) => ({ ...v, mode: m }))}
-        />
-      </Field>
-    </CardRow>
+    <SettingField id="voice.mode" hint={t.modeHints[mode]}>
+      <Segmented
+        id="call-mode"
+        value={mode}
+        options={[
+          { value: 'pipeline', label: t.modes.pipeline },
+          { value: 'realtime', label: t.modes.realtime },
+        ]}
+        onChange={(m) => props.set((v) => ({ ...v, mode: m }))}
+      />
+    </SettingField>
   )
 }
 
@@ -101,7 +101,7 @@ export function EnginePicker<V extends VoiceChoiceSettings>(props: {
   const current = props.voice[props.kind].provider
   const label = props.kind === 'stt' ? t.sttTitle : t.ttsTitle
   return (
-    <Field label={t.engineLabel} hint={props.hint}>
+    <SettingField id={props.kind === 'stt' ? 'voice.stt.engine' : 'voice.tts.engine'} hint={props.hint}>
       <EngineSelect
         label={label}
         value={current}
@@ -114,7 +114,7 @@ export function EnginePicker<V extends VoiceChoiceSettings>(props: {
           )
         }
       />
-    </Field>
+    </SettingField>
   )
 }
 
@@ -208,31 +208,30 @@ export function CloudRows<V extends VoiceChoiceSettings>(props: {
   if (choice.provider.startsWith('endpoint:'))
     return (
       <>
-        <CardRow>
-          <Field label={t.endpointModel} inline>
-            <TextInput
-              defaultValue={choice.model ?? ''}
-              placeholder={props.kind === 'stt' ? 'whisper-1' : 'tts-1'}
-              onBlur={(e) => setModel(e.target.value.trim() || undefined)}
-              aria-label={t.endpointModel}
-              className="font-mono"
-            />
-          </Field>
-        </CardRow>
+        <SettingField
+          id={props.kind === 'stt' ? 'voice.stt.endpointModel' : 'voice.tts.endpointModel'}
+          inline
+        >
+          <TextInput
+            defaultValue={choice.model ?? ''}
+            placeholder={props.kind === 'stt' ? 'whisper-1' : 'tts-1'}
+            onBlur={(e) => setModel(e.target.value.trim() || undefined)}
+            aria-label={t.endpointModel}
+            className="font-mono"
+          />
+        </SettingField>
         {props.kind === 'tts' && (
-          <CardRow>
-            <Field label={t.endpointVoice} inline>
-              <TextInput
-                defaultValue={props.voice.tts.voiceId ?? ''}
-                placeholder="alloy"
-                onBlur={(e) => {
-                  const voiceId = e.target.value.trim() || undefined
-                  props.set((v) => ({ ...v, tts: { ...v.tts, voiceId } }))
-                }}
-                aria-label={t.endpointVoice}
-              />
-            </Field>
-          </CardRow>
+          <SettingField id="voice.tts.endpointVoice" inline>
+            <TextInput
+              defaultValue={props.voice.tts.voiceId ?? ''}
+              placeholder="alloy"
+              onBlur={(e) => {
+                const voiceId = e.target.value.trim() || undefined
+                props.set((v) => ({ ...v, tts: { ...v.tts, voiceId } }))
+              }}
+              aria-label={t.endpointVoice}
+            />
+          </SettingField>
         )}
       </>
     )
@@ -241,23 +240,19 @@ export function CloudRows<V extends VoiceChoiceSettings>(props: {
   return (
     <>
       {models.length > 1 && (
-        <CardRow>
-          <Field label={t.model} inline>
-            <OptionSelect label={t.model} value={model} options={models} onChange={setModel} />
-          </Field>
-        </CardRow>
+        <SettingField id={props.kind === 'stt' ? 'voice.stt.model' : 'voice.tts.model'} inline>
+          <OptionSelect label={t.model} value={model} options={models} onChange={setModel} />
+        </SettingField>
       )}
       {props.kind === 'tts' && (
-        <CardRow>
-          <Field label={t.voice} inline hint={voices ? undefined : t.voicesLoading}>
-            <OptionSelect
-              label={t.voice}
-              value={voice}
-              options={voices ?? []}
-              onChange={(voiceId) => props.set((v) => ({ ...v, tts: { ...v.tts, voiceId } }))}
-            />
-          </Field>
-        </CardRow>
+        <SettingField id="voice.tts.voiceId" inline hint={voices ? undefined : t.voicesLoading}>
+          <OptionSelect
+            label={t.voice}
+            value={voice}
+            options={voices ?? []}
+            onChange={(voiceId) => props.set((v) => ({ ...v, tts: { ...v.tts, voiceId } }))}
+          />
+        </SettingField>
       )}
     </>
   )
@@ -282,41 +277,35 @@ export function RealtimeCard<V extends VoiceChoiceSettings>(props: {
     props.set((v) => ({ ...v, realtime: { provider: id, ...v.realtime, ...r } }))
   return (
     <Card className="mb-6">
-      <CardRow>
-        <Field label={t.realtimeProvider} hint={ready.length ? undefined : t.noRealtime}>
-          <div className="flex flex-wrap items-center gap-2">
-            <EngineSelect
-              label={t.realtimeTitle}
-              value={id}
-              groups={groups}
-              onChange={(p) => props.set((v) => ({ ...v, realtime: { provider: p } }))}
-            />
-            <AddVoiceProvider onClick={props.onAddProvider} />
-          </div>
-        </Field>
-      </CardRow>
+      <SettingField id="voice.realtime.provider" hint={ready.length ? undefined : t.noRealtime}>
+        <div className="flex flex-wrap items-center gap-2">
+          <EngineSelect
+            label={t.realtimeTitle}
+            value={id}
+            groups={groups}
+            onChange={(p) => props.set((v) => ({ ...v, realtime: { provider: p } }))}
+          />
+          <AddVoiceProvider onClick={props.onAddProvider} />
+        </div>
+      </SettingField>
       {provider?.configured && (
         <>
-          <CardRow>
-            <Field label={t.realtimeModel} inline>
-              <OptionSelect
-                label={t.realtimeModel}
-                value={model}
-                options={provider.realtime?.models ?? []}
-                onChange={(m) => patch({ model: m } as Partial<NonNullable<V['realtime']>>)}
-              />
-            </Field>
-          </CardRow>
-          <CardRow>
-            <Field label={t.realtimeVoice} inline>
-              <OptionSelect
-                label={t.realtimeVoice}
-                value={voice}
-                options={provider.realtime?.voices ?? []}
-                onChange={(x) => patch({ voice: x } as Partial<NonNullable<V['realtime']>>)}
-              />
-            </Field>
-          </CardRow>
+          <SettingField id="voice.realtime.model" inline>
+            <OptionSelect
+              label={t.realtimeModel}
+              value={model}
+              options={provider.realtime?.models ?? []}
+              onChange={(m) => patch({ model: m } as Partial<NonNullable<V['realtime']>>)}
+            />
+          </SettingField>
+          <SettingField id="voice.realtime.voice" inline>
+            <OptionSelect
+              label={t.realtimeVoice}
+              value={voice}
+              options={provider.realtime?.voices ?? []}
+              onChange={(x) => patch({ voice: x } as Partial<NonNullable<V['realtime']>>)}
+            />
+          </SettingField>
         </>
       )}
     </Card>

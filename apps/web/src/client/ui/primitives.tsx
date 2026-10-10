@@ -4,6 +4,7 @@ import {
   type ButtonHTMLAttributes,
   cloneElement,
   forwardRef,
+  type HTMLAttributes,
   type InputHTMLAttributes,
   isValidElement,
   type KeyboardEvent,
@@ -510,9 +511,13 @@ export function Card(props: { children: ReactNode; className?: string; title?: s
   )
 }
 
-/** One row of a Card. */
-export function CardRow(props: { children: ReactNode }) {
-  return <div className="px-4 py-3">{props.children}</div>
+/** One row of a Card; other attributes (a settings row's data-setting-id) go on the row itself. */
+export function CardRow({ children, className, ...rest }: HTMLAttributes<HTMLDivElement>) {
+  return (
+    <div className={cn('px-4 py-3', className)} {...rest}>
+      {children}
+    </div>
+  )
 }
 
 const BANNER: Record<'bad' | 'warn' | 'ok' | 'info', string> = {

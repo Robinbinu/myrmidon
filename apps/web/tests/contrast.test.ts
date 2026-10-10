@@ -55,6 +55,11 @@ describe('crew map links stand out from the window at 3:1, as lines that carry m
       })
 })
 
+test("the mascot screen's caption and readout read at 4.5:1 on the screen, in both themes", async () => {
+  for (const tokens of Object.values(await themes()))
+    expect(contrast(tokens['screen-ink'] as string, tokens.screen as string)).toBeGreaterThanOrEqual(4.5)
+})
+
 test('initials on any agent or author colour read at 4.5:1', async () => {
   const { inkOn } = await import('../src/client/ui/pixel.tsx')
   const { JUDGE_COLOR, LEAD_COLOR, USER_COLOR, WORKER_PALETTE } = await import('@myrmidon/protocol')
@@ -74,4 +79,52 @@ test('text on an agent colour takes whichever ink has more contrast', async () =
   expect(inkOn('#4d7cff')).toBe('var(--on-bright)')
   expect(inkOn('#1d4ed8')).toBe('var(--on-deep)')
   expect(inkOn('#ffb31a')).toBe('var(--on-bright)')
+})
+
+describe('the selected segment stands out from its track, and its label reads on it', async () => {
+  const all = await themes()
+  for (const [theme, tokens] of Object.entries(all)) {
+    // Light mode also has the selected segment's shadow; dark has only the colour difference, so it must carry it.
+    test(`${theme}: selected segment on fill-strong`, () => {
+      expect(tokens['segment-on'] && tokens['fill-strong']).toBeTruthy()
+      expect(
+        contrast(tokens['segment-on'] as string, tokens['fill-strong'] as string),
+      ).toBeGreaterThanOrEqual(theme === 'dark' ? 1.8 : 1.2)
+    })
+    test(`${theme}: label on the selected segment`, () => {
+      expect(contrast(tokens.label as string, tokens['segment-on'] as string)).toBeGreaterThanOrEqual(4.5)
+    })
+  }
+})
+
+test('a channel tile without a brand mark reads as a monogram: one or two white letters that stand out', async () => {
+  const { CHANNEL_LOGOS } = await import('../src/client/channel-logos.ts')
+  for (const [id, logo] of Object.entries(CHANNEL_LOGOS)) {
+    if (!('letters' in logo)) continue
+    expect({ id, short: [...logo.letters].length <= 2 }).toEqual({ id, short: true })
+    expect({ id, ok: contrast('#ffffff', logo.color) >= 3 }).toEqual({ id, ok: true })
+  }
+  // Its wordmark was unreadable at tile size, grey on grey.
+  expect('letters' in (CHANNEL_LOGOS['synology-chat'] ?? {})).toBe(true)
+})
+
+// The 16 ANSI colours of the person's own terminals, which draw on the content surface.
+const ANSI = ['black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white']
+const TERM_COLOURS = [...ANSI, ...ANSI.map((c) => `bright-${c}`)].map((c) => `term-${c}`)
+
+describe("every ANSI colour reads at 4.5:1 on the terminal's background, in both themes", async () => {
+  const all = await themes()
+  for (const [theme, tokens] of Object.entries(all))
+    for (const colour of TERM_COLOURS)
+      test(`${theme}: ${colour} on content`, () => {
+        expect(tokens[colour]).toBeTruthy()
+        expect(contrast(tokens[colour] as string, tokens.content as string)).toBeGreaterThanOrEqual(4.5)
+      })
+})
+
+test('each theme gives the terminal its own ANSI colours', async () => {
+  const css = await Bun.file(new URL('../src/client/tokens.css', import.meta.url)).text()
+  const dark = css.slice(css.indexOf('@variant dark-tokens'))
+  for (const colour of TERM_COLOURS) expect(dark).toContain(`--${colour}:`)
+  expect(dark).toContain('--term-selection:')
 })

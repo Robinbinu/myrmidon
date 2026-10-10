@@ -429,7 +429,7 @@ function readsProject(host: ColonyHost, agent: string, tool: string, params: unk
 }
 
 /** Tools that decide their own calls once they know what they would do (the file, the command, the proposal). */
-const GUARDED = new Set(['fs_write', 'fs_edit', 'shell', 'start_server', 'propose'])
+const GUARDED = new Set(['fs_write', 'fs_edit', 'shell', 'start_server', 'run_checks', 'propose'])
 
 /** Tools that reach the web, in the agent's own fetcher or browser. */
 const WEB_TOOL = (name: string) =>
@@ -970,6 +970,8 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       if (unknown.length) throw new Error(`not on the crew: ${unknown.join(', ')}`)
       const members = [...new Set([agent, ...args.members])]
       if (members.length < 2) throw new Error('a group needs at least one crewmate besides you')
+      const closing = args.text ? host.closing?.(agent) : undefined
+      if (closing) return closing
       await host.append({
         type: 'group/created',
         actor: agentActor(agent),
@@ -2439,6 +2441,8 @@ export const TOOL_DEFS: readonly ToolDef[] = [
             ? `this project has no ${args.only} check; it has: ${all.map((c) => c.name).join(', ') || 'none'}`
             : 'this project defines no checks (no scripts in package.json, no Cargo.toml, go.mod or pyproject); use shell',
         )
+      // The checks are commands, decided as shell's are (the preset, command rules).
+      await guardProjectCommand(host, agent, 'run_checks', picked.map((c) => c.command).join(' && '))
       const cwd = host.workspace.workdir(agent)
       return clip((await runProjectChecks(host, cwd, writableFor(host, agent), picked)).report)
     },

@@ -3,6 +3,8 @@ import { AnimatePresence, motion } from 'motion/react'
 import { type ReactNode, useRef, useState } from 'react'
 import { type ModelOption, type ReviewMode, type RosterEntry, SPECIALISTS, type TeamConfig } from '../api.ts'
 import { copy } from '../copy.ts'
+import type { SettingId } from '../settings/registry.ts'
+import { settingRow } from '../settings/Setting.tsx'
 import { useSpecialists } from '../specialists.ts'
 import { FEATURE_ICONS } from '../ui/icons.ts'
 import { MenuItem, MenuList, Popover } from '../ui/Popover.tsx'
@@ -417,10 +419,16 @@ function Stepper(props: {
   )
 }
 
-/** One settings row: a label (and a quiet hint) on the left, its control on the right. */
-export function Row(props: { label: string; hint?: string; children: ReactNode }) {
+/**
+ * One settings row: a label (and a quiet hint) on the left, its control on the right. `setting` names its entry in
+ * the settings registry where the row is also one of Settings' own (Crew & budget's default crew).
+ */
+export function Row(props: { label: string; hint?: string; setting?: SettingId; children: ReactNode }) {
   return (
-    <div className="flex min-h-11 items-center justify-between gap-3 px-3 py-1.5">
+    <div
+      {...(props.setting ? settingRow(props.setting) : {})}
+      className="flex min-h-11 items-center justify-between gap-3 px-3 py-1.5"
+    >
       <div className="min-w-0">
         <div className="text-body">{props.label}</div>
         {props.hint && <div className="text-footnote leading-snug text-muted">{props.hint}</div>}

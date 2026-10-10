@@ -10,6 +10,7 @@ import {
   BookMarked,
   Brain,
   CalendarClock,
+  Compass,
   Container,
   Cpu,
   EyeOff,
@@ -53,6 +54,7 @@ import {
   Smile,
   SquareTerminal,
   Terminal,
+  TextSearch,
   User,
   UserCheck,
   UserCog,
@@ -122,6 +124,8 @@ export const FEATURE_ICONS = {
   devices: MonitorSmartphone,
   /** An agent's computer: the browser and desktop it drives. */
   computer: ScreenShare,
+  /** The person's own browser in the workspace, with tabs, kept apart from the agents' browsers. */
+  browser: Compass,
   /** Computer use: agents controlling the person's own Mac (Settings → Computer use, its banner and steps). */
   computerUse: MousePointerClick,
   /** Messaging channels (Telegram and the rest). */
@@ -202,4 +206,6 @@ export const FEATURE_ICONS = {
   setup: Rocket,
   /** Notifications when a chat finishes or needs the person, and the Dock badge. */
   alerts: BellRing,
+  /** Searching Settings: the field over the section list and its results. */
+  settingsSearch: TextSearch,
 } as const

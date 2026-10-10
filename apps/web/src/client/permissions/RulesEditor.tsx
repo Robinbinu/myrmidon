@@ -11,10 +11,11 @@ import { Plus, X } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { useId, useMemo, useState } from 'react'
 import { copy } from '../copy.ts'
+import { settingItem } from '../settings/Setting.tsx'
 import { FEATURE_ICONS } from '../ui/icons.ts'
 import { Button, cn, IconButton, Select, TextInput } from '../ui/primitives.tsx'
 import { RULES_LIST_MAX_PX, spring } from '../ui-config.ts'
-import { type CatalogTool, RULE_ICONS } from './describe.ts'
+import { type CatalogTool, RULE_ICONS, shownTarget } from './describe.ts'
 
 const t = copy.permissions.rules
 const DECISIONS: RuleDecision[] = ['allow', 'ask', 'deny']
@@ -133,12 +134,6 @@ export function RulesEditor(props: {
   )
 }
 
-/** A rule's target as the table shows it: `*` in words, otherwise the name itself. */
-function shownTarget(rule: Pick<PermissionRule, 'kind' | 'target'>): string {
-  if (rule.target !== '*') return rule.target
-  return rule.kind === 'command' ? t.everyCommand : rule.kind === 'edit' ? t.everyEdit : t.everyMcp
-}
-
 function RuleRow(props: {
   rule: PermissionRule
   tool: CatalogTool | undefined
@@ -150,7 +145,7 @@ function RuleRow(props: {
   const Icon = RULE_ICONS[rule.kind]
   const name = shownTarget(rule)
   return (
-    <li className="flex items-center gap-3 px-4 py-2">
+    <li {...settingItem('permissions.rule', rule)} className="flex items-center gap-3 px-4 py-2">
       <Icon className="size-3.5 shrink-0 text-muted" aria-hidden />
       <div className="min-w-0 flex-1">
         <div className={cn('truncate text-body', rule.target === '*' ? 'font-medium' : 'font-mono')}>

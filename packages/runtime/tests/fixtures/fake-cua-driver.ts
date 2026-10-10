@@ -17,6 +17,8 @@ if (process.env.CUA_DRIVER_EMBEDDED !== '1' || !rest.includes('--embedded')) {
   process.exit(3)
 }
 if (mode === 'serve') {
+  // What the daemon was given, for tests to check that nothing else leaked in.
+  process.stderr.write(`env ${Object.keys(process.env).sort().join(',')}\n`)
   Bun.listen({ unix: socket, socket: { data() {} } })
   process.stderr.write(`listening on ${socket}\n`)
   await new Promise(() => {})

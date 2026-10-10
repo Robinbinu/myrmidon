@@ -1,10 +1,15 @@
-import { existsSync, mkdirSync, realpathSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, realpathSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, sep } from 'node:path'
-import { SANDBOX_MAX_OUTPUT } from './config.ts'
+import {
+  SANDBOX_HIDDEN_ROOTS,
+  SANDBOX_HIDDEN_TMP,
+  SANDBOX_MAX_OUTPUT,
+  SANDBOX_TEMP_READABLE,
+} from './config.ts'
 import { spawnLeashed } from './leashed.ts'
 import { presetOf } from './permissions.ts'
-import { realOrNone, realPath, toolchainPaths } from './read-access.ts'
+import { realOrNone, realPath, toolchainPaths, within } from './read-access.ts'
 import type { ColonySpec } from './spec.ts'
 
 export interface SandboxRun {
@@ -70,12 +75,40 @@ function sbplPath(path: string) {
 
 type PathSpec = Pick<SandboxRun, 'writable' | 'readable' | 'hidden'>
 
+/**
+ * Loopback ports no confined command may connect to: the DevTools port of the Chrome Myrmidon runs, which answers
+ * anyone on this computer without a key and would hand over every tab (the person's own, other chats') and its
+ * cookies. Each profile is written as its command starts, so a port is guarded from the commands started after it is
+ * added; the browser adds its port when it is made, before any command runs. bubblewrap cannot filter ports, so on
+ * Linux this guards nothing.
+ */
+const guardedPorts = new Set<number>()
+
+export function guardLoopbackPort(port: number): void {
+  guardedPorts.add(port)
+}
+
 export interface PathRule {
   readonly path: string
   readonly access: 'hide' | 'read' | 'write'
 }
 
 const ORDER = { hide: 0, read: 1, write: 2 } as const
+
+/**
+ * Myrmidon's socket folders in /tmp as they are now (see SANDBOX_HIDDEN_TMP), for bubblewrap, which can only cover
+ * folders that exist: one made after a command started stays visible to it. macOS's profile matches them by name.
+ */
+function tmpSocketDirs(): string[] {
+  if (process.platform !== 'linux') return []
+  try {
+    return readdirSync('/tmp')
+      .filter((name) => name.startsWith(SANDBOX_HIDDEN_TMP))
+      .map((name) => join('/tmp', name))
+  } catch {
+    return []
+  }
+}
 const depth = (path: string) => path.split(sep).filter(Boolean).length
 
 /**
@@ -88,7 +121,12 @@ export function pathRules(spec: PathSpec, home: string): PathRule[] {
   // one to hide keeps its rule, so a command that could write its parent cannot create it (~/.ssh in a project at ~).
   const real = (paths: readonly string[]) => paths.flatMap((p) => realOrNone(p) ?? [])
   const rules: PathRule[] = [
-    ...[...(home && home !== sep ? [home] : []), ...(spec.hidden ?? [])].map((path) => ({
+    ...[
+      ...(home && home !== sep ? [home] : []),
+      ...SANDBOX_HIDDEN_ROOTS,
+      ...tmpSocketDirs(),
+      ...(spec.hidden ?? []),
+    ].map((path) => ({
       path: realPath(path),
       access: 'hide' as const,
     })),
@@ -121,19 +159,60 @@ export function macProfile(spec: PathSpec, home: string): string {
   const rules = pathRules(spec, home)
   const subpath = (r: PathRule) => `(subpath ${sbplPath(r.path)})`
   const reads = rules.map((r) => `(${r.access === 'hide' ? 'deny' : 'allow'} file-read* ${subpath(r)})`)
+  // Connecting to a unix socket is not a file read: a socket in a hidden folder (the Cua Driver's, in the data
+  // folder) would stay reachable without its own rules. It acts on a service, so like writing it needs a folder the
+  // command may write: a folder it may only read (a key folder the person opened) gives no docker.sock.
+  const sockets = rules
+    .filter((r) => r.access !== 'read')
+    .map(
+      (r) =>
+        `(${r.access === 'hide' ? 'deny' : 'allow'} network-outbound (remote unix-socket ${subpath(r)}))`,
+    )
+  // Socket folders made in /tmp after this profile was written (a dev server keeps its profile for hours).
+  const tmp = `(regex #"^/private/tmp/${SANDBOX_HIDDEN_TMP}")`
+  const temp = SANDBOX_TEMP_READABLE.map((name) => `(regex #"^/private/var/folders/[^/]+/[^/]+/T/${name}")`)
   const writes = rules
     .filter((r) => r.access !== 'read')
     .map((r) => `(${r.access === 'hide' ? 'deny' : 'allow'} file-write* ${subpath(r)})`)
   const opened = rules.filter((r) => r.access !== 'hide').map((r) => r.path)
-  const above = [...new Set(opened.flatMap(ancestors))].map((d) => `(literal ${sbplPath(d)})`)
+  const parents = [...new Set(opened.flatMap(ancestors))]
+  const above = parents.map((d) => `(literal ${sbplPath(d)})`)
+  // bun opens the folders above a project to find its root, and fails when it cannot: inside the folders hidden
+  // outside the home (a project in the temp folder), those on the way down may be listed, never their files, unless
+  // something hidden for its own sake (a home, the data folder) holds them.
+  const roots = SANDBOX_HIDDEN_ROOTS.map(realPath)
+  const guarded = rules.filter((r) => r.access === 'hide' && !roots.includes(r.path)).map((r) => r.path)
+  const listed = parents
+    .filter((d) => roots.some((r) => within(d, r)) && !guarded.some((g) => within(d, g)))
+    .map((d) => `(literal ${sbplPath(d)})`)
   return [
     '(version 1)',
     '(allow default)',
     ...reads,
+    // After the reads, so a readable /tmp (or /) does not open them again: the last matching rule wins.
+    `(deny file-read* ${tmp})`,
+    `(allow file-read* ${temp.join(' ')})`,
+    ...sockets,
+    `(deny network-outbound (remote unix-socket ${tmp}))`,
+    // SBPL's "localhost" is every loopback address, 127.0.0.1 and ::1 alike.
+    ...[...guardedPorts].map((port) => `(deny network-outbound (remote ip "localhost:${port}"))`),
+    // Commands are Myrmidon's children, so macOS lets them use its Screen Recording and Accessibility grants. With no
+    // window server and no ScreenCaptureKit (replayd) they cannot capture the screen or post input events, and with
+    // no Apple events they cannot script other apps (System Events). Accessibility calls made straight to another
+    // app's process are not covered here.
+    '(deny mach-lookup (global-name-regex #"^com\\.apple\\.windowserver") (global-name "com.apple.replayd"))',
+    '(deny appleevent-send)',
+    // LaunchServices starts what it opens outside the sandbox: `open ./Made.app` (or NSWorkspace) would run a bundle
+    // the command wrote with none of these rules.
+    '(deny lsopen)',
+    // The clipboard often holds passwords. Builds, git, package managers and test runners do not use it; a test
+    // that copies and pastes fails here.
+    '(deny mach-lookup (global-name-regex #"^com\\.apple\\.pasteboard\\."))',
     '(deny file-write*)',
     ...writes,
     '(allow file-write* (literal "/dev/null") (literal "/dev/tty") (regex #"^/dev/fd/"))',
     ...(above.length ? [`(allow file-read-metadata ${above.join(' ')})`] : []),
+    ...(listed.length ? [`(allow file-read* ${listed.join(' ')})`] : []),
   ].join('\n')
 }
 

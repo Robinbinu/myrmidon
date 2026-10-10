@@ -8,6 +8,7 @@ import {
 } from '@myrmidon/protocol'
 import { RotateCcw } from 'lucide-react'
 import { copy } from '../copy.ts'
+import { settingItem } from '../settings/Setting.tsx'
 import { cn, IconButton, Switch } from '../ui/primitives.tsx'
 import { ACCESS_INFO, scopeLabel } from './describe.ts'
 
@@ -30,6 +31,11 @@ export function AccessMatrix(props: {
   disabled?: boolean
   /** Tighter rows without each group's line, for a sheet with more below it. */
   compact?: boolean
+  /**
+   * Computer use is off in its own Settings page, so no switch here can give it: its row shows off, says so, and
+   * offers to set it up there.
+   */
+  computerOff?: { onSetUp(): void }
 }) {
   const own = props.levels[props.scope]?.access
   const set = (role: AgentRole, group: AccessGroup, on: boolean | undefined) => {
@@ -58,7 +64,7 @@ export function AccessMatrix(props: {
         </thead>
         <tbody className="divide-y divide-line">
           {ACCESS_INFO.map((g) => (
-            <tr key={g.group}>
+            <tr key={g.group} {...settingItem('permissions.accessGroup', g)}>
               <th scope="row" className={cn('px-4 font-normal', props.compact ? 'py-1.5' : 'py-2.5')}>
                 <span className="flex items-center gap-3">
                   <span className="grid size-7 shrink-0 place-items-center rounded-md bg-fill text-fg-2">
@@ -66,13 +72,27 @@ export function AccessMatrix(props: {
                   </span>
                   <span className="min-w-0">
                     <span className="block text-body font-medium text-fg">{g.label}</span>
-                    {!props.compact && <span className="block truncate text-small text-muted">{g.hint}</span>}
+                    {g.group === 'computer' && props.computerOff ? (
+                      <span className="block text-small text-muted">
+                        {t.computerOff}{' '}
+                        <button
+                          type="button"
+                          onClick={props.computerOff.onSetUp}
+                          className="text-accent-fg underline-offset-2 hover:underline"
+                        >
+                          {t.computerOn}
+                        </button>
+                      </span>
+                    ) : (
+                      !props.compact && <span className="block truncate text-small text-muted">{g.hint}</span>
+                    )}
                   </span>
                 </span>
               </th>
               {ROLES.map((r) => {
                 const now = roleAccess(props.levels, r.role, g.group)
                 const here = own?.[r.role]?.[g.group] !== undefined
+                const off = g.group === 'computer' && !!props.computerOff
                 return (
                   <td
                     key={r.role}
@@ -81,12 +101,12 @@ export function AccessMatrix(props: {
                     <div className="flex flex-col items-center gap-0.5">
                       <div className="flex items-center gap-1">
                         <Switch
-                          checked={now.on}
+                          checked={now.on && !off}
                           label={t.toggle(g.label, r.label)}
-                          disabled={props.disabled}
+                          disabled={props.disabled || off}
                           onChange={(on) => set(r.role, g.group, on)}
                         />
-                        {here && props.scope !== 'global' && (
+                        {here && !off && props.scope !== 'global' && (
                           <IconButton
                             size="sm"
                             label={t.resetLabel(g.label, r.label)}
@@ -99,7 +119,7 @@ export function AccessMatrix(props: {
                         )}
                       </div>
                       {/* On is the default everywhere: only a value some level set says where it comes from. */}
-                      {now.scope !== 'default' && (
+                      {now.scope !== 'default' && !off && (
                         <span
                           className={cn(
                             'text-caption',
