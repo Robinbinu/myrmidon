@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { BlobStore } from '@myrmidon/core'
@@ -16,6 +16,7 @@ import type { AgentTool, AgentToolResult } from '@oh-my-pi/pi-agent-core'
 import type { Model } from '@oh-my-pi/pi-ai'
 import { createMockModel, type MockContent } from '@oh-my-pi/pi-ai/providers/mock'
 import { AssistantMessageEventStream } from '@oh-my-pi/pi-ai/utils/event-stream'
+import { bunShim } from '../../../tests/platform.ts'
 import {
   appTool,
   bootRuntime,
@@ -47,10 +48,8 @@ beforeEach(async () => {
   home = mkdtempSync(join(tmpdir(), 'myr-computer-'))
   runtime = await bootRuntime(home)
   // The driver Myrmidon finds where the person installed theirs: here, a script standing in for Cua Driver.
-  const driver = join(home, 'bin', 'cua-driver')
-  Bun.spawnSync(['mkdir', '-p', join(home, 'bin')])
-  writeFileSync(driver, `#!/bin/sh\nexec "${process.execPath}" "${FIXTURE}" "$@"\n`)
-  chmodSync(driver, 0o755)
+  mkdirSync(join(home, 'bin'), { recursive: true })
+  const driver = bunShim(join(home, 'bin', 'cua-driver'), FIXTURE)
   calls = join(home, 'calls.jsonl')
   process.env.FAKE_CUA_LOG = calls
   settings = new SettingsStore(home)

@@ -1,8 +1,9 @@
 import { afterEach, expect, test } from 'bun:test'
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ComputerHub, McpHub, SettingsStore } from '@myrmidon/runtime'
+import { bunShim } from '../../../tests/platform.ts'
 import { needsFull } from '../src/devices.ts'
 import { startServer, type WebServer } from '../src/server.ts'
 
@@ -34,9 +35,7 @@ test('Settings sees the driver and grants, switching computer use off stops agen
   const home = mkdtempSync(join(tmpdir(), 'myr-computer-server-'))
   homes.push(home)
   mkdirSync(join(home, 'bin'))
-  const driver = join(home, 'bin', 'cua-driver')
-  writeFileSync(driver, `#!/bin/sh\nexec "${process.execPath}" "${FAKE}" "$@"\n`)
-  chmodSync(driver, 0o755)
+  const driver = bunShim(join(home, 'bin', 'cua-driver'), FAKE)
   const settings = new SettingsStore(home)
   const mcp = new McpHub(join(home, 'agent'))
   const hub = new ComputerHub(home, {
