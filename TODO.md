@@ -612,6 +612,25 @@ Open work, in the order it will be done:
       secrets/patterns, autoresearch/helpers, slash-commands/helpers/usage-accounts; and for omp/runtime.ts:
       config/{settings,model-registry,model-resolver}, sdk discoverAuthStorage, session/agent-storage, web/search,
       tools/fetch.
+12aa. - [ ] **omp README features Myrmidon still lacks** (checked omp's README at 18.8.8 on 2026-10-10; already have:
+      eval, lsp, debug, stream rules, crew/subagents, advisor, live share, web_search on omp's providers,
+      security_scan, ast_grep/ast_edit, github, browser, computer, generate_image, tts, memory, file rewind, rule
+      files from Cursor/Windsurf/Cline/Copilot/Gemini, fallbacks):
+      1. Hashline edits: fs_edit anchored by line content hashes instead of exact old text (omp's biggest
+         edit-reliability win on weaker models; stale anchors rejected).
+      2. Context checkpoint / rewind tools: the agent marks a point, explores, then collapses the exploration into
+         a short report (ours rewinds files, not context).
+      3. Code review with a verdict: parallel reviewer agents over a branch, commit or uncommitted work, every
+         finding ranked P0–P3 with confidence; the person can pin notes to diff lines first (omp /review, /annotate).
+      4. Atomic commit splitting: split the working tree into dependency-ordered commits with checked messages
+         (omp commit).
+      5. Internal paths in file tools: `pr://N`, `issue://N`, `conflict://N` (resolve a merge conflict by writing
+         @ours/@theirs/@base), `agent://`, `skill://`.
+      6. learn / manage_skill: the agent saves a reusable lesson and can promote it into a managed skill.
+      7. Magic words in a message: ultrathink (highest effort), orchestrate (parallel crew + verify each phase).
+      8. Credentials: several keys per provider rotated with backoff; models scoped to a project path.
+      9. Memory: compress each finished chat into a short mental model loaded on the next one's first turn.
+      10. Reset a provider stream (stale prompt cache) without touching the transcript (omp /fresh).
 12l. - [x] **Full access, no sandbox** (asked 2026-10-09, like Hermes) — global switch in Settings → Tools (default on)
       and a per-project Full access; lifts the command sandbox, file-path limits and the private-address rule; approvals
       still apply; channel members and read-only projects stay sandboxed. Left: Windows (unconfined commands still use
