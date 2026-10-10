@@ -25,7 +25,8 @@ export function pointerFacade(desktop: Any, report: Report): Any {
     for (const key of Object.keys(base)) def(o, key, base[key], true)
     return o
   }
-  // The last screenshot's size per target ("desktop" or a window id): x/y in input calls are its pixels.
+  // The last full screenshot's coordinate frame per target ("desktop", a window id or a display): x/y in input calls
+  // are its pixels (omp 18.8: `coordinateWidth`/`coordinateHeight`; a zoom never changes it).
   const shots: Record<string, { width: number; height: number }> = {}
   // Displays in desktop points and composite screenshot pixels, read when the whole desktop is screenshotted.
   let displays: Any[] = []
@@ -92,10 +93,11 @@ export function pointerFacade(desktop: Any, report: Report): Any {
       async (x: number, y: number, ...more: Any[]) => {
         const r = await base[action](x, y, ...more)
         const p = place(x, y)
-        send(id, p.x, p.y, action === 'doubleClick' ? 'click' : action)
+        send(id, p.x, p.y, action === 'doubleClick' || action === 'holdMouse' ? 'click' : action)
         return r
       }
-    for (const action of ['click', 'doubleClick', 'move', 'scroll']) def(out, action, pointed(action))
+    for (const action of ['click', 'doubleClick', 'move', 'scroll', 'holdMouse'])
+      def(out, action, pointed(action))
     def(out, 'drag', async (points: Any[], ...more: Any[]) => {
       const r = await base.drag(points, ...more)
       const end = points[points.length - 1]
@@ -114,8 +116,11 @@ export function pointerFacade(desktop: Any, report: Report): Any {
       })
     def(out, 'screenshot', async (...args: Any[]) => {
       const r = await base.screenshot(...args)
-      if (r?.width && r.height) shots[id] = { width: r.width, height: r.height }
-      if (id === 'desktop') displays = await desktop.displays().catch(() => displays)
+      const width = r?.coordinateWidth ?? r?.width
+      const height = r?.coordinateHeight ?? r?.height
+      if (width && height && !r.region) shots[id] = { width, height }
+      if (id === 'desktop' || id.startsWith('display:'))
+        displays = await desktop.displays().catch(() => displays)
       return r
     })
   }
@@ -135,8 +140,27 @@ export function pointerFacade(desktop: Any, report: Report): Any {
     def(out, 'ref', async (...args: Any[]) => element(await w.ref(...args)))
     return out
   }
+  // One display chosen as a target: its own screenshot frame over that display's rectangle in desktop points.
+  const display = (t: Any): Any => {
+    if (!t || typeof t !== 'object') return t
+    const o = over(t)
+    const id = `display:${t.id}`
+    const place = (x: number, y: number) => {
+      const d = displays.find((s) => String(s.id) === String(t.id))
+      const shot = shots[id]
+      if (!d) return onDesktop(x, y)
+      return {
+        x: d.x + (shot?.width ? (x * d.width) / shot.width : x),
+        y: d.y + (shot?.height ? (y * d.height) / shot.height : y),
+      }
+    }
+    inputs(t, o, id, place, () => undefined)
+    return o
+  }
   const out = over(desktop)
   inputs(desktop, out, 'desktop', onDesktop, () => undefined)
+  if (typeof desktop.display === 'function')
+    def(out, 'display', async (...args: Any[]) => display(await desktop.display(...args)))
   def(out, 'window', async (...args: Any[]) => win(await desktop.window(...args)))
   def(out, 'focusedWindow', async () => win(await desktop.focusedWindow()))
   for (const name of ['elementAt', 'focusedElement', 'ref'])
