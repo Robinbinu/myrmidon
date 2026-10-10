@@ -37,6 +37,14 @@ export function myrmidonHome(env: Record<string, string | undefined> = process.e
 /** Where a server the shell starts on `port` answers; `myrmidon serve` uses this loopback address. */
 export const loopbackOrigin = (port: number) => `http://127.0.0.1:${port}`
 
+/** The page the overlay windows show while an agent drives the Mac: the dashboard's address at /overlay, token kept. */
+export function overlayUrl(page: string): string {
+  const url = new URL(page)
+  url.pathname = '/overlay'
+  url.search = ''
+  return url.toString()
+}
+
 export function pageUrl(server: ServerFile): string {
   const url = new URL(server.url)
   url.hash = server.token ? `token=${server.token}` : ''

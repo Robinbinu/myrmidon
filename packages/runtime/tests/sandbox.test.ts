@@ -14,7 +14,13 @@ import { join } from 'node:path'
 import { notOn, pendingOn } from '../../../tests/platform.ts'
 import { processTable, treeOf } from '../src/leash.ts'
 import { RUNTIMES } from '../src/patterns.ts'
-import { detectSandbox, fullAccessIn, sandboxPath, unconfinedSandbox } from '../src/sandbox.ts'
+import {
+  detectSandbox,
+  fullAccessIn,
+  guardLoopbackPort,
+  sandboxPath,
+  unconfinedSandbox,
+} from '../src/sandbox.ts'
 import { hostShell } from '../src/shell.ts'
 
 let root: string
@@ -318,6 +324,142 @@ test.skipIf(detectSandbox().kind === 'none')(
     }
   },
   60_000,
+)
+
+/** A server on loopback outside the sandbox, answering `name`. */
+function loopbackServer(name: string) {
+  return Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => new Response(name) })
+}
+
+/** Fetches `url` from inside the sandbox with bun, which every sandbox may run. */
+function fetchInside(url: string) {
+  return detectSandbox().run({
+    command: `"${process.execPath}" -e 'process.stdout.write(await (await fetch("${url}")).text())'`,
+    cwd: root,
+    writable: [root],
+    timeoutMs: 20_000,
+  })
+}
+
+test.skipIf(detectSandbox().kind === 'none')(
+  'a sandboxed command keeps the network: it reaches a server on loopback outside the sandbox',
+  async () => {
+    const server = loopbackServer('served')
+    try {
+      const r = await fetchInside(`http://127.0.0.1:${server.port}/`)
+      expect({ code: r.code, stdout: r.stdout }).toEqual({ code: 0, stdout: 'served' })
+    } finally {
+      server.stop(true)
+    }
+  },
+  30_000,
+)
+
+pendingOn('linux', 'devtoolsPortOnLinux', detectSandbox().kind === 'none')(
+  "a sandboxed command cannot reach a guarded loopback port, such as the managed Chrome's DevTools",
+  async () => {
+    const devtools = loopbackServer('devtools')
+    guardLoopbackPort(devtools.port as number)
+    try {
+      for (const host of ['127.0.0.1', 'localhost']) {
+        const r = await fetchInside(`http://${host}:${devtools.port}/json/version`)
+        expect(r.stdout).not.toContain('devtools')
+        expect(r.code).not.toBe(0)
+      }
+    } finally {
+      devtools.stop(true)
+    }
+  },
+  30_000,
+)
+
+test.skipIf(detectSandbox().kind !== 'bubblewrap')(
+  "on Linux the X server's sockets, the session's runtime folder and other accounts' homes are out of sight",
+  async () => {
+    const run = (command: string) =>
+      detectSandbox().run({ command, cwd: root, writable: [root], timeoutMs: 10_000 })
+    const uid = process.getuid?.()
+    const runtime = [`/run/user/${uid}`, process.env.XDG_RUNTIME_DIR].filter((d): d is string => !!d)
+    // A runner without a display has no /tmp/.X11-unix; one is made there so the socket check runs (CI only).
+    const x11 = '/tmp/.X11-unix'
+    const madeX11 = !existsSync(x11) && !!process.env.CI
+    if (madeX11) {
+      mkdirSync(x11)
+      chmodSync(x11, 0o1777)
+    }
+    const display = join(x11, `X${4000 + Math.floor(Math.random() * 1000)}`)
+    const server = existsSync(x11)
+      ? Bun.listen({
+          unix: display,
+          socket: {
+            open(s) {
+              s.write('x11')
+              s.end()
+            },
+            data() {},
+          },
+        })
+      : undefined
+    try {
+      for (const dir of [x11, ...runtime].filter(existsSync)) {
+        const r = await run(`ls -A "${dir}"`)
+        expect({ dir, code: r.code === 0 ? 0 : 'denied' }).toEqual({ dir, code: 'denied' })
+      }
+      if (server) {
+        const connect = await run(
+          `"${process.execPath}" -e 'await Bun.connect({ unix: "${display}", socket: { data(_, d) { process.stdout.write(d); process.exit(0) } } })'`,
+        )
+        expect(connect.stdout).not.toContain('x11')
+        expect(connect.code).not.toBe(0)
+      }
+      // A runtime folder elsewhere is hidden too, when it is the person's alone as the XDG spec has it; a shared
+      // folder named there is not.
+      const saved = process.env.XDG_RUNTIME_DIR
+      const own = join(root, 'runtime')
+      mkdirSync(own, { mode: 0o700 })
+      writeFileSync(join(own, 'bus'), 'session bus')
+      try {
+        process.env.XDG_RUNTIME_DIR = own
+        expect((await run(`cat "${own}/bus"`)).code).not.toBe(0)
+        process.env.XDG_RUNTIME_DIR = '/tmp'
+        expect((await run('ls /tmp')).code).toBe(0)
+      } finally {
+        if (saved === undefined) delete process.env.XDG_RUNTIME_DIR
+        else process.env.XDG_RUNTIME_DIR = saved
+      }
+      // /home shows at most the folders on the way to what opens (Bun's own folder, the person's home); the others
+      // cannot be listed or read.
+      const mine = new Set(
+        [homedir(), process.execPath].filter((p) => p.startsWith('/home/')).map((p) => p.split('/')[2]),
+      )
+      const listed = await run('ls -A /home')
+      if (listed.code === 0)
+        expect(listed.stdout.split('\n').filter((name) => name && !mine.has(name))).toEqual([])
+      for (const name of existsSync('/home') ? readdirSync('/home').filter((n) => !mine.has(n)) : [])
+        expect((await run(`ls -A "/home/${name}"`)).code).not.toBe(0)
+    } finally {
+      server?.stop(true)
+      rmSync(display, { force: true })
+      if (madeX11) rmSync(x11, { recursive: true, force: true })
+    }
+  },
+  30_000,
+)
+
+test.skipIf(detectSandbox().kind !== 'bubblewrap')(
+  'on Linux a sandboxed command runs in a session of its own, so it cannot type into the terminal Myrmidon runs in',
+  async () => {
+    // The session id as the sandbox's own process list sees it: 0 when the session leader is outside the sandbox
+    // (Myrmidon's terminal session), its own shell when the command has a session of its own.
+    const r = await detectSandbox().run({
+      command: 'read -r _ _ _ _ _ sid _ < /proc/self/stat && echo "$sid"',
+      cwd: root,
+      writable: [root],
+      timeoutMs: 10_000,
+    })
+    expect(r.code).toBe(0)
+    expect(Number(r.stdout.trim())).toBeGreaterThan(0)
+  },
 )
 
 test('full access never holds for a round someone else wrote into, nor in a read-only project', () => {

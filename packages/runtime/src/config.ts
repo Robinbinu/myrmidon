@@ -417,10 +417,13 @@ export function sandboxSystemBins(
 export const SANDBOX_SYSTEM_BINS = sandboxSystemBins()
 /**
  * Folders outside the home that sandboxed commands may not read either: other disks, the folder all accounts share,
- * and the per-user temp and cache folders where other apps (and other chats) leave files; on Linux the person's
- * runtime folder too, which holds their session's sockets (D-Bus, the keyring's, gpg's and ssh's agents). Folders a
- * command may read or write inside them (a project in the temp folder, or on a disk in /mnt) open again. Windows has
- * no confinement of its own for these to apply to: there commands run in WSL, under Linux's rules.
+ * and the per-user temp and cache folders where other apps (and other chats) leave files. On Linux also every
+ * account's home, the X server's sockets (the screen, input and the clipboard, which macOS keeps from commands by
+ * denying the window server and the pasteboard), and the person's runtime folder, which holds their session's
+ * sockets: D-Bus, Wayland's, the keyring's, gpg's and ssh's agents (sandbox.ts adds `XDG_RUNTIME_DIR` when it is
+ * elsewhere). Folders a command may read or write inside them (a project in the temp folder, or on a disk in /mnt)
+ * open again. Windows has no confinement of its own for these to apply to: there commands run in WSL, under Linux's
+ * rules.
  */
 export function sandboxHiddenRoots(
   platform: NodeJS.Platform = process.platform,
@@ -428,7 +431,14 @@ export function sandboxHiddenRoots(
 ): readonly string[] {
   if (platform === 'darwin') return ['/Volumes', '/Users/Shared', '/private/var/folders']
   if (platform === 'linux')
-    return ['/mnt', '/media', '/run/media', ...(uid === undefined ? [] : [`/run/user/${uid}`])]
+    return [
+      '/mnt',
+      '/media',
+      '/run/media',
+      '/home',
+      '/tmp/.X11-unix',
+      ...(uid === undefined ? [] : [`/run/user/${uid}`]),
+    ]
   return []
 }
 export const SANDBOX_HIDDEN_ROOTS = sandboxHiddenRoots()
@@ -548,6 +558,11 @@ export const CUA_DRIVER_FALLBACK_ENV = ['PATH', 'HOME', 'USER', 'LOGNAME', 'SHEL
 export const COMPUTER_START_MS = 15_000
 export const COMPUTER_CALL_MS = 60_000
 /** How long a computer action waits for another agent to let go of the app (or the foreground) before it gives up. */
+/**
+ * The desktop app's overlay asks for the agents' pointers a few times a second while an agent drives the Mac; when it
+ * has not asked for this long it is gone, and the driver draws its own cursor again.
+ */
+export const COMPUTER_OVERLAY_SEEN_MS = 3_000
 export const COMPUTER_LOCK_WAIT_MS = 30_000
 /** Accessibility elements listed with a screenshot, and walked per window (Electron apps have tens of thousands). */
 export const COMPUTER_ELEMENTS_SHOWN = 120
@@ -866,6 +881,16 @@ export const VOICE_MAX_CALLS = 4
 export const VOICE_TRANSCRIPT_DAYS = 30
 /** How often a running gateway drops transcripts older than that. */
 export const VOICE_TRANSCRIPT_PRUNE_MS = 24 * 60 * 60_000
+/**
+ * A call's greeting (voice/greeting.ts): at most VOICE_GREETING_WORDS words, never one of the person's last
+ * VOICE_GREETING_RECENT lines. A chat's title is said only when it has at most VOICE_GREETING_TITLE_WORDS words and
+ * VOICE_GREETING_TITLE_CHARS characters; a call within VOICE_GREETING_AGAIN_MS of the last one opens with "again".
+ */
+export const VOICE_GREETING_WORDS = 25
+export const VOICE_GREETING_RECENT = 5
+export const VOICE_GREETING_TITLE_WORDS = 4
+export const VOICE_GREETING_TITLE_CHARS = 32
+export const VOICE_GREETING_AGAIN_MS = 15 * 60_000
 /**
  * Cloud voice providers (voice/providers.ts). A streaming speech to text is asked for the words of a turn once it ends,
  * and given VOICE_STT_FINISH_MS to send them before the turn falls back to a batch transcription. Speech that streams

@@ -56,8 +56,7 @@ which are not gaps. `expectOwnerOnly` checks a private file the way each system 
 
 | Gap | Tests | What has to change |
 | --- | --- | --- |
-| `bwrapHiddenFolders` | read-access: *cannot read the home, other chats or keys…*; full-access: *with the sandbox off a chat runs commands…* | bubblewrap hides a folder with an empty, writable tmpfs, so `ls` there and writes into it succeed (into a throwaway layer) where macOS denies them (`sandbox.ts` `bwrapMounts`) |
-| `voiceWarmupRace` | server-voice: *a call whose page closes while the engines warm up is never made* | the call that closed during warm-up still greets, so the next call is spoken twice (2 instead of 1) |
+| `devtoolsPortOnLinux` | sandbox: *cannot reach a guarded loopback port…* | bubblewrap cannot filter ports, so sandboxed commands still reach the managed Chrome's DevTools port (every tab and its cookies). A network namespace per command would also cut them off from the dev servers they start and the browser loads, and slirp4netns or pasta (to give it the network back) are missing on most desktops; DevTools over a pipe needs a Bun that does not double-close it |
 
 ### Pending on Windows
 
