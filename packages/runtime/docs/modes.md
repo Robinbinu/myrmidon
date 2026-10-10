@@ -13,8 +13,11 @@ A **lead** plans the job and hands each part to a **crewmate**. Each crewmate ha
 
 - Crewmates are asleep until the lead assigns them a task (`create_task` with `assignee`, or `assign_task`).
   An assigned crewmate wakes with the task, the plan, and the current files.
-- The lead plans, assigns, reviews, integrates, and speaks to the person. It does not write code or run
-  commands itself in a team; that is what the crewmates are for.
+- The lead plans, assigns, reviews, integrates, and speaks to the person. By default it also has its crew's tools
+  (files, commands, web, browser) for small pieces: a quick lookup, a short fix, the integration. Independent or
+  parallel work still goes to crewmates with `create_task`. The person can take those tools away from the lead
+  (Settings → Permissions, "Who can use what"); then research and building go to the crewmates, who have them.
+- Crewmates on call show in `list_agents` before they join; `ask_crewmate` reaches only those.
 - The lead may add more crewmates with `add_crewmate(role, focus, model)` up to the team limit, or bring in
   one of the person's specialists (crewmates they saved in Settings) by name.
 - When a request is small enough for the lead to work alone (a solo round), the crew stays on call: the lead
