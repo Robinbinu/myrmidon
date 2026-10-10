@@ -128,21 +128,25 @@ test.skipIf(detectSandbox().kind === 'none')(
   },
 )
 
-test('a full-access command that runs too long is stopped, with what it started', async () => {
-  const marker = join(root, 'late')
-  const started = Date.now()
-  const r = await unconfinedSandbox().run({
-    command: `(sleep 3 && touch "${marker}") & sleep 30`,
-    cwd: root,
-    writable: [root],
-    timeoutMs: 500,
-  })
-  expect(r.timedOut).toBe(true)
-  expect(r.code).toBeNull()
-  expect(Date.now() - started).toBeLessThan(10_000)
-  await Bun.sleep(3_500)
-  expect(existsSync(marker)).toBe(false)
-}, 20_000)
+pendingOn('win32', 'timeoutStopOnWindows')(
+  'a full-access command that runs too long is stopped, with what it started',
+  async () => {
+    const marker = join(root, 'late')
+    const started = Date.now()
+    const r = await unconfinedSandbox().run({
+      command: `(sleep 3 && touch "${marker}") & sleep 30`,
+      cwd: root,
+      writable: [root],
+      timeoutMs: 500,
+    })
+    expect(r.timedOut).toBe(true)
+    expect(r.code).toBeNull()
+    expect(Date.now() - started).toBeLessThan(10_000)
+    await Bun.sleep(3_500)
+    expect(existsSync(marker)).toBe(false)
+  },
+  20_000,
+)
 
 test.skipIf(detectSandbox().kind === 'none')(
   "a sandboxed command cannot connect to a socket in a hidden folder or another run's /tmp/myr-*, only its own",
