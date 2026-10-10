@@ -83,15 +83,15 @@ pendingOn('win32', 'terminalForeground')(
     try {
       await Promise.all([one.opened, two.opened])
       // The arithmetic is done by the shell, so the typed line's echo alone never satisfies the check.
-      one.type('echo first-$((20+1))\n')
-      two.type('echo second-$((40+2))\n')
+      one.type('echo first-$((20+1))\r')
+      two.type('echo second-$((40+2))\r')
       const seen = () => ({ one: one.seen, two: two.seen })
       await until(() => one.seen.text.includes('first-21') && two.seen.text.includes('second-42'), seen)
       expect(one.seen.text).not.toContain('second-42')
       expect(two.seen.text).not.toContain('first-21')
 
       // A program, not PowerShell's own sleep (Start-Sleep), which runs inside the shell and is no process to name.
-      one.type(process.platform === 'win32' ? 'sleep.exe 30\n' : 'sleep 30\n')
+      one.type(process.platform === 'win32' ? 'sleep.exe 30\r' : 'sleep 30\r')
       await until(() => one.seen.controls.some((c) => c.type === 'process' && c.name === 'sleep 30'), seen)
       // Back at the prompt the shell is idle again: no command runs in the foreground.
       one.type('\x03')
