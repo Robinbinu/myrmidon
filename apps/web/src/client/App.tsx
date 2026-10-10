@@ -66,8 +66,9 @@ import { useScope } from './DeviceGate.tsx'
 import { SETTINGS_SAVED } from './mascot.ts'
 import { ChatPermissions } from './permissions/ChatPermissions.tsx'
 import { syncPluginUI } from './plugins.tsx'
-import { SECTIONS, type Section, Settings } from './Settings.tsx'
+import { Settings } from './Settings.tsx'
 import { SystemPage } from './System.tsx'
+import { SECTIONS, type Section, sectionFor } from './settings/pages.ts'
 import { SetupNudge } from './setup/Nudge.tsx'
 import { Setup } from './setup/Setup.tsx'
 import {
@@ -299,9 +300,15 @@ function viewFromAddress(): View {
   return VIEWS.find((view) => view === v) ?? 'chat'
 }
 
-/** The Settings section an address names; Settings shows its first section for a name it doesn't know. */
+/**
+ * Whether the address opens Settings, and at which section: a page that moved is found under its old name too, and
+ * a name no page has opens General.
+ */
+function settingsInAddress(): boolean {
+  return !!new URLSearchParams(location.search).get(SETTINGS_PARAM)
+}
 function sectionFromAddress(): Section | undefined {
-  return (new URLSearchParams(location.search).get(SETTINGS_PARAM) as Section | null) ?? undefined
+  return sectionFor(new URLSearchParams(location.search).get(SETTINGS_PARAM))
 }
 
 export function App() {
@@ -325,7 +332,7 @@ export function App() {
   const [colonyModal, setColonyModal] = useState<string>()
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
-  const [settingsOpen, setSettingsOpen] = useState(() => !!sectionFromAddress())
+  const [settingsOpen, setSettingsOpen] = useState(settingsInAddress)
   // Plugins' commands join the slash menu and their UI fills its slots; a plugin switched or edited shows up here.
   const [pluginList] = usePoll<{ plugins: PluginSummary[] }>('/api/plugins', { plugins: [] }, 4000)
   useEffect(() => {
@@ -713,8 +720,8 @@ export function App() {
   openSettingsRef.current = openSettings
   useEffect(() => {
     const open = (e: Event) => {
-      const section = (e as CustomEvent<unknown>).detail
-      if (SECTIONS.some((s) => s.id === section)) openSettingsRef.current(section as Section)
+      const section = sectionFor(String((e as CustomEvent<unknown>).detail))
+      if (section) openSettingsRef.current(section)
     }
     window.addEventListener(OPEN_SETTINGS_EVENT, open)
     return () => window.removeEventListener(OPEN_SETTINGS_EVENT, open)

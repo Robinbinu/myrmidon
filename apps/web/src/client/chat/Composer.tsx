@@ -20,6 +20,7 @@ import {
 } from '../api.ts'
 import { copy } from '../copy.ts'
 import { PluginSlot, usePluginSlots } from '../plugins.tsx'
+import { settingRow } from '../settings/Setting.tsx'
 import { SUGGEST_KEY, usePersistentFlag } from '../ui/hooks.ts'
 import { FEATURE_ICONS } from '../ui/icons.ts'
 import { Popover } from '../ui/Popover.tsx'
@@ -106,7 +107,7 @@ export function TeamSettings(props: {
     <div className="flex flex-col gap-3">
       <div className={GROUP}>
         {!swarm && (
-          <Row label={copy.composer.lead} hint={copy.composer.leadHint}>
+          <Row label={copy.composer.lead} hint={copy.composer.leadHint} setting="team.lead">
             <ModelPicker
               variant="compact"
               placement={props.placement}
@@ -119,6 +120,7 @@ export function TeamSettings(props: {
         )}
         <Row
           label={copy.composer.reviewer}
+          setting="team.reviewerModel"
           hint={
             props.review === 'off'
               ? copy.composer.reviewerHint.off
@@ -148,7 +150,7 @@ export function TeamSettings(props: {
             />
           )}
         </Row>
-        <Row label={copy.composer.thinkingLabel} hint={copy.composer.thinkingHint}>
+        <Row label={copy.composer.thinkingLabel} hint={copy.composer.thinkingHint} setting="team.thinking">
           <Segmented
             id="composer-thinking"
             value={config.thinking ?? 'auto'}
@@ -165,7 +167,7 @@ export function TeamSettings(props: {
       )}
 
       <div className={GROUP}>
-        <Row label={copy.composer.helpers} hint={helpersHint(config)}>
+        <Row label={copy.composer.helpers} hint={helpersHint(config)} setting="team.helpers">
           <Segmented
             id="composer-helpers"
             value={helperMode(config)}
@@ -174,40 +176,45 @@ export function TeamSettings(props: {
           />
         </Row>
         {helperMode(config) !== 'never' && (
-          <button
-            type="button"
-            onClick={() => setHelpersOpen(!helpersOpen)}
-            aria-expanded={helpersOpen}
-            className="flex min-h-11 w-full items-center gap-2 px-3 text-left"
-          >
-            <ChevronRight
-              className={cn('size-3.5 shrink-0 text-muted transition-transform', helpersOpen && 'rotate-90')}
-            />
-            <span className="flex-1 text-body">{copy.composer.helperList}</span>
-            <span className="text-small text-muted">{helpersLabel(config)}</span>
-          </button>
-        )}
-        <AnimatePresence initial={false}>
-          {helpersOpen && helperMode(config) !== 'never' && (
-            <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              // Clipped only while it folds, so the helpers' model lists can open past its edge.
-              animate={{ height: 'auto', opacity: 1, transitionEnd: { overflow: 'visible' } }}
-              exit={{ height: 0, opacity: 0, overflow: 'hidden' }}
-              transition={{ duration: 0.18 }}
-              className="overflow-hidden"
+          <div {...settingRow('team.helperList')}>
+            <button
+              type="button"
+              onClick={() => setHelpersOpen(!helpersOpen)}
+              aria-expanded={helpersOpen}
+              className="flex min-h-11 w-full items-center gap-2 px-3 text-left"
             >
-              <div className="divide-y divide-line border-t border-line">
-                <HelpersEditor
-                  models={props.models}
-                  config={config}
-                  onConfig={props.onConfig}
-                  {...(props.placement ? { placement: props.placement } : {})}
-                />
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+              <ChevronRight
+                className={cn(
+                  'size-3.5 shrink-0 text-muted transition-transform',
+                  helpersOpen && 'rotate-90',
+                )}
+              />
+              <span className="flex-1 text-body">{copy.composer.helperList}</span>
+              <span className="text-small text-muted">{helpersLabel(config)}</span>
+            </button>
+            <AnimatePresence initial={false}>
+              {helpersOpen && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  // Clipped only while it folds, so the helpers' model lists can open past its edge.
+                  animate={{ height: 'auto', opacity: 1, transitionEnd: { overflow: 'visible' } }}
+                  exit={{ height: 0, opacity: 0, overflow: 'hidden' }}
+                  transition={{ duration: 0.18 }}
+                  className="overflow-hidden"
+                >
+                  <div className="divide-y divide-line border-t border-line">
+                    <HelpersEditor
+                      models={props.models}
+                      config={config}
+                      onConfig={props.onConfig}
+                      {...(props.placement ? { placement: props.placement } : {})}
+                    />
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        )}
       </div>
     </div>
   )
