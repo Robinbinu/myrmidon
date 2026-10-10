@@ -20,7 +20,10 @@ export const GAPS = {
     'computer use cannot start a Cua Driver on Windows (its manifest and daemon never answer), so every computer ' +
     'tool fails there',
   bunWindowsSockets:
-    'Bun 1.3.14 on Windows crashes (segfault, or exit 127) in the IRC raw-socket tests, ending the whole run',
+    "Bun's sockets on Windows corrupt its heap when a TCP connection is ended or dropped (usockets: a segfault in " +
+    'us_internal_socket_close_and_notify or in a later malloc), in Bun 1.3.14 and 1.4.3 alike, ending the whole run ' +
+    'in the IRC tests; the IRC client no longer ends a socket from its own close callbacks, which stopped it in the ' +
+    'SASL and PASS tests, but a connection the server drops still crashes it',
   timeoutStopOnWindows:
     'a full-access command past its timeout is not stopped on Windows: run() does not return for the whole sleep ' +
     '(sandbox.ts runLeashed, leash.ts)',
