@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { isAbsolute, join, resolve } from 'node:path'
 import { HOOK_MAX_OUTPUT, HOOK_MAX_TIMEOUT_S, HOOK_TIMEOUT_S } from './config.ts'
+import { hostShell } from './shell.ts'
 
 /**
  * The person's hooks: commands Myrmidon runs at fixed points (before a tool, after it, when a round ends), so a
@@ -163,12 +164,14 @@ async function runCommand(
   env: Record<string, string>,
 ): Promise<HookRun> {
   const started = Date.now()
-  const proc = Bun.spawn(['/bin/sh', '-c', hook.command], {
+  // Claude Code's hooks are shell commands; on Windows Git Bash runs them when installed (see shell.ts).
+  const proc = Bun.spawn(hostShell().argv(hook.command), {
     cwd,
     stdin: new Blob([JSON.stringify(input)]),
     stdout: 'pipe',
     stderr: 'pipe',
     env: { ...process.env, ...env },
+    windowsHide: true,
   })
   let timedOut = false
   const timer = setTimeout(
