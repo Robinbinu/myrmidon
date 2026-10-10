@@ -47,6 +47,7 @@ import {
 import { ColonyAgent, type ModelError } from './agent.ts'
 import type { BrowserHub } from './browser.ts'
 import type { ComputerHub } from './computer/driver.ts'
+import { COMPUTER_TOOL_NAMES } from './computer/names.ts'
 import {
   APPROVAL_MS,
   BOOTSTRAP_MS,
@@ -178,6 +179,8 @@ export interface RunOptions {
   /** The person's hooks, run before and after tools and when the round ends. */
   readonly hooks?: HookStore
 }
+
+const isComputerTool = (tool: string) => (COMPUTER_TOOL_NAMES as readonly string[]).includes(tool)
 
 /**
  * What agents read, run and write is redacted before it is stored, so a key read from a .env file does not sit in
@@ -341,7 +344,8 @@ export class ColonyRun implements ColonyHost {
   private _huddle?: { since: number; after: number; proposed: Set<string> }
   /** Reminders sent to agents that stopped with work open, keyed by agent and task (or todo list). */
   private readonly _reminded = new Map<string, number>()
-  private readonly _approvals = new Map<string, (decision: ReviewDecision) => void>()
+  /** Calls waiting for the person: the tool that asked, and what answers it. */
+  private readonly _approvals = new Map<string, { tool: string; done: (decision: ReviewDecision) => void }>()
   private readonly _servers = new Map<string, SandboxProcess>()
   /** The localhost port each running server opened (see `localPorts`). */
   private readonly _serverPorts = new WeakMap<SandboxProcess, number>()
@@ -444,6 +448,9 @@ export class ColonyRun implements ColonyHost {
     for (const a of this._agents.values())
       if (holding.has(a.name) && a.working)
         a.interrupt('the person stopped computer use', prompts.computer.stoppedNote)
+    // A card asking to use the Mac would stay up until it timed out: nothing it allows can happen any more.
+    for (const [id, waiting] of this._approvals)
+      if (isComputerTool(waiting.tool)) void this.decideApproval(id, false, 'stopped').catch(() => {})
   }
 
   mcpTools() {
@@ -638,6 +645,8 @@ export class ColonyRun implements ColonyHost {
     },
   ): Promise<ReviewDecision> {
     if (this._state.status !== 'running') return { approved: false }
+    // Once the person stopped this round's computer use, nothing may ask to use the Mac again.
+    if (isComputerTool(tool) && this.options.computer?.stopped(this.id)) return { approved: false }
     const read = options.read
     if (read && this._state.chatReads?.some((f) => grantCovers(f, read))) return { approved: true }
     const id = `approval-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
@@ -646,9 +655,12 @@ export class ColonyRun implements ColonyHost {
         () => void this.decideApproval(id, false, 'timeout').catch(() => {}),
         APPROVAL_MS,
       )
-      this._approvals.set(id, (decision) => {
-        clearTimeout(timer)
-        resolve(decision)
+      this._approvals.set(id, {
+        tool,
+        done: (decision) => {
+          clearTimeout(timer)
+          resolve(decision)
+        },
       })
     })
     await this.append({
@@ -709,7 +721,7 @@ export class ColonyRun implements ColonyHost {
     by: 'person' | 'timeout' | 'stopped' = 'person',
     answer: { edits?: Record<string, string>; note?: string } = {},
   ) {
-    const done = this._approvals.get(id)
+    const done = this._approvals.get(id)?.done
     if (!done) throw new Error('that request is no longer waiting')
     this._approvals.delete(id)
     const editable = new Set(
