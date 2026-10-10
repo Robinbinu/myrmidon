@@ -562,6 +562,25 @@ export const VOICE_RUNTIME_BYTES = 1_100_000_000
  * less often while computer use is off), and how often Settings refreshes the driver's install progress and macOS's grants while it is open.
  */
 export const COMPUTER_POLL_MS = 2_000
+/** How often the desktop app's overlay asks where the agents act, while an agent drives the Mac. */
+export const COMPUTER_OVERLAY_POLL_MS = 200
+/** The overlay over the screen while an agent drives the Mac (ComputerOverlay.tsx). */
+export const COMPUTER_OVERLAY = {
+  /** A warm glow inside the screen's edge, in the same caution colour as the in-app banner. */
+  glow: [
+    'inset 0 0 0 3px color-mix(in srgb, var(--warn) 90%, transparent)',
+    'inset 0 0 24px 6px color-mix(in srgb, var(--warn) 60%, transparent)',
+    'inset 0 0 90px 24px color-mix(in srgb, var(--warn) 25%, transparent)',
+  ].join(', '),
+  /** The corners of a Mac's screen. */
+  radius: 10,
+  /** One slow breath in and out, so the glow reads as alive rather than as part of the page beneath. */
+  breatheS: 3.2,
+  /** Below the menu bar. */
+  labelTop: 34,
+  /** How long a click shows as a press. */
+  clickShowMs: 400,
+} as const
 export const COMPUTER_IDLE_POLL_MS = 15_000
 export const COMPUTER_SETTINGS_POLL_MS = 1_500
 

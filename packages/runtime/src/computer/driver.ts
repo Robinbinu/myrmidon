@@ -15,6 +15,7 @@ import type { AgentToolResult } from '@oh-my-pi/pi-agent-core'
 import {
   COMPUTER_CALL_MS,
   COMPUTER_LOCK_WAIT_MS,
+  COMPUTER_OVERLAY_SEEN_MS,
   COMPUTER_START_MS,
   CUA_DRIVER_BYTES,
   CUA_DRIVER_FALLBACK_ENV,
@@ -67,6 +68,14 @@ export interface Control extends Holder {
   readonly app: string
   readonly bundleId: string
   readonly since: number
+}
+
+/** Where an agent last acted on the screen, in screen points (origin top-left), for the desktop app's overlay. */
+export interface Pointer extends Holder {
+  readonly x: number
+  readonly y: number
+  readonly action: 'move' | 'click' | 'type' | 'scroll' | 'drag'
+  readonly at: number
 }
 
 /** A driver tool's answer: its text, images and structured content. */
@@ -161,6 +170,12 @@ export class ComputerHub {
   private readonly _stopped = new Set<string>()
   /** Rounds about to drive the desktop (on an app's card, waiting for the app), and how to end each wait. */
   private readonly _waiting = new Map<string, Set<() => void>>()
+  /** Where each agent last acted, by `colonyId/agent`. */
+  private readonly _pointers = new Map<string, Pointer>()
+  /** When the desktop app's overlay last asked for the pointers: while it does, it draws the agents' cursors. */
+  private _overlaySeen = 0
+  /** Whether the driver draws its own cursor for each session, as last set. */
+  private readonly _driverCursor = new Map<string, boolean>()
   /** omp's desktop engine, for Settings → Computer use → Engine set to it. */
   readonly desktop: DesktopEngine
 
@@ -517,6 +532,45 @@ export class ComputerHub {
   /** Which agents control which apps now, for the "controlling your Mac" indicator and Settings. */
   controls(): Control[] {
     return [...this._locks.entries()].filter(([key]) => key !== FOREGROUND).map(([, c]) => c)
+  }
+
+  /** An agent acted at a point on the screen. */
+  point(holder: Holder, x: number, y: number, action: Pointer['action'], now = Date.now()) {
+    this._pointers.set(`${holder.colonyId}/${holder.agent}`, { ...holder, x, y, action, at: now })
+  }
+
+  /**
+   * Where the agents in control last acted, for the overlay that draws their cursors. Asking counts as the overlay
+   * being up (see `overlayShown`).
+   */
+  pointers(now = Date.now()): Pointer[] {
+    this._overlaySeen = now
+    const holding = new Set(this.controls().map((c) => `${c.colonyId}/${c.agent}`))
+    for (const key of this._pointers.keys()) if (!holding.has(key)) this._pointers.delete(key)
+    return [...this._pointers.values()]
+  }
+
+  /**
+   * Shows or hides the driver's own cursor for a session, once per change, where the driver can: the overlay draws the
+   * agents' cursors when it is up. A driver that cannot keeps its cursor, which only means two cursors for a moment.
+   */
+  async showDriverCursor(session: string, shown: boolean): Promise<void> {
+    // The driver shows a session's cursor until told otherwise.
+    const now = this._driverCursor.get(session) ?? true
+    if (now === shown || !this.accepts('set_agent_cursor_enabled', 'enabled')) return
+    this._driverCursor.set(session, shown)
+    const r = await this.call('set_agent_cursor_enabled', { session, enabled: shown }).catch(
+      (err: Error) => ({
+        isError: true,
+        text: err.message,
+      }),
+    )
+    if (r.isError) this.options.log?.(`the driver's cursor for ${session} stays as it was: ${r.text}`)
+  }
+
+  /** The desktop app's overlay is drawing the agents' cursors, so the driver need not draw its own. */
+  overlayShown(now = Date.now()): boolean {
+    return now - this._overlaySeen < COMPUTER_OVERLAY_SEEN_MS
   }
 
   /** A round starts (a chat's colony starts one per message): `stop` is what it does when the person presses Stop. */

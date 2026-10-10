@@ -975,6 +975,8 @@ export function startServer(options: ServeOptions): WebServer {
     development: options.debug ? { hmr: true, console: true } : false,
     routes: {
       '/': index,
+      // The desktop app's see-through window over the screen while an agent drives the Mac (ComputerOverlay.tsx).
+      '/overlay': index,
       // The entry page's line. The rules' greeting comes back at once; with the model writing it, `pending` asks the
       // page to come back shortly for the model's own.
       '/api/greeting': guard(async (req) => {
@@ -2668,6 +2670,16 @@ export function startServer(options: ServeOptions): WebServer {
           await computer.stop()
           return json(computerStatus(access))
         }),
+      },
+      // For the desktop app's overlay while an agent drives the Mac: who controls what, and where each last acted. Asking
+      // tells the driver the overlay draws the agents' cursors, so it hides its own.
+      '/api/computer/pointers': {
+        GET: guard(() =>
+          json({
+            controls: options.computer?.controls() ?? [],
+            pointers: options.computer?.pointers() ?? [],
+          }),
+        ),
       },
       '/api/computer/stop': {
         // The person's Stop (the chat's button, or Esc in the desktop app): open to every device, as a safety stop.
