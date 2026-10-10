@@ -433,6 +433,31 @@ export interface TeamConfig {
   helpers?: 'always'
 }
 
+let composerSaving = false
+let composerNext: TeamConfig | undefined
+
+/**
+ * Keeps the message box's crew on the server, so a new chat in any browser (or the desktop app, whose storage goes with
+ * each new port) starts with it. One save at a time, so picks made quickly land in order and the last one stays.
+ */
+export function saveComposer(config: TeamConfig) {
+  composerNext = config
+  const take = () => {
+    const next = composerNext
+    composerNext = undefined
+    return next
+  }
+  if (composerSaving) return
+  composerSaving = true
+  void (async () => {
+    // This browser keeps the pick in its own storage meanwhile, and the next pick tries the server again.
+    for (let next = take(); next; next = take())
+      await send('PUT', '/api/settings/composer', next).catch(() => undefined)
+  })().finally(() => {
+    composerSaving = false
+  })
+}
+
 /** When the reviewer checks the work: never, when the lead asks, or on every final answer. */
 export type ReviewMode = 'off' | 'auto' | 'always'
 
@@ -466,6 +491,8 @@ export function normalizeConfig(raw: Record<string, unknown>, fallbackModel: str
     ? { thinking: raw.thinking as 'low' | 'medium' | 'high' }
     : {}
   const helpers = raw.helpers === 'always' ? { helpers: 'always' as const } : {}
+  // The default crew from Settings has no roster, only how many crewmates: none means the lead works alone.
+  const alone = !Array.isArray(raw.roster) && raw.workers === 0
   const roster = Array.isArray(raw.roster)
     ? (raw.roster as RosterEntry[])
         .filter((r) => typeof r?.role === 'string' && str(r?.model))
@@ -486,6 +513,7 @@ export function normalizeConfig(raw: Record<string, unknown>, fallbackModel: str
       ...thinking,
       ...helpers,
     }
+  if (alone) return { mode: 'orchestrated', leadModel, roster: [], extraWorkers: 0, judgeModel, ...thinking }
   return {
     mode: 'orchestrated',
     leadModel,

@@ -173,6 +173,23 @@ export interface MyrSettings {
    * counted as set up when it has a chat or a model (see `setup.ts`).
    */
   setup?: SetupState
+  /**
+   * The crew last picked in the message box (lead, crewmates, thinking, how helpers join), so a new chat starts with it
+   * in every browser, the desktop app included, whose page loses its storage with each new port. Absent until the
+   * first pick; not the default crew above, which channels, calls and schedules use.
+   */
+  composer?: ComposerChoice
+}
+
+/** The message box's crew as the page keeps it (its TeamConfig). */
+export interface ComposerChoice {
+  mode: 'orchestrated' | 'swarm'
+  leadModel: string
+  judgeModel: string
+  roster: { role: string; model: string; specialist?: string }[]
+  extraWorkers: number
+  thinking?: 'low' | 'medium' | 'high'
+  helpers?: 'always'
 }
 
 /** An imported VS Code theme as saved: only `#hex` colours, by VS Code key and by syntax role. */
@@ -345,6 +362,26 @@ export const settingsSchema = Schema.object({
     dismissedAt: Schema.string().max(40),
     steps: Schema.dict(Schema.union(['done', 'later'])).default({}),
   }),
+  composer: Schema.union([
+    Schema.const(undefined as never),
+    Schema.object({
+      mode: Schema.union(['orchestrated', 'swarm']).default('orchestrated'),
+      leadModel: Schema.string().max(200).required(),
+      judgeModel: Schema.string().max(200).required(),
+      roster: Schema.array(
+        Schema.object({
+          role: Schema.string().max(40).required(),
+          model: Schema.string().max(200).required(),
+          specialist: Schema.string().max(100),
+        }),
+      )
+        .max(8)
+        .default([]),
+      extraWorkers: Schema.natural().max(8).default(0),
+      thinking: Schema.union(['low', 'medium', 'high']),
+      helpers: Schema.const('always'),
+    }),
+  ]),
 })
 
 export type GlobalPermissions = PermissionLevel & { preset: PermissionPreset }
@@ -450,6 +487,7 @@ function parse(input: unknown): MyrSettings {
   const s = settingsSchema((input ?? {}) as never) as MyrSettings
   // The schema fills in an absent setup; absent must stay absent, so the first read can still decide it.
   const setup = (input as { setup?: unknown } | undefined)?.setup !== undefined ? s.setup : undefined
+  const composer = s.composer
   return {
     version: 1,
     team: s.team,
@@ -499,6 +537,23 @@ function parse(input: unknown): MyrSettings {
             ...(setup.finishedAt ? { finishedAt: setup.finishedAt } : {}),
             ...(setup.dismissedAt ? { dismissedAt: setup.dismissedAt } : {}),
             steps: Object.fromEntries(Object.entries(setup.steps).filter(([step]) => isSetupStep(step))),
+          },
+        }
+      : {}),
+    ...(composer
+      ? {
+          composer: {
+            mode: composer.mode,
+            leadModel: composer.leadModel,
+            judgeModel: composer.judgeModel,
+            roster: composer.roster.map((r) => ({
+              role: r.role,
+              model: r.model,
+              ...(r.specialist ? { specialist: r.specialist } : {}),
+            })),
+            extraWorkers: composer.extraWorkers,
+            ...(composer.thinking ? { thinking: composer.thinking } : {}),
+            ...(composer.helpers ? { helpers: composer.helpers } : {}),
           },
         }
       : {}),
