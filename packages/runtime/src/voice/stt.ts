@@ -2,6 +2,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
 import { VOICE_PHONON_START_MS, VOICE_PHONON_VERSION } from '../config.ts'
+import { type ProcessRow, processTable } from '../leash.ts'
 import { spawnLeashed } from '../leashed.ts'
 import { parseWav, wav } from './audio.ts'
 import { type LiveTranscription, PhononStream } from './phonon-stream.ts'
@@ -321,23 +322,59 @@ export function socketPath(wanted: string): string {
 }
 
 /**
+ * A command line's words. `ps` shows arguments joined by spaces, unquoted; Windows keeps the command line as it was
+ * given, quoted by the C runtime's rules (`"C:\\Program Files\\x.exe" serve`), which this undoes.
+ */
+export function commandWords(platform: NodeJS.Platform, line: string): string[] {
+  if (platform !== 'win32') return line.trim().split(/\s+/)
+  const words: string[] = []
+  let word: string | undefined
+  let quoted = false
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i] ?? ''
+    if (ch === '\\') {
+      // Backslashes are literal unless they come before a quote, where each pair is one and an odd one escapes it.
+      let n = 1
+      while (line[i + n] === '\\') n++
+      if (line[i + n] === '"') {
+        word = (word ?? '') + '\\'.repeat(Math.floor(n / 2)) + (n % 2 ? '"' : '')
+        i += n - (n % 2 ? 0 : 1)
+      } else {
+        word = (word ?? '') + '\\'.repeat(n)
+        i += n - 1
+      }
+    } else if (ch === '"') {
+      word ??= ''
+      quoted = !quoted
+    } else if (/\s/.test(ch) && !quoted) {
+      if (word !== undefined) words.push(word)
+      word = undefined
+    } else word = (word ?? '') + ch
+  }
+  if (word !== undefined) words.push(word)
+  return words
+}
+
+/** The Phonon servers serving `socket` among `rows`, but this process. */
+export function phononServers(
+  rows: readonly ProcessRow[],
+  socket: string,
+  platform: NodeJS.Platform = process.platform,
+): number[] {
+  return rows.flatMap(({ pid, command }) => {
+    const words = commandWords(platform, command)
+    const at = words.indexOf('--unix-socket')
+    const serving = words.includes('serve') && words.includes('phonon-2') && words[at + 1] === socket
+    return serving && at >= 0 && pid !== process.pid ? [pid] : []
+  })
+}
+
+/**
  * Stops Phonon servers still serving `socket` from an earlier run of Myrmidon. The socket sits in this home's private
  * voice folder, so any server on it is ours; it is asked to stop, then killed if it has not after a moment.
  */
 export async function stopLeftovers(socket: string, waitMs = 2000): Promise<number[]> {
-  const ps = Bun.spawnSync(['ps', '-Ao', 'pid=,command='], { stdout: 'pipe', stderr: 'ignore' })
-  const pids = new TextDecoder()
-    .decode(ps.stdout)
-    .split('\n')
-    .flatMap((line) => {
-      const m = /^\s*(\d+)\s+(.*)$/.exec(line)
-      if (!m?.[1] || !m[2]) return []
-      const pid = Number(m[1])
-      const words = m[2].split(/\s+/)
-      const at = words.indexOf('--unix-socket')
-      const serving = words.includes('serve') && words.includes('phonon-2') && words[at + 1] === socket
-      return serving && at >= 0 && pid !== process.pid ? [pid] : []
-    })
+  const pids = phononServers(processTable() ?? [], socket)
   const alive = (pid: number) => {
     try {
       process.kill(pid, 0)
