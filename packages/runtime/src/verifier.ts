@@ -1,6 +1,5 @@
 import { join } from 'node:path'
 import type { ActorRef, ColonyState, EventId, EventPayloads, MyrEvent, RoundGoal } from '@myrmidon/protocol'
-import { completeSimple, type Context as LlmContext } from '@oh-my-pi/pi-ai'
 import { localDate } from './clock.ts'
 import {
   GOAL,
@@ -14,6 +13,7 @@ import {
 } from './config.ts'
 import type { ColonyHost } from './host.ts'
 import type { ModelResolver } from './models.ts'
+import { completeSimple, type Context as LlmContext } from './omp/ai.ts'
 import { scratchChecks } from './project-context.ts'
 import { prompts } from './prompts.ts'
 import { hideInContext } from './provider-secrets.ts'

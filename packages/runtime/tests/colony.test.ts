@@ -2,8 +2,6 @@ import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { Context as LlmContext } from '@oh-my-pi/pi-ai'
-import { createMockModel, type MockContent } from '@oh-my-pi/pi-ai/providers/mock'
 import {
   bootRuntime,
   ColonyRun,
@@ -12,6 +10,8 @@ import {
   parseColonySpec,
   type Runtime,
 } from '../src/index.ts'
+import type { Context as LlmContext } from '../src/omp/ai.ts'
+import { createMockModel, type MockContent } from '../src/omp/mock.ts'
 import { prompts } from '../src/prompts.ts'
 
 let home: string

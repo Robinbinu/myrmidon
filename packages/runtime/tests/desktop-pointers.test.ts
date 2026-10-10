@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test'
-import type { ComputerRunOk } from '@oh-my-pi/pi-coding-agent/tools/computer/protocol'
 import { DESKTOP_POINT_CALL, DesktopEngine, desktopPrefix, pointerFacade } from '../src/index.ts'
+import type { ComputerRunOk } from '../src/omp/computer.ts'
 
 type Point = { x: number; y: number; action: string }
 

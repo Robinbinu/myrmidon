@@ -9,13 +9,13 @@ import type {
   PermissionVerdict,
   Review,
 } from '@myrmidon/protocol'
-import type { AgentTool } from '@oh-my-pi/pi-agent-core'
-import type { Judge } from '@oh-my-pi/pi-ai'
 import type { Advisor } from './advisor.ts'
 import type { ModelError } from './agent.ts'
 import type { BrowserHub } from './browser.ts'
 import type { ComputerHub } from './computer/driver.ts'
 import type { MediaTools } from './media.ts'
+import type { AgentTool } from './omp/agent-core.ts'
+import type { Judge } from './omp/ai.ts'
 import type { PluginHost } from './plugin-host.ts'
 import type { ProjectContext } from './project-context.ts'
 import type { Sandbox } from './sandbox.ts'

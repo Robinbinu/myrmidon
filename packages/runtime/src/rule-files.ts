@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import { basename, join, relative, sep } from 'node:path'
-import { parseFrontmatter } from '@oh-my-pi/pi-utils/frontmatter'
 import { RULE_FILE_MAX_BYTES, RULES_MAX_FILES } from './config.ts'
+import { parseFrontmatter } from './omp/utils.ts'
 
 /**
  * Project rules written for other coding tools (Cursor, Windsurf, Cline, GitHub Copilot, Continue, Claude Code, omp),

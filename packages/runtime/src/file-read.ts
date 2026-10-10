@@ -2,9 +2,6 @@ import type { Database } from 'bun:sqlite'
 import { closeSync, existsSync, openSync, readFileSync, readSync, statSync } from 'node:fs'
 import { extname } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { notebookToEditableText, pdfToMarkdown } from '@oh-my-pi/pi-natives'
-import { BINARY_SNIFF_BYTES } from '@oh-my-pi/pi-utils/binary'
-import { parseImageMetadata } from '@oh-my-pi/pi-utils/mime'
 import {
   READ_ARCHIVE_ENTRY_MAX_BYTES,
   READ_ARCHIVE_MAX_BYTES,
@@ -13,6 +10,9 @@ import {
   READ_DOCUMENT_MAX_BYTES,
   READ_SQL_MAX_ROWS,
 } from './config.ts'
+import { notebookToEditableText, pdfToMarkdown } from './omp/natives.ts'
+import { loadImageResize, loadMarkit, loadSqliteReader, type Markit } from './omp/readers.ts'
+import { BINARY_SNIFF_BYTES, loadArchives, parseImageMetadata } from './omp/utils.ts'
 import { prompts } from './prompts.ts'
 
 /**
@@ -75,8 +75,6 @@ function peek(path: string): Uint8Array {
   }
 }
 
-const archives = () => import('@oh-my-pi/pi-utils/ar')
-
 /** Reads the file at `path` (already resolved and allowed); `name` is the path as the agent gave it. */
 export async function readFileAs(path: string, name: string, want: ReadWant = {}): Promise<FileRead> {
   const head = peek(path)
@@ -86,7 +84,7 @@ export async function readFileAs(path: string, name: string, want: ReadWant = {}
   }
   if (want.sql !== undefined) throw new Error(prompts.toolResults.readSqlNotDatabase(name))
   const ext = extname(path).toLowerCase()
-  const format = (await archives()).archiveFormatFromPath(path)
+  const format = (await loadArchives()).archiveFormatFromPath(path)
   if (want.entry !== undefined) {
     if (!format) throw new Error(prompts.toolResults.readEntryNotArchive(name))
     return readArchive(path, name, want.entry)
@@ -133,7 +131,7 @@ async function convert(kind: DocumentKind, name: string, ext: string, bytes: Uin
       return { text, head: t.readNotebook(name) }
     }
     case 'image': {
-      const { resizeImage } = await import('@oh-my-pi/pi-coding-agent/utils/image-resize')
+      const { resizeImage } = await loadImageResize()
       // Downsized to what vision models take in (omp's defaults): a camera photo would otherwise blow the request.
       const image = await resizeImage(bytes)
       if (image.decodeFailed)
@@ -156,7 +154,6 @@ async function convert(kind: DocumentKind, name: string, ext: string, bytes: Uin
   }
 }
 
-type Markit = InstanceType<typeof import('@oh-my-pi/pi-coding-agent/markit').Markit>
 let engine: Promise<Markit> | undefined
 /**
  * omp's document engine, loaded on the first document read. Used directly rather than through omp's
@@ -164,7 +161,7 @@ let engine: Promise<Markit> | undefined
  * person's files stays in this round.
  */
 function markit(): Promise<Markit> {
-  engine ??= import('@oh-my-pi/pi-coding-agent/markit').then(({ Markit }) => new Markit())
+  engine ??= loadMarkit().then(({ Markit }) => new Markit())
   return engine
 }
 
@@ -172,7 +169,7 @@ const reason = (err: unknown) => (err instanceof Error ? err.message : String(er
 
 async function readArchive(path: string, name: string, entry?: string): Promise<FileRead> {
   const t = prompts.toolResults
-  const ar = await archives()
+  const ar = await loadArchives()
   const format = ar.archiveFormatFromPath(path)
   if (!format) throw new Error(t.readEntryNotArchive(name))
   // Stream formats (tar.gz…) decompress whole into memory: the caps keep a small bomb from filling it.
@@ -265,9 +262,7 @@ async function readSqlite(path: string, name: string, sql?: string): Promise<Fil
   }
   try {
     if (sql === undefined) {
-      const { getTableSchema, listTables, renderTableList } = await import(
-        '@oh-my-pi/pi-coding-agent/tools/sqlite-reader'
-      )
+      const { getTableSchema, listTables, renderTableList } = await loadSqliteReader()
       const tables = listTables(db)
       const text = tables
         .map((table) => `${renderTableList([table])}\n${getTableSchema(db, table.name)}`)

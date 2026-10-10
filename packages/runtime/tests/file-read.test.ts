@@ -4,11 +4,11 @@ import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { deflateSync } from 'node:zlib'
-import { encodeArchive } from '@oh-my-pi/pi-utils/ar'
 import { pendingOn } from '../../../tests/platform.ts'
 import { READ_SQL_MAX_ROWS } from '../src/config.ts'
 import { looksBinary, readFileAs } from '../src/file-read.ts'
 import type { ColonyHost } from '../src/host.ts'
+import { loadArchives } from '../src/omp/utils.ts'
 import { TOOL_DEFS } from '../src/tools.ts'
 
 let dir = ''
@@ -17,6 +17,7 @@ beforeAll(() => {
 })
 afterAll(() => rmSync(dir, { recursive: true, force: true }))
 
+const { encodeArchive } = await loadArchives()
 const at = (name: string) => join(dir, name)
 
 /** A one-page PDF whose page says `words`, small enough to write by hand. */

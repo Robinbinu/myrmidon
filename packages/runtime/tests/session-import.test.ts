@@ -3,8 +3,6 @@ import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, utimesSync, w
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { type ColonyState, foldColony } from '@myrmidon/protocol'
-import type { Context as LlmContext } from '@oh-my-pi/pi-ai'
-import { createMockModel } from '@oh-my-pi/pi-ai/providers/mock'
 import { IMPORT_HISTORY_CHARS } from '../src/config.ts'
 import {
   bootRuntime,
@@ -20,6 +18,8 @@ import {
   SessionImports,
   type TeamConfig,
 } from '../src/index.ts'
+import type { Context as LlmContext } from '../src/omp/ai.ts'
+import { createMockModel } from '../src/omp/mock.ts'
 
 let home: string
 let roots: string

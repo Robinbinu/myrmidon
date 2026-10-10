@@ -3,8 +3,8 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, wr
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { writeTar } from '@oh-my-pi/pi-coding-agent/skillshare/tar'
 import { integrityOf, PendingInstalls, parseInstallSource } from '../src/install-sources.ts'
+import { writeTar } from '../src/omp/plugins.ts'
 import { PluginStore } from '../src/plugins.ts'
 
 let dir: string

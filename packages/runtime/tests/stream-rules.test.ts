@@ -4,16 +4,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { EventPayloads } from '@myrmidon/protocol'
 import { foldColony } from '@myrmidon/protocol'
-import type { StreamFn } from '@oh-my-pi/pi-agent-core'
-import type {
-  AssistantMessage,
-  AssistantMessageEvent,
-  Context as LlmContext,
-  Model,
-  ToolCall,
-} from '@oh-my-pi/pi-ai'
-import { createMockModel } from '@oh-my-pi/pi-ai/providers/mock'
-import { AssistantMessageEventStream } from '@oh-my-pi/pi-ai/utils/event-stream'
 import {
   bootRuntime,
   ChatService,
@@ -30,6 +20,16 @@ import {
   StreamRuleGuard,
   StreamRuleStore,
 } from '../src/index.ts'
+import type { StreamFn } from '../src/omp/agent-core.ts'
+import type {
+  AssistantMessage,
+  AssistantMessageEvent,
+  Context as LlmContext,
+  Model,
+  ToolCall,
+} from '../src/omp/ai.ts'
+import { AssistantMessageEventStream } from '../src/omp/ai.ts'
+import { createMockModel } from '../src/omp/mock.ts'
 import { prompts } from '../src/prompts.ts'
 
 let home: string

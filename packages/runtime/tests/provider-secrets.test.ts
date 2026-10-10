@@ -2,8 +2,6 @@ import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { Context as LlmContext } from '@oh-my-pi/pi-ai'
-import { createMockModel, type MockContent } from '@oh-my-pi/pi-ai/providers/mock'
 import {
   addKnownSecrets,
   bootRuntime,
@@ -17,6 +15,8 @@ import {
   type Runtime,
   restoreSecrets,
 } from '../src/index.ts'
+import type { Context as LlmContext } from '../src/omp/ai.ts'
+import { createMockModel, type MockContent } from '../src/omp/mock.ts'
 
 const KEY = 'sk-proj-Zq8vT3nLw1RkX9pB4mHc7YdF2sGjE6aU'
 /** A credential Myrmidon holds whose value has no known shape: only its value gives it away. */

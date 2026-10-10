@@ -1,17 +1,5 @@
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
-import type {
-  Diagnostic,
-  DocumentSymbol,
-  Hover,
-  Location,
-  LocationLink,
-  LspClient,
-  ServerConfig,
-  SymbolInformation,
-  WorkspaceEdit,
-} from '@oh-my-pi/pi-coding-agent/lsp/types'
-import * as natives from '@oh-my-pi/pi-natives'
 import {
   AST_EDIT_MAX_FILES,
   AST_EDIT_MAX_REPLACEMENTS,
@@ -23,6 +11,19 @@ import {
   LSP_LIST_LIMIT,
   MAX_READ_CHARS,
 } from './config.ts'
+import type {
+  Diagnostic,
+  DocumentSymbol,
+  Hover,
+  Location,
+  LocationLink,
+  LspClient,
+  ServerConfig,
+  SymbolInformation,
+  WorkspaceEdit,
+} from './omp/lsp.ts'
+import { type Lsp, loadLsp } from './omp/lsp.ts'
+import * as natives from './omp/natives.ts'
 import { prompts } from './prompts.ts'
 
 /**
@@ -269,27 +270,14 @@ export const lspWrites = (args: Partial<LspArgs>) => args.action === 'rename'
  * omp has been pointed at Myrmidon's folder, and most rounds never need them.
  */
 function ompLsp(): Promise<Omp> {
-  ompModules ??= (async () => {
-    const [config, client, diagnostics, edits, utils] = await Promise.all([
-      import('@oh-my-pi/pi-coding-agent/lsp/config'),
-      import('@oh-my-pi/pi-coding-agent/lsp/client'),
-      import('@oh-my-pi/pi-coding-agent/lsp/diagnostics'),
-      import('@oh-my-pi/pi-coding-agent/lsp/edits'),
-      import('@oh-my-pi/pi-coding-agent/lsp/utils'),
-    ])
+  ompModules ??= loadLsp().then((omp) => {
     // Servers are started per agent (each in its own sandbox); idle ones are stopped rather than kept for the session.
-    client.setIdleTimeout(LSP_IDLE_MS)
-    return { config, client, diagnostics, edits, utils }
-  })()
+    omp.client.setIdleTimeout(LSP_IDLE_MS)
+    return omp
+  })
   return ompModules
 }
-interface Omp {
-  readonly config: typeof import('@oh-my-pi/pi-coding-agent/lsp/config')
-  readonly client: typeof import('@oh-my-pi/pi-coding-agent/lsp/client')
-  readonly diagnostics: typeof import('@oh-my-pi/pi-coding-agent/lsp/diagnostics')
-  readonly edits: typeof import('@oh-my-pi/pi-coding-agent/lsp/edits')
-  readonly utils: typeof import('@oh-my-pi/pi-coding-agent/lsp/utils')
-}
+type Omp = Lsp
 let ompModules: Promise<Omp> | undefined
 
 /** Language servers omp finds for a folder: its defaults whose root markers are there and whose binary is installed. */

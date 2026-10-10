@@ -32,10 +32,6 @@ import {
   TEAM_CHAT,
   type UsageInfo,
 } from '@myrmidon/protocol'
-import type { AgentTool, AgentToolResult } from '@oh-my-pi/pi-agent-core'
-import { type Model, type } from '@oh-my-pi/pi-ai'
-import type { ServerConfig } from '@oh-my-pi/pi-coding-agent/lsp/types'
-import * as natives from '@oh-my-pi/pi-natives'
 import type { ElementHandle } from 'puppeteer-core'
 import chatDoc from '../docs/chat.md' with { type: 'text' }
 import coordinationDoc from '../docs/coordination.md' with { type: 'text' }
@@ -132,6 +128,10 @@ import {
   type MadeTool,
   scriptCommand,
 } from './made-tools.ts'
+import type { AgentTool, AgentToolResult } from './omp/agent-core.ts'
+import { type Model, type } from './omp/ai.ts'
+import type { ServerConfig } from './omp/lsp.ts'
+import * as natives from './omp/natives.ts'
 import { RUNTIMES, toolsFor } from './patterns.ts'
 import { presetOf } from './permissions.ts'
 import { adoptDraft, isOwnDraft, testPlugin, writeDraft } from './plugin-builder.ts'
