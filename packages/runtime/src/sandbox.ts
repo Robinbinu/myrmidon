@@ -7,12 +7,13 @@ import {
   SANDBOX_HIDDEN_TMP,
   SANDBOX_MAX_OUTPUT,
   SANDBOX_TEMP_READABLE,
+  SANDBOX_TIMED_OUT_READ_MS,
   sandboxSystemBins,
 } from './config.ts'
 import { spawnLeashed } from './leashed.ts'
 import { presetOf } from './permissions.ts'
 import { pathOf, realOrNone, realPath, toolchainPaths, within } from './read-access.ts'
-import { hostShell } from './shell.ts'
+import { hostShell, shellEnv } from './shell.ts'
 import type { ColonySpec } from './spec.ts'
 
 export interface SandboxRun {
@@ -158,7 +159,7 @@ export function pathRules(spec: PathSpec, home: string): PathRule[] {
       path,
       access: 'read' as const,
     })),
-    ...spec.writable.map((d) => ({ path: realpathSync(d), access: 'write' as const })),
+    ...spec.writable.map((d) => ({ path: realpathSync.native(d), access: 'write' as const })),
   ]
   const seen = new Set<string>()
   return rules
@@ -378,7 +379,7 @@ function confinedEnv(spec: Omit<SandboxRun, 'timeoutMs'>, person: string) {
   mkdirSync(tmp, { recursive: true })
   const env = confinedEnvFor(process.env, { person, home, tmp })
   for (const dir of [env.APPDATA, env.LOCALAPPDATA]) if (dir) mkdirSync(dir, { recursive: true })
-  return { ...env, ...spec.env }
+  return shellEnv({ ...env, ...spec.env })
 }
 
 function startConfined(
@@ -457,13 +458,18 @@ async function runLeashed(
     timedOut = true
     proc.stdin.end()
   }, spec.timeoutMs)
-  const [stdout, stderr, code] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ])
+  const out = { stdout: '', stderr: '' }
+  const read = async (stream: ReadableStream<Uint8Array>, into: 'stdout' | 'stderr') => {
+    const decoder = new TextDecoder()
+    for await (const chunk of stream) out[into] += decoder.decode(chunk, { stream: true })
+  }
+  const reading = Promise.all([read(proc.stdout, 'stdout'), read(proc.stderr, 'stderr')])
+  const code = await proc.exited
   clearTimeout(timer)
-  return { code: timedOut ? null : code, stdout: cap(stdout), stderr: cap(stderr), timedOut }
+  // Once the leash has stopped a command that ran too long, what is left holding its output open is outside the
+  // tree it could find (on Windows, a process whose Git Bash parent handed it on and exited): the run ends anyway.
+  await (timedOut ? Promise.race([reading, Bun.sleep(SANDBOX_TIMED_OUT_READ_MS)]) : reading)
+  return { code: timedOut ? null : code, stdout: cap(out.stdout), stderr: cap(out.stderr), timedOut }
 }
 
 /**
@@ -472,7 +478,7 @@ async function runLeashed(
  */
 export function unconfinedSandbox(): Sandbox {
   const argv = plainShell
-  const env = (spec: Omit<SandboxRun, 'timeoutMs'>) => ({ ...process.env, ...spec.env })
+  const env = (spec: Omit<SandboxRun, 'timeoutMs'>) => shellEnv({ ...process.env, ...spec.env })
   return {
     kind: 'unconfined',
     argv,

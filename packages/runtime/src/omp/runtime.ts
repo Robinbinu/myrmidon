@@ -236,6 +236,7 @@ async function start(home: string): Promise<OmpRuntime> {
   const { Settings } = await import('@oh-my-pi/pi-coding-agent/config/settings')
   const { discoverAuthStorage } = await import('@oh-my-pi/pi-coding-agent/sdk')
   const { ModelRegistry } = await import('@oh-my-pi/pi-coding-agent/config/model-registry')
+  const { AgentStorage } = await import('@oh-my-pi/pi-coding-agent/session/agent-storage')
   const { getOAuthProviders } = await import('@oh-my-pi/pi-ai/registry/oauth/index')
   const { collectStoredAccounts } = await import(
     '@oh-my-pi/pi-coding-agent/slash-commands/helpers/usage-accounts'
@@ -668,7 +669,11 @@ async function start(home: string): Promise<OmpRuntime> {
       core = await open()
       previous.auth.close()
     },
-    close: () => core.auth.close(),
+    close: () => {
+      core.auth.close()
+      // Settings keep agent.db open through omp's process-wide storage, which the vault's close leaves be.
+      AgentStorage.close()
+    },
   }
   return runtime
 }

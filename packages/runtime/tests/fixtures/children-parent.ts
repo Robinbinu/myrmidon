@@ -5,10 +5,13 @@ import { mkdirSync, symlinkSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { BrowserHub } from '../../src/browser.ts'
+import { treeOf } from '../../src/leash.ts'
 import { spawnLeashed } from '../../src/leashed.ts'
 import { detectSandbox } from '../../src/sandbox.ts'
 import { PhononStt } from '../../src/voice/stt.ts'
 import { KittenTts } from '../../src/voice/tts.ts'
+import { runningProcesses } from './processes.ts'
+import { sleeper, twoSleeps } from './sleeper.ts'
 
 const [kind, dir] = process.argv.slice(2)
 if (!dir) throw new Error('usage: children-parent.ts <kind> <dir>')
@@ -16,22 +19,7 @@ if (!dir) throw new Error('usage: children-parent.ts <kind> <dir>')
 /** Waits until `pid` has `n` processes below it, so the test sees the whole tree. */
 async function descendants(pid: number, n: number) {
   for (let i = 0; i < 100; i++) {
-    const ps = Bun.spawnSync(['ps', '-Ao', 'pid=,ppid='], { stdout: 'pipe' })
-    const rows = new TextDecoder()
-      .decode(ps.stdout)
-      .trim()
-      .split('\n')
-      .map((l) => l.trim().split(/\s+/).map(Number))
-    const found = new Set([pid])
-    for (let grew = true; grew; ) {
-      grew = false
-      for (const [p, pp] of rows)
-        if (p && pp && found.has(pp) && !found.has(p)) {
-          found.add(p)
-          grew = true
-        }
-    }
-    if (found.size > n) return
+    if (treeOf(runningProcesses(), pid).size > n) return
     await Bun.sleep(50)
   }
   throw new Error(`${pid} did not start ${n} processes`)
@@ -41,18 +29,17 @@ const keep: unknown[] = []
 let extra = ''
 switch (kind) {
   case 'leash': {
-    // A grandchild that ignores SIGTERM, so only the SIGKILL after the grace stops it.
-    const proc = spawnLeashed(['sh', '-c', 'trap "" TERM; sleep 600 & sleep 600 & wait'], {
-      stdout: 'ignore',
-    })
+    // A command that ignores SIGTERM, so only the SIGKILL after the grace stops it, and two children of its own.
+    const proc = spawnLeashed(sleeper('--ignore-term', '--children=2'), { stdout: 'ignore' })
     keep.push(proc)
     await descendants(proc.pid, 3)
     break
   }
   case 'sibling': {
-    // A child started after the leash, not leashed: it must not hold the leash's stdin open.
-    const proc = spawnLeashed(['sleep', '600'], { stdout: 'ignore' })
-    const other = Bun.spawn(['sleep', '600'], { stdout: 'ignore' })
+    // A child started after the leash, not leashed: it must not hold the leash's stdin open. Detached on Windows,
+    // where Bun's job object would otherwise end it with this process, so it could not outlive it as it must here.
+    const proc = spawnLeashed(sleeper(), { stdout: 'ignore' })
+    const other = Bun.spawn(sleeper(), { stdout: 'ignore', detached: process.platform === 'win32' })
     keep.push(proc, other)
     await descendants(proc.pid, 1)
     extra = ` ${other.pid}`
@@ -77,9 +64,11 @@ switch (kind) {
   case 'server': {
     mkdirSync(join(dir, 'project'), { recursive: true })
     const server = detectSandbox().start({
-      command: 'sleep 600 & sleep 600',
+      command: twoSleeps(),
       cwd: join(dir, 'project'),
       writable: [join(dir, 'project')],
+      // A confined command keeps little of this environment: the sweep log (see leash.ts) is passed on by name.
+      env: { MYR_LEASH_LOG: join(dir, 'leash.log') },
     })
     keep.push(server)
     await descendants(server.pid, 3)

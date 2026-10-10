@@ -1,12 +1,11 @@
 import { afterEach, expect, test } from 'bun:test'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { BlobStore } from '@myrmidon/core'
 import { applyEvent, type EventDraft, emptyColonyState, type MyrEvent } from '@myrmidon/protocol'
 import type { Context as LlmContext } from '@oh-my-pi/pi-ai'
 import { createMockModel } from '@oh-my-pi/pi-ai/providers/mock'
-import { removeTempDir } from '../../../tests/platform.ts'
 import type { ColonyHost } from '../src/host.ts'
 import {
   bootRuntime,
@@ -29,7 +28,7 @@ import { wav } from '../src/voice/audio.ts'
 
 const dirs: string[] = []
 afterEach(() => {
-  for (const dir of dirs.splice(0)) removeTempDir(dir)
+  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true })
 })
 
 function tempDir(prefix: string): string {

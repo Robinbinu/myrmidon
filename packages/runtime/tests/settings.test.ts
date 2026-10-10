@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { parseColonySpec, SettingsStore, toolsFor, withoutModel } from '../src/index.ts'
+import { readFolderPattern } from '../src/settings.ts'
 
 function home() {
   return mkdtempSync(join(tmpdir(), 'myr-settings-'))
@@ -321,4 +322,13 @@ test('voice providers, realtime and regions are checked, and only what is set is
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
+})
+
+test('a read folder in Settings is written as its system writes full paths: a drive or share on Windows', () => {
+  const takes = (platform: NodeJS.Platform, folder: string) => readFolderPattern(platform).test(folder)
+  for (const folder of ['~', '~/docs', '/srv/data']) expect(takes('darwin', folder)).toBe(true)
+  for (const folder of ['docs', '~docs', 'C:\\data']) expect(takes('linux', folder)).toBe(false)
+  for (const folder of ['~', '~/docs', '~\\docs', 'C:\\Users\\ada\\data', 'd:/data', '\\\\nas\\share'])
+    expect(takes('win32', folder)).toBe(true)
+  for (const folder of ['docs', 'C:data', '~docs']) expect(takes('win32', folder)).toBe(false)
 })

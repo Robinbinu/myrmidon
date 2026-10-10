@@ -17,9 +17,17 @@ on:
         description: Only test files whose path contains one of these words (space-separated); empty runs all
         type: string
         default: ''
+      pending:
+        description: Also run the tests pending on this OS (tests/platform.ts), to see whether a fix closes their gap
+        type: boolean
+        default: false
+      bun:
+        description: Bun version to run with, to try a newer one (the repository's floor by default)
+        type: string
+        default: 1.3.14
 
 concurrency:
-  group: ci-${{ github.ref }}-${{ inputs.os || 'all' }}
+  group: ci-${{ github.ref }}-${{ inputs.os || 'all' }}-${{ inputs.bun || '' }}
   cancel-in-progress: true
 
 permissions:
@@ -45,7 +53,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.3.14
+          bun-version: ${{ inputs.bun || '1.3.14' }}
 
       # Restore and save are split so a failing test run still keeps the cache for the next one.
       - name: Restore Bun packages and the Electrobun toolchain
@@ -92,5 +100,25 @@ jobs:
         shell: bash
         env:
           TESTS: ${{ inputs.tests }}
-        # TESTS is deliberately unquoted: it is a list of path filters.
-        run: bun test --timeout 30000 $TESTS
+          MYR_RUN_PENDING: ${{ inputs.pending && '1' || '' }}
+        # TESTS is deliberately unquoted: it is a list of path filters. A run still going after 25 minutes is stuck
+        # (a whole run takes about 12): it is stopped, saying what was running, instead of holding the job to 45.
+        run: |
+          bun test --timeout 30000 $TESTS &
+          tests=$!
+          (
+            for _ in $(seq 150); do
+              sleep 10
+              kill -0 $tests 2>/dev/null || exit 0
+            done
+            echo "::error::the tests were still running after 25 minutes; what was running:"
+            if [ "$RUNNER_OS" = Windows ]; then
+              powershell -NoProfile -Command "Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,CommandLine | Format-Table -AutoSize -Wrap | Out-String -Width 400"
+            else
+              ps -Ao pid,ppid,etime,command
+            fi
+            kill $tests
+          ) &
+          code=0
+          wait $tests || code=$?
+          exit $code

@@ -12,7 +12,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { PermissionCall } from '@myrmidon/protocol'
 import { createMockModel } from '@oh-my-pi/pi-ai/providers/mock'
-import { removeTempDir } from '../../../tests/platform.ts'
 import { CellKernels, type CellScope, cellKernels } from '../src/cells.ts'
 import { CELL_OUTPUT_CHARS } from '../src/config.ts'
 import type { ColonyHost } from '../src/host.ts'
@@ -25,7 +24,7 @@ let dir: string
 const kernels = new CellKernels()
 
 beforeEach(() => {
-  dir = realpathSync(mkdtempSync(join(tmpdir(), 'myr-cells-')))
+  dir = realpathSync.native(mkdtempSync(join(tmpdir(), 'myr-cells-')))
 })
 
 afterEach(() => {
@@ -308,7 +307,7 @@ test.skipIf(sandbox.kind === 'none')(
       expect(await until(() => !running(pid))).toBe(true)
     } finally {
       await runtime.dispose()
-      removeTempDir(home)
+      rmSync(home, { recursive: true, force: true })
     }
   },
   60_000,
@@ -317,7 +316,7 @@ test.skipIf(sandbox.kind === 'none')(
 test.skipIf(sandbox.kind !== 'sandbox-exec' && sandbox.kind !== 'bubblewrap')(
   'in the real OS sandbox a cell writes its working directory and nowhere else',
   async () => {
-    const outside = realpathSync(mkdtempSync(join(tmpdir(), 'myr-cells-outside-')))
+    const outside = realpathSync.native(mkdtempSync(join(tmpdir(), 'myr-cells-outside-')))
     try {
       writeFileSync(join(outside, 'secret.txt'), 'top secret')
       const { host: h } = host('allow', sandbox)

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { chmodSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, statSync, writeFileSync } from 'node:fs'
 
 /** The platforms a test may be pending on. macOS is the reference platform: nothing is ever pending there. */
 type Pending = 'linux' | 'win32'
@@ -16,47 +16,14 @@ export const GAPS = {
     'network namespace per command would also cut it off from the dev servers it starts and the browser loads, ' +
     'and slirp4netns or pasta to restore the network are missing on most desktops; DevTools over a pipe needs a ' +
     'Bun that does not double-close it',
-  sqliteHandles:
-    'SQLite stores close with db.close() while prepared statements live (core sqlite-store.ts), so the file stays ' +
-    'open until GC: on Windows deleting a chat fails with EBUSY (deleteColony) and test folders stay busy; ' +
-    'close(true) would release it at once',
-  serverJsonAfterKill:
-    'when the desktop app is killed, the leash stops its server without letting it remove server.json on Windows',
   cuaDriverOnWindows:
     'computer use cannot start a Cua Driver on Windows (its manifest and daemon never answer), so every computer ' +
     'tool fails there',
-  dataFolderOnWindows:
-    "the project file and git views, and readProjectFile, still serve Myrmidon's data folder (credentials.json) " +
-    'and keys inside a project on Windows',
-  terminalForeground:
-    "the terminal panel on Windows does not report what runs in each terminal's foreground (ConPTY)",
   bunWindowsSockets:
-    'Bun 1.3.14 on Windows crashes (segfault, or exit 127) in the IRC raw-socket tests, ending the whole run',
-  processTreeTests:
-    'children.test.ts reads process trees with `ps` and drives sh/sleep/trap and POSIX signals; it needs a ' +
-    'Windows port (a test-side change, using processes.ts to list trees)',
-  fileToolPathsOnWindows:
-    'file tools refuse files inside scratch or the project on Windows ("path is outside your scratch directory: ' +
-    'notes.txt"): roots come from realpathSync, which keeps 8.3 short names (C:\\Users\\RUNNER~1, as %TEMP% ' +
-    'has them), while the path checked comes from realpathSync.native, with long ones (C:\\Users\\runneradmin) ' +
-    '(workspace.ts:59 against read-access.ts realOrNone; projects.ts, skills.ts and instructions.ts mix them too)',
-  settingsPosixPaths:
-    "Settings' sandbox.read folders must match /^(~$|~\\/|\\/)/, so no Windows folder can be listed (settings.ts)",
-  timeoutStopOnWindows:
-    'a full-access command past its timeout is not stopped on Windows: run() does not return for the whole sleep ' +
-    '(sandbox.ts runLeashed, leash.ts)',
-  windowsRoundsStall:
-    'chat rounds that wait on approval cards, crew messages or a resume never reach their expected state on Windows ' +
-    '(colony did not reach the expected state, 25 s); cause not yet isolated, possibly the file-tool refusals above',
-  windowsShellPath:
-    "commands run through Git's sh.exe with a PATH that lacks Git's usr\\bin, so mkdir, touch and the rest are " +
-    "'command not found'",
-  worktreesOnWindows:
-    'agent worktrees on Windows: `git add` trips over the linked node_modules ("paths are ignored"), so workers ' +
-    'cannot commit and merge',
-  osSeparatorsInText:
-    "paths shown to agents use \\ on Windows (nested AGENTS.md list, a skill's file list) where macOS and Linux " +
-    'show /',
+    "Bun's sockets on Windows corrupt its heap when a TCP connection is ended or dropped (usockets: a segfault in " +
+    'us_internal_socket_close_and_notify or in a later malloc), in Bun 1.3.14 and 1.4.3 alike, ending the whole run ' +
+    'in the IRC tests; the IRC client no longer ends a socket from its own close callbacks, which stopped it in the ' +
+    'SASL and PASS tests, but a connection the server drops still crashes it',
 } as const
 
 export type Gap = keyof typeof GAPS
@@ -83,13 +50,18 @@ export function notOn(on: Pending | readonly Pending[], why: keyof typeof OTHER_
 
 const announced = new Set<Gap>()
 
+/** MYR_RUN_PENDING=1 runs pending tests too, to see whether a fix closes their gap and how they fail if not. */
+const runPending = process.env.MYR_RUN_PENDING === '1'
+
 function pendingHere(on: Pending | readonly Pending[], gap: Gap): boolean {
   const here = (typeof on === 'string' ? [on] : on).some((p) => p === process.platform)
   if (here && !announced.has(gap)) {
     announced.add(gap)
-    console.warn(`pending on ${process.platform}: ${gap}: ${GAPS[gap]}`)
+    console.warn(
+      `${runPending ? 'running, though pending' : 'pending'} on ${process.platform}: ${gap}: ${GAPS[gap]}`,
+    )
   }
-  return here
+  return here && !runPending
 }
 
 /**
@@ -119,27 +91,6 @@ export function bunShim(path: string, script: string): string {
   writeFileSync(path, `#!/bin/sh\nexec "${process.execPath}" "${script}" "$@"\n`)
   chmodSync(path, 0o755)
   return path
-}
-
-/**
- * Removes a test's temp folder. On Windows a SQLite file closed with db.close() stays open while its statements are
- * reachable (GAPS.sqliteHandles), so a folder still busy after a full collection is left in the runner's temp folder
- * and logged: no test asserts on removing it, and its own assertions still decide whether it passes.
- */
-export function removeTempDir(dir: string): void {
-  const remove = () => rmSync(dir, { recursive: true, force: true })
-  try {
-    remove()
-  } catch (err) {
-    if (process.platform !== 'win32' || (err as NodeJS.ErrnoException).code !== 'EBUSY') throw err
-    pendingHere('win32', 'sqliteHandles')
-    Bun.gc(true)
-    try {
-      remove()
-    } catch {
-      console.warn(`left ${dir}: still open (sqliteHandles)`)
-    }
-  }
 }
 
 /** Entries Windows keeps on every private file: the system itself and administrators can always take ownership. */

@@ -27,7 +27,7 @@ let runtime: Runtime | undefined
 
 beforeEach(() => {
   home = mkdtempSync(join(tmpdir(), 'myr-import-'))
-  roots = realpathSync(mkdtempSync(join(tmpdir(), 'myr-import-roots-')))
+  roots = realpathSync.native(mkdtempSync(join(tmpdir(), 'myr-import-roots-')))
 })
 
 afterEach(async () => {

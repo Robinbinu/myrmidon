@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { INSTRUCTIONS_MAX_DIRS, INSTRUCTIONS_MAX_TEXT, MAX_IMPORT_DEPTH } from './config.ts'
+import { slashed } from './read-access.ts'
 import { containedIn, type ProjectRule, readProjectRules } from './rule-files.ts'
 import { SKIP_DIRS } from './workspace.ts'
 
@@ -42,13 +43,13 @@ const ROOT_FILES = [
 const NESTED_NAMES = new Set(['AGENTS.md', 'CLAUDE.md'])
 
 export function readProjectInstructions(root: string): ProjectInstructions | undefined {
-  const base = realpathSync(root)
+  const base = realpathSync.native(root)
   const seen = new Set<string>()
   const files: string[] = []
 
   // Expands lines that are only an `@path` import (Claude Code's syntax), within the project and a few hops deep.
   const expand = (file: string, depth: number): string => {
-    const real = realpathSync(file)
+    const real = realpathSync.native(file)
     if (seen.has(real)) return ''
     seen.add(real)
     return readFileSync(real, 'utf8')
@@ -77,7 +78,7 @@ export function readProjectInstructions(root: string): ProjectInstructions | und
     const file = join(base, ...name.split('/'))
     if (!existsSync(file) || !statSync(file).isFile()) continue
     // A config folder's file may be a link; like an import, it is read only if it stays in the project.
-    if (name.includes('/') && !realpathSync(file).startsWith(base + sep)) continue
+    if (name.includes('/') && !realpathSync.native(file).startsWith(base + sep)) continue
     add(name, expand(file, 0).trim())
   }
   const rules: ProjectRule[] = []
@@ -99,7 +100,7 @@ export function readProjectInstructions(root: string): ProjectInstructions | und
     for (const e of entries) {
       if (e.isDirectory() && !SKIP_DIRS.has(e.name) && !e.name.startsWith('.')) queue.push(join(dir, e.name))
       else if (e.isFile() && NESTED_NAMES.has(e.name) && dir !== base)
-        nested.push(relative(base, join(dir, e.name)))
+        nested.push(slashed(relative(base, join(dir, e.name))))
     }
   }
 

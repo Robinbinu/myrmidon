@@ -29,7 +29,8 @@ Each job runs, in order (later steps run even when an earlier check fails, so on
 4. `bun run lint` (Biome);
 5. on Linux: installs bubblewrap and allows unprivileged user namespaces
    (`kernel.apparmor_restrict_unprivileged_userns=0`), so the command sandbox runs for real instead of being skipped;
-6. `bun test --timeout 30000`.
+6. `bun test --timeout 30000`, stopped after 25 minutes (a whole run takes about 12) with a list of what was running,
+   so a stuck run says where it is stuck instead of holding the job to its 45.
 
 Windows checks out with LF line endings (`core.autocrlf false`), as the repository is written.
 
@@ -50,7 +51,7 @@ pendingOn('win32', 'worktreesOnWindows')('workers edit their own worktrees…', 
 `pendingOn(os, gap)` skips the test on that OS only and logs the gap's reason once. Every gap is an entry in
 `GAPS` in `tests/platform.ts`: when a fix lands, delete the entry and typecheck points at every test to un-mark.
 `notOn(os, why)` is the same for tests of another system's own mechanism (a Seatbelt profile, bubblewrap mounts),
-which are not gaps. `removeTempDir` and `expectOwnerOnly` keep cleanup and the private-file check honest on Windows.
+which are not gaps. `expectOwnerOnly` checks a private file the way each system keeps one (a mode, or an access list).
 
 ### Pending on Linux (Ubuntu 24.04)
 
@@ -62,31 +63,13 @@ which are not gaps. `removeTempDir` and `expectOwnerOnly` keep cleanup and the p
 
 | Gap | Tests | What has to change |
 | --- | --- | --- |
-| `fileToolPathsOnWindows` | colony: *grep and glob…*; read-access: *file tools refuse what the sandbox hides…*; chat: 6 (project chat, browser tabs/uploads, hooks, secret kept out of the log, fs_edit, browser flow) | roots come from `realpathSync` (8.3 short names such as `RUNNER~1`) while checked paths come from `realpathSync.native` (long names), so files inside scratch or the project are refused |
-| `windowsRoundsStall` | chat: 9 (@name, member writing into a round, preset chat, someone else's round ×2, stopped-and-resumed round, allow all file changes, per-tool rules, review cards); full-access: 2 | rounds waiting on cards, crew messages or a resume never reach their state (25 s); cause not isolated, possibly the file-tool refusals |
-| `worktreesOnWindows` | worktrees: 5; chat: *team workers in a git project…* | `git add` in a worker's worktree trips over the linked `node_modules` ("paths are ignored") |
 | `cuaDriverOnWindows` | computer: 14; server-computer: 1 | no Cua Driver on Windows: its manifest and daemon never answer, so computer tools fail |
-| `processTreeTests` | children: 11 | the test reads process trees with `ps` and drives sh/sleep/trap and signals; it needs a Windows port (test-side) |
-| `dataFolderOnWindows` | server-project-file: 2; projects: 1 | project file and git views (and `readProjectFile`) still serve `.myrmidon/credentials.json` and keys |
-| `osSeparatorsInText` | instructions: 1; skills: 1 | paths shown to agents use `\` on Windows |
-| `bunWindowsSockets` | channels-irc: 7 | Bun 1.3.14 on Windows crashes (segfault, or exit 127) in the IRC raw-socket tests, ending the whole run |
-| `windowsShellPath` | sandbox: *keeps HOME and TMPDIR in the agent scratch* | commands run in Git's `sh.exe` with a PATH lacking Git's `usr\bin`: `mkdir: command not found` |
-| `timeoutStopOnWindows` | sandbox: *a full-access command that runs too long is stopped* | `run()` does not return at its timeout on Windows |
-| `settingsPosixPaths` | read-access: *a folder listed in Settings opens for every chat…* | Settings' `sandbox.read` accepts only `~`, `~/…` or `/…` |
-| `serverJsonAfterKill` | desktop server: *the server the app started stops when the app is killed…* | killing the app leaves `server.json` behind on Windows |
-| `terminalForeground` | server-terminal: *several terminals run their own shells…* | terminals do not report their foreground program (ConPTY) |
-| `sqliteHandles` | chat: *deleting a chat removes every round and its data* (and `removeTempDir` leaves busy test folders, logged) | `db.close()` with live prepared statements keeps the SQLite file open until GC (`core/sqlite-store.ts`), so deleting a chat fails with EBUSY; `close(true)` would release it |
+| `bunWindowsSockets` | channels-irc: 7 | Bun's Windows sockets corrupt its heap when a TCP connection ends or drops (a segfault in usockets' socket close, or a later malloc), in Bun 1.3.14 and 1.4.3 alike, ending the run; a Bun bug to report upstream, then a Bun upgrade |
 
 ### Not on Windows (by design)
 
 `notOn('win32', …)`: the Seatbelt profile test (`macProfile`), the bubblewrap mounts test (`bwrapMounts`) and the
 POSIX PATH test (`posixPath`; `cross-platform.test.ts` checks Windows' PATH).
-
-### Known flake
-
-chat: *a round stopped after reaching outside Myrmidon tells its agents what was already done when it resumes* failed
-once on macOS (`seen[0]` was undefined after the resume) and passed on the next runs; on Windows it stalls every time
-(`windowsRoundsStall`).
 
 The existing skips that do not depend on the OS stay as they were: no sandbox (`detectSandbox().kind === 'none'`,
 which is Windows today), no Chrome, no Kitten or Pythia model, and the opt-in end-to-end voice and model tests.
@@ -96,11 +79,14 @@ which is Windows today), no Chrome, no Kitten or Pythia model, and the opt-in en
 ```sh
 gh workflow run ci.yml --ref <branch> -f os=windows-latest
 gh workflow run ci.yml --ref <branch> -f os=ubuntu-latest -f tests="sandbox read-access"
+gh workflow run ci.yml --ref <branch> -f os=windows-latest -f pending=true
 gh run watch
 ```
 
 `os` is `all`, `macos-latest`, `ubuntu-latest` or `windows-latest`; `tests` takes path fragments, as `bun test`
-does. Or use **Actions → CI → Run workflow** on GitHub.
+does; `pending` also runs the tests pending on that OS (`MYR_RUN_PENDING=1`, which works locally too), to see
+whether a fix closes their gap and how they fail if it does not; `bun` runs with another Bun version than the
+`engines` floor, to see whether a newer one fixes a crash. Or use **Actions → CI → Run workflow** on GitHub.
 
 ## Minutes
 

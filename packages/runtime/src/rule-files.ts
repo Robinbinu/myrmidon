@@ -152,7 +152,7 @@ const posix = (path: string) => path.split(sep).join('/')
 /** A real file inside the project: a link that leads out of it is not read, as an @import outside it is not. */
 function inside(base: string, path: string): string | undefined {
   try {
-    const real = realpathSync(path)
+    const real = realpathSync.native(path)
     const stat = statSync(real)
     return real.startsWith(base + sep) && stat.isFile() && stat.size <= RULE_FILE_MAX_BYTES ? real : undefined
   } catch {
@@ -208,7 +208,7 @@ function streamTrigger(fm: Frontmatter): boolean {
 }
 
 function scan(root: string): { rules: ProjectRule[]; stream: StreamRuleFile[] } {
-  const base = realpathSync(root)
+  const base = realpathSync.native(root)
   const rules: ProjectRule[] = []
   const stream: StreamRuleFile[] = []
   const names = new Set<string>()
