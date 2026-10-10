@@ -244,6 +244,32 @@
   animation: blink-caret 1.1s steps(1) infinite;
 }
 
+/* A setting Settings search jumped to: an amber wash that fades out (SETTINGS_SEARCH.highlightMs in ui-config.ts),
+   or, with less motion, one that simply holds until it is taken away. The row takes focus without a ring of its own. */
+@keyframes setting-found {
+  0%,
+  45% {
+    background-color: var(--accent-soft);
+    box-shadow: 0 0 0 2px var(--accent-soft);
+  }
+  100% {
+    background-color: transparent;
+    box-shadow: 0 0 0 2px transparent;
+  }
+}
+[data-setting-highlight] {
+  border-radius: 8px;
+  outline: none;
+  animation: setting-found 1.8s ease-out both;
+  @variant less-motion {
+    animation: none;
+    background-color: var(--accent-soft);
+  }
+}
+[data-setting-id][tabindex="-1"]:focus {
+  outline: none;
+}
+
 /* Motion that loops or pulses stops for people who asked for less; spinners still turn, slowly. These sit in the
    utilities layer after Tailwind's own, so they win over the animate-* utilities they quiet. */
 @layer utilities {

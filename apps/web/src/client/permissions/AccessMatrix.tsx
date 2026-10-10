@@ -8,6 +8,7 @@ import {
 } from '@myrmidon/protocol'
 import { RotateCcw } from 'lucide-react'
 import { copy } from '../copy.ts'
+import { settingItem } from '../settings/Setting.tsx'
 import { cn, IconButton, Switch } from '../ui/primitives.tsx'
 import { ACCESS_INFO, scopeLabel } from './describe.ts'
 
@@ -58,7 +59,7 @@ export function AccessMatrix(props: {
         </thead>
         <tbody className="divide-y divide-line">
           {ACCESS_INFO.map((g) => (
-            <tr key={g.group}>
+            <tr key={g.group} {...settingItem('permissions.accessGroup', g)}>
               <th scope="row" className={cn('px-4 font-normal', props.compact ? 'py-1.5' : 'py-2.5')}>
                 <span className="flex items-center gap-3">
                   <span className="grid size-7 shrink-0 place-items-center rounded-md bg-fill text-fg-2">

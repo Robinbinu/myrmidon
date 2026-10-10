@@ -46,6 +46,13 @@ export const RULE_ICONS: Record<PermissionRule['kind'], LucideIcon> = {
   'mcp-tool': FEATURE_ICONS.mcp,
 }
 
+/** A rule's target as the rules table shows it: `*` in words, otherwise the name itself. */
+export function shownTarget(rule: Pick<PermissionRule, 'kind' | 'target'>): string {
+  if (rule.target !== '*') return rule.target
+  const r = t.rules
+  return rule.kind === 'command' ? r.everyCommand : rule.kind === 'edit' ? r.everyEdit : r.everyMcp
+}
+
 /** What a rule names, in words: "every command", `bun test …`, "everything from github". */
 export function targetText(rule: Pick<PermissionRule, 'kind' | 'target'>): string {
   const c = t.card.target

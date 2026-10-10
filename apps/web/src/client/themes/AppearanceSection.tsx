@@ -1,6 +1,8 @@
 import { Check } from 'lucide-react'
 import { type DragEvent, type KeyboardEvent, type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { copy } from '../copy.ts'
+import type { SettingId } from '../settings/registry.ts'
+import { type SettingAttrs, settingItem, settingRow } from '../settings/Setting.tsx'
 import { ConfirmButton } from '../ui/ConfirmButton.tsx'
 import { FEATURE_ICONS } from '../ui/icons.ts'
 import {
@@ -92,8 +94,38 @@ function MiniWindow(props: { t: Tokens; syntax?: Partial<Record<SyntaxRole, stri
   )
 }
 
+/** One card of the gallery, as search lists it too: what choosing it picks, its name, its group. */
+export interface ThemeItem {
+  choice: ThemeChoice
+  name: string
+  group: keyof typeof copy.settings.appearance.groups
+  note?: string
+  keywords?: readonly string[]
+}
+
+/** Every card the gallery shows, in its order: Myrmidon's own looks, the built-in dark and light themes, then imported. */
+export function themeItems(imported: readonly ImportedTheme[]): ThemeItem[] {
+  const g = copy.settings.general
+  const k = copy.settings.search.keywords
+  return [
+    { choice: 'system', name: g.themeSystem, group: 'myrmidon', keywords: k.system },
+    { choice: 'light', name: g.themeLight, group: 'myrmidon', keywords: k.light },
+    { choice: 'dark', name: g.themeDark, group: 'myrmidon', keywords: k.dark },
+    ...BUILTIN_THEMES.map(
+      (x): ThemeItem => ({
+        choice: paletteChoice(x.id),
+        name: x.name,
+        group: x.type,
+        note: copy.settings.appearance.by(x.author),
+      }),
+    ),
+    ...imported.map((x): ThemeItem => ({ choice: paletteChoice(x.id), name: x.name, group: 'imported' })),
+  ]
+}
+
 /** One theme in the gallery: its little window, its name and swatches. Hover or focus tries it; a click keeps it. */
 function ThemeCard(props: {
+  setting: SettingAttrs
   choice: ThemeChoice
   name: string
   note?: string
@@ -105,7 +137,7 @@ function ThemeCard(props: {
   action?: ReactNode
 }) {
   return (
-    <div className="relative">
+    <div className="relative" {...props.setting}>
       <button
         type="button"
         data-theme-card={props.choice}
@@ -158,7 +190,6 @@ export function AppearanceSection(props: {
   onSaveImported(list: ImportedTheme[]): Promise<boolean>
 }) {
   const t = copy.settings.appearance
-  const g = copy.settings.general
   const imported = props.imported ?? []
   const [candidate, setCandidate] = useState<{ theme: ImportedTheme; dropped: number }>()
   const known = candidate
@@ -205,32 +236,34 @@ export function AppearanceSection(props: {
     cards[(at + step + cards.length) % cards.length]?.focus()
   }
 
+  const items = themeItems(known)
   const card = (
-    choice: ThemeChoice,
-    name: string,
+    item: ThemeItem,
     tokens: Tokens,
     syntax?: Partial<Record<SyntaxRole, string>>,
-    extra?: { note?: string; action?: ReactNode; preview?: ReactNode },
+    extra?: { action?: ReactNode; preview?: ReactNode },
   ) => (
     <ThemeCard
-      key={choice}
-      choice={choice}
-      name={name}
-      selected={props.theme === choice}
+      key={item.choice}
+      setting={settingItem('appearance.theme', item)}
+      choice={item.choice}
+      name={item.name}
+      selected={props.theme === item.choice}
       preview={extra?.preview ?? <MiniWindow t={tokens} {...(syntax ? { syntax } : {})} />}
       swatches={swatchesOf(tokens)}
       onTry={tryOn}
       onPick={pick}
-      {...(extra?.note ? { note: extra.note } : {})}
+      {...(item.note ? { note: item.note } : {})}
       {...(extra?.action ? { action: extra.action } : {})}
     />
   )
+  const itemFor = (choice: ThemeChoice) => items.find((x) => x.choice === choice) as ThemeItem
   const builtin = (kind: 'dark' | 'light') =>
     BUILTIN_THEMES.filter((x) => x.type === kind).map((x) =>
-      card(paletteChoice(x.id), x.name, themeTokens(x), x.syntax, { note: t.by(x.author) }),
+      card(itemFor(paletteChoice(x.id)), themeTokens(x), x.syntax),
     )
-  const grid = (label: string, children: ReactNode, hint?: string) => (
-    <section className="flex flex-col gap-2.5">
+  const grid = (id: SettingId, label: string, children: ReactNode, hint?: string) => (
+    <section {...settingRow(id)} className="flex flex-col gap-2.5">
       <SectionHeader as="h4" title={label} {...(hint ? { note: hint } : {})} />
       <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-3">{children}</div>
     </section>
@@ -257,9 +290,10 @@ export function AppearanceSection(props: {
         }}
       >
         {grid(
+          'appearance.myrmidon',
           t.groups.myrmidon,
           <>
-            {card('system', g.themeSystem, MYRMIDON.light, undefined, {
+            {card(itemFor('system'), MYRMIDON.light, undefined, {
               // Light and dark, split corner to corner, as macOS draws its Auto appearance.
               preview: (
                 <span className="relative block w-full">
@@ -270,20 +304,21 @@ export function AppearanceSection(props: {
                 </span>
               ),
             })}
-            {card('light', g.themeLight, MYRMIDON.light)}
-            {card('dark', g.themeDark, MYRMIDON.dark)}
+            {card(itemFor('light'), MYRMIDON.light)}
+            {card(itemFor('dark'), MYRMIDON.dark)}
           </>,
           t.myrmidonHint,
         )}
-        {grid(t.groups.dark, builtin('dark'))}
-        {grid(t.groups.light, builtin('light'))}
+        {grid('appearance.dark', t.groups.dark, builtin('dark'))}
+        {grid('appearance.light', t.groups.light, builtin('light'))}
         {grid(
+          'appearance.imported',
           t.groups.imported,
           imported.length === 0 && !candidate ? (
             <p className="col-span-full text-callout text-muted">{t.noImported}</p>
           ) : (
             known.map((x) =>
-              card(paletteChoice(x.id), x.name, themeTokens(x), x.syntax, {
+              card(itemFor(paletteChoice(x.id)), themeTokens(x), x.syntax, {
                 ...(candidate?.theme.id === x.id
                   ? {}
                   : {
@@ -360,7 +395,7 @@ function ImportForm(props: {
 
   return (
     <Card className="mt-8">
-      <CardRow>
+      <CardRow {...settingRow('appearance.import')}>
         {/* biome-ignore lint/a11y/noStaticElementInteractions: a drop target around the field, which stays the control */}
         <div
           onDragOver={(e) => {

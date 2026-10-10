@@ -1,5 +1,5 @@
 import { copy } from '../copy.ts'
-import { CALL_HANG_UP_COMBO, CALL_MUTE_COMBO } from '../ui-config.ts'
+import { CALL_HANG_UP_COMBO, CALL_MUTE_COMBO, SETTINGS_SEARCH_COMBO } from '../ui-config.ts'
 import { isMac } from './platform.ts'
 import { Card } from './primitives.tsx'
 import { comboLabel } from './shortcuts.ts'
@@ -21,6 +21,7 @@ export const SHORTCUT_GROUPS: readonly { title: string; items: readonly Shortcut
       { label: t.commandMenu, combo: 'mod+k' },
       { label: t.newTask, combo: 'mod+n' },
       { label: t.openSettings, combo: 'mod+,' },
+      { label: t.searchSettings, combo: SETTINGS_SEARCH_COMBO },
       { label: t.showShortcuts, combo: 'mod+/' },
       { label: t.close, combo: 'escape' },
     ],
