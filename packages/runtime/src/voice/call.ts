@@ -343,6 +343,11 @@ export class CallSession {
        * so, shows the error, and carries on with them.
        */
       readonly fallback?: { readonly stt?: SpeechToText; readonly tts?: TextToSpeech }
+      /**
+       * The line the call opens with, asked for as it starts (so a call that ended first takes none) and at once: it
+       * must not wait on anything. Without it, the plain hello.
+       */
+      readonly greet?: () => string
     },
     protected readonly options: CallOptions,
     protected readonly emit: (out: CallOutput) => void,
@@ -431,9 +436,11 @@ export class CallSession {
       ...(this._chatId ? { chatId: this._chatId } : {}),
       ...(this.options.chatTitle ? { chatTitle: this.options.chatTitle } : {}),
     })
-    const hello = this.direct
-      ? prompts.voice.direct.hello(this.options.name, this.direct)
-      : prompts.voice.hello(this.options.name)
+    const hello =
+      this.ports.greet?.() ??
+      (this.direct
+        ? prompts.voice.direct.hello(this.options.name, this.direct)
+        : prompts.voice.hello(this.options.name))
     await this._say(hello, this._life.signal, this._voice)
     await this._speech
     this._state('listening')

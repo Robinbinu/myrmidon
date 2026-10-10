@@ -117,7 +117,9 @@ test('a call over the WebSocket: the person speaks, the call model answers aloud
     }
   }
   await until(() => said.length === 1)
-  expect(said[0]).toBe("Hi Robin, I'm listening.")
+  // The greeting is drawn from the moment and the chats; it greets by name and asks the person to go on.
+  expect(said[0]).toContain('Robin')
+  expect(said[0]?.split(' ').length).toBeLessThanOrEqual(25)
   const loud = Int16Array.from({ length: 320 }, (_, i) => Math.round(3000 * Math.sin(i / 3)))
   for (let i = 0; i < 25; i++) ws.send(loud)
   for (let i = 0; i < 50; i++) ws.send(new Int16Array(320))

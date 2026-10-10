@@ -327,9 +327,9 @@ test('a phone call: the caller speaks, the call model answers, and its speech go
   const ticket = await ticketIn(await ring({ From: ME }))
   const twilio = twilioSocket(line)
   twilio.start(ticket)
-  // The greeting, by the owner's name.
+  // The greeting, by the owner's name (drawn from the moment, so its words vary).
   await until(() => twilio.media().length === 1)
-  expect(said[0]).toBe("Hi Robin, I'm listening.")
+  expect(said[0]).toContain('Robin')
   heard.push('what time is it')
   twilio.speak()
   await until(() => twilio.media().length === 2)
@@ -353,7 +353,7 @@ test('a phone call: the caller speaks, the call model answers, and its speech go
   expect(saved).toHaveLength(1)
   expect(saved[0]?.phone).toBe(ME)
   expect(saved[0]?.turns.map((t) => [t.who, t.text])).toEqual([
-    ['voice', "Hi Robin, I'm listening."],
+    ['voice', said[0] ?? ''],
     ['person', 'what time is it'],
     ['voice', 'It is half past four.'],
   ])

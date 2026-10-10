@@ -1012,6 +1012,43 @@ test('a round left running by a Myrmidon that is gone is stopped, and the chat t
   expect(s.chatMessages.at(-1)?.text).toBe('Picked up.')
 })
 
+test("the chat list tells a running round's waiting approval, so a call can open with it", async () => {
+  const gate = new Promise<void>(() => {})
+  const resolver = new ModelResolver()
+  const slow = createMockModel({
+    handler: async () => {
+      await gate
+      return { content: ['late'] }
+    },
+  })
+  resolver.register('mock/slow', { model: slow.model, streamFn: slow.stream })
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo') })
+  const { chatId, colonyId } = await chats.send('a long job', solo('mock/slow'))
+  await waitFor(colonyId, (s) => s.status === 'running')
+  const approving = async () => (await chats.list()).find((c) => c.chatId === chatId)?.approving
+  expect(await approving()).toBeUndefined()
+  const decide = async (
+    type: 'approval/requested' | 'approval/decided',
+    payload: Record<string, unknown>,
+  ) => {
+    await runtime.ctx.log.appendOne(colonyId as never, {
+      type,
+      actor:
+        type === 'approval/requested' ? { kind: 'agent', id: 'lead' } : { kind: 'system', id: 'myrmidon' },
+      payload: { id: 'approval-1', ...payload } as never,
+    })
+    await waitFor(
+      colonyId,
+      (s) => (s.approvals['approval-1']?.decided !== undefined) === (type === 'approval/decided'),
+    )
+  }
+  await decide('approval/requested', { agent: 'lead', tool: 'shell', summary: 'ls' })
+  expect(await approving()).toBe(true)
+  await decide('approval/decided', { approved: false, by: 'stopped' })
+  expect(await approving()).toBeUndefined()
+  await chats.stop(chatId)
+})
+
 test('a short remark after the final answer is not taken for a second answer', async () => {
   const resolver = new ModelResolver()
   let judged = 0
