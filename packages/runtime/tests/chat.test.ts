@@ -1369,36 +1369,33 @@ test('agents call MCP tools: read-only ones run at once, others wait for the per
   await hub.close()
 })
 
-pendingOn('win32', 'fileToolPathsOnWindows')(
-  'fs_edit changes part of a scratch file instead of rewriting it',
-  async () => {
-    const resolver = new ModelResolver()
-    scripted(resolver, 'mock/solo', [
-      [tool('fs_write', { path: 'page.html', content: '<h1>Hello</h1>\n<p>draft</p>\n<p>draft</p>\n' })],
-      [
-        tool('fs_edit', { path: 'page.html', old: '<h1>Hello</h1>', new: '<h1>Weather</h1>' }),
-        tool('fs_edit', { path: 'page.html', old: 'draft', new: 'final', all: true }),
-        tool('fs_edit', { path: 'page.html', old: 'missing', new: 'x' }),
-      ],
-      [tool('publish_artifact', { name: 'page.html', fromScratch: 'page.html' })],
-      [tool('reply_user', { text: 'Done.', final: true })],
-    ])
-    judge(resolver)
-    const chats = new ChatService(runtime, { resolver, classify: fixed('solo') })
-    const { colonyId } = await chats.send('Make a page', { ...solo('mock/solo'), judgeModel: 'mock/judge' })
-    const s = await waitFor(colonyId)
-    const results = (await events(colonyId))
-      .filter((e) => e.type === 'tool/result')
-      .map((e) => e.payload as EventPayloads['tool/result'])
-      .filter((r) => r.tool === 'fs_edit')
-    expect(results.map((r) => r.ok)).toEqual([true, true, false])
-    expect(results[2]?.output).toContain('not found')
-    const blob = s.artifacts['page.html']?.at(-1)?.blob ?? ''
-    const { BlobStore } = await import('@myrmidon/core')
-    const text = await new BlobStore(join(home, 'colonies', colonyId, 'blobs')).text(blob)
-    expect(text).toBe('<h1>Weather</h1>\n<p>final</p>\n<p>final</p>\n')
-  },
-)
+test('fs_edit changes part of a scratch file instead of rewriting it', async () => {
+  const resolver = new ModelResolver()
+  scripted(resolver, 'mock/solo', [
+    [tool('fs_write', { path: 'page.html', content: '<h1>Hello</h1>\n<p>draft</p>\n<p>draft</p>\n' })],
+    [
+      tool('fs_edit', { path: 'page.html', old: '<h1>Hello</h1>', new: '<h1>Weather</h1>' }),
+      tool('fs_edit', { path: 'page.html', old: 'draft', new: 'final', all: true }),
+      tool('fs_edit', { path: 'page.html', old: 'missing', new: 'x' }),
+    ],
+    [tool('publish_artifact', { name: 'page.html', fromScratch: 'page.html' })],
+    [tool('reply_user', { text: 'Done.', final: true })],
+  ])
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo') })
+  const { colonyId } = await chats.send('Make a page', { ...solo('mock/solo'), judgeModel: 'mock/judge' })
+  const s = await waitFor(colonyId)
+  const results = (await events(colonyId))
+    .filter((e) => e.type === 'tool/result')
+    .map((e) => e.payload as EventPayloads['tool/result'])
+    .filter((r) => r.tool === 'fs_edit')
+  expect(results.map((r) => r.ok)).toEqual([true, true, false])
+  expect(results[2]?.output).toContain('not found')
+  const blob = s.artifacts['page.html']?.at(-1)?.blob ?? ''
+  const { BlobStore } = await import('@myrmidon/core')
+  const text = await new BlobStore(join(home, 'colonies', colonyId, 'blobs')).text(blob)
+  expect(text).toBe('<h1>Weather</h1>\n<p>final</p>\n<p>final</p>\n')
+})
 
 test('plan mode presents the plan for approval before any work, and thinking can be set per chat', async () => {
   const resolver = new ModelResolver()
@@ -1563,85 +1560,80 @@ test.skipIf(!findChrome())('browser_network lists requests, failures and API bod
   site.stop(true)
 })
 
-pendingOn(
-  'win32',
-  'fileToolPathsOnWindows',
-  !findChrome(),
-)('a browser flow is saved after its test run and replays with new inputs', async () => {
-  const site = Bun.serve({
-    port: 0,
-    fetch: (req) => {
-      const url = new URL(req.url)
-      if (url.pathname === '/search') {
-        const q = url.searchParams.get('q') ?? ''
+test.skipIf(!findChrome())(
+  'a browser flow is saved after its test run and replays with new inputs',
+  async () => {
+    const site = Bun.serve({
+      port: 0,
+      fetch: (req) => {
+        const url = new URL(req.url)
+        if (url.pathname === '/search') {
+          const q = url.searchParams.get('q') ?? ''
+          return new Response(
+            `<title>Results</title><div class="result"><h3>${q} one</h3></div><div class="result"><h3>${q} two</h3></div>`,
+            {
+              headers: { 'content-type': 'text/html' },
+            },
+          )
+        }
         return new Response(
-          `<title>Results</title><div class="result"><h3>${q} one</h3></div><div class="result"><h3>${q} two</h3></div>`,
-          {
-            headers: { 'content-type': 'text/html' },
-          },
+          `<title>Shop</title><form action="/search"><input name="q" aria-label="Query"><button>Go</button></form>`,
+          { headers: { 'content-type': 'text/html' } },
         )
-      }
-      return new Response(
-        `<title>Shop</title><form action="/search"><input name="q" aria-label="Query"><button>Go</button></form>`,
-        { headers: { 'content-type': 'text/html' } },
-      )
-    },
-  })
-  const base = `http://localhost:${site.port}`
-  const steps = [
-    { open: `${base}/` },
-    { type: 'aria=Query', text: '{query}', submit: true },
-    { wait: '.result' },
-    { extract: { what: 'items', selector: '.result', fields: { name: 'h3' } } },
-  ]
-  // The test site stands in for a server the run started: agents reach no other localhost port.
-  const browser = new BrowserHub(join(home, 'browser'), undefined, {
-    localPorts: () => new Set([site.port as number]),
-  })
-  opened.push(browser)
-  const resolver = new ModelResolver()
-  const flow = (name: string, source: unknown[]) => ({
-    name,
-    description: 'Search the shop and list the results by name.',
-    inputs: [{ name: 'query', type: 'string' }],
-    language: 'browser',
-    source: JSON.stringify(source),
-    test: '{"query": "lamp"}',
-  })
-  scripted(resolver, 'mock/flows', [
-    [tool('create_tool', flow('broken_search', [{ open: `${base}/` }, { click: 'text=No such button' }]))],
-    [tool('create_tool', flow('shop_search', steps))],
-    [tool('tool_shop_search', { query: 'desk' })],
-    [tool('reply_user', { text: 'Done.', final: true })],
-  ])
-  judge(resolver)
-  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), browser })
-  const { colonyId } = await chats.send('Search the shop', {
-    ...solo('mock/flows'),
-    judgeModel: 'mock/judge',
-  })
-  const s = await waitFor(colonyId)
-  const out = (await events(colonyId))
-    .filter((e) => e.type === 'tool/result')
-    .map((e) => e.payload as EventPayloads['tool/result'])
-  expect(out[0]).toMatchObject({ tool: 'create_tool', ok: false })
-  expect(out[0]?.output).toContain('step 2 ({"click":"text=No such button"}) failed')
-  expect(out[1]).toMatchObject({ tool: 'create_tool', ok: true })
-  expect(out[1]?.output).toContain('"name": "lamp one"')
-  expect(out[2]).toMatchObject({ tool: 'tool_shop_search', ok: true })
-  expect(out[2]?.output).toContain('"name": "desk one"')
-  expect(out[2]?.output).toContain('"name": "desk two"')
-  expect(s.madeTools.shop_search?.language).toBe('browser')
-  expect(s.madeTools.broken_search).toBeUndefined()
-  await browser.close()
-  site.stop(true)
-})
+      },
+    })
+    const base = `http://localhost:${site.port}`
+    const steps = [
+      { open: `${base}/` },
+      { type: 'aria=Query', text: '{query}', submit: true },
+      { wait: '.result' },
+      { extract: { what: 'items', selector: '.result', fields: { name: 'h3' } } },
+    ]
+    // The test site stands in for a server the run started: agents reach no other localhost port.
+    const browser = new BrowserHub(join(home, 'browser'), undefined, {
+      localPorts: () => new Set([site.port as number]),
+    })
+    opened.push(browser)
+    const resolver = new ModelResolver()
+    const flow = (name: string, source: unknown[]) => ({
+      name,
+      description: 'Search the shop and list the results by name.',
+      inputs: [{ name: 'query', type: 'string' }],
+      language: 'browser',
+      source: JSON.stringify(source),
+      test: '{"query": "lamp"}',
+    })
+    scripted(resolver, 'mock/flows', [
+      [tool('create_tool', flow('broken_search', [{ open: `${base}/` }, { click: 'text=No such button' }]))],
+      [tool('create_tool', flow('shop_search', steps))],
+      [tool('tool_shop_search', { query: 'desk' })],
+      [tool('reply_user', { text: 'Done.', final: true })],
+    ])
+    judge(resolver)
+    const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), browser })
+    const { colonyId } = await chats.send('Search the shop', {
+      ...solo('mock/flows'),
+      judgeModel: 'mock/judge',
+    })
+    const s = await waitFor(colonyId)
+    const out = (await events(colonyId))
+      .filter((e) => e.type === 'tool/result')
+      .map((e) => e.payload as EventPayloads['tool/result'])
+    expect(out[0]).toMatchObject({ tool: 'create_tool', ok: false })
+    expect(out[0]?.output).toContain('step 2 ({"click":"text=No such button"}) failed')
+    expect(out[1]).toMatchObject({ tool: 'create_tool', ok: true })
+    expect(out[1]?.output).toContain('"name": "lamp one"')
+    expect(out[2]).toMatchObject({ tool: 'tool_shop_search', ok: true })
+    expect(out[2]?.output).toContain('"name": "desk one"')
+    expect(out[2]?.output).toContain('"name": "desk two"')
+    expect(s.madeTools.shop_search?.language).toBe('browser')
+    expect(s.madeTools.broken_search).toBeUndefined()
+    await browser.close()
+    site.stop(true)
+  },
+)
 
-pendingOn(
-  'win32',
-  'fileToolPathsOnWindows',
-  !findChrome(),
-)('browser tabs, downloads and uploads', async () => {
+test.skipIf(!findChrome())('browser tabs, downloads and uploads', async () => {
   const site = Bun.serve({
     port: 0,
     fetch: (req) => {
@@ -2056,71 +2048,68 @@ test('a context the provider calls too long is folded and retried once, then pau
   expect(paused.modelError?.tokens).toBeGreaterThan(0)
 })
 
-pendingOn('win32', 'fileToolPathsOnWindows')(
-  'a chat in a project works in that folder, follow-ups stay in it, and a round can be rewound',
-  async () => {
-    const { ProjectStore } = await import('../src/projects.ts')
-    const { Checkpoints } = await import('../src/checkpoints.ts')
-    const checkpoints = new Checkpoints(join(home, 'checkpoints'))
-    const folder = mkdtempSync(join(tmpdir(), 'myr-project-'))
-    await Bun.write(join(folder, 'README.md'), '# Demo project')
-    const projects = new ProjectStore(home)
-    // Autonomous, as a folder added before new ones started on ask.
-    const project = projects.setPermissions(projects.add(folder).id, { mode: 'auto', allow: [] })
-    const resolver = new ModelResolver()
-    scripted(resolver, 'mock/solo', [
-      [
-        tool('fs_read', { path: 'README.md' }),
-        tool('fs_write', { path: 'src/hello.ts', content: 'export const hi = 1\n' }),
-        tool('fs_read', { path: '../outside.txt' }),
-      ],
-      [tool('reply_user', { text: 'Added src/hello.ts.', final: true })],
-      ['done'],
-      [tool('reply_user', { text: 'Still here.', final: true })],
-    ])
-    judge(resolver)
-    const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), projects, checkpoints })
-    const config = { ...solo('mock/solo'), judgeModel: 'mock/judge' }
-    const first = await chats.send('Add a hello module', config, undefined, { project: project.id })
-    const s = await waitFor(first.colonyId)
-    const results = (await events(first.colonyId))
-      .filter((e) => e.type === 'tool/result')
-      .map((e) => e.payload as EventPayloads['tool/result'])
-    expect(results[0]?.output).toContain('# Demo project')
-    expect(await Bun.file(join(folder, 'src', 'hello.ts')).text()).toBe('export const hi = 1\n')
-    // The read and write in one step finish in either order; the read outside the folder is refused.
-    expect(results.find((r) => r.tool === 'fs_read' && !r.ok)?.output).toContain('outside your project')
-    expect(s.chat?.project?.id).toBe(project.id)
+test('a chat in a project works in that folder, follow-ups stay in it, and a round can be rewound', async () => {
+  const { ProjectStore } = await import('../src/projects.ts')
+  const { Checkpoints } = await import('../src/checkpoints.ts')
+  const checkpoints = new Checkpoints(join(home, 'checkpoints'))
+  const folder = mkdtempSync(join(tmpdir(), 'myr-project-'))
+  await Bun.write(join(folder, 'README.md'), '# Demo project')
+  const projects = new ProjectStore(home)
+  // Autonomous, as a folder added before new ones started on ask.
+  const project = projects.setPermissions(projects.add(folder).id, { mode: 'auto', allow: [] })
+  const resolver = new ModelResolver()
+  scripted(resolver, 'mock/solo', [
+    [
+      tool('fs_read', { path: 'README.md' }),
+      tool('fs_write', { path: 'src/hello.ts', content: 'export const hi = 1\n' }),
+      tool('fs_read', { path: '../outside.txt' }),
+    ],
+    [tool('reply_user', { text: 'Added src/hello.ts.', final: true })],
+    ['done'],
+    [tool('reply_user', { text: 'Still here.', final: true })],
+  ])
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), projects, checkpoints })
+  const config = { ...solo('mock/solo'), judgeModel: 'mock/judge' }
+  const first = await chats.send('Add a hello module', config, undefined, { project: project.id })
+  const s = await waitFor(first.colonyId)
+  const results = (await events(first.colonyId))
+    .filter((e) => e.type === 'tool/result')
+    .map((e) => e.payload as EventPayloads['tool/result'])
+  expect(results[0]?.output).toContain('# Demo project')
+  expect(await Bun.file(join(folder, 'src', 'hello.ts')).text()).toBe('export const hi = 1\n')
+  // The read and write in one step finish in either order; the read outside the folder is refused.
+  expect(results.find((r) => r.tool === 'fs_read' && !r.ok)?.output).toContain('outside your project')
+  expect(s.chat?.project?.id).toBe(project.id)
 
-    const second = await chats.send('And now?', config, first.chatId)
-    const s2 = await waitFor(second.colonyId)
-    expect(s2.chat?.project?.path).toBe(project.path)
-    expect((await chats.list()).find((c) => c.chatId === first.chatId)?.project?.name).toBe(project.name)
+  const second = await chats.send('And now?', config, first.chatId)
+  const s2 = await waitFor(second.colonyId)
+  expect(s2.chat?.project?.path).toBe(project.path)
+  expect((await chats.list()).find((c) => c.chatId === first.chatId)?.project?.name).toBe(project.name)
 
-    // Each round is snapshotted at its start and end: its changes are the diff, and rewinding undoes them.
-    // Both rounds ran in one colony; each keeps its own snapshots.
-    expect(second.colonyId).toBe(first.colonyId)
-    await waitFor(first.colonyId, (x) => x.rounds.length === 2 && x.rounds.every((r) => r.checkpoints.end))
-    const changes = await chats.changes(first.colonyId, 1)
-    expect(changes.files).toEqual([{ path: 'src/hello.ts', status: 'A', added: 1, removed: 0 }])
-    expect((await chats.changes(first.colonyId, 2)).files).toEqual([])
-    // Work done after the round, by the person or anyone else, is not the round's to undo: an unrelated file stays,
-    // and a file the round wrote that changed since is left alone and reported unless the person insists.
-    await Bun.write(join(folder, 'NOTES.md'), 'written after the round\n')
-    await Bun.write(join(folder, 'src', 'hello.ts'), 'export const hi = 2\n')
-    expect(await chats.rewind(first.colonyId, false, 1)).toEqual({ changed: 0, skipped: ['src/hello.ts'] })
-    expect(await Bun.file(join(folder, 'src', 'hello.ts')).text()).toBe('export const hi = 2\n')
-    expect(await chats.rewind(first.colonyId, false, 1, true)).toEqual({ changed: 1, skipped: [] })
-    expect(existsSync(join(folder, 'src', 'hello.ts'))).toBe(false)
-    expect(await Bun.file(join(folder, 'README.md')).text()).toBe('# Demo project')
-    expect(await Bun.file(join(folder, 'NOTES.md')).text()).toBe('written after the round\n')
-    // Undoing the rewind puts back exactly the files it changed.
-    await chats.rewind(first.colonyId, true, 1)
-    expect(await Bun.file(join(folder, 'src', 'hello.ts')).text()).toBe('export const hi = 2\n')
-    expect(await Bun.file(join(folder, 'NOTES.md')).text()).toBe('written after the round\n')
-    rmSync(folder, { recursive: true, force: true })
-  },
-)
+  // Each round is snapshotted at its start and end: its changes are the diff, and rewinding undoes them.
+  // Both rounds ran in one colony; each keeps its own snapshots.
+  expect(second.colonyId).toBe(first.colonyId)
+  await waitFor(first.colonyId, (x) => x.rounds.length === 2 && x.rounds.every((r) => r.checkpoints.end))
+  const changes = await chats.changes(first.colonyId, 1)
+  expect(changes.files).toEqual([{ path: 'src/hello.ts', status: 'A', added: 1, removed: 0 }])
+  expect((await chats.changes(first.colonyId, 2)).files).toEqual([])
+  // Work done after the round, by the person or anyone else, is not the round's to undo: an unrelated file stays,
+  // and a file the round wrote that changed since is left alone and reported unless the person insists.
+  await Bun.write(join(folder, 'NOTES.md'), 'written after the round\n')
+  await Bun.write(join(folder, 'src', 'hello.ts'), 'export const hi = 2\n')
+  expect(await chats.rewind(first.colonyId, false, 1)).toEqual({ changed: 0, skipped: ['src/hello.ts'] })
+  expect(await Bun.file(join(folder, 'src', 'hello.ts')).text()).toBe('export const hi = 2\n')
+  expect(await chats.rewind(first.colonyId, false, 1, true)).toEqual({ changed: 1, skipped: [] })
+  expect(existsSync(join(folder, 'src', 'hello.ts'))).toBe(false)
+  expect(await Bun.file(join(folder, 'README.md')).text()).toBe('# Demo project')
+  expect(await Bun.file(join(folder, 'NOTES.md')).text()).toBe('written after the round\n')
+  // Undoing the rewind puts back exactly the files it changed.
+  await chats.rewind(first.colonyId, true, 1)
+  expect(await Bun.file(join(folder, 'src', 'hello.ts')).text()).toBe('export const hi = 2\n')
+  expect(await Bun.file(join(folder, 'NOTES.md')).text()).toBe('written after the round\n')
+  rmSync(folder, { recursive: true, force: true })
+})
 
 test.skipIf(detectSandbox().kind === 'none')(
   "what commands cache under HOME stays out of the agent's file listing",
@@ -3089,116 +3078,108 @@ test('agents see the skills by name and load one when the task matches', async (
   rmSync(claude, { recursive: true, force: true })
 })
 
-pendingOn('win32', 'fileToolPathsOnWindows')(
-  "the person's hooks block a tool, comment on a result, and run when the round ends",
-  async () => {
-    const { HookStore } = await import('../src/hooks.ts')
-    const hooks = new HookStore(home)
-    const stopped = join(home, 'stopped.json')
-    hooks.write({
-      hooks: {
-        PreToolUse: [
-          {
-            matcher: 'Write',
-            hooks: [
-              {
-                type: 'command',
-                command: `grep -q '\\.env"' && { echo 'never write .env files' >&2; exit 2; } || true`,
-              },
-            ],
-          },
-        ],
-        PostToolUse: [
-          {
-            matcher: 'fs_write',
-            hooks: [{ type: 'command', command: "echo 'formatted with prettier' >&2; exit 2" }],
-          },
-        ],
-        // The redirect creates the file before cat fills it; renaming makes it appear only when complete.
-        Stop: [
-          {
-            hooks: [
-              { type: 'command', command: `cat > '${stopped}.tmp' && mv '${stopped}.tmp' '${stopped}'` },
-            ],
-          },
-        ],
-      },
-    })
-    const resolver = new ModelResolver()
-    scripted(resolver, 'mock/solo', [
-      [tool('fs_write', { path: '.env', content: 'KEY=1' })],
-      [tool('fs_write', { path: 'notes.txt', content: 'hello' })],
-      [tool('reply_user', { text: 'Done.', final: true })],
-    ])
-    judge(resolver)
-    const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), hooks })
-    const { colonyId } = await chats.send('Save my notes', { ...solo('mock/solo'), judgeModel: 'mock/judge' })
-    await waitFor(colonyId)
-    const results = (await events(colonyId))
-      .filter((e) => e.type === 'tool/result')
-      .map((e) => e.payload as EventPayloads['tool/result'])
-    expect(results[0]).toMatchObject({ tool: 'fs_write', ok: false })
-    expect(results[0]?.output).toContain('a hook blocked this call: never write .env files')
-    expect(results[1]).toMatchObject({ tool: 'fs_write', ok: true })
-    expect(results[1]?.output).toContain('[hook] formatted with prettier')
-    const ran = (await events(colonyId))
-      .filter((e) => e.type === 'hook/ran')
-      .map((e) => (e.payload as EventPayloads['hook/ran']).outcome)
-    expect(ran).toContain('blocked')
-    expect(ran).toContain('feedback')
-    for (let i = 0; i < 40 && !existsSync(stopped); i++) await Bun.sleep(50)
-    expect(JSON.parse(await Bun.file(stopped).text())).toMatchObject({
-      hook_event_name: 'Stop',
-      status: 'completed',
-    })
-    await chats.stopAll()
-  },
-)
+test("the person's hooks block a tool, comment on a result, and run when the round ends", async () => {
+  const { HookStore } = await import('../src/hooks.ts')
+  const hooks = new HookStore(home)
+  const stopped = join(home, 'stopped.json')
+  hooks.write({
+    hooks: {
+      PreToolUse: [
+        {
+          matcher: 'Write',
+          hooks: [
+            {
+              type: 'command',
+              command: `grep -q '\\.env"' && { echo 'never write .env files' >&2; exit 2; } || true`,
+            },
+          ],
+        },
+      ],
+      PostToolUse: [
+        {
+          matcher: 'fs_write',
+          hooks: [{ type: 'command', command: "echo 'formatted with prettier' >&2; exit 2" }],
+        },
+      ],
+      // The redirect creates the file before cat fills it; renaming makes it appear only when complete.
+      Stop: [
+        {
+          hooks: [{ type: 'command', command: `cat > '${stopped}.tmp' && mv '${stopped}.tmp' '${stopped}'` }],
+        },
+      ],
+    },
+  })
+  const resolver = new ModelResolver()
+  scripted(resolver, 'mock/solo', [
+    [tool('fs_write', { path: '.env', content: 'KEY=1' })],
+    [tool('fs_write', { path: 'notes.txt', content: 'hello' })],
+    [tool('reply_user', { text: 'Done.', final: true })],
+  ])
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), hooks })
+  const { colonyId } = await chats.send('Save my notes', { ...solo('mock/solo'), judgeModel: 'mock/judge' })
+  await waitFor(colonyId)
+  const results = (await events(colonyId))
+    .filter((e) => e.type === 'tool/result')
+    .map((e) => e.payload as EventPayloads['tool/result'])
+  expect(results[0]).toMatchObject({ tool: 'fs_write', ok: false })
+  expect(results[0]?.output).toContain('a hook blocked this call: never write .env files')
+  expect(results[1]).toMatchObject({ tool: 'fs_write', ok: true })
+  expect(results[1]?.output).toContain('[hook] formatted with prettier')
+  const ran = (await events(colonyId))
+    .filter((e) => e.type === 'hook/ran')
+    .map((e) => (e.payload as EventPayloads['hook/ran']).outcome)
+  expect(ran).toContain('blocked')
+  expect(ran).toContain('feedback')
+  for (let i = 0; i < 40 && !existsSync(stopped); i++) await Bun.sleep(50)
+  expect(JSON.parse(await Bun.file(stopped).text())).toMatchObject({
+    hook_event_name: 'Stop',
+    status: 'completed',
+  })
+  await chats.stopAll()
+})
 
-pendingOn('win32', 'fileToolPathsOnWindows')(
-  'a secret an agent reads is kept out of the log and its transcript',
-  async () => {
-    const { ProjectStore } = await import('../src/projects.ts')
-    const folder = mkdtempSync(join(tmpdir(), 'myr-secret-'))
-    const key = 'sk-proj-abcdefghijklmnopqrstuvwxyz0123456789'
-    await Bun.write(join(folder, '.env'), `OPENAI_API_KEY=${key}\nPORT=3000\n`)
-    const project = new ProjectStore(home).add(folder)
-    const resolver = new ModelResolver()
-    let seen = ''
-    scripted(resolver, 'mock/solo', [
-      [tool('fs_read', { path: '.env' })],
-      (ctx) => {
-        seen = JSON.stringify(ctx.messages)
-        return [tool('reply_user', { text: 'The port is 3000.', final: true })]
-      },
-    ])
-    judge(resolver)
-    const chats = new ChatService(runtime, {
-      resolver,
-      classify: fixed('solo'),
-      projects: new ProjectStore(home),
-    })
-    const { colonyId } = await chats.send(
-      'Which port does .env set?',
-      { ...solo('mock/solo'), judgeModel: 'mock/judge' },
-      undefined,
-      {
-        project: project.id,
-      },
-    )
-    await waitFor(colonyId)
-    // The agent saw the file as it is; what was stored did not keep the key.
-    expect(seen).toContain(key)
-    const log = JSON.stringify(await events(colonyId))
-    expect(log).not.toContain(key)
-    expect(log).toContain('[api key redacted]')
-    expect(log).toContain('PORT=3000')
-    const transcript = await Bun.file(join(home, 'colonies', colonyId, 'agents', 'lead.jsonl')).text()
-    expect(transcript).not.toContain(key)
-    await chats.stopAll()
-    rmSync(folder, { recursive: true, force: true })
-  },
-)
+test('a secret an agent reads is kept out of the log and its transcript', async () => {
+  const { ProjectStore } = await import('../src/projects.ts')
+  const folder = mkdtempSync(join(tmpdir(), 'myr-secret-'))
+  const key = 'sk-proj-abcdefghijklmnopqrstuvwxyz0123456789'
+  await Bun.write(join(folder, '.env'), `OPENAI_API_KEY=${key}\nPORT=3000\n`)
+  const project = new ProjectStore(home).add(folder)
+  const resolver = new ModelResolver()
+  let seen = ''
+  scripted(resolver, 'mock/solo', [
+    [tool('fs_read', { path: '.env' })],
+    (ctx) => {
+      seen = JSON.stringify(ctx.messages)
+      return [tool('reply_user', { text: 'The port is 3000.', final: true })]
+    },
+  ])
+  judge(resolver)
+  const chats = new ChatService(runtime, {
+    resolver,
+    classify: fixed('solo'),
+    projects: new ProjectStore(home),
+  })
+  const { colonyId } = await chats.send(
+    'Which port does .env set?',
+    { ...solo('mock/solo'), judgeModel: 'mock/judge' },
+    undefined,
+    {
+      project: project.id,
+    },
+  )
+  await waitFor(colonyId)
+  // The agent saw the file as it is; what was stored did not keep the key.
+  expect(seen).toContain(key)
+  const log = JSON.stringify(await events(colonyId))
+  expect(log).not.toContain(key)
+  expect(log).toContain('[api key redacted]')
+  expect(log).toContain('PORT=3000')
+  const transcript = await Bun.file(join(home, 'colonies', colonyId, 'agents', 'lead.jsonl')).text()
+  expect(transcript).not.toContain(key)
+  await chats.stopAll()
+  rmSync(folder, { recursive: true, force: true })
+})
 
 pendingOn('win32', 'windowsRoundsStall')(
   'per-tool rules turn a tool off and make another wait for approval',

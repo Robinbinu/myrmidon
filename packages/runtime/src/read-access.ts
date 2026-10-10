@@ -14,6 +14,9 @@ import { SANDBOX_SECRETS, SANDBOX_TOOLCHAINS } from './config.ts'
 /** Node's path functions for `platform`, so the Windows rules can be checked on any computer. */
 export const pathOf = (platform: NodeJS.Platform = process.platform) => (platform === 'win32' ? win32 : posix)
 
+/** A relative path as agents and the person read it: `/` between its parts on every system, Windows included. */
+export const slashed = (path: string): string => path.split(sep).join('/')
+
 /** APFS and NTFS are case-insensitive by default: there `~/.SSH` is `~/.ssh`, so paths are compared that way too. */
 const foldsCase = (platform: NodeJS.Platform) => platform === 'darwin' || platform === 'win32'
 

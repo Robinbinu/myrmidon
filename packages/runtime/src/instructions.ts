@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { INSTRUCTIONS_MAX_DIRS, INSTRUCTIONS_MAX_TEXT, MAX_IMPORT_DEPTH } from './config.ts'
+import { slashed } from './read-access.ts'
 import { SKIP_DIRS } from './workspace.ts'
 
 /**
@@ -23,13 +24,13 @@ const ROOT_FILES = ['AGENTS.md', 'CLAUDE.md', '.myrmidon.md']
 const NESTED_NAMES = new Set(['AGENTS.md', 'CLAUDE.md'])
 
 export function readProjectInstructions(root: string): ProjectInstructions | undefined {
-  const base = realpathSync(root)
+  const base = realpathSync.native(root)
   const seen = new Set<string>()
   const files: string[] = []
 
   // Expands lines that are only an `@path` import (Claude Code's syntax), within the project and a few hops deep.
   const expand = (file: string, depth: number): string => {
-    const real = realpathSync(file)
+    const real = realpathSync.native(file)
     if (seen.has(real)) return ''
     seen.add(real)
     return readFileSync(real, 'utf8')
@@ -68,7 +69,7 @@ export function readProjectInstructions(root: string): ProjectInstructions | und
     for (const e of entries) {
       if (e.isDirectory() && !SKIP_DIRS.has(e.name) && !e.name.startsWith('.')) queue.push(join(dir, e.name))
       else if (e.isFile() && NESTED_NAMES.has(e.name) && dir !== base)
-        nested.push(relative(base, join(dir, e.name)))
+        nested.push(slashed(relative(base, join(dir, e.name))))
     }
   }
 

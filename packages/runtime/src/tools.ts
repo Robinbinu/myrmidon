@@ -90,7 +90,7 @@ import { adoptDraft, isOwnDraft, testPlugin, writeDraft } from './plugin-builder
 import { type ProjectCheck, scratchChecks } from './project-context.ts'
 import type { PromptFacts } from './prompt/facts.ts'
 import { type Place, prompts } from './prompts.ts'
-import { within } from './read-access.ts'
+import { slashed, within } from './read-access.ts'
 import { SANDBOX_DIRS } from './sandbox.ts'
 import { assertArtifactName, SKIP_DIRS } from './workspace.ts'
 
@@ -592,7 +592,7 @@ async function guardProjectEdit(
       : 'outside'
   const call: PermissionCall = { tool, kind: 'edit', where, readOnly: false }
   const verdict = host.permit(agent, call)
-  const shown = inProject && project ? relative(project.path, path) : path
+  const shown = inProject && project ? slashed(relative(project.path, path)) : path
   if (verdict.decision === 'deny')
     throw verdict.source.by === 'read-only'
       ? new Error(prompts.toolResults.readOnly(project?.name ?? 'this chat', shown))
@@ -1554,7 +1554,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
           // A readable folder can hold what stays hidden (the person's keys in a home they opened).
           if (!host.workspace.mayRead(agent, full)) continue
           if (entry.isDirectory()) walk(full)
-          else out.push(`${relative(root, full)} (${statSync(full).size} bytes)`)
+          else out.push(`${slashed(relative(root, full))} (${statSync(full).size} bytes)`)
         }
       }
       walk(dir)
@@ -1592,9 +1592,10 @@ export const TOOL_DEFS: readonly ToolDef[] = [
         ...(context ? { context } : {}),
         mode: args.filesOnly ? natives.GrepOutputMode.FilesWithMatches : natives.GrepOutputMode.Content,
       })
-      const where = (p: string) => relative(root, resolve(target, p)) || p
+      const where = (p: string) => slashed(relative(root, resolve(target, p))) || p
       const matches = readableMatches(host, agent, target, result.matches)
-      if (matches.length === 0) return `No matches for /${args.pattern}/ in ${relative(root, target) || '.'}.`
+      if (matches.length === 0)
+        return `No matches for /${args.pattern}/ in ${slashed(relative(root, target)) || '.'}.`
       const dropped = matches.length < result.matches.length
       const total = dropped ? matches.length : result.totalMatches
       const files = dropped ? new Set(matches.map((m) => m.path)).size : result.filesWithMatches
@@ -1639,7 +1640,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       })
       const matches = readableMatches(host, agent, target, result.matches)
       if (matches.length === 0) return `No files match ${args.pattern}.`
-      return matches.map((m) => relative(root, resolve(target, m.path)) || m.path).join('\n')
+      return matches.map((m) => slashed(relative(root, resolve(target, m.path))) || m.path).join('\n')
     },
   },
   {
@@ -1945,8 +1946,9 @@ export const TOOL_DEFS: readonly ToolDef[] = [
         if (!args.path || args.content === undefined)
           throw new Error('a file proposal needs path and content')
         const path = resolve(project.path, args.path)
-        if (!path.startsWith(`${project.path}/`)) throw new Error(`${args.path} is outside ${project.name}`)
-        const where = relative(project.path, path)
+        if (!within(path, project.path) || within(project.path, path))
+          throw new Error(`${args.path} is outside ${project.name}`)
+        const where = slashed(relative(project.path, path))
         const before = existsSync(path) ? readFileSync(path, 'utf8') : ''
         const title = existsSync(path) ? prompts.reviewCard.edit(where) : prompts.reviewCard.write(where)
         // A proposed file is a file change like any other, so a rule allowing file changes covers it.

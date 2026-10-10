@@ -19,7 +19,7 @@ import { hostShell } from '../src/shell.ts'
 let root: string
 
 beforeEach(() => {
-  root = realpathSync(mkdtempSync(join(tmpdir(), 'myr-sandbox-')))
+  root = realpathSync.native(mkdtempSync(join(tmpdir(), 'myr-sandbox-')))
 })
 
 afterEach(() => {
@@ -153,7 +153,7 @@ test.skipIf(detectSandbox().kind === 'none')(
   async () => {
     const hidden = join(root, 'h')
     const own = join(root, 'w')
-    const tmp = realpathSync(mkdtempSync('/tmp/myr-sock-'))
+    const tmp = realpathSync.native(mkdtempSync('/tmp/myr-sock-'))
     mkdirSync(hidden)
     mkdirSync(own)
     const sockets = [join(hidden, 'd.sock'), join(tmp, 'd.sock'), join(own, 'd.sock')]
@@ -262,7 +262,7 @@ test.skipIf(detectSandbox().kind === 'none')(
   async () => {
     const project = join(root, 'project')
     const scratch = join(root, 'scratch')
-    const other = realpathSync(mkdtempSync('/tmp/myr-other-'))
+    const other = realpathSync.native(mkdtempSync('/tmp/myr-other-'))
     mkdirSync(project)
     mkdirSync(scratch)
     // The test's own folder is in the temp folder (macOS) or is a /tmp/myr-* folder (Linux): outside its project.

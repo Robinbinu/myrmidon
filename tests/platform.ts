@@ -21,9 +21,6 @@ export const GAPS = {
   cuaDriverOnWindows:
     'computer use cannot start a Cua Driver on Windows (its manifest and daemon never answer), so every computer ' +
     'tool fails there',
-  dataFolderOnWindows:
-    "the project file and git views, and readProjectFile, still serve Myrmidon's data folder (credentials.json) " +
-    'and keys inside a project on Windows',
   terminalForeground:
     "the terminal panel on Windows does not report what runs in each terminal's foreground (ConPTY)",
   bunWindowsSockets:
@@ -31,11 +28,6 @@ export const GAPS = {
   processTreeTests:
     'children.test.ts reads process trees with `ps` and drives sh/sleep/trap and POSIX signals; it needs a ' +
     'Windows port (a test-side change, using processes.ts to list trees)',
-  fileToolPathsOnWindows:
-    'file tools refuse files inside scratch or the project on Windows ("path is outside your scratch directory: ' +
-    'notes.txt"): roots come from realpathSync, which keeps 8.3 short names (C:\\Users\\RUNNER~1, as %TEMP% ' +
-    'has them), while the path checked comes from realpathSync.native, with long ones (C:\\Users\\runneradmin) ' +
-    '(workspace.ts:59 against read-access.ts realOrNone; projects.ts, skills.ts and instructions.ts mix them too)',
   settingsPosixPaths:
     "Settings' sandbox.read folders must match /^(~$|~\\/|\\/)/, so no Windows folder can be listed (settings.ts)",
   timeoutStopOnWindows:
@@ -50,9 +42,6 @@ export const GAPS = {
   worktreesOnWindows:
     'agent worktrees on Windows: `git add` trips over the linked node_modules ("paths are ignored"), so workers ' +
     'cannot commit and merge',
-  osSeparatorsInText:
-    "paths shown to agents use \\ on Windows (nested AGENTS.md list, a skill's file list) where macOS and Linux " +
-    'show /',
 } as const
 
 export type Gap = keyof typeof GAPS

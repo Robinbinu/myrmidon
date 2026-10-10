@@ -19,6 +19,7 @@ import {
   SKILL_STALE_DAYS,
 } from './config.ts'
 import { prompts } from './prompts.ts'
+import { slashed } from './read-access.ts'
 
 /**
  * Skills in the Agent Skills format (agentskills.io), as Claude Code, Codex and others use them: a folder with a
@@ -144,7 +145,7 @@ export class SkillLibrary {
         out.set(parsed.name, {
           name: parsed.name,
           description: parsed.description,
-          dir: realpathSync(dir),
+          dir: realpathSync.native(dir),
           source,
           enabled: !disabled.has(parsed.name),
           ...(learned ? { curation: this._curation(parsed.name, usage, now) } : {}),
@@ -160,7 +161,7 @@ export class SkillLibrary {
     if (!skill) throw new Error(`no skill called ${name}`)
     if (file) {
       const path = resolve(skill.dir, file)
-      const real = existsSync(path) ? realpathSync(path) : path
+      const real = existsSync(path) ? realpathSync.native(path) : path
       if (!real.startsWith(skill.dir + sep)) throw new Error(`${file} is outside the ${name} skill`)
       if (!existsSync(real) || !statSync(real).isFile())
         throw new Error(`the ${name} skill has no file ${file}`)
@@ -375,7 +376,7 @@ function bundled(dir: string): string[] {
       if (out.length >= SKILL_MAX_FILES || e.name.startsWith('.')) continue
       const path = join(at, e.name)
       if (e.isDirectory() && depth < 3) walk(path, depth + 1)
-      else if (e.isFile() && !(depth === 0 && e.name === 'SKILL.md')) out.push(relative(dir, path))
+      else if (e.isFile() && !(depth === 0 && e.name === 'SKILL.md')) out.push(slashed(relative(dir, path)))
     }
   }
   walk(dir, 0)

@@ -1114,7 +1114,9 @@ export class ChatService {
     return {
       id: project.id,
       name: project.name,
-      path: project.path,
+      // As the file tools resolve paths (realpathSync.native), so a folder saved in another spelling (an 8.3 short
+      // name on Windows) still matches them.
+      path: realPath(project.path),
       ...(project.permissions ? { permissions: project.permissions } : {}),
     }
   }
