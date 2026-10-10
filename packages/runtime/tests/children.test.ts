@@ -1,8 +1,8 @@
 import { afterEach, expect, test } from 'bun:test'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
-import { bunShim, pendingOn, removeTempDir } from '../../../tests/platform.ts'
+import { bunShim, pendingOn } from '../../../tests/platform.ts'
 import { BrowserHub, findChrome } from '../src/browser.ts'
 import { LEASH_GRACE_MS } from '../src/config.ts'
 import { leashRunning, spawnLeashed } from '../src/leashed.ts'
@@ -22,7 +22,7 @@ const seen = new Set<number>()
 afterEach(() => {
   for (const pid of seen) signal(pid, 'SIGKILL')
   seen.clear()
-  for (const d of dirs.splice(0)) removeTempDir(d)
+  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
 })
 
 function tempDir() {

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { type ColonyState, type EventPayloads, foldColony } from '@myrmidon/protocol'
 import { createMockModel, type MockContent } from '@oh-my-pi/pi-ai/providers/mock'
-import { pendingOn, removeTempDir } from '../../../tests/platform.ts'
+import { pendingOn } from '../../../tests/platform.ts'
 import {
   bootRuntime,
   ChatService,
@@ -34,8 +34,8 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await runtime.dispose()
-  removeTempDir(home)
-  removeTempDir(outside)
+  rmSync(home, { recursive: true, force: true })
+  rmSync(outside, { recursive: true, force: true })
 })
 
 const tool = (name: string, args: Record<string, unknown>): MockContent => ({

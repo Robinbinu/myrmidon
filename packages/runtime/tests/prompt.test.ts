@@ -6,7 +6,6 @@ import { newColonyId } from '@myrmidon/core'
 import { emptyColonyState, foldColony, projectLevelFrom } from '@myrmidon/protocol'
 import type { Context as LlmContext } from '@oh-my-pi/pi-ai'
 import { createMockModel, type MockContent } from '@oh-my-pi/pi-ai/providers/mock'
-import { removeTempDir } from '../../../tests/platform.ts'
 import { canonicalZone } from '../src/clock.ts'
 import { COMPUTER_TOOL_NAMES } from '../src/computer/names.ts'
 import { bootRuntime, ChatService, ModelResolver, type Runtime } from '../src/index.ts'
@@ -320,7 +319,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await runtime.dispose()
-  removeTempDir(home)
+  rmSync(home, { recursive: true, force: true })
 })
 
 const tool = (name: string, args: Record<string, unknown>): MockContent => ({

@@ -6,7 +6,7 @@ import { newColonyId, SqliteLogStore } from '@myrmidon/core'
 import { type ColonyState, type EventPayloads, foldColony, type MyrEvent } from '@myrmidon/protocol'
 import type { Context as LlmContext } from '@oh-my-pi/pi-ai'
 import { createMockModel, type MockContent } from '@oh-my-pi/pi-ai/providers/mock'
-import { pendingOn, removeTempDir } from '../../../tests/platform.ts'
+import { pendingOn } from '../../../tests/platform.ts'
 import {
   BrowserHub,
   bootRuntime,
@@ -36,7 +36,7 @@ const opened: { close(): Promise<void> }[] = []
 afterEach(async () => {
   for (const o of opened.splice(0)) await o.close().catch(() => {})
   await runtime.dispose()
-  removeTempDir(home)
+  rmSync(home, { recursive: true, force: true })
 })
 
 const tool = (name: string, args: Record<string, unknown>): MockContent => ({
@@ -3756,7 +3756,7 @@ test('chats are found by what was said in them, with the words around the match'
   }
 })
 
-pendingOn('win32', 'sqliteHandles')('deleting a chat removes every round and its data', async () => {
+test('deleting a chat removes every round and its data', async () => {
   const resolver = new ModelResolver()
   scripted(resolver, 'mock/brief', [
     [tool('ask_user', { question: 'Which format do you want?' })],
