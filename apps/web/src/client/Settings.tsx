@@ -193,6 +193,8 @@ export interface ServerSettings {
     leadModel?: string
     workerModel?: string
     judgeModel?: string
+    /** The advisor's model; absent means no advisor. */
+    advisorModel?: string
     /** Models the lead, and the crew, go on with when theirs fails; absent from older servers. */
     leadFallbacks?: string[]
     workerFallbacks?: string[]
@@ -2186,6 +2188,24 @@ function TeamSection(props: {
           }
         />
       </Card>
+      <SectionHeader
+        as="h3"
+        className="mb-2"
+        icon={<FEATURE_ICONS.advisor className="size-4 text-muted" />}
+        title={copy.settings.team.advisorTitle}
+      />
+      <Card className="mb-8">
+        <AdvisorModel
+          value={t.advisorModel}
+          models={props.models}
+          onChange={(advisorModel) =>
+            props.update((s) => {
+              const { advisorModel: _, ...team } = s.team
+              return { ...s, team: advisorModel ? { ...team, advisorModel } : team }
+            })
+          }
+        />
+      </Card>
       <SectionHeader as="h3" className="mb-2" title={copy.settings.team.limitsTitle} />
       <Card className="mb-8">
         <SettingField id="team.wallMinutes" inline>
@@ -2242,6 +2262,41 @@ function TeamSection(props: {
       </Card>
       <ReviewerSettings settings={props.data.settings} update={props.update} />
     </>
+  )
+}
+
+/** The advisor's model, or a picker to choose one while there is none (off, the default). */
+function AdvisorModel(props: {
+  value?: string
+  models: ModelOption[]
+  onChange(v: string | undefined): void
+}) {
+  const t = copy.settings.team
+  const ref = props.value
+  const name = ref ? modelName(props.models.find((m) => m.ref === ref)?.name ?? ref) : ''
+  return (
+    <SettingField id="team.advisorModel">
+      {ref ? (
+        <span
+          title={ref}
+          className="inline-flex h-7 max-w-[260px] items-center gap-1 rounded-md border border-line bg-fill/60 pl-2 text-callout"
+        >
+          <span className="truncate">{name}</span>
+          <IconButton size="sm" label={t.advisorOff(name)} onClick={() => props.onChange(undefined)}>
+            <X className="size-3.5" />
+          </IconButton>
+        </span>
+      ) : (
+        <ModelPicker
+          variant="compact"
+          placement="down"
+          label={t.chooseAdvisor}
+          value=""
+          models={props.models}
+          onChange={(next) => props.onChange(next)}
+        />
+      )}
+    </SettingField>
   )
 }
 

@@ -43,6 +43,7 @@ import {
   toolHidden,
   unreadMailFor,
 } from '@myrmidon/protocol'
+import { Advisor } from './advisor.ts'
 import { ColonyAgent, type ModelError } from './agent.ts'
 import type { BrowserHub } from './browser.ts'
 import type { ComputerHub } from './computer/driver.ts'
@@ -236,6 +237,7 @@ export class ColonyRun implements ColonyHost {
   private readonly _agents = new Map<string, ColonyAgent>()
   private readonly _verifier: Verifier
   private readonly _observer: FactualObserver
+  readonly advisor?: Advisor
   private readonly _timers: ReturnType<typeof setInterval>[] = []
   private _finish!: (s: ColonyState) => void
   private _deadline = 0
@@ -330,6 +332,7 @@ export class ColonyRun implements ColonyHost {
     this._state = emptyColonyState(this.id)
     this._verifier = new Verifier(this, this.resolver)
     this._observer = new FactualObserver(this)
+    if (spec.advisor) this.advisor = new Advisor(this, this.resolver, spec.advisor)
     this.done = new Promise((resolve) => {
       this._finish = resolve
     })

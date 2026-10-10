@@ -75,6 +75,12 @@ export interface ColonySpec {
    * logged, the `agent/fallback` events say what happened.
    */
   fallbacks?: { lead?: string[]; workers?: string[] }
+  /**
+   * The advisor's model: it reads each agent's latest steps and steers the agent with a short note when it sees a
+   * concrete problem (advisor.ts). Taken from the team config or settings each time a round starts or resumes, like
+   * the fallbacks; absent, there is none.
+   */
+  advisor?: string
   /** Tools removed from every agent regardless of role. */
   disabledTools?: string[]
   /**
