@@ -63,7 +63,6 @@ which are not gaps. `expectOwnerOnly` checks a private file the way each system 
 
 | Gap | Tests | What has to change |
 | --- | --- | --- |
-| `windowsRoundsStall` | chat: 9 (@name, member writing into a round, preset chat, someone else's round ×2, stopped-and-resumed round, allow all file changes, per-tool rules, review cards); full-access: 2 | rounds waiting on cards, crew messages or a resume never reach their state (25 s); cause not isolated, possibly the file-tool refusals |
 | `worktreesOnWindows` | worktrees: 5; chat: *team workers in a git project…* | `git add` in a worker's worktree trips over the linked `node_modules` ("paths are ignored") |
 | `cuaDriverOnWindows` | computer: 14; server-computer: 1 | no Cua Driver on Windows: its manifest and daemon never answer, so computer tools fail |
 | `bunWindowsSockets` | channels-irc: 7 | Bun 1.3.14 on Windows crashes (segfault, or exit 127) in the IRC raw-socket tests, ending the whole run |
