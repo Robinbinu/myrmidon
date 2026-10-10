@@ -115,6 +115,13 @@ export function ComputerSection(props: {
     )
   const state = status?.state?.state ?? 'missing'
   const size = formatSize(status?.downloadBytes ?? 0)
+  // The person's own driver, older than the version Myrmidon pins: Myrmidon's own install would be used instead.
+  const outdated =
+    !!status?.driver &&
+    !status.driver.own &&
+    !!status.driver.version &&
+    !!status.version &&
+    olderVersion(status.driver.version, status.version)
   const cua = props.engine === 'cua'
   return (
     <>
@@ -179,6 +186,11 @@ export function ComputerSection(props: {
                     ? t.installedAt(status.driver.version, status.driver.own)
                     : t.installHint(status?.version ?? '', size)}
                 </div>
+                {outdated && status?.driver?.version && (
+                  <div className="mt-1 text-callout text-warn-ink">
+                    {t.outdated(status.driver.version, status.version ?? '')}
+                  </div>
+                )}
                 {state === 'error' && status?.state?.error && (
                   <div className="mt-1 text-callout text-bad-ink">{status.state.error}</div>
                 )}
@@ -186,13 +198,17 @@ export function ComputerSection(props: {
               {state === 'installing' || state === 'starting' ? (
                 <LoaderCircle className="size-4 animate-spin text-muted" />
               ) : (
-                (state === 'missing' || state === 'error' || status?.driver?.own) && (
+                (state === 'missing' || state === 'error' || status?.driver?.own || outdated) && (
                   <Button
                     size="sm"
                     variant="push"
                     onClick={() => void act(post<ComputerStatus>('/api/computer/install', {}))}
                   >
-                    {status?.driver ? t.reinstall : t.install(size)}
+                    {outdated
+                      ? t.installVersion(status?.version ?? '', size)
+                      : status?.driver
+                        ? t.reinstall
+                        : t.install(size)}
                   </Button>
                 )
               )}
@@ -351,4 +367,15 @@ export function ComputerBanner() {
       </Button>
     </div>
   )
+}
+
+/** Whether dotted version `a` comes before `b`, part by part as numbers (0.28.2 before 0.34.0). */
+export function olderVersion(a: string, b: string): boolean {
+  const parts = (v: string) => v.split(/[.-]/).map((p) => Number.parseInt(p, 10) || 0)
+  const [x, y] = [parts(a), parts(b)]
+  for (let i = 0; i < Math.max(x.length, y.length); i++) {
+    const d = (x[i] ?? 0) - (y[i] ?? 0)
+    if (d !== 0) return d < 0
+  }
+  return false
 }
