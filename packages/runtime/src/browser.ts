@@ -22,6 +22,7 @@ import {
 } from './config.ts'
 import { leashRunning } from './leashed.ts'
 import { prompts } from './prompts.ts'
+import { guardLoopbackPort } from './sandbox.ts'
 import {
   assertReachableUrl,
   type LocalPorts,
@@ -52,7 +53,13 @@ export type LiveEvent =
 
 /** Input from a person who has taken control, in CSS pixels. */
 export type LiveInput =
-  | { type: 'mouse'; action: 'move' | 'down' | 'up'; x: number; y: number; button?: 'left' | 'right' }
+  | {
+      type: 'mouse'
+      action: 'move' | 'down' | 'up'
+      x: number
+      y: number
+      button?: 'left' | 'right' | 'middle'
+    }
   | { type: 'wheel'; x: number; y: number; deltaX: number; deltaY: number }
   | { type: 'key'; key: string }
   | { type: 'text'; text: string }
@@ -127,6 +134,14 @@ export interface TabInfo {
   readonly controlledBy: 'agent' | 'person'
 }
 
+/** A loopback port free right now. */
+function freePort(): number {
+  const listener = Bun.listen({ hostname: '127.0.0.1', port: 0, socket: { data() {} } })
+  const port = listener.port
+  listener.stop(true)
+  return port
+}
+
 /** Chrome, Chromium, or the Chromium omp downloaded, whichever is installed. */
 export function findChrome(): string | undefined {
   const fixed = [
@@ -175,13 +190,26 @@ export class BrowserHub {
   /** Each open tab's reachable loopback ports; the proxy allows their union, the tab itself only its own. */
   private readonly _ports = new Map<string, LocalPorts>()
   private _refused?: { reason: string; at: number }
+  /**
+   * Chrome's DevTools port, chosen now rather than at launch so that every sandboxed command, even one started before
+   * the first tab opens, is kept from it. DevTools over a pipe would need no port, but see _launch.
+   */
+  private readonly _devtoolsPort = freePort()
+  private readonly _beforeClose = new Set<() => Promise<void>>()
 
   constructor(
     private readonly profileDir: string,
     private readonly executable = findChrome(),
     /** Loopback ports every tab may reach besides its run's own servers: a site the embedder serves itself (tests). */
     private readonly options: { localPorts?: LocalPorts } = {},
-  ) {}
+  ) {
+    guardLoopbackPort(this._devtoolsPort)
+  }
+
+  /** Work to finish while Chrome still runs when the hub closes, such as saving the person's kept cookies. */
+  beforeClose(fn: () => Promise<void>): void {
+    this._beforeClose.add(fn)
+  }
 
   private _allPorts(): ReadonlySet<number> | 'all' {
     const all = new Set<number>()
@@ -201,6 +229,11 @@ export class BrowserHub {
     return this.executable !== undefined
   }
 
+  /** The Chrome behind every tab, launched on first use; the person's own browser opens its context in it. */
+  browser(): Promise<Browser> {
+    return this._launch()
+  }
+
   private _launch(): Promise<Browser> {
     if (!this.executable) throw new Error('no Chrome or Chromium found; install Chrome or set MYR_CHROME')
     this._browser ??= (async () => {
@@ -214,6 +247,7 @@ export class BrowserHub {
         executablePath: this.executable,
         headless: true,
         userDataDir: this.profileDir,
+        debuggingPort: this._devtoolsPort,
         args: [
           '--no-first-run',
           '--no-default-browser-check',
@@ -231,8 +265,9 @@ export class BrowserHub {
         throw err
       })
       // puppeteer stops Chrome when this process exits or gets SIGINT, SIGTERM or SIGHUP; the leash also does when it
-      // is SIGKILLed or crashes. (DevTools over a pipe would make Chrome exit with it too, but under Bun 1.3 closing
-      // that pipe double-closes a descriptor, which macOS punishes by killing the whole process.)
+      // is SIGKILLed or crashes. DevTools stays on a port, which the sandbox denies (guardLoopbackPort): over a pipe,
+      // under Bun 1.3.14, closing it double-closes a guarded descriptor and macOS kills the whole process (EXC_GUARD,
+      // which takes down the chat tests).
       const pid = browser.process()?.pid
       const leash = pid ? leashRunning(pid) : undefined
       browser.once('disconnected', () => {
@@ -351,34 +386,12 @@ export class BrowserHub {
     const tab = await this._tabs.get(`${colony}/${agent}`)
     if (!tab) throw new Error(`${agent} has no browser tab open`)
     if (tab.controlledBy !== 'person') throw new Error('take control first')
-    const { mouse, keyboard } = tab.page
-    switch (e.type) {
-      case 'mouse':
-        if (e.action === 'move') await mouse.move(e.x, e.y)
-        else if (e.action === 'down') {
-          await mouse.move(e.x, e.y)
-          await mouse.down({ button: e.button ?? 'left' })
-        } else await mouse.up({ button: e.button ?? 'left' })
-        return
-      case 'wheel':
-        await mouse.move(e.x, e.y)
-        await mouse.wheel({ deltaX: e.deltaX, deltaY: e.deltaY })
-        return
-      case 'key':
-        await keyboard.press(e.key as never)
-        return
-      case 'text':
-        await keyboard.type(e.text)
-        return
-      case 'paste':
-        if (e.text.length > BROWSER_PASTE_MAX_CHARS)
-          throw new Error(`a paste can be at most ${BROWSER_PASTE_MAX_CHARS} characters`)
-        await keyboard.sendCharacter(e.text)
-        return
-      case 'navigate':
-        if (!/^https?:\/\//.test(e.url)) throw new Error('only http(s) URLs')
-        await tab.page.goto(e.url, { waitUntil: 'domcontentloaded', timeout: 30_000 })
+    if (e.type === 'navigate') {
+      if (!/^https?:\/\//.test(e.url)) throw new Error('only http(s) URLs')
+      await tab.page.goto(e.url, { waitUntil: 'domcontentloaded', timeout: 30_000 })
+      return
     }
+    await pressInput(tab.page, e)
   }
 
   /** Closes every tab a colony opened. */
@@ -393,11 +406,40 @@ export class BrowserHub {
   }
 
   async close(): Promise<void> {
+    for (const fn of this._beforeClose) await fn().catch(() => {})
     const browser = this._browser
     this._browser = undefined
     this._tabs.clear()
     this._ports.clear()
     await (await browser?.catch(() => undefined))?.close()
+  }
+}
+
+/** A person's mouse, wheel or keyboard input on a page, in CSS pixels; shared by agents' tabs and the person's own. */
+export async function pressInput(page: Page, e: Exclude<LiveInput, { type: 'navigate' }>): Promise<void> {
+  const { mouse, keyboard } = page
+  switch (e.type) {
+    case 'mouse':
+      if (e.action === 'move') await mouse.move(e.x, e.y)
+      else if (e.action === 'down') {
+        await mouse.move(e.x, e.y)
+        await mouse.down({ button: e.button ?? 'left' })
+      } else await mouse.up({ button: e.button ?? 'left' })
+      return
+    case 'wheel':
+      await mouse.move(e.x, e.y)
+      await mouse.wheel({ deltaX: e.deltaX, deltaY: e.deltaY })
+      return
+    case 'key':
+      await keyboard.press(e.key as never)
+      return
+    case 'text':
+      await keyboard.type(e.text)
+      return
+    case 'paste':
+      if (e.text.length > BROWSER_PASTE_MAX_CHARS)
+        throw new Error(`a paste can be at most ${BROWSER_PASTE_MAX_CHARS} characters`)
+      await keyboard.sendCharacter(e.text)
   }
 }
 
@@ -701,7 +743,7 @@ export function refLabel(tab: Tab, ref: string): string {
 }
 
 /** Marks a page the browser's proxy served in place of a refused request. */
-const REFUSED_HEADER = 'x-myrmidon-refused'
+export const REFUSED_HEADER = 'x-myrmidon-refused'
 
 /**
  * Opens `url` in one of the agent's pages, after checking the agent may reach it, and says why when the browser
@@ -779,13 +821,18 @@ const HOP_HEADERS = [
 export async function startBrowserProxy(options: {
   localPorts: LocalPorts
   lookup?: Lookup
-  onRefused?: (reason: string) => void
+  onRefused?: (reason: string, host: string, port: number) => void
+  /**
+   * Whether a refused page says why. The reason is written for agents; the person's browser shows its own words
+   * beside the page instead, so its refusals are blank.
+   */
+  sayWhy?: boolean
 }): Promise<BrowserProxy> {
   const check = async (host: string, port: number) => {
     try {
       return await reachableAddresses(host, port, options.localPorts, options.lookup)
     } catch (err) {
-      if (err instanceof UnreachableError) options.onRefused?.(err.message)
+      if (err instanceof UnreachableError) options.onRefused?.(err.message, host, port)
       throw err
     }
   }
@@ -816,7 +863,7 @@ export async function startBrowserProxy(options: {
       if (err instanceof UnreachableError)
         res
           .writeHead(403, { 'content-type': 'text/plain; charset=utf-8', [REFUSED_HEADER]: '1' })
-          .end(message)
+          .end(options.sayWhy === false ? '' : message)
       else res.writeHead(502, { 'content-type': 'text/plain; charset=utf-8' }).end(message)
       return
     }

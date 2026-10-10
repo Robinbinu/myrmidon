@@ -127,6 +127,30 @@ export const BROWSER_PASTE_MAX_CHARS = 100_000
 /** How long the browser's proxy waits on one address of a host before trying its next one. */
 export const BROWSER_CONNECT_MS = 5_000
 
+// The person's own browser (person-browser.ts)
+
+/** Tabs open at once in the person's browser; each is a live page in the shared Chrome. */
+export const PERSON_BROWSER_MAX_TABS = 12
+/** The sharpest the person's view is drawn: device pixels per CSS pixel, for Retina screens, at four times the bytes. */
+export const PERSON_BROWSER_MAX_SCALE = 2
+/** The largest HTML file the person can open from their computer (Open HTML file…), carried as a data: URL. */
+export const PERSON_BROWSER_HTML_MAX_BYTES = 2_000_000
+/** The largest favicon kept for a tab; bigger ones show the generic glyph. */
+export const PERSON_BROWSER_FAVICON_MAX_BYTES = 32_000
+/**
+ * How often cookies kept Always are saved while the browser is open, besides on closing a tab and on quitting: a
+ * sign-in a page's script makes (fetch, document.cookie) sends no event to save on.
+ */
+export const PERSON_BROWSER_COOKIE_SAVE_MS = 10_000
+/** The longest text one copy out of the page brings back. */
+export const PERSON_BROWSER_COPY_MAX_CHARS = 100_000
+/** Fixed viewports in CSS pixels; Responsive follows the panel instead. */
+export const PERSON_BROWSER_VIEWPORTS = {
+  phone: { width: 390, height: 844, isMobile: true, hasTouch: true },
+  tablet: { width: 820, height: 1180, isMobile: true, hasTouch: true },
+  desktop: { width: 1440, height: 900, isMobile: false, hasTouch: false },
+} as const
+
 // Web access (web.ts)
 
 /** Redirect hops one agent fetch follows, each one checked before anything is sent to it. */

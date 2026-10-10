@@ -75,6 +75,19 @@ function sbplPath(path: string) {
 
 type PathSpec = Pick<SandboxRun, 'writable' | 'readable' | 'hidden'>
 
+/**
+ * Loopback ports no confined command may connect to: the DevTools port of the Chrome Myrmidon runs, which answers
+ * anyone on this computer without a key and would hand over every tab (the person's own, other chats') and its
+ * cookies. Each profile is written as its command starts, so a port is guarded from the commands started after it is
+ * added; the browser adds its port when it is made, before any command runs. bubblewrap cannot filter ports, so on
+ * Linux this guards nothing.
+ */
+const guardedPorts = new Set<number>()
+
+export function guardLoopbackPort(port: number): void {
+  guardedPorts.add(port)
+}
+
 export interface PathRule {
   readonly path: string
   readonly access: 'hide' | 'read' | 'write'
@@ -181,6 +194,8 @@ export function macProfile(spec: PathSpec, home: string): string {
     `(allow file-read* ${temp.join(' ')})`,
     ...sockets,
     `(deny network-outbound (remote unix-socket ${tmp}))`,
+    // SBPL's "localhost" is every loopback address, 127.0.0.1 and ::1 alike.
+    ...[...guardedPorts].map((port) => `(deny network-outbound (remote ip "localhost:${port}"))`),
     // Commands are Myrmidon's children, so macOS lets them use its Screen Recording and Accessibility grants. With no
     // window server and no ScreenCaptureKit (replayd) they cannot capture the screen or post input events, and with
     // no Apple events they cannot script other apps (System Events). Accessibility calls made straight to another
