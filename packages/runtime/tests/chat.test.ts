@@ -6,7 +6,6 @@ import { newColonyId, SqliteLogStore } from '@myrmidon/core'
 import { type ColonyState, type EventPayloads, foldColony, type MyrEvent } from '@myrmidon/protocol'
 import type { Context as LlmContext } from '@oh-my-pi/pi-ai'
 import { createMockModel, type MockContent } from '@oh-my-pi/pi-ai/providers/mock'
-import { pendingOn } from '../../../tests/platform.ts'
 import {
   BrowserHub,
   bootRuntime,
@@ -2584,88 +2583,85 @@ test.skipIf(detectSandbox().kind === 'none')(
   },
 )
 
-pendingOn('win32', 'worktreesOnWindows')(
-  'team workers in a git project each get a worktree, and their changes merge into the folder',
-  async () => {
-    const { ProjectStore } = await import('../src/projects.ts')
-    const folder = mkdtempSync(join(tmpdir(), 'myr-project-'))
-    await Bun.write(join(folder, 'README.md'), '# Demo\n')
-    const git = (...args: string[]) => Bun.spawnSync(['git', ...args], { cwd: folder }).stdout.toString()
-    git('init', '-q', '-b', 'main')
-    git('add', '-A')
-    git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'init')
-    const projects = new ProjectStore(home)
-    // Autonomous, as a folder added before new ones started on ask.
-    const project = projects.setPermissions(projects.add(folder).id, { mode: 'auto', allow: [] })
-    const resolver = new ModelResolver()
-    const specialist = (ctx: LlmContext, role: string) =>
-      new RegExp(`- ([a-z]+): ${role} \\(`).exec(ctx.systemPrompt?.join('\n') ?? '')?.[1] ?? ''
-    scripted(resolver, 'mock/lead', [
-      (ctx) => [
-        tool('create_task', { subject: 'Write the API', assignee: specialist(ctx, 'backend') }),
-        tool('create_task', { subject: 'Write the page', assignee: specialist(ctx, 'frontend') }),
+test('team workers in a git project each get a worktree, and their changes merge into the folder', async () => {
+  const { ProjectStore } = await import('../src/projects.ts')
+  const folder = mkdtempSync(join(tmpdir(), 'myr-project-'))
+  await Bun.write(join(folder, 'README.md'), '# Demo\n')
+  const git = (...args: string[]) => Bun.spawnSync(['git', ...args], { cwd: folder }).stdout.toString()
+  git('init', '-q', '-b', 'main')
+  git('add', '-A')
+  git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'init')
+  const projects = new ProjectStore(home)
+  // Autonomous, as a folder added before new ones started on ask.
+  const project = projects.setPermissions(projects.add(folder).id, { mode: 'auto', allow: [] })
+  const resolver = new ModelResolver()
+  const specialist = (ctx: LlmContext, role: string) =>
+    new RegExp(`- ([a-z]+): ${role} \\(`).exec(ctx.systemPrompt?.join('\n') ?? '')?.[1] ?? ''
+  scripted(resolver, 'mock/lead', [
+    (ctx) => [
+      tool('create_task', { subject: 'Write the API', assignee: specialist(ctx, 'backend') }),
+      tool('create_task', { subject: 'Write the page', assignee: specialist(ctx, 'frontend') }),
+    ],
+    ['waiting'],
+    ['waiting'],
+    [tool('reply_user', { text: 'Both parts are in.', final: true })],
+  ])
+  const coder = (file: string): Step[] => [
+    (ctx) => [
+      tool('claim_task', {
+        id: /task-\d/.exec(JSON.stringify(ctx.messages))?.[0] ?? 'task-1',
+        revision: 1,
+      }),
+    ],
+    (ctx) => {
+      const prompt = ctx.systemPrompt?.join('\n') ?? ''
+      expect(prompt).toContain('git worktree')
+      return [tool('fs_write', { path: file, content: `// ${file}\n` })]
+    },
+    (ctx) => [
+      tool('submit_task', {
+        id: /task-\d/.exec(JSON.stringify(ctx.messages))?.[0] ?? 'task-1',
+        revision: 2,
+        artifacts: [],
+      }),
+    ],
+    ['done'],
+  ]
+  scripted(resolver, 'mock/backend', coder('api.ts'))
+  scripted(resolver, 'mock/frontend', coder('page.ts'))
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('team'), projects, quietMs: QUIET_MS })
+  const { colonyId } = await chats.send(
+    'Build the API and the page',
+    {
+      mode: 'orchestrated',
+      leadModel: 'mock/lead',
+      roster: [
+        { role: 'backend', model: 'mock/backend' },
+        { role: 'frontend', model: 'mock/frontend' },
       ],
-      ['waiting'],
-      ['waiting'],
-      [tool('reply_user', { text: 'Both parts are in.', final: true })],
-    ])
-    const coder = (file: string): Step[] => [
-      (ctx) => [
-        tool('claim_task', {
-          id: /task-\d/.exec(JSON.stringify(ctx.messages))?.[0] ?? 'task-1',
-          revision: 1,
-        }),
-      ],
-      (ctx) => {
-        const prompt = ctx.systemPrompt?.join('\n') ?? ''
-        expect(prompt).toContain('git worktree')
-        return [tool('fs_write', { path: file, content: `// ${file}\n` })]
-      },
-      (ctx) => [
-        tool('submit_task', {
-          id: /task-\d/.exec(JSON.stringify(ctx.messages))?.[0] ?? 'task-1',
-          revision: 2,
-          artifacts: [],
-        }),
-      ],
-      ['done'],
-    ]
-    scripted(resolver, 'mock/backend', coder('api.ts'))
-    scripted(resolver, 'mock/frontend', coder('page.ts'))
-    judge(resolver)
-    const chats = new ChatService(runtime, { resolver, classify: fixed('team'), projects, quietMs: QUIET_MS })
-    const { colonyId } = await chats.send(
-      'Build the API and the page',
-      {
-        mode: 'orchestrated',
-        leadModel: 'mock/lead',
-        roster: [
-          { role: 'backend', model: 'mock/backend' },
-          { role: 'frontend', model: 'mock/frontend' },
-        ],
-        judgeModel: 'mock/judge',
-      },
-      undefined,
-      { project: project.id },
-    )
-    const s = await waitFor(
-      colonyId,
-      (x) => Object.values(x.worktrees).every((w) => w.kept !== undefined) && x.status !== 'running',
-    )
-    const trees = Object.values(s.worktrees)
-    expect(trees).toHaveLength(2)
-    expect(trees.every((w) => w.branch.startsWith('myr/') && w.merges === 1 && w.kept === false)).toBe(true)
-    expect(await Bun.file(join(folder, 'api.ts')).text()).toBe('// api.ts\n')
-    expect(await Bun.file(join(folder, 'page.ts')).text()).toBe('// page.ts\n')
-    // The person's repository is as they left it: same branch, nothing committed or staged, no worker branches left.
-    expect(git('rev-parse', '--abbrev-ref', 'HEAD').trim()).toBe('main')
-    expect(git('log', '--oneline').trim().split('\n')).toHaveLength(1)
-    expect(git('branch', '--list', 'myr/*')).toBe('')
-    expect(git('worktree', 'list').trim().split('\n')).toHaveLength(1)
-    await chats.stopAll()
-    rmSync(folder, { recursive: true, force: true })
-  },
-)
+      judgeModel: 'mock/judge',
+    },
+    undefined,
+    { project: project.id },
+  )
+  const s = await waitFor(
+    colonyId,
+    (x) => Object.values(x.worktrees).every((w) => w.kept !== undefined) && x.status !== 'running',
+  )
+  const trees = Object.values(s.worktrees)
+  expect(trees).toHaveLength(2)
+  expect(trees.every((w) => w.branch.startsWith('myr/') && w.merges === 1 && w.kept === false)).toBe(true)
+  expect(await Bun.file(join(folder, 'api.ts')).text()).toBe('// api.ts\n')
+  expect(await Bun.file(join(folder, 'page.ts')).text()).toBe('// page.ts\n')
+  // The person's repository is as they left it: same branch, nothing committed or staged, no worker branches left.
+  expect(git('rev-parse', '--abbrev-ref', 'HEAD').trim()).toBe('main')
+  expect(git('log', '--oneline').trim().split('\n')).toHaveLength(1)
+  expect(git('branch', '--list', 'myr/*')).toBe('')
+  expect(git('worktree', 'list').trim().split('\n')).toHaveLength(1)
+  await chats.stopAll()
+  rmSync(folder, { recursive: true, force: true })
+})
 
 test('an answer round that turns out bigger escalates, and a solo round reruns it with its notes', async () => {
   const resolver = new ModelResolver()
@@ -3643,9 +3639,9 @@ test('a round stopped after reaching outside Myrmidon tells its agents what was 
     ...solo('mock/lead'),
     judgeModel: 'mock/judge',
   })
-  // The call outside Myrmidon has run before the person stops: its MCP server can take seconds to start on a slow
-  // machine, and a round stopped before the call has nothing to tell.
-  for (let i = 0; !(await events(colonyId)).some((e) => e.type === 'tool/result'); i++) {
+  // The call outside Myrmidon has run, and the lead is working on its next step, before the person stops: the MCP
+  // server can take seconds to start on a slow machine, and a round stopped before the call has nothing to tell.
+  for (let i = 0; !(await events(colonyId)).some((e) => e.type === 'tool/result') || calls < 2; i++) {
     if (i >= 400) throw new Error('the call outside Myrmidon never ran')
     await Bun.sleep(50)
   }
