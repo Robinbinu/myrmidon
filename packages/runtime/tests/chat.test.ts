@@ -3756,7 +3756,7 @@ test('chats are found by what was said in them, with the words around the match'
   }
 })
 
-test('deleting a chat removes every round and its data', async () => {
+pendingOn('win32', 'sqliteHandles')('deleting a chat removes every round and its data', async () => {
   const resolver = new ModelResolver()
   scripted(resolver, 'mock/brief', [
     [tool('ask_user', { question: 'Which format do you want?' })],

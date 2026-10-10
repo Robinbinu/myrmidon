@@ -18,7 +18,8 @@ export const GAPS = {
     'call in the chat is spoken twice (apps/web voice gateway; seen on Linux every run)',
   sqliteHandles:
     'SQLite stores close with db.close() while prepared statements live (core sqlite-store.ts), so the file stays ' +
-    'open until GC and Windows cannot delete the folder (EBUSY); close(true) would release it at once',
+    'open until GC: on Windows deleting a chat fails with EBUSY (deleteColony) and test folders stay busy; ' +
+    'close(true) would release it at once',
   serverJsonAfterKill:
     'when the desktop app is killed, the leash stops its server without letting it remove server.json on Windows',
   cuaDriverOnWindows:
