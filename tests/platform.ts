@@ -10,9 +10,6 @@ type Pending = 'linux' | 'win32'
  * finds them). docs/ci.md lists the same gaps by OS.
  */
 export const GAPS = {
-  bwrapHiddenFolders:
-    'bubblewrap hides a folder with an empty writable tmpfs, so listing it or writing into it succeeds (into a ' +
-    'throwaway layer) where macOS denies it (sandbox.ts bwrapMounts)',
   voiceWarmupRace:
     'a voice call whose page closed while the engines warmed up still greets once they are ready, so the next ' +
     'call in the chat is spoken twice (apps/web voice gateway; seen on Linux every run)',

@@ -95,11 +95,7 @@ function sandboxOff(store: SettingsStore) {
   store.set({ ...store.get(), sandbox: { enabled: false } })
 }
 
-pendingOn(
-  'linux',
-  'bwrapHiddenFolders',
-  detectSandbox().kind === 'none',
-)(
+test.skipIf(detectSandbox().kind === 'none')(
   'with the sandbox off a chat runs commands and file tools anywhere; with it on they stay in scratch',
   async () => {
     const settings = new SettingsStore(home)
