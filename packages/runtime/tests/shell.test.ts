@@ -1,6 +1,9 @@
 import { expect, test } from 'bun:test'
+import { alive } from '../src/leash.ts'
+import { spawnLeashed } from '../src/leashed.ts'
 import {
   commandShell,
+  EMBEDDED_SHELL_NAME,
   gitSh,
   powershellScript,
   type ShellProbe,
@@ -128,4 +131,60 @@ test('the host shell runs a command here', async () => {
   const proc = Bun.spawn(commandShell().argv('echo one && echo two'), { stdout: 'pipe' })
   expect((await new Response(proc.stdout).text()).trim().split(/\r?\n/)).toEqual(['one', 'two'])
   expect(await proc.exited).toBe(0)
+})
+
+test('without Git Bash, Windows runs commands in the built-in bash, before PowerShell; macOS and Linux never do', () => {
+  const machine = { ...probe('win32', { pwsh: PWSH }, [], WINDOWS_ENV), embedded: true }
+  const shell = commandShell(machine)
+  expect(shell).toMatchObject({ name: EMBEDDED_SHELL_NAME, syntax: 'posix', bins: [] })
+  expect(shell.argv('ls -la')[0]).toBe(process.execPath)
+  expect(shell.argv('ls -la').at(-1)).toBe('ls -la')
+  const withGit = { ...probe('win32', { sh: GIT_SH }, [GIT_SH], WINDOWS_ENV), embedded: true }
+  expect(commandShell(withGit).name).toBe('Git Bash')
+  for (const platform of ['darwin', 'linux'] as const)
+    expect(commandShell({ ...probe(platform), embedded: true }).argv('ls')).toEqual(['/bin/sh', '-c', 'ls'])
+  // The person's own terminal stays PowerShell.
+  expect(terminalShell(machine)).toEqual([PWSH, '-NoLogo'])
+})
+
+/** The built-in bash as Windows without Git Bash gets it, on any OS. */
+const builtIn = () => commandShell({ ...probe('win32', {}, [], WINDOWS_ENV), embedded: true })
+
+test('the built-in bash runs POSIX commands with their env, stdin, stderr apart and exit code', async () => {
+  const proc = Bun.spawn(
+    builtIn().argv(
+      'read line; echo "got $line $MYR_X"; printf "%s\\n" b a | sort | head -1; echo oops >&2; exit 3',
+    ),
+    {
+      stdin: new Blob(['{"hook":1}\n']),
+      stdout: 'pipe',
+      stderr: 'pipe',
+      env: { ...process.env, MYR_X: 'set' },
+    },
+  )
+  const [out, err, code] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ])
+  expect(out.split(/\r?\n/).filter(Boolean)).toEqual(['got {"hook":1} set', 'a'])
+  expect(err.trim()).toBe('oops')
+  expect(code).toBe(3)
+})
+
+test('stopping a built-in bash command on its leash stops the programs it started', async () => {
+  // A program of its own (not a builtin), as a dev server or a test runner would be.
+  const bun = process.execPath.replaceAll('\\', '/')
+  const program = `"${bun}" -e "console.log(process.pid); setTimeout(() => {}, 30000)"`
+  const proc = spawnLeashed(builtIn().argv(program), { stdout: 'pipe', stderr: 'ignore' })
+  const first = await proc.stdout.getReader().read()
+  const pid = Number(new TextDecoder().decode(first.value).trim())
+  expect(pid).toBeGreaterThan(0)
+  expect(alive(pid)).toBe(true)
+  const started = Date.now()
+  proc.stdin.end()
+  await proc.exited
+  for (let i = 0; i < 50 && alive(pid); i++) await Bun.sleep(100)
+  expect(alive(pid)).toBe(false)
+  expect(Date.now() - started).toBeLessThan(10_000)
 })
