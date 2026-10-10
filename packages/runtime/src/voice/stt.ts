@@ -1,10 +1,11 @@
+import { randomBytes } from 'node:crypto'
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
-import { homedir } from 'node:os'
-import { basename, join } from 'node:path'
+import { homedir, tmpdir, userInfo } from 'node:os'
+import { basename, join, posix, win32 } from 'node:path'
 import { VOICE_PHONON_START_MS, VOICE_PHONON_VERSION } from '../config.ts'
 import { spawnLeashed } from '../leashed.ts'
 import { parseWav, wav } from './audio.ts'
-import { type LiveTranscription, PhononStream } from './phonon-stream.ts'
+import { type LiveTranscription, type PhononEndpoint, PhononStream } from './phonon-stream.ts'
 /**
  * "Testing, one two three." (2 s, 16 kHz, spoken by Kitten TTS), for warming Phonon-2 up. Imported as a file so a
  * compiled Myrmidon, which has no source tree beside it, carries it.
@@ -112,23 +113,64 @@ export type PhononState =
   | { state: 'starting'; line?: string }
   | { state: 'running' }
   | { state: 'error'; error: string }
+  /** Fermion publishes no engine for this computer; `error` says which it is. */
+  | { state: 'unsupported'; error: string }
 
 /**
- * The uv tool install that brings Phonon-2's command line, with the Apple-silicon runtime it prefers: a pinned
- * release, so an install (or a reinstall) is the version Myrmidon was tried with, not whatever was published since.
+ * The uv tool install that brings Phonon-2's command line: a pinned release, so an install (or a reinstall) is the
+ * version Myrmidon was tried with, not whatever was published since. On Apple silicon it adds the MLX runtime Phonon
+ * prefers there; everywhere else it runs on its CPU engine, and MLX would not install (there is none for Windows).
  */
-export const PHONON_INSTALL = [
-  'tool',
-  'install',
-  '--force',
-  `fermion-research==${VOICE_PHONON_VERSION}`,
-  ...['mlx', 'mlx-audio', 'mlx-lm', 'soundfile', 'scipy', 'zstandard'].flatMap((p) => ['--with', p]),
-]
+export function phononInstall(
+  platform: NodeJS.Platform = process.platform,
+  arch: string = process.arch,
+): string[] {
+  const mlx = platform === 'darwin' && arch === 'arm64' ? ['mlx', 'mlx-audio', 'mlx-lm'] : []
+  return [
+    'tool',
+    'install',
+    '--force',
+    `fermion-research==${VOICE_PHONON_VERSION}`,
+    ...[...mlx, 'soundfile', 'scipy', 'zstandard'].flatMap((p) => ['--with', p]),
+  ]
+}
+export const PHONON_INSTALL = phononInstall()
+
+/**
+ * Why Phonon-2 cannot run on this computer, when it cannot: Fermion Research publishes its speech engine for macOS,
+ * Linux (x64 and Arm) and x64 Windows only.
+ */
+export function phononUnsupported(
+  platform: NodeJS.Platform = process.platform,
+  arch: string = process.arch,
+): string | undefined {
+  if (platform === 'win32' && arch !== 'x64')
+    return 'Phonon-2 does not run on Windows on Arm: its speech engine is published for x64 Windows, macOS and Linux'
+  if (platform !== 'darwin' && platform !== 'linux' && platform !== 'win32')
+    return `Phonon-2 does not run on ${platform}: its speech engine is published for Windows, macOS and Linux`
+  return undefined
+}
+
+/** The arguments that make `fermion serve phonon-2` listen at `endpoint`. */
+export function phononListenArgs(endpoint: PhononEndpoint): string[] {
+  return 'unix' in endpoint
+    ? ['--unix-socket', endpoint.unix]
+    : ['--host', '127.0.0.1', '--port', String(endpoint.port), '--api-key', endpoint.token]
+}
+
+/** A loopback port free right now. */
+function freePort(): number {
+  const listener = Bun.listen({ hostname: '127.0.0.1', port: 0, socket: { data() {} } })
+  const port = listener.port
+  listener.stop(true)
+  return port
+}
 
 /**
  * Phonon-2 on this machine: Fermion Research's `fermion serve phonon-2`, an OpenAI-compatible transcription server,
- * started on first use on a Unix socket only this user can reach, kept running, and stopped with Myrmidon. Its model
- * (164 MB) lands in `<home>/voice/fermion` the first time it starts.
+ * started on first use on a Unix socket only this user can reach (on Windows, a loopback port that wants a key made
+ * for each start), kept running, and stopped with Myrmidon. Its model (164 MB) lands in `<home>/voice/fermion` the
+ * first time it starts.
  */
 export class PhononStt implements SpeechToText {
   private _proc?: Bun.Subprocess
@@ -136,6 +178,7 @@ export class PhononStt implements SpeechToText {
   private _state: PhononState
   private readonly _dir: string
   private readonly _socket: string
+  private _endpoint: PhononEndpoint
 
   constructor(
     home: string,
@@ -145,7 +188,13 @@ export class PhononStt implements SpeechToText {
   ) {
     this._dir = join(home, 'voice')
     this._socket = socketPath(join(this._dir, 'phonon.sock'))
-    this._state = this._binary() ? { state: 'ready' } : { state: 'missing' }
+    this._endpoint = { unix: this._socket }
+    const unsupported = phononUnsupported()
+    this._state = unsupported
+      ? { state: 'unsupported', error: unsupported }
+      : this._binary()
+        ? { state: 'ready' }
+        : { state: 'missing' }
   }
 
   status(): PhononState {
@@ -156,6 +205,7 @@ export class PhononStt implements SpeechToText {
 
   /** Installs (or updates) Phonon-2's command line with uv; `status()` shows its progress meanwhile. */
   async install(): Promise<void> {
+    if (this._state.state === 'unsupported') throw new Error(this._state.error)
     const uv = this._which('uv')
     if (!uv) throw new Error('uv is not installed: get it from https://docs.astral.sh/uv/ and try again')
     this._state = { state: 'installing' }
@@ -188,7 +238,7 @@ export class PhononStt implements SpeechToText {
    */
   listen(sampleRate: number, heard: (text: string) => void): LiveTranscription | undefined {
     if (this._state.state !== 'running' || sampleRate !== 16_000) return undefined
-    return new PhononStream(this._socket, sampleRate, heard, this.log)
+    return new PhononStream(this._endpoint, sampleRate, heard, this.log)
   }
 
   /**
@@ -224,6 +274,7 @@ export class PhononStt implements SpeechToText {
 
   /** Starts the server if it is not running, and waits until it answers (the first start also downloads the model). */
   start(): Promise<OpenAiCompatibleStt> {
+    if (this._state.state === 'unsupported') return Promise.reject(new Error(this._state.error))
     this._ready ??= this._start().catch((err) => {
       this._ready = undefined
       this.stop()
@@ -244,12 +295,18 @@ export class PhononStt implements SpeechToText {
     const fermion = this._binary()
     if (!fermion) throw new Error('Phonon-2 is not installed: install it in Settings → Voice')
     mkdirSync(join(this._dir, 'fermion'), { recursive: true, mode: 0o700 })
-    // The server is leashed, so it stops when Myrmidon does however Myrmidon ends; one left by an older Myrmidon would
-    // still hold its socket and the model in memory, so it is stopped first.
-    await stopLeftovers(this._socket)
-    rmSync(this._socket, { force: true })
+    if (process.platform === 'win32') {
+      // A new port and key each start; the key is on the server's command line, which Windows shows only to this user.
+      this._endpoint = { port: freePort(), token: randomBytes(24).toString('base64url') }
+    } else {
+      // The server is leashed, so it stops when Myrmidon does however Myrmidon ends; one left by an older Myrmidon
+      // would still hold its socket and the model in memory, so it is stopped first.
+      await stopLeftovers(this._socket)
+      rmSync(this._socket, { force: true })
+    }
+    const endpoint = this._endpoint
     this._state = { state: 'starting' }
-    const proc = spawnLeashed([fermion, 'serve', 'phonon-2', '--unix-socket', this._socket], {
+    const proc = spawnLeashed([fermion, 'serve', 'phonon-2', ...phononListenArgs(endpoint)], {
       env: { ...process.env, FERMION_CACHE_DIR: join(this._dir, 'fermion') },
       stdout: 'pipe',
       stderr: 'pipe',
@@ -274,16 +331,21 @@ export class PhononStt implements SpeechToText {
       this._ready = undefined
       this._state = { state: 'error', error: `Phonon-2 stopped (exit ${code}): ${tail.slice(-2).join(' ')}` }
     })
+    const origin = 'unix' in endpoint ? 'http://phonon' : `http://127.0.0.1:${endpoint.port}`
     const client = new OpenAiCompatibleStt({
-      baseUrl: 'http://phonon/v1',
+      baseUrl: `${origin}/v1`,
       model: 'phonon-2',
-      unix: this._socket,
+      ...('unix' in endpoint ? { unix: endpoint.unix } : { apiKey: endpoint.token }),
       hotwords: true,
     })
     const deadline = Date.now() + VOICE_PHONON_START_MS
     while (Date.now() < deadline) {
       if (this._proc !== proc) throw new Error(tail.slice(-3).join(' ') || 'Phonon-2 did not start')
-      const up = await fetch('http://phonon/health', { unix: this._socket } as RequestInit).then(
+      // Phonon answers /health without the key.
+      const up = await fetch(
+        `${origin}/health`,
+        ('unix' in endpoint ? { unix: endpoint.unix } : {}) as RequestInit,
+      ).then(
         (r) => r.ok,
         () => false,
       )
@@ -303,18 +365,33 @@ export class PhononStt implements SpeechToText {
   private _which(name: string): string | undefined {
     const found = Bun.which(name)
     if (found) return found
-    const local = join(this.extraPath, name)
+    const local = join(this.extraPath, process.platform === 'win32' ? `${name}.exe` : name)
     return existsSync(local) ? local : undefined
   }
 }
 
 /**
- * A Unix socket path that fits: macOS allows 104 bytes, so a long home gets a private folder under /tmp instead
- * (owner-only, named for the home so two Myrmidons do not share it).
+ * The private folder for a socket whose wanted path is too long, named for its owner and the wanted path so two
+ * Myrmidons do not share it: in /tmp on macOS and Linux, where the sandbox hides Myrmidon's socket folders
+ * (SANDBOX_HIDDEN_TMP), and in the person's own temp folder on Windows, which has no /tmp and no user ids.
+ */
+export function socketFolder(
+  wanted: string,
+  platform: NodeJS.Platform = process.platform,
+  temp: string = tmpdir(),
+): string {
+  const owner = process.getuid?.() ?? userInfo().username
+  const name = `myr-${owner}-${Bun.hash(wanted).toString(36)}`
+  return platform === 'win32' ? win32.join(temp, name) : posix.join('/tmp', name)
+}
+
+/**
+ * A Unix socket path that fits: macOS allows 104 bytes, so a long home gets a private folder (`socketFolder`,
+ * owner-only) instead.
  */
 export function socketPath(wanted: string): string {
   if (Buffer.byteLength(wanted) <= 100) return wanted
-  const dir = join('/tmp', `myr-${process.getuid?.() ?? 0}-${Bun.hash(wanted).toString(36)}`)
+  const dir = socketFolder(wanted)
   mkdirSync(dir, { recursive: true, mode: 0o700 })
   chmodSync(dir, 0o700)
   return join(dir, basename(wanted))
