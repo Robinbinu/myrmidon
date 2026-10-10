@@ -211,7 +211,8 @@ function blockersDone(state: ColonyState, task: TaskSnapshot) {
 /**
  * Tool calls from one assistant message run concurrently, but an agent writing several changes in one step expects
  * them to happen in the order it wrote them: a task named in a later blockedBy, a file published before the
- * submit that lists it. Each agent's write calls therefore run one after another; reads stay parallel.
+ * submit that lists it. Each agent's write calls therefore run one after another; reads stay parallel. A read after
+ * a write in the same step must see it too, so writes are scheduled `exclusive` (see `concurrencyOf`).
  */
 const creating = new WeakMap<ColonyHost, Map<string, Promise<unknown>>>()
 function inCallOrder<T>(host: ColonyHost, agent: string, run: () => Promise<T>): Promise<T> {
@@ -406,6 +407,15 @@ const COLONY_ONLY = new Set([
 
 /** Write calls that may run side by side: each waits on someone else's work, so asks in one step go out together. */
 const IN_PARALLEL = new Set(['ask_crewmate'])
+
+/**
+ * How the agent loop schedules a call among the others of its step: reads run side by side, and anything that
+ * changes state runs alone, after the calls before it and before those after it, so a read written after
+ * update_group or publish_artifact sees the change (pi-agent-core's `concurrency`).
+ */
+function concurrencyOf(def: Pick<ToolDef, 'name' | 'tier'>): 'shared' | 'exclusive' {
+  return def.tier === 'read' || IN_PARALLEL.has(def.name) ? 'shared' : 'exclusive'
+}
 
 /** File tools that read from the working directory, which is the person's project in a chat that has one. */
 const PROJECT_READS = new Set(['fs_read', 'fs_list', 'grep', 'glob'])
@@ -2936,6 +2946,7 @@ function madeTool(agent: string, tool: EventPayloads['tool/created'], host: Colo
     parameters: inputSchema(tool.inputs) as never,
     intent: 'omit',
     approval: 'exec',
+    concurrency: 'exclusive',
     async execute(_callId: string, params: unknown) {
       const r = await inCallOrder(host, agent, async () => {
         const input = checkedArgs(tool.inputs, params ?? {})
@@ -3121,6 +3132,7 @@ function harnessTools(
         parameters: def.parameters,
         intent: 'omit',
         approval: def.tier,
+        concurrency: concurrencyOf(def),
         async execute(callId: string, params: unknown): Promise<AgentToolResult> {
           const actor = agentActor(agent)
           await host.append({
