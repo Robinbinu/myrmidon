@@ -435,7 +435,7 @@ ${roster}`,
     modes: {
       answer: 'answer (one agent, direct reply)',
       /** Agents echo this line to the person, so it says what they can use, never internal words like "solo". */
-      solo: 'you, alone, with every tool. This chat has no crewmates: if the person wants one, say so plainly and that they can add crewmates with the Crewmates control in the message box',
+      solo: 'you alone, with every tool. No crewmates unless the person adds some with Crewmates in the message box',
       soloCrew: (n: number) =>
         `you, with every tool, and ${n} crewmate${n === 1 ? '' : 's'} on call, asked with ask_crewmate`,
       crewmate: (lead: string) => `one job for ${lead}, who works on the request alone and asked you for it`,
