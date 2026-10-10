@@ -9,6 +9,7 @@ import {
   CircleX,
   Download,
   ExternalLink,
+  FoldVertical,
   LoaderCircle,
   LogIn,
   type LucideIcon,
@@ -21,6 +22,7 @@ import {
   Sun,
   Trash2,
   TriangleAlert,
+  UnfoldVertical,
 } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { type ReactNode, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -86,6 +88,7 @@ import {
   usePersistentFlag,
 } from './ui/hooks.ts'
 import { FEATURE_ICONS } from './ui/icons.ts'
+import { ProviderLogo } from './ui/ProviderGlyph.tsx'
 import { AgentAvatar } from './ui/pixel.tsx'
 import {
   Badge,
@@ -1227,6 +1230,22 @@ function ModelsSection(props: {
         >
           {copy.settings.models.refresh}
         </Button>
+        {groups.length > 1 && (
+          <>
+            <Button
+              onClick={() => setOpen(Object.fromEntries(groups.map(([p]) => [p, true])))}
+              icon={<UnfoldVertical className="size-3.5" />}
+            >
+              {copy.settings.models.expandAll}
+            </Button>
+            <Button
+              onClick={() => setOpen(Object.fromEntries(groups.map(([p]) => [p, false])))}
+              icon={<FoldVertical className="size-3.5" />}
+            >
+              {copy.settings.models.collapseAll}
+            </Button>
+          </>
+        )}
         <Button variant="primary" onClick={props.onAddProvider} icon={<Plus className="size-3.5" />}>
           {copy.settings.models.addModels}
         </Button>
@@ -1252,6 +1271,11 @@ function ModelsSection(props: {
                   <motion.span animate={{ rotate: expanded ? 90 : 0 }} transition={spring}>
                     <ChevronRight className="size-4 text-muted" />
                   </motion.span>
+                  <ProviderLogo
+                    provider={provider}
+                    size={16}
+                    className={cn('shrink-0', off && 'opacity-60')}
+                  />
                   {/* Off reads in the muted ink rather than a faded card, which would drop below AA contrast. */}
                   <span className={cn('font-mono text-body font-medium', off && 'text-muted')}>
                     {provider}
@@ -1821,6 +1845,7 @@ export function Providers(props: {
           <div key={p.id} className="px-4 py-2.5">
             <div className="flex items-center gap-3">
               <Dot status={p.ready ? 'ready' : 'idle'} />
+              <ProviderLogo provider={p.id} size={16} className="shrink-0" />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <span className="font-mono text-body">{p.id}</span>
