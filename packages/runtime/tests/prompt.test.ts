@@ -194,7 +194,28 @@ function envFor(spec: ColonySpec, extra: Partial<Environment> = {}): Environment
         project: {
           checks: [{ name: 'test', command: 'bun test' }],
           layout: 'src/',
-          instructions: { files: ['AGENTS.md'], text: 'Run bun test before you finish.', nested: [] },
+          instructions: {
+            files: ['AGENTS.md'],
+            text: 'Run bun test before you finish.',
+            nested: [],
+            // Other tools' rules that apply only sometimes, so the word budget counts their listing.
+            rules: [
+              {
+                name: 'ts',
+                file: '.cursor/rules/ts.mdc',
+                mode: 'glob',
+                globs: ['src/**/*.ts'],
+                text: 'Strict.',
+              },
+              {
+                name: 'api',
+                file: '.cursor/rules/api.mdc',
+                mode: 'requested',
+                description: 'API routes',
+                text: '',
+              },
+            ],
+          },
         } as never,
       }
     : {}
