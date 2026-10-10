@@ -73,12 +73,6 @@ which are not gaps. `expectOwnerOnly` checks a private file the way each system 
 `notOn('win32', …)`: the Seatbelt profile test (`macProfile`), the bubblewrap mounts test (`bwrapMounts`) and the
 POSIX PATH test (`posixPath`; `cross-platform.test.ts` checks Windows' PATH).
 
-### Known flake
-
-chat: *a round stopped after reaching outside Myrmidon tells its agents what was already done when it resumes* failed
-once on macOS (`seen[0]` was undefined after the resume) and passed on the next runs; on Windows it stalls every time
-(`windowsRoundsStall`).
-
 The existing skips that do not depend on the OS stay as they were: no sandbox (`detectSandbox().kind === 'none'`,
 which is Windows today), no Chrome, no Kitten or Pythia model, and the opt-in end-to-end voice and model tests.
 
