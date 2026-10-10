@@ -30,6 +30,7 @@ import {
   SYSTEM,
   type TaskSnapshot,
   TEAM_CHAT,
+  type UsageInfo,
 } from '@myrmidon/protocol'
 import type { AgentTool, AgentToolResult } from '@oh-my-pi/pi-agent-core'
 import { type Model, type } from '@oh-my-pi/pi-ai'
@@ -85,14 +86,19 @@ import {
   GITHUB,
   GLOB_LIMIT,
   GREP_LIMIT,
+  IMAGE_TIMEOUT_MS,
   LSP_PROJECT_CHECK_MS,
   MAX_ARTIFACT_BYTES,
+  MAX_IMAGE_INPUTS,
+  MAX_IMAGES_PER_CALL,
+  MAX_MEDIA_BYTES,
   MAX_READ_CHARS,
   MCP_FAILURE_LIMIT,
   PAGE_EXCERPT,
   READ_LOG_RESULT_CHARS,
   REVIEW_MAX_CHARS,
   RULE_MAX_TEXT,
+  TTS_MAX_CHARS,
 } from './config.ts'
 import { readFileAs } from './file-read.ts'
 import { find } from './find.ts'
@@ -132,6 +138,7 @@ import { within } from './read-access.ts'
 import { ruleMatches } from './rule-files.ts'
 import { SANDBOX_DIRS, type SandboxRun } from './sandbox.ts'
 import { hostShell } from './shell.ts'
+import { parseWav } from './voice/audio.ts'
 import { assertArtifactName, SKIP_DIRS } from './workspace.ts'
 
 /** A short, stable file name for a fetched URL. */
@@ -152,6 +159,8 @@ interface ToolOutput {
   readonly images: readonly { readonly data: string; readonly mimeType: string }[]
   /** The harness's own note (where a page was saved, a stale-year warning); stays outside the untrusted block. */
   readonly preface?: string
+  /** What the call spent on a model of its own (generate_image), for the round's budget. */
+  readonly usage?: UsageInfo
 }
 
 interface ToolDef {
@@ -179,6 +188,20 @@ const IMAGE_MAGIC: Record<string, (b: Uint8Array) => boolean> = {
 /** The raster image type these bytes really are (PNG, JPEG, GIF, WebP), whatever the file is called. */
 export function sniffImage(bytes: Uint8Array): string | undefined {
   return Object.entries(IMAGE_MAGIC).find(([, is]) => is(bytes))?.[0]
+}
+
+/** Leading bytes of each sound format the chat plays, so only real audio is served as audio. */
+const AUDIO_MAGIC: Record<string, (b: Uint8Array) => boolean> = {
+  'audio/wav': (b) => text4(b, 0) === 'RIFF' && text4(b, 8) === 'WAVE',
+  'audio/mpeg': (b) => text4(b, 0).startsWith('ID3') || (b[0] === 0xff && ((b[1] ?? 0) & 0xe0) === 0xe0),
+  'audio/ogg': (b) => text4(b, 0) === 'OggS',
+  'audio/flac': (b) => text4(b, 0) === 'fLaC',
+}
+const text4 = (b: Uint8Array, at: number) => String.fromCharCode(...b.subarray(at, at + 4))
+
+/** The sound type these bytes really are (WAV, MP3, Ogg, FLAC), whatever the file is called. */
+export function sniffAudio(bytes: Uint8Array): string | undefined {
+  return Object.entries(AUDIO_MAGIC).find(([, is]) => is(bytes))?.[0]
 }
 
 /** Media types whose bytes are readable text. */
@@ -333,6 +356,118 @@ async function keyframe(
 function artifactUrl(host: ColonyHost, name: string): string {
   if (!host.state().artifacts[name]) throw new Error(`no such artifact: ${name}`)
   return `${artifactOrigin(host.id)}/${name.split('/').map(encodeURIComponent).join('/')}`
+}
+
+/**
+ * Publishes bytes as the next version of artifact `name`, unless it is the output of a task someone else is working on.
+ * Returns the version and stored size.
+ */
+async function publishFile(
+  host: ColonyHost,
+  agent: string,
+  name: string,
+  bytes: Uint8Array,
+  mediaType: string,
+): Promise<{ version: number; size: number }> {
+  const { hash, size } = await host.blobs.put(bytes)
+  const e = first(
+    await host.appendAtomic((s) => {
+      const owner = Object.values(s.tasks).find(
+        (t) => t.status === 'in_progress' && t.owner !== agent && t.outputs?.includes(name),
+      )
+      if (owner)
+        throw new Error(
+          `${name} is an output of ${owner.id}, which ${owner.owner} is working on; do not publish it`,
+        )
+      const prev = s.artifacts[name]?.at(-1)
+      return [
+        {
+          type: 'artifact/versioned',
+          actor: agentActor(agent),
+          payload: {
+            name,
+            version: (prev?.version ?? 0) + 1,
+            blob: hash,
+            size,
+            ...(prev ? { parentVersion: prev.version } : {}),
+            author: agent,
+            mediaType,
+          },
+        },
+      ]
+    }),
+  )
+  return { version: (e.payload as EventPayloads['artifact/versioned']).version, size }
+}
+
+const IMAGE_EXTENSIONS: Record<string, string> = {
+  'image/png': 'png',
+  'image/jpeg': 'jpg',
+  'image/gif': 'gif',
+  'image/webp': 'webp',
+}
+
+/**
+ * The artifact name of a media file: the agent's `name`, else a few words of the request under `folder`, with the
+ * extension the bytes really have, and `-n` when it is one of several.
+ */
+export function mediaName(
+  given: string | undefined,
+  words: string,
+  folder: string,
+  extension: string,
+  index?: number,
+): string {
+  const slug =
+    words
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim()
+      .split(' ')
+      .slice(0, 6)
+      .join('-')
+      .slice(0, 48)
+      .replace(/-+$/, '') || 'untitled'
+  const base = given ? assertArtifactName(given).replace(/\.[A-Za-z0-9]+$/, '') : `${folder}/${slug}`
+  return `${base}${index === undefined ? '' : `-${index}`}.${extension}`
+}
+
+/** A picture to edit from: a published artifact by name, else a file the agent may read. */
+async function inputImage(
+  host: ColonyHost,
+  agent: string,
+  ref: string,
+): Promise<{ data: string; mimeType: string }> {
+  const latest = host.state().artifacts[ref]?.at(-1)
+  const bytes = latest
+    ? await host.blobs.get(latest.blob)
+    : new Uint8Array(readFileSync(host.workspace.resolveForRead(agent, ref)))
+  if (bytes.byteLength > MAX_MEDIA_BYTES)
+    throw new Error(prompts.toolResults.mediaTooLarge(ref, bytes.byteLength))
+  const mimeType = sniffImage(bytes)
+  if (!mimeType) throw new Error(prompts.toolResults.notAPicture(ref))
+  return { data: Buffer.from(bytes).toString('base64'), mimeType }
+}
+
+/**
+ * Publishes a picture or sound for the person and keeps a copy in the agent's scratch directory, so it can use the file
+ * (copy it into a project, put it on a page). Returns the artifact's name and version and where the copy is.
+ */
+async function publishMedia(
+  host: ColonyHost,
+  agent: string,
+  name: string,
+  bytes: Uint8Array,
+  mediaType: string,
+): Promise<{ name: string; version: number; copy: string }> {
+  if (bytes.byteLength > MAX_MEDIA_BYTES)
+    throw new Error(prompts.toolResults.mediaTooLarge(name, bytes.byteLength))
+  const { version } = await publishFile(host, agent, name, bytes, mediaType)
+  const path = host.workspace.resolveInScratch(agent, name)
+  mkdirSync(dirname(path), { recursive: true })
+  writeFileSync(path, bytes)
+  // In a project the shell starts in the project, so the copy is named by its full path.
+  return { name, version, copy: host.workspace.project ? path : name }
 }
 
 /** All a swarm peer may do during the opening huddle: look around and talk. */
@@ -1618,35 +1753,14 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       if (bytes.byteLength === 0) throw new Error('refusing to publish an empty artifact')
       if (bytes.byteLength > MAX_ARTIFACT_BYTES)
         throw new Error(`artifact too large (${bytes.byteLength} bytes)`)
-      const { hash, size } = await host.blobs.put(bytes)
-      const e = first(
-        await host.appendAtomic((s) => {
-          const owner = Object.values(s.tasks).find(
-            (t) => t.status === 'in_progress' && t.owner !== agent && t.outputs?.includes(name),
-          )
-          if (owner)
-            throw new Error(
-              `${name} is an output of ${owner.id}, which ${owner.owner} is working on; do not publish it`,
-            )
-          const prev = s.artifacts[name]?.at(-1)
-          return [
-            {
-              type: 'artifact/versioned',
-              actor: agentActor(agent),
-              payload: {
-                name,
-                version: (prev?.version ?? 0) + 1,
-                blob: hash,
-                size,
-                ...(prev ? { parentVersion: prev.version } : {}),
-                author: agent,
-                mediaType: args.mediaType ?? guessMediaType(name),
-              },
-            },
-          ]
-        }),
+      const { version, size } = await publishFile(
+        host,
+        agent,
+        name,
+        bytes,
+        args.mediaType ?? guessMediaType(name),
       )
-      return `published ${name} v${(e.payload as EventPayloads['artifact/versioned']).version} (${size} bytes)`
+      return `published ${name} v${version} (${size} bytes)`
     },
   },
   {
@@ -1692,6 +1806,85 @@ export const TOOL_DEFS: readonly ToolDef[] = [
           .map(([n, vs]) => `${n} v${vs.at(-1)?.version} (${vs.at(-1)?.size} bytes, ${vs.at(-1)?.author})`)
           .join('\n') || '(no artifacts yet)'
       )
+    },
+  },
+  {
+    name: 'generate_image',
+    tier: 'write',
+    description: prompts.tools.generate_image.description,
+    parameters: type({
+      prompt: type('string').atLeastLength(3).describe(prompts.tools.generate_image.params.prompt),
+      'inputs?': type('string[]').describe(prompts.tools.generate_image.params.inputs),
+      'aspectRatio?': type("'1:1' | '3:4' | '4:3' | '9:16' | '16:9' | '3:2' | '2:3'").describe(
+        prompts.tools.generate_image.params.aspectRatio,
+      ),
+      'size?': type("'1024x1024' | '1536x1024' | '1024x1536'").describe(
+        prompts.tools.generate_image.params.size,
+      ),
+      'count?': type('number').describe(prompts.tools.generate_image.params.count),
+      'name?': type('string').describe(prompts.tools.generate_image.params.name),
+    }),
+    async run(args, agent, host) {
+      if (!host.media) throw new Error(prompts.toolResults.noMedia)
+      const refs: string[] = args.inputs ?? []
+      if (refs.length > MAX_IMAGE_INPUTS) throw new Error(prompts.toolResults.tooManyInputs(MAX_IMAGE_INPUTS))
+      const inputImages = await Promise.all(refs.map((ref) => inputImage(host, agent, ref)))
+      const made = await host.media.generateImage(
+        {
+          prompt: args.prompt,
+          ...(inputImages.length ? { inputImages } : {}),
+          ...(args.aspectRatio ? { aspectRatio: args.aspectRatio } : {}),
+          ...(args.size ? { imageSize: args.size } : {}),
+          count: Math.min(Math.max(1, Math.round(args.count ?? 1)), MAX_IMAGES_PER_CALL),
+        },
+        AbortSignal.timeout(IMAGE_TIMEOUT_MS),
+      )
+      const usage: UsageInfo | undefined =
+        made.cost !== undefined || made.tokens.total > 0
+          ? {
+              input: made.tokens.input,
+              output: made.tokens.output,
+              totalTokens: made.tokens.total,
+              ...(made.cost !== undefined ? { cost: made.cost } : {}),
+            }
+          : undefined
+      const spent = usage ? { usage } : {}
+      if (made.images.length === 0)
+        return { text: prompts.toolResults.noPicture(made.model, made.text), images: [], ...spent }
+      const published: { name: string; version: number; copy: string }[] = []
+      for (const [i, image] of made.images.entries()) {
+        const bytes = new Uint8Array(Buffer.from(image.data, 'base64'))
+        const mimeType = sniffImage(bytes) ?? image.mimeType
+        const extension = IMAGE_EXTENSIONS[mimeType] ?? 'png'
+        const index = made.images.length > 1 ? i + 1 : undefined
+        const name = mediaName(args.name, args.prompt, 'images', extension, index)
+        published.push(await publishMedia(host, agent, name, bytes, mimeType))
+      }
+      return {
+        text: prompts.toolResults.picturesMade(made.model, published, made.text),
+        images: made.images.map((i) => ({ data: i.data, mimeType: i.mimeType })),
+        ...spent,
+      }
+    },
+  },
+  {
+    name: 'tts',
+    tier: 'write',
+    description: prompts.tools.tts.description,
+    parameters: type({
+      text: type('string')
+        .atLeastLength(1)
+        .atMostLength(TTS_MAX_CHARS)
+        .describe(prompts.tools.tts.params.text),
+      'name?': type('string').describe(prompts.tools.tts.params.name),
+    }),
+    async run(args, agent, host) {
+      if (!host.media) throw new Error(prompts.toolResults.noMedia)
+      const spoken = await host.media.speak(args.text)
+      const name = mediaName(args.name, args.text, 'audio', 'wav')
+      const file = await publishMedia(host, agent, name, spoken.audio, spoken.mimeType)
+      const { pcm, sampleRate } = parseWav(spoken.audio)
+      return prompts.toolResults.speechMade(file, spoken.voice, pcm.length / sampleRate)
     },
   },
   {
@@ -3147,6 +3340,10 @@ export function guessMediaType(name: string): string {
       webp: 'image/webp',
       pdf: 'application/pdf',
       wasm: 'application/wasm',
+      wav: 'audio/wav',
+      mp3: 'audio/mpeg',
+      ogg: 'audio/ogg',
+      flac: 'audio/flac',
     }[ext ?? ''] ?? 'text/plain'
   )
 }
@@ -3602,6 +3799,7 @@ function harnessTools(
           })
           let output: string
           let images: ToolOutput['images'] = []
+          let usage: UsageInfo | undefined
           let ok = true
           const tier = tierOf(def, params)
           // Calls that write get receipts; commands may rightly run twice, and reads change nothing.
@@ -3632,7 +3830,10 @@ function harnessTools(
             output = typeof result === 'string' ? result : result.text
             // The person's hooks speak for the harness: their note stays outside any untrusted-content block.
             const hookNote = await host.afterTool(agent, def.name, params, output)
-            if (typeof result !== 'string') images = result.images
+            if (typeof result !== 'string') {
+              images = result.images
+              usage = result.usage
+            }
             const preface = typeof result === 'string' ? '' : (result.preface ?? '')
             // Long pages are saved under web/ in scratch, and the browser's downloads under downloads/; reading one
             // back is still outside content.
@@ -3655,7 +3856,14 @@ function harnessTools(
           await host.append({
             type: 'tool/result',
             actor,
-            payload: { agent, callId, tool: def.name, ok, output: clip(output, 8_000) },
+            payload: {
+              agent,
+              callId,
+              tool: def.name,
+              ok,
+              output: clip(output, 8_000),
+              ...(usage ? { usage } : {}),
+            },
           })
           return {
             content: [

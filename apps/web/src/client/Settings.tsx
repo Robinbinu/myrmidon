@@ -216,6 +216,8 @@ export interface ServerSettings {
   instructions: { lead?: string; worker?: string }
   observer: { intervalSeconds: number }
   search: { provider: string }
+  /** The model generate_image uses (`provider/id`); none means the first that can. Absent from older servers. */
+  images?: { model?: string }
   models: { hidden: string[]; hiddenProviders: string[]; windows?: Record<string, number> }
   /** The global level of the permission model: the default preset, rules, who can use what. */
   permissions: GlobalPermissions
@@ -252,6 +254,8 @@ export interface SettingsResponse {
   settings: ServerSettings
   providers: ProviderInfo[]
   searchProviders: { id: string; label: string }[]
+  /** Image models generate_image can use now, best first; absent from older servers. */
+  imageModels?: string[]
   customApis: Api[]
   sandbox: string
   /** Paths of the person's keys and Myrmidon's data, as typed and in full: a readable folder that opens one is warned about. */
@@ -2582,6 +2586,46 @@ function ToolsSection(props: {
             {props.data.searchProviders.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.label}
+              </option>
+            ))}
+          </Select>
+        </SettingField>
+      </Card>
+      <ImageModelSetting data={props.data} update={props.update} />
+    </>
+  )
+}
+
+/** The model generate_image makes pictures with: Automatic, or one of those the person's providers can run. */
+function ImageModelSetting(props: {
+  data: SettingsResponse
+  update(p: (s: ServerSettings) => ServerSettings, immediate?: boolean): void
+}) {
+  const t = copy.settings.tools
+  const models = props.data.imageModels ?? []
+  const chosen = props.data.settings.images?.model
+  return (
+    <>
+      <SectionHeader
+        className="mb-2 mt-8"
+        icon={<FEATURE_ICONS.imageGeneration className="size-4 text-muted" />}
+        title={t.imageGeneration}
+      />
+      <Card>
+        <SettingField id="tools.imageModel" {...(models.length ? {} : { hint: t.imageModelNone })} inline>
+          <Select
+            value={chosen ?? ''}
+            onChange={(e) =>
+              props.update((s) => ({ ...s, images: e.target.value ? { model: e.target.value } : {} }), true)
+            }
+            aria-label={t.imageModel}
+            className="min-w-44"
+          >
+            <option value="">{t.imageAuto}</option>
+            {chosen && !models.includes(chosen) && <option value={chosen}>{t.imageGone(chosen)}</option>}
+            {models.map((ref) => (
+              <option key={ref} value={ref}>
+                {ref}
               </option>
             ))}
           </Select>

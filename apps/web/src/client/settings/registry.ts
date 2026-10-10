@@ -1244,6 +1244,15 @@ export const SETTINGS = {
     keywords: kw.webSearch,
     keys: ['search.provider'],
   },
+  'tools.imageModel': {
+    page: 'tools',
+    path: [s.tools.imageGeneration],
+    control: 'select',
+    label: s.tools.imageModel,
+    help: s.tools.imageModelHint,
+    keywords: kw.imageGeneration,
+    keys: ['images.model'],
+  },
 
   // Plugins, hooks, schedules
   'plugins.add': {

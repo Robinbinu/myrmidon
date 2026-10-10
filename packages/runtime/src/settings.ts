@@ -102,6 +102,11 @@ export interface MyrSettings {
   privacy: { hideSecrets: boolean }
   /** An omp search provider id (e.g. `brave`, `exa`, `duckduckgo`) or `auto` for omp's fallback chain. */
   search: { provider: string }
+  /**
+   * The model agents make pictures with (generate_image), as `provider/id`. Unset: the first image model a provider the
+   * person set up can run, in omp's order of preference.
+   */
+  images: { model?: string }
   /** `reviewer`: off never reviews; auto lets the speaking agent ask (request_review); always reviews every final answer. */
   verification: { threshold: number; rubric?: string; reviewer: 'off' | 'auto' | 'always' }
   instructions: { lead?: string; worker?: string }
@@ -280,6 +285,7 @@ export const settingsSchema = Schema.object({
       .pattern(/^[a-z][a-z0-9-]{1,30}$/)
       .default('auto'),
   }).default({}),
+  images: Schema.object({ model: Schema.string().max(200) }).default({}),
   verification: Schema.object({
     threshold: Schema.number().min(0).max(1).default(0.7),
     rubric: Schema.string().max(8000),
@@ -536,6 +542,7 @@ function parse(input: unknown): MyrSettings {
     },
     privacy: { hideSecrets: s.privacy.hideSecrets },
     search: { provider: s.search.provider },
+    images: s.images.model?.trim() ? { model: s.images.model.trim() } : {},
     verification: s.verification,
     instructions: s.instructions,
     observer: s.observer,

@@ -73,6 +73,7 @@ import { type HookEvent, type HookOutcome, type HookStore, hookToolInput, runHoo
 import { agentActor, type ColonyHost, type ReviewDecision, type TodoItem } from './host.ts'
 import type { ToolLibrary } from './made-tools.ts'
 import type { McpHub } from './mcp.ts'
+import type { MediaTools } from './media.ts'
 import type { MemoryStore } from './memory.ts'
 import { ModelResolver } from './models.ts'
 import { pickName } from './names.ts'
@@ -156,6 +157,8 @@ export interface RunOptions {
   readonly resolver?: ModelResolver
   /** Search and fetch backends; defaults to keyless DuckDuckGo plus any search keys in the environment. */
   readonly web?: WebTools
+  /** Pictures and speech (generate_image, tts); without it those tools say they are not available here. */
+  readonly media?: MediaTools
   readonly sandbox?: Sandbox
   /** How long all agents may sit idle with empty inboxes before the colony is nudged. */
   readonly quietMs?: number
@@ -241,6 +244,7 @@ export class ColonyRun implements ColonyHost {
   readonly unsafeNoSandbox: boolean
   readonly resolver: ModelResolver
   readonly web: WebTools
+  readonly media?: MediaTools
   readonly done: Promise<ColonyState>
 
   private _state: ColonyState
@@ -345,6 +349,7 @@ export class ColonyRun implements ColonyHost {
     this.unsafeNoSandbox = options.unsafeNoSandbox ?? false
     this.resolver = options.resolver ?? new ModelResolver()
     this.web = options.web ?? noWebTools
+    if (options.media) this.media = options.media
     this._state = emptyColonyState(this.id)
     this._verifier = new Verifier(this, this.resolver)
     this._observer = new FactualObserver(this)
@@ -2232,6 +2237,8 @@ export class ColonyRun implements ColonyHost {
         const p = e.payload as EventPayloads['tool/result']
         if (p.ok && this.spec.prewalk && !this._handedOff && PREWALK_AFTER.has(p.tool))
           void this._handOff(p.agent, p.tool, this.spec.prewalk)
+        // A tool that pays for a model call itself (generate_image) spends from the same budget.
+        if (p.usage) this._checkBudget()
         break
       }
       case 'agent/turn':
@@ -2252,17 +2259,22 @@ export class ColonyRun implements ColonyHost {
           }
           break
         }
-        const { costUsd, tokens } = this.spec.budget
-        const spent = this.spent()
-        if (costUsd !== undefined && spent.cost >= costUsd)
-          void this.stop(prompts.colony.spendLimit(spent.cost, costUsd))
-        else if (tokens !== undefined && spent.tokens >= tokens)
-          void this.stop(prompts.colony.tokenLimit(spent.tokens, tokens))
+        this._checkBudget()
         break
       }
     }
     if (e.type === 'artifact/versioned' || e.type === 'note/appended' || e.type === 'board/posted')
       this._scheduleMirror()
+  }
+
+  /** Stops the round once what it spent reaches its money or token limit. */
+  private _checkBudget() {
+    const { costUsd, tokens } = this.spec.budget
+    const spent = this.spent()
+    if (costUsd !== undefined && spent.cost >= costUsd)
+      void this.stop(prompts.colony.spendLimit(spent.cost, costUsd))
+    else if (tokens !== undefined && spent.tokens >= tokens)
+      void this.stop(prompts.colony.tokenLimit(spent.tokens, tokens))
   }
 
   /** Wakes whoever should hear about a task: its assignee, or idle teammates for a new unassigned task. */

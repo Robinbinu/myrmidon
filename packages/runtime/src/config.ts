@@ -233,6 +233,27 @@ export const READ_LOG_RESULT_CHARS = 400
 /** Consecutive failures after which an MCP server's tools are refused for the rest of the round. */
 export const MCP_FAILURE_LIMIT = 3
 
+// Media (media.ts): generate_image and tts
+
+/**
+ * The largest picture or sound file generate_image and tts publish: a 1536px PNG or a few minutes of WAV is well past
+ * what an agent writes by hand (MAX_ARTIFACT_BYTES), and the person opens these in the chat.
+ */
+export const MAX_MEDIA_BYTES = 32 * 1024 * 1024
+/** Most images one generate_image call makes; each one is billed. */
+export const MAX_IMAGES_PER_CALL = 4
+/** Most input images one generate_image call edits from (omp's image models take up to a handful). */
+export const MAX_IMAGE_INPUTS = 5
+/** How long one image request may take before it is given up (omp's generate_image allows three minutes). */
+export const IMAGE_TIMEOUT_MS = 3 * 60_000
+/** Most characters tts turns into speech in one call: about ten minutes of speech. */
+export const TTS_MAX_CHARS = 10_000
+/**
+ * Silence between the sentences of a tts file. Each sentence is spoken on its own (local Kitten speaks one at a time)
+ * and trimmed, so without a pause they would run into each other.
+ */
+export const TTS_SENTENCE_GAP_MS = 180
+
 // Code intelligence (code-intel.ts): ast_grep, ast_edit, lsp
 
 /** Most structural matches ast_grep returns; `skip` pages on from there. */
