@@ -317,6 +317,8 @@ const TERMINAL_FOREGROUND_MS = 1_500
 const POLL_MS = 400
 /** How long stopping waits for Bun to report the server stopped (see `stop`). */
 const STOP_WAIT_MS = 500
+/** How long stopping waits for the terminals' shells to exit once they are told to. */
+const TERMINAL_STOP_MS = 3_000
 const VOICE_OFF = 'voice calls are off: turn them on in Settings → Voice'
 /** The longest text "Try it" in Settings → Voice speaks. */
 const VOICE_SAMPLE_CHARS = 300
@@ -3488,10 +3490,16 @@ export function startServer(options: ServeOptions): WebServer {
       stopScheduler?.()
       clearInterval(poll)
       stopStreaming?.()
+      // A shell keeps the folder it works in busy until it has exited, and Windows cannot remove a busy folder.
+      const shells = [...opened].flatMap((ws) =>
+        ws.data.kind === 'terminal' && ws.data.proc ? [ws.data.proc.exited] : [],
+      )
+      for (const ws of opened) if (ws.data.kind === 'terminal') ws.close(1001, 'server stopping')
       for (const ws of sockets) ws.close(1001, 'server stopping')
       // Bun 1.3 never settles stop() once the server has closed a socket itself (revoking a device, the loop
       // above), though the port is already released; waiting on it would hang shutdown.
       await Promise.race([server.stop(true), Bun.sleep(STOP_WAIT_MS)])
+      await Promise.race([Promise.allSettled(shells), Bun.sleep(TERMINAL_STOP_MS)])
       await preview.stop(true)
       offPlugins?.()
       await channels?.stop()
