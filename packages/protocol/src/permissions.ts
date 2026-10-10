@@ -37,7 +37,18 @@ export interface PermissionRule {
 /** Groups of tools a role may be given or not ("who can use what"). */
 export type AccessGroup = 'files' | 'shell' | 'web' | 'browser' | 'mcp' | 'computer' | 'messaging' | 'plugins'
 export const ACCESS_GROUPS: Readonly<Record<AccessGroup, readonly string[]>> = {
-  files: ['fs_write', 'fs_edit', 'fs_read', 'fs_list', 'grep', 'glob', 'request_read'],
+  files: [
+    'fs_write',
+    'fs_edit',
+    'fs_read',
+    'fs_list',
+    'grep',
+    'glob',
+    'ast_grep',
+    'ast_edit',
+    'lsp',
+    'request_read',
+  ],
   shell: ['shell', 'run_checks', 'start_server', 'server_logs', 'stop_server', 'create_tool'],
   web: ['web_search', 'web_fetch'],
   browser: [
