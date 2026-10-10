@@ -79,9 +79,10 @@ function keptTeam(previous: readonly RoundRef[], mode: TeamConfig['mode']): Agen
   if (!last) return []
   // A colony that served several rounds holds every agent it ever had: keep the ones of this kind of team.
   const role = swarm ? 'peer' : 'worker'
+  // One that fell back comes back on the model it was set up with: the fallback was for that model's failure.
   return Object.values(last.state.agents)
     .filter((a) => a.info.role === role && !a.dismissed && a.status !== 'failed')
-    .map((a) => a.info)
+    .map((a) => (a.fellBackFrom ? { ...a.info, model: a.fellBackFrom } : a.info))
 }
 
 /**
@@ -691,6 +692,8 @@ export class ChatService {
     const reads = this._reads(project, spec.askAll)
     if (reads.length) spec.reads = reads
     if (this._computerUse(spec.askAll)) spec.computerUse = true
+    const fallbacks = this._fallbacks()
+    if (fallbacks) spec.fallbacks = fallbacks
     const memory = this.options.memory?.recall(project?.id) ?? []
     if (memory.length && spec.chat) spec.chat.memory = memoryLines(memory)
     if (planFirst && spec.tier !== 'answer') spec.planFirst = true
@@ -1104,6 +1107,15 @@ export class ChatService {
     return !askAll && !!hub?.enabled && hub.supported
   }
 
+  /** The models agents go on with when theirs fails, from Settings → Crew & budget; none set leaves them out. */
+  private _fallbacks(): ColonySpec['fallbacks'] {
+    const team = this.options.settings?.get().team
+    const lead = team?.leadFallbacks ?? []
+    const workers = team?.workerFallbacks ?? []
+    if (!lead.length && !workers.length) return undefined
+    return { ...(lead.length ? { lead } : {}), ...(workers.length ? { workers } : {}) }
+  }
+
   private _project(
     id: string | undefined,
     required = true,
@@ -1295,6 +1307,8 @@ export class ChatService {
     const reads = this._reads(fresh ?? project, spec.askAll)
     if (reads.length) spec.reads = reads
     if (this._computerUse(spec.askAll)) spec.computerUse = true
+    const fallbacks = this._fallbacks()
+    if (fallbacks) spec.fallbacks = fallbacks
     const models: Record<string, string> = {}
     if (model) {
       this.options.resolver.resolve(model)
@@ -1566,7 +1580,7 @@ export class ChatService {
       kept.push({
         name,
         role: info.role,
-        model: info.model,
+        model: known[name]?.fellBackFrom ?? info.model,
         ...(info.specialty ? { specialty: info.specialty } : {}),
         ...(info.focus ? { focus: info.focus } : {}),
       })

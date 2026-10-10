@@ -56,7 +56,7 @@ import { type SentFile, SentFiles } from './Attachments.tsx'
 import { awaitingApproval, type Pending, roundApprovals } from './approvals.ts'
 import { Markdown, plainText } from './Markdown.tsx'
 import { ModelPicker, windowLabel } from './ModelPicker.tsx'
-import { fallbackModel } from './model-list.ts'
+import { fallbackModel, modelName } from './model-list.ts'
 import { FullAccessBadge } from './ProjectPermissions.tsx'
 import { QuestionCard } from './QuestionCard.tsx'
 import { RoundChanges } from './RoundChanges.tsx'
@@ -89,6 +89,7 @@ type Item =
   | { seq: number; message: ChatEntry }
   | { seq: number; approval: Pending }
   | { seq: number; stream: string; live: LiveReply }
+  | { seq: number; id: string; fallback: EventPayloads['agent/fallback'] }
 
 const enter = { initial: { opacity: 0, y: 10 }, animate: { opacity: 1, y: 0 }, transition: softSpring }
 
@@ -234,6 +235,12 @@ export function RoundView(props: {
     ),
     // A reply still being written sits where it began, after what was in the log by then.
     ...streaming.map(([agent, live]) => ({ seq: live.since + 0.5, stream: agent, live })),
+    // An agent that went on with a fallback model says so where it happened.
+    ...events.flatMap((e) =>
+      e.type === 'agent/fallback'
+        ? [{ seq: e.seq, id: e.id, fallback: e.payload as EventPayloads['agent/fallback'] }]
+        : [],
+    ),
   ].sort((a, b) => a.seq - b.seq)
   // The run card sits under the latest message sent mid-run, so what the colony did next reads in order.
   const split = timeline.findLastIndex((i) => 'message' in i && i.message.from === 'user') + 1
@@ -292,6 +299,8 @@ export function RoundView(props: {
   const item = (i: Item) =>
     'message' in i ? (
       message(i.message)
+    ) : 'fallback' in i ? (
+      <FallbackNote key={i.id} fallback={i.fallback} models={props.models} />
     ) : 'approval' in i ? (
       <Approval
         key={i.approval.id}
@@ -474,6 +483,23 @@ export function RoundView(props: {
         )}
       </AnimatePresence>
     </section>
+  )
+}
+
+/** One quiet line in the round: an agent's model failed and it went on with the next of the person's fallbacks. */
+function FallbackNote(props: { fallback: EventPayloads['agent/fallback']; models: ModelOption[] }) {
+  const f = props.fallback
+  const name = (ref: string) => modelName(props.models.find((m) => m.ref === ref)?.name ?? ref)
+  const say = f.kind === 'refusal' ? copy.modelFailure.fellBackRefused : copy.modelFailure.fellBack
+  return (
+    <motion.p
+      {...enter}
+      title={copy.modelFailure.fellBackTitle(f.message)}
+      className="flex items-center gap-1.5 pl-11 text-callout text-muted"
+    >
+      <FEATURE_ICONS.fallback className="size-3.5 shrink-0" />
+      <span>{say(f.agent, name(f.previous), name(f.model))}</span>
+    </motion.p>
   )
 }
 

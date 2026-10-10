@@ -2093,6 +2093,136 @@ test('a context the provider calls too long is folded and retried once, then pau
   expect(paused.modelError?.tokens).toBeGreaterThan(0)
 })
 
+/** A model that always fails with `errorMessage`, counting its calls. */
+function failing(resolver: ModelResolver, ref: string, errorMessage: string, window?: number) {
+  const calls = { n: 0 }
+  const m = createMockModel({
+    ...(window ? { contextWindow: window } : {}),
+    handler: () => {
+      calls.n += 1
+      return { stopReason: 'error', errorMessage }
+    },
+  })
+  resolver.register(ref, { model: m.model, streamFn: m.stream })
+  return calls
+}
+
+async function withFallbacks(team: { leadFallbacks?: string[]; workerFallbacks?: string[] }) {
+  const { SettingsStore } = await import('../src/settings.ts')
+  const settings = new SettingsStore(home)
+  settings.set({ ...settings.get(), team: { ...settings.get().team, ...team } })
+  return settings
+}
+
+const fallbacksOf = async (colonyId: string) =>
+  (await events(colonyId))
+    .filter((e) => e.type === 'agent/fallback')
+    .map((e) => e.payload as EventPayloads['agent/fallback'])
+
+test('a lead whose model fails goes on with its first fallback that has credentials, and the round completes', async () => {
+  const resolver = new ModelResolver()
+  const primary = failing(resolver, 'mock/primary', '401 Unauthorized: the sign-in has expired')
+  const seen: string[] = []
+  const backup = createMockModel({
+    handler: (ctx: LlmContext) => {
+      seen.push(JSON.stringify(ctx.messages))
+      return { content: [tool('reply_user', { text: 'Done on the backup.', final: true })] }
+    },
+  })
+  resolver.register('mock/backup', { model: backup.model, streamFn: backup.stream })
+  judge(resolver)
+  // A model the resolver does not know is skipped, as one removed from the provider list would be.
+  const settings = await withFallbacks({ leadFallbacks: ['mock/gone', 'mock/backup'] })
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), settings })
+  const { colonyId } = await chats.send('Answer me', { ...solo('mock/primary'), judgeModel: 'mock/judge' })
+  const s = await waitFor(colonyId)
+  expect(s.status).toBe('completed')
+  expect(s.modelError).toBeUndefined()
+  // Not a transient failure: no retries on the failing model before it moves on.
+  expect(primary.n).toBe(1)
+  expect(await fallbacksOf(colonyId)).toEqual([
+    {
+      agent: 'lead',
+      model: 'mock/backup',
+      previous: 'mock/primary',
+      kind: 'error',
+      message: '401 Unauthorized: the sign-in has expired',
+    },
+  ])
+  expect(s.agents.lead?.info.model).toBe('mock/backup')
+  expect(s.agents.lead?.fellBackFrom).toBe('mock/primary')
+  expect(seen[0]).not.toContain('Unauthorized')
+})
+
+test('a transient failure is retried on the same model before the fallback takes over', async () => {
+  const resolver = new ModelResolver()
+  const primary = failing(resolver, 'mock/busy', 'Overloaded: the server is temporarily busy')
+  scripted(resolver, 'mock/backup', [[tool('reply_user', { text: 'Answered.', final: true })]])
+  judge(resolver)
+  const settings = await withFallbacks({ leadFallbacks: ['mock/backup'] })
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), settings })
+  const { colonyId } = await chats.send('Answer me', { ...solo('mock/busy'), judgeModel: 'mock/judge' })
+  const s = await waitFor(colonyId)
+  expect(s.status).toBe('completed')
+  // The first call and MODEL_RETRIES (2) retries.
+  expect(primary.n).toBe(3)
+  expect((await fallbacksOf(colonyId)).map((f) => f.model)).toEqual(['mock/backup'])
+}, 20_000)
+
+test("a swarm's peer falls back on the crew's chain, not the lead's", async () => {
+  const resolver = new ModelResolver()
+  failing(resolver, 'mock/peer', '404 model not found')
+  scripted(resolver, 'mock/crew-backup', [[tool('reply_user', { text: 'Peer answer.', final: true })]])
+  judge(resolver)
+  const settings = await withFallbacks({
+    leadFallbacks: ['mock/lead-backup'],
+    workerFallbacks: ['mock/crew-backup'],
+  })
+  const chats = new ChatService(runtime, { resolver, classify: fixed('answer'), settings })
+  const { colonyId } = await chats.send('Answer me', {
+    mode: 'swarm',
+    leadModel: 'mock/peer',
+    roster: [{ role: 'peer', model: 'mock/peer' }],
+    judgeModel: 'mock/judge',
+  })
+  const s = await waitFor(colonyId)
+  expect(s.status).toBe('completed')
+  expect((await fallbacksOf(colonyId)).map((f) => f.model)).toEqual(['mock/crew-backup'])
+})
+
+test('without fallbacks, or once they fail too, the round pauses on the error as before', async () => {
+  const resolver = new ModelResolver()
+  failing(resolver, 'mock/primary', '401 Unauthorized')
+  failing(resolver, 'mock/backup', '403 Forbidden')
+  judge(resolver)
+  const bare = new ChatService(runtime, { resolver, classify: fixed('solo') })
+  const first = await bare.send('Answer me', { ...solo('mock/primary'), judgeModel: 'mock/judge' })
+  const paused = await waitFor(first.colonyId)
+  expect(paused.statusReason).toBe('model failed: lead on mock/primary')
+  expect(await fallbacksOf(first.colonyId)).toEqual([])
+
+  const settings = await withFallbacks({ leadFallbacks: ['mock/backup'] })
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), settings })
+  const second = await chats.send('Answer me', { ...solo('mock/primary'), judgeModel: 'mock/judge' })
+  const stopped = await waitFor(second.colonyId)
+  // The last model tried is the one named; the primary failed too recently to be tried again.
+  expect(stopped.statusReason).toBe('model failed: lead on mock/backup')
+  expect((await fallbacksOf(second.colonyId)).map((f) => f.model)).toEqual(['mock/backup'])
+})
+
+test('a conversation too long for the model never falls back: folding it is the remedy, then the round pauses', async () => {
+  const resolver = new ModelResolver()
+  failing(resolver, 'mock/stuck', 'prompt is too long: 9000 tokens > 8000 maximum', 8_000)
+  scripted(resolver, 'mock/backup', [['should not run']])
+  judge(resolver)
+  const settings = await withFallbacks({ leadFallbacks: ['mock/backup'] })
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), settings })
+  const { colonyId } = await chats.send('Answer me', { ...solo('mock/stuck'), judgeModel: 'mock/judge' })
+  const s = await waitFor(colonyId)
+  expect(s.statusReason).toContain('ran out of context')
+  expect(await fallbacksOf(colonyId)).toEqual([])
+})
+
 pendingOn('win32', 'fileToolPathsOnWindows')(
   'a chat in a project works in that folder, follow-ups stay in it, and a round can be rewound',
   async () => {

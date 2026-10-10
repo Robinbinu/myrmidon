@@ -28,6 +28,7 @@ import {
   GraduationCap,
   Keyboard,
   KeyRound,
+  LifeBuoy,
   ListChecks,
   ListFilter,
   LockKeyhole,
@@ -112,6 +113,8 @@ export const FEATURE_ICONS = {
   lightThinking: Feather,
   /** Models: the Models section, the /model command. */
   models: Cpu,
+  /** Fallback models: the ones an agent goes on with when its own fails (Settings → Crew & budget, the round's line). */
+  fallback: LifeBuoy,
   /** Models removed from pickers, listed under Hidden models in Settings → Models to restore. */
   hiddenModels: EyeOff,
   /** Providers and their keys. */
