@@ -70,7 +70,6 @@ which are not gaps. `expectOwnerOnly` checks a private file the way each system 
 | `windowsShellPath` | sandbox: *keeps HOME and TMPDIR in the agent scratch* | commands run in Git's `sh.exe` with a PATH lacking Git's `usr\bin`: `mkdir: command not found` |
 | `timeoutStopOnWindows` | sandbox: *a full-access command that runs too long is stopped* | `run()` does not return at its timeout on Windows |
 | `settingsPosixPaths` | read-access: *a folder listed in Settings opens for every chat…* | Settings' `sandbox.read` accepts only `~`, `~/…` or `/…` |
-| `serverJsonAfterKill` | desktop server: *the server the app started stops when the app is killed…* | killing the app leaves `server.json` behind on Windows |
 | `terminalForeground` | server-terminal: *several terminals run their own shells…* | terminals do not report their foreground program (ConPTY) |
 
 ### Not on Windows (by design)

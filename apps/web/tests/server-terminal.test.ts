@@ -53,10 +53,11 @@ function openTerminal(server: WebServer, project: string) {
   return { ws, seen, opened, type }
 }
 
-async function until(check: () => boolean, ms = 20_000) {
+/** Waits for `check`; on timing out, says what `shown` gives (what the terminals showed). */
+async function until(check: () => boolean, shown: () => unknown = () => '', ms = 20_000) {
   const end = Date.now() + ms
   while (!check()) {
-    if (Date.now() > end) throw new Error('timed out')
+    if (Date.now() > end) throw new Error(`timed out; ${JSON.stringify(shown())}`)
     await Bun.sleep(50)
   }
 }
@@ -78,15 +79,16 @@ pendingOn('win32', 'terminalForeground')(
       // The arithmetic is done by the shell, so the typed line's echo alone never satisfies the check.
       one.type('echo first-$((20+1))\n')
       two.type('echo second-$((40+2))\n')
-      await until(() => one.seen.text.includes('first-21') && two.seen.text.includes('second-42'))
+      const seen = () => ({ one: one.seen, two: two.seen })
+      await until(() => one.seen.text.includes('first-21') && two.seen.text.includes('second-42'), seen)
       expect(one.seen.text).not.toContain('second-42')
       expect(two.seen.text).not.toContain('first-21')
 
       one.type('sleep 30\n')
-      await until(() => one.seen.controls.some((c) => c.type === 'process' && c.name === 'sleep 30'))
+      await until(() => one.seen.controls.some((c) => c.type === 'process' && c.name === 'sleep 30'), seen)
       // Back at the prompt the shell is idle again: no command runs in the foreground.
       one.type('\x03')
-      await until(() => one.seen.controls.at(-1)?.name === null)
+      await until(() => one.seen.controls.at(-1)?.name === null, seen)
       // The idle terminal never had anything to report.
       expect(two.seen.controls).toEqual([])
     } finally {
