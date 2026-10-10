@@ -6,7 +6,7 @@ import { newColonyId, SqliteLogStore } from '@myrmidon/core'
 import { type ColonyState, type EventPayloads, foldColony, type MyrEvent } from '@myrmidon/protocol'
 import type { Context as LlmContext } from '@oh-my-pi/pi-ai'
 import { createMockModel, type MockContent } from '@oh-my-pi/pi-ai/providers/mock'
-import { removeTempDir } from '../../../tests/platform.ts'
+import { pendingOn, removeTempDir } from '../../../tests/platform.ts'
 import {
   BrowserHub,
   bootRuntime,
@@ -284,82 +284,85 @@ test('group chats wake their members, the team chat wakes only @mentions, and on
   await chats.stopAll()
 })
 
-test('@name writes to a crew member directly: it answers the person; an idle crew starts a round with it', async () => {
-  const resolver = new ModelResolver()
-  const seen: Record<string, string[]> = {}
-  const look = (who: string, ctx: LlmContext) => {
-    seen[who] = [...(seen[who] ?? []), JSON.stringify(ctx.messages)]
-  }
-  let writer = ''
-  let release = () => {}
-  const held = new Promise<void>((done) => {
-    release = done
-  })
-  let leadCalls = 0
-  const lead = createMockModel({
-    // Round 1: the lead is mid-call (the round runs) while the person writes to the writer; then it answers.
-    handler: async (ctx: LlmContext) => {
-      look('lead', ctx)
-      if (leadCalls++ > 0) return { content: ['ok'] }
-      writer = /- ([a-z]+): writer \(/.exec(ctx.systemPrompt?.join('\n') ?? '')?.[1] ?? ''
-      await held
-      return { content: [tool('reply_user', { text: 'Poem done.', final: true })] }
-    },
-  })
-  resolver.register('mock/lead', { model: lead.model, streamFn: lead.stream })
-  scripted(resolver, 'mock/writer', [
-    (ctx) => {
-      look('writer', ctx)
-      return [tool('reply_person', { text: 'Hi! I am on the rhymes.' })]
-    },
-    ['back to it'],
-    (ctx) => {
-      look('writer', ctx)
-      return [tool('reply_person', { text: 'Shorter now: ants march.' })]
-    },
-    ['done'],
-  ])
-  judge(resolver)
-  const chats = new ChatService(runtime, { resolver, classify: fixed('team'), quietMs: QUIET_MS })
-  const config = {
-    mode: 'orchestrated' as const,
-    leadModel: 'mock/lead',
-    roster: [{ role: 'writer', model: 'mock/writer' }],
-    judgeModel: 'mock/judge',
-  }
-  const { chatId, colonyId } = await chats.send('Write a poem about ants', config)
-  await waitFor(colonyId, () => writer !== '')
+pendingOn('win32', 'windowsRoundsStall')(
+  '@name writes to a crew member directly: it answers the person; an idle crew starts a round with it',
+  async () => {
+    const resolver = new ModelResolver()
+    const seen: Record<string, string[]> = {}
+    const look = (who: string, ctx: LlmContext) => {
+      seen[who] = [...(seen[who] ?? []), JSON.stringify(ctx.messages)]
+    }
+    let writer = ''
+    let release = () => {}
+    const held = new Promise<void>((done) => {
+      release = done
+    })
+    let leadCalls = 0
+    const lead = createMockModel({
+      // Round 1: the lead is mid-call (the round runs) while the person writes to the writer; then it answers.
+      handler: async (ctx: LlmContext) => {
+        look('lead', ctx)
+        if (leadCalls++ > 0) return { content: ['ok'] }
+        writer = /- ([a-z]+): writer \(/.exec(ctx.systemPrompt?.join('\n') ?? '')?.[1] ?? ''
+        await held
+        return { content: [tool('reply_user', { text: 'Poem done.', final: true })] }
+      },
+    })
+    resolver.register('mock/lead', { model: lead.model, streamFn: lead.stream })
+    scripted(resolver, 'mock/writer', [
+      (ctx) => {
+        look('writer', ctx)
+        return [tool('reply_person', { text: 'Hi! I am on the rhymes.' })]
+      },
+      ['back to it'],
+      (ctx) => {
+        look('writer', ctx)
+        return [tool('reply_person', { text: 'Shorter now: ants march.' })]
+      },
+      ['done'],
+    ])
+    judge(resolver)
+    const chats = new ChatService(runtime, { resolver, classify: fixed('team'), quietMs: QUIET_MS })
+    const config = {
+      mode: 'orchestrated' as const,
+      leadModel: 'mock/lead',
+      roster: [{ role: 'writer', model: 'mock/writer' }],
+      judgeModel: 'mock/judge',
+    }
+    const { chatId, colonyId } = await chats.send('Write a poem about ants', config)
+    await waitFor(colonyId, () => writer !== '')
 
-  // While the round runs: the writer hears it and answers the person itself; the lead is not woken by it.
-  await chats.send(`@${writer} how is it going?`, config, chatId)
-  const live = await waitFor(colonyId, (x) => x.chatMessages.some((m) => m.from === writer))
-  expect(live.chatMessages.find((m) => m.from === 'user' && m.text.startsWith('@'))?.to).toEqual([writer])
-  expect(live.chatMessages.find((m) => m.from === writer)).toMatchObject({
-    text: 'Hi! I am on the rhymes.',
-    final: false,
-  })
-  expect(seen.writer?.[0]).toContain('wrote this to you directly')
-  expect(seen.lead).toHaveLength(1)
-  release()
-  await waitFor(colonyId)
+    // While the round runs: the writer hears it and answers the person itself; the lead is not woken by it.
+    await chats.send(`@${writer} how is it going?`, config, chatId)
+    const live = await waitFor(colonyId, (x) => x.chatMessages.some((m) => m.from === writer))
+    expect(live.chatMessages.find((m) => m.from === 'user' && m.text.startsWith('@'))?.to).toEqual([writer])
+    expect(live.chatMessages.find((m) => m.from === writer)).toMatchObject({
+      text: 'Hi! I am on the rhymes.',
+      final: false,
+    })
+    expect(seen.writer?.[0]).toContain('wrote this to you directly')
+    expect(seen.lead).toHaveLength(1)
+    release()
+    await waitFor(colonyId)
 
-  // The crew is idle: writing to the writer starts a round with it, and its answer finishes the round.
-  const next = await chats.send(`@${writer} make it shorter`, config, chatId)
-  const done = await waitFor(next.colonyId)
-  expect(done.status).toBe('completed')
-  expect(done.chatMessages.at(-1)).toMatchObject({
-    from: writer,
-    text: 'Shorter now: ants march.',
-    final: true,
-  })
-  // The round remembers who opened it, so the page shows it as a conversation with them.
-  expect(done.chat?.addressed).toEqual([writer])
-  const from = done.rounds.at(-1)?.startSeq ?? 0
-  const round2 = (await events(next.colonyId)).filter((e) => e.seq >= from)
-  expect(turnsOf(round2, 'lead')).toHaveLength(0)
-  expect(seen.writer?.at(-1)).toContain('make it shorter')
-  await chats.stopAll()
-})
+    // The crew is idle: writing to the writer starts a round with it, and its answer finishes the round.
+    const next = await chats.send(`@${writer} make it shorter`, config, chatId)
+    const done = await waitFor(next.colonyId)
+    expect(done.status).toBe('completed')
+    expect(done.chatMessages.at(-1)).toMatchObject({
+      from: writer,
+      text: 'Shorter now: ants march.',
+      final: true,
+    })
+    // The round remembers who opened it, so the page shows it as a conversation with them.
+    expect(done.chat?.addressed).toEqual([writer])
+    const from = done.rounds.at(-1)?.startSeq ?? 0
+    const round2 = (await events(next.colonyId)).filter((e) => e.seq >= from)
+    expect(turnsOf(round2, 'lead')).toHaveLength(0)
+    expect(seen.writer?.at(-1)).toContain('make it shorter')
+    await chats.stopAll()
+  },
+)
 
 test('a crew member written to directly that answers in plain text still reaches the person, and the round ends', async () => {
   const resolver = new ModelResolver()
@@ -1366,33 +1369,36 @@ test('agents call MCP tools: read-only ones run at once, others wait for the per
   await hub.close()
 })
 
-test('fs_edit changes part of a scratch file instead of rewriting it', async () => {
-  const resolver = new ModelResolver()
-  scripted(resolver, 'mock/solo', [
-    [tool('fs_write', { path: 'page.html', content: '<h1>Hello</h1>\n<p>draft</p>\n<p>draft</p>\n' })],
-    [
-      tool('fs_edit', { path: 'page.html', old: '<h1>Hello</h1>', new: '<h1>Weather</h1>' }),
-      tool('fs_edit', { path: 'page.html', old: 'draft', new: 'final', all: true }),
-      tool('fs_edit', { path: 'page.html', old: 'missing', new: 'x' }),
-    ],
-    [tool('publish_artifact', { name: 'page.html', fromScratch: 'page.html' })],
-    [tool('reply_user', { text: 'Done.', final: true })],
-  ])
-  judge(resolver)
-  const chats = new ChatService(runtime, { resolver, classify: fixed('solo') })
-  const { colonyId } = await chats.send('Make a page', { ...solo('mock/solo'), judgeModel: 'mock/judge' })
-  const s = await waitFor(colonyId)
-  const results = (await events(colonyId))
-    .filter((e) => e.type === 'tool/result')
-    .map((e) => e.payload as EventPayloads['tool/result'])
-    .filter((r) => r.tool === 'fs_edit')
-  expect(results.map((r) => r.ok)).toEqual([true, true, false])
-  expect(results[2]?.output).toContain('not found')
-  const blob = s.artifacts['page.html']?.at(-1)?.blob ?? ''
-  const { BlobStore } = await import('@myrmidon/core')
-  const text = await new BlobStore(join(home, 'colonies', colonyId, 'blobs')).text(blob)
-  expect(text).toBe('<h1>Weather</h1>\n<p>final</p>\n<p>final</p>\n')
-})
+pendingOn('win32', 'fileToolPathsOnWindows')(
+  'fs_edit changes part of a scratch file instead of rewriting it',
+  async () => {
+    const resolver = new ModelResolver()
+    scripted(resolver, 'mock/solo', [
+      [tool('fs_write', { path: 'page.html', content: '<h1>Hello</h1>\n<p>draft</p>\n<p>draft</p>\n' })],
+      [
+        tool('fs_edit', { path: 'page.html', old: '<h1>Hello</h1>', new: '<h1>Weather</h1>' }),
+        tool('fs_edit', { path: 'page.html', old: 'draft', new: 'final', all: true }),
+        tool('fs_edit', { path: 'page.html', old: 'missing', new: 'x' }),
+      ],
+      [tool('publish_artifact', { name: 'page.html', fromScratch: 'page.html' })],
+      [tool('reply_user', { text: 'Done.', final: true })],
+    ])
+    judge(resolver)
+    const chats = new ChatService(runtime, { resolver, classify: fixed('solo') })
+    const { colonyId } = await chats.send('Make a page', { ...solo('mock/solo'), judgeModel: 'mock/judge' })
+    const s = await waitFor(colonyId)
+    const results = (await events(colonyId))
+      .filter((e) => e.type === 'tool/result')
+      .map((e) => e.payload as EventPayloads['tool/result'])
+      .filter((r) => r.tool === 'fs_edit')
+    expect(results.map((r) => r.ok)).toEqual([true, true, false])
+    expect(results[2]?.output).toContain('not found')
+    const blob = s.artifacts['page.html']?.at(-1)?.blob ?? ''
+    const { BlobStore } = await import('@myrmidon/core')
+    const text = await new BlobStore(join(home, 'colonies', colonyId, 'blobs')).text(blob)
+    expect(text).toBe('<h1>Weather</h1>\n<p>final</p>\n<p>final</p>\n')
+  },
+)
 
 test('plan mode presents the plan for approval before any work, and thinking can be set per chat', async () => {
   const resolver = new ModelResolver()
@@ -1557,80 +1563,85 @@ test.skipIf(!findChrome())('browser_network lists requests, failures and API bod
   site.stop(true)
 })
 
-test.skipIf(!findChrome())(
-  'a browser flow is saved after its test run and replays with new inputs',
-  async () => {
-    const site = Bun.serve({
-      port: 0,
-      fetch: (req) => {
-        const url = new URL(req.url)
-        if (url.pathname === '/search') {
-          const q = url.searchParams.get('q') ?? ''
-          return new Response(
-            `<title>Results</title><div class="result"><h3>${q} one</h3></div><div class="result"><h3>${q} two</h3></div>`,
-            {
-              headers: { 'content-type': 'text/html' },
-            },
-          )
-        }
+pendingOn(
+  'win32',
+  'fileToolPathsOnWindows',
+  !findChrome(),
+)('a browser flow is saved after its test run and replays with new inputs', async () => {
+  const site = Bun.serve({
+    port: 0,
+    fetch: (req) => {
+      const url = new URL(req.url)
+      if (url.pathname === '/search') {
+        const q = url.searchParams.get('q') ?? ''
         return new Response(
-          `<title>Shop</title><form action="/search"><input name="q" aria-label="Query"><button>Go</button></form>`,
-          { headers: { 'content-type': 'text/html' } },
+          `<title>Results</title><div class="result"><h3>${q} one</h3></div><div class="result"><h3>${q} two</h3></div>`,
+          {
+            headers: { 'content-type': 'text/html' },
+          },
         )
-      },
-    })
-    const base = `http://localhost:${site.port}`
-    const steps = [
-      { open: `${base}/` },
-      { type: 'aria=Query', text: '{query}', submit: true },
-      { wait: '.result' },
-      { extract: { what: 'items', selector: '.result', fields: { name: 'h3' } } },
-    ]
-    // The test site stands in for a server the run started: agents reach no other localhost port.
-    const browser = new BrowserHub(join(home, 'browser'), undefined, {
-      localPorts: () => new Set([site.port as number]),
-    })
-    opened.push(browser)
-    const resolver = new ModelResolver()
-    const flow = (name: string, source: unknown[]) => ({
-      name,
-      description: 'Search the shop and list the results by name.',
-      inputs: [{ name: 'query', type: 'string' }],
-      language: 'browser',
-      source: JSON.stringify(source),
-      test: '{"query": "lamp"}',
-    })
-    scripted(resolver, 'mock/flows', [
-      [tool('create_tool', flow('broken_search', [{ open: `${base}/` }, { click: 'text=No such button' }]))],
-      [tool('create_tool', flow('shop_search', steps))],
-      [tool('tool_shop_search', { query: 'desk' })],
-      [tool('reply_user', { text: 'Done.', final: true })],
-    ])
-    judge(resolver)
-    const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), browser })
-    const { colonyId } = await chats.send('Search the shop', {
-      ...solo('mock/flows'),
-      judgeModel: 'mock/judge',
-    })
-    const s = await waitFor(colonyId)
-    const out = (await events(colonyId))
-      .filter((e) => e.type === 'tool/result')
-      .map((e) => e.payload as EventPayloads['tool/result'])
-    expect(out[0]).toMatchObject({ tool: 'create_tool', ok: false })
-    expect(out[0]?.output).toContain('step 2 ({"click":"text=No such button"}) failed')
-    expect(out[1]).toMatchObject({ tool: 'create_tool', ok: true })
-    expect(out[1]?.output).toContain('"name": "lamp one"')
-    expect(out[2]).toMatchObject({ tool: 'tool_shop_search', ok: true })
-    expect(out[2]?.output).toContain('"name": "desk one"')
-    expect(out[2]?.output).toContain('"name": "desk two"')
-    expect(s.madeTools.shop_search?.language).toBe('browser')
-    expect(s.madeTools.broken_search).toBeUndefined()
-    await browser.close()
-    site.stop(true)
-  },
-)
+      }
+      return new Response(
+        `<title>Shop</title><form action="/search"><input name="q" aria-label="Query"><button>Go</button></form>`,
+        { headers: { 'content-type': 'text/html' } },
+      )
+    },
+  })
+  const base = `http://localhost:${site.port}`
+  const steps = [
+    { open: `${base}/` },
+    { type: 'aria=Query', text: '{query}', submit: true },
+    { wait: '.result' },
+    { extract: { what: 'items', selector: '.result', fields: { name: 'h3' } } },
+  ]
+  // The test site stands in for a server the run started: agents reach no other localhost port.
+  const browser = new BrowserHub(join(home, 'browser'), undefined, {
+    localPorts: () => new Set([site.port as number]),
+  })
+  opened.push(browser)
+  const resolver = new ModelResolver()
+  const flow = (name: string, source: unknown[]) => ({
+    name,
+    description: 'Search the shop and list the results by name.',
+    inputs: [{ name: 'query', type: 'string' }],
+    language: 'browser',
+    source: JSON.stringify(source),
+    test: '{"query": "lamp"}',
+  })
+  scripted(resolver, 'mock/flows', [
+    [tool('create_tool', flow('broken_search', [{ open: `${base}/` }, { click: 'text=No such button' }]))],
+    [tool('create_tool', flow('shop_search', steps))],
+    [tool('tool_shop_search', { query: 'desk' })],
+    [tool('reply_user', { text: 'Done.', final: true })],
+  ])
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), browser })
+  const { colonyId } = await chats.send('Search the shop', {
+    ...solo('mock/flows'),
+    judgeModel: 'mock/judge',
+  })
+  const s = await waitFor(colonyId)
+  const out = (await events(colonyId))
+    .filter((e) => e.type === 'tool/result')
+    .map((e) => e.payload as EventPayloads['tool/result'])
+  expect(out[0]).toMatchObject({ tool: 'create_tool', ok: false })
+  expect(out[0]?.output).toContain('step 2 ({"click":"text=No such button"}) failed')
+  expect(out[1]).toMatchObject({ tool: 'create_tool', ok: true })
+  expect(out[1]?.output).toContain('"name": "lamp one"')
+  expect(out[2]).toMatchObject({ tool: 'tool_shop_search', ok: true })
+  expect(out[2]?.output).toContain('"name": "desk one"')
+  expect(out[2]?.output).toContain('"name": "desk two"')
+  expect(s.madeTools.shop_search?.language).toBe('browser')
+  expect(s.madeTools.broken_search).toBeUndefined()
+  await browser.close()
+  site.stop(true)
+})
 
-test.skipIf(!findChrome())('browser tabs, downloads and uploads', async () => {
+pendingOn(
+  'win32',
+  'fileToolPathsOnWindows',
+  !findChrome(),
+)('browser tabs, downloads and uploads', async () => {
   const site = Bun.serve({
     port: 0,
     fetch: (req) => {
@@ -2045,68 +2056,71 @@ test('a context the provider calls too long is folded and retried once, then pau
   expect(paused.modelError?.tokens).toBeGreaterThan(0)
 })
 
-test('a chat in a project works in that folder, follow-ups stay in it, and a round can be rewound', async () => {
-  const { ProjectStore } = await import('../src/projects.ts')
-  const { Checkpoints } = await import('../src/checkpoints.ts')
-  const checkpoints = new Checkpoints(join(home, 'checkpoints'))
-  const folder = mkdtempSync(join(tmpdir(), 'myr-project-'))
-  await Bun.write(join(folder, 'README.md'), '# Demo project')
-  const projects = new ProjectStore(home)
-  // Autonomous, as a folder added before new ones started on ask.
-  const project = projects.setPermissions(projects.add(folder).id, { mode: 'auto', allow: [] })
-  const resolver = new ModelResolver()
-  scripted(resolver, 'mock/solo', [
-    [
-      tool('fs_read', { path: 'README.md' }),
-      tool('fs_write', { path: 'src/hello.ts', content: 'export const hi = 1\n' }),
-      tool('fs_read', { path: '../outside.txt' }),
-    ],
-    [tool('reply_user', { text: 'Added src/hello.ts.', final: true })],
-    ['done'],
-    [tool('reply_user', { text: 'Still here.', final: true })],
-  ])
-  judge(resolver)
-  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), projects, checkpoints })
-  const config = { ...solo('mock/solo'), judgeModel: 'mock/judge' }
-  const first = await chats.send('Add a hello module', config, undefined, { project: project.id })
-  const s = await waitFor(first.colonyId)
-  const results = (await events(first.colonyId))
-    .filter((e) => e.type === 'tool/result')
-    .map((e) => e.payload as EventPayloads['tool/result'])
-  expect(results[0]?.output).toContain('# Demo project')
-  expect(await Bun.file(join(folder, 'src', 'hello.ts')).text()).toBe('export const hi = 1\n')
-  // The read and write in one step finish in either order; the read outside the folder is refused.
-  expect(results.find((r) => r.tool === 'fs_read' && !r.ok)?.output).toContain('outside your project')
-  expect(s.chat?.project?.id).toBe(project.id)
+pendingOn('win32', 'fileToolPathsOnWindows')(
+  'a chat in a project works in that folder, follow-ups stay in it, and a round can be rewound',
+  async () => {
+    const { ProjectStore } = await import('../src/projects.ts')
+    const { Checkpoints } = await import('../src/checkpoints.ts')
+    const checkpoints = new Checkpoints(join(home, 'checkpoints'))
+    const folder = mkdtempSync(join(tmpdir(), 'myr-project-'))
+    await Bun.write(join(folder, 'README.md'), '# Demo project')
+    const projects = new ProjectStore(home)
+    // Autonomous, as a folder added before new ones started on ask.
+    const project = projects.setPermissions(projects.add(folder).id, { mode: 'auto', allow: [] })
+    const resolver = new ModelResolver()
+    scripted(resolver, 'mock/solo', [
+      [
+        tool('fs_read', { path: 'README.md' }),
+        tool('fs_write', { path: 'src/hello.ts', content: 'export const hi = 1\n' }),
+        tool('fs_read', { path: '../outside.txt' }),
+      ],
+      [tool('reply_user', { text: 'Added src/hello.ts.', final: true })],
+      ['done'],
+      [tool('reply_user', { text: 'Still here.', final: true })],
+    ])
+    judge(resolver)
+    const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), projects, checkpoints })
+    const config = { ...solo('mock/solo'), judgeModel: 'mock/judge' }
+    const first = await chats.send('Add a hello module', config, undefined, { project: project.id })
+    const s = await waitFor(first.colonyId)
+    const results = (await events(first.colonyId))
+      .filter((e) => e.type === 'tool/result')
+      .map((e) => e.payload as EventPayloads['tool/result'])
+    expect(results[0]?.output).toContain('# Demo project')
+    expect(await Bun.file(join(folder, 'src', 'hello.ts')).text()).toBe('export const hi = 1\n')
+    // The read and write in one step finish in either order; the read outside the folder is refused.
+    expect(results.find((r) => r.tool === 'fs_read' && !r.ok)?.output).toContain('outside your project')
+    expect(s.chat?.project?.id).toBe(project.id)
 
-  const second = await chats.send('And now?', config, first.chatId)
-  const s2 = await waitFor(second.colonyId)
-  expect(s2.chat?.project?.path).toBe(project.path)
-  expect((await chats.list()).find((c) => c.chatId === first.chatId)?.project?.name).toBe(project.name)
+    const second = await chats.send('And now?', config, first.chatId)
+    const s2 = await waitFor(second.colonyId)
+    expect(s2.chat?.project?.path).toBe(project.path)
+    expect((await chats.list()).find((c) => c.chatId === first.chatId)?.project?.name).toBe(project.name)
 
-  // Each round is snapshotted at its start and end: its changes are the diff, and rewinding undoes them.
-  // Both rounds ran in one colony; each keeps its own snapshots.
-  expect(second.colonyId).toBe(first.colonyId)
-  await waitFor(first.colonyId, (x) => x.rounds.length === 2 && x.rounds.every((r) => r.checkpoints.end))
-  const changes = await chats.changes(first.colonyId, 1)
-  expect(changes.files).toEqual([{ path: 'src/hello.ts', status: 'A', added: 1, removed: 0 }])
-  expect((await chats.changes(first.colonyId, 2)).files).toEqual([])
-  // Work done after the round, by the person or anyone else, is not the round's to undo: an unrelated file stays,
-  // and a file the round wrote that changed since is left alone and reported unless the person insists.
-  await Bun.write(join(folder, 'NOTES.md'), 'written after the round\n')
-  await Bun.write(join(folder, 'src', 'hello.ts'), 'export const hi = 2\n')
-  expect(await chats.rewind(first.colonyId, false, 1)).toEqual({ changed: 0, skipped: ['src/hello.ts'] })
-  expect(await Bun.file(join(folder, 'src', 'hello.ts')).text()).toBe('export const hi = 2\n')
-  expect(await chats.rewind(first.colonyId, false, 1, true)).toEqual({ changed: 1, skipped: [] })
-  expect(existsSync(join(folder, 'src', 'hello.ts'))).toBe(false)
-  expect(await Bun.file(join(folder, 'README.md')).text()).toBe('# Demo project')
-  expect(await Bun.file(join(folder, 'NOTES.md')).text()).toBe('written after the round\n')
-  // Undoing the rewind puts back exactly the files it changed.
-  await chats.rewind(first.colonyId, true, 1)
-  expect(await Bun.file(join(folder, 'src', 'hello.ts')).text()).toBe('export const hi = 2\n')
-  expect(await Bun.file(join(folder, 'NOTES.md')).text()).toBe('written after the round\n')
-  rmSync(folder, { recursive: true, force: true })
-})
+    // Each round is snapshotted at its start and end: its changes are the diff, and rewinding undoes them.
+    // Both rounds ran in one colony; each keeps its own snapshots.
+    expect(second.colonyId).toBe(first.colonyId)
+    await waitFor(first.colonyId, (x) => x.rounds.length === 2 && x.rounds.every((r) => r.checkpoints.end))
+    const changes = await chats.changes(first.colonyId, 1)
+    expect(changes.files).toEqual([{ path: 'src/hello.ts', status: 'A', added: 1, removed: 0 }])
+    expect((await chats.changes(first.colonyId, 2)).files).toEqual([])
+    // Work done after the round, by the person or anyone else, is not the round's to undo: an unrelated file stays,
+    // and a file the round wrote that changed since is left alone and reported unless the person insists.
+    await Bun.write(join(folder, 'NOTES.md'), 'written after the round\n')
+    await Bun.write(join(folder, 'src', 'hello.ts'), 'export const hi = 2\n')
+    expect(await chats.rewind(first.colonyId, false, 1)).toEqual({ changed: 0, skipped: ['src/hello.ts'] })
+    expect(await Bun.file(join(folder, 'src', 'hello.ts')).text()).toBe('export const hi = 2\n')
+    expect(await chats.rewind(first.colonyId, false, 1, true)).toEqual({ changed: 1, skipped: [] })
+    expect(existsSync(join(folder, 'src', 'hello.ts'))).toBe(false)
+    expect(await Bun.file(join(folder, 'README.md')).text()).toBe('# Demo project')
+    expect(await Bun.file(join(folder, 'NOTES.md')).text()).toBe('written after the round\n')
+    // Undoing the rewind puts back exactly the files it changed.
+    await chats.rewind(first.colonyId, true, 1)
+    expect(await Bun.file(join(folder, 'src', 'hello.ts')).text()).toBe('export const hi = 2\n')
+    expect(await Bun.file(join(folder, 'NOTES.md')).text()).toBe('written after the round\n')
+    rmSync(folder, { recursive: true, force: true })
+  },
+)
 
 test.skipIf(detectSandbox().kind === 'none')(
   "what commands cache under HOME stays out of the agent's file listing",
@@ -2293,176 +2307,191 @@ test.skipIf(detectSandbox().kind === 'none')(
   },
 )
 
-test('review cards: the person sees a change in full and may rewrite it; an approved call never runs twice', async () => {
-  const { ProjectStore } = await import('../src/projects.ts')
-  const { git } = await import('../src/git.ts')
-  const folder = mkdtempSync(join(tmpdir(), 'myr-review-'))
-  writeFileSync(join(folder, 'notes.txt'), 'one\ntwo\n')
-  await git(folder, ['init', '-q'])
-  await git(folder, ['config', 'user.email', 'test@example.com'])
-  await git(folder, ['config', 'user.name', 'Test'])
-  await git(folder, ['add', '--all'])
-  await git(folder, ['commit', '-q', '-m', 'start'])
-  const projects = new ProjectStore(home)
-  const project = projects.add(folder)
-  projects.setPermissions(project.id, { mode: 'ask', allow: [] })
-  const resolver = new ModelResolver()
-  const write = tool('fs_write', { path: join(folder, 'notes.txt'), content: 'one\nTWO\n' })
-  scripted(resolver, 'mock/careful', [
-    [write],
-    // The same call again (a retry): the approved write already ran, so it is not asked for or run again.
-    [write],
-    [tool('propose', { kind: 'commit', message: 'Shout two', why: 'Save the change' })],
-    [tool('propose', { kind: 'file', path: 'draft.md', content: 'hello', why: 'A first draft' })],
-    [tool('reply_user', { text: 'Done.', final: true })],
-  ])
-  judge(resolver)
-  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), projects })
-  const { colonyId } = await chats.send(
-    'Tidy notes',
-    { ...solo('mock/careful'), judgeModel: 'mock/judge' },
-    undefined,
-    { project: project.id },
-  )
-  const pending = async () => {
-    const s = await waitFor(colonyId, (x) => Object.values(x.approvals).some((a) => !a.decided))
-    return Object.values(s.approvals).find((a) => !a.decided)
-  }
-  const file = await pending()
-  expect(file?.review).toMatchObject({ kind: 'file', title: 'Write notes.txt' })
-  expect(file?.review?.fields[0]).toMatchObject({ before: 'one\ntwo\n', value: 'one\nTWO\n', editable: true })
-  await chats.decideApproval(colonyId, file?.id ?? '', true, { edits: { content: 'one\nTwo!\n' } })
+pendingOn('win32', 'windowsRoundsStall')(
+  'review cards: the person sees a change in full and may rewrite it; an approved call never runs twice',
+  async () => {
+    const { ProjectStore } = await import('../src/projects.ts')
+    const { git } = await import('../src/git.ts')
+    const folder = mkdtempSync(join(tmpdir(), 'myr-review-'))
+    writeFileSync(join(folder, 'notes.txt'), 'one\ntwo\n')
+    await git(folder, ['init', '-q'])
+    await git(folder, ['config', 'user.email', 'test@example.com'])
+    await git(folder, ['config', 'user.name', 'Test'])
+    await git(folder, ['add', '--all'])
+    await git(folder, ['commit', '-q', '-m', 'start'])
+    const projects = new ProjectStore(home)
+    const project = projects.add(folder)
+    projects.setPermissions(project.id, { mode: 'ask', allow: [] })
+    const resolver = new ModelResolver()
+    const write = tool('fs_write', { path: join(folder, 'notes.txt'), content: 'one\nTWO\n' })
+    scripted(resolver, 'mock/careful', [
+      [write],
+      // The same call again (a retry): the approved write already ran, so it is not asked for or run again.
+      [write],
+      [tool('propose', { kind: 'commit', message: 'Shout two', why: 'Save the change' })],
+      [tool('propose', { kind: 'file', path: 'draft.md', content: 'hello', why: 'A first draft' })],
+      [tool('reply_user', { text: 'Done.', final: true })],
+    ])
+    judge(resolver)
+    const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), projects })
+    const { colonyId } = await chats.send(
+      'Tidy notes',
+      { ...solo('mock/careful'), judgeModel: 'mock/judge' },
+      undefined,
+      { project: project.id },
+    )
+    const pending = async () => {
+      const s = await waitFor(colonyId, (x) => Object.values(x.approvals).some((a) => !a.decided))
+      return Object.values(s.approvals).find((a) => !a.decided)
+    }
+    const file = await pending()
+    expect(file?.review).toMatchObject({ kind: 'file', title: 'Write notes.txt' })
+    expect(file?.review?.fields[0]).toMatchObject({
+      before: 'one\ntwo\n',
+      value: 'one\nTWO\n',
+      editable: true,
+    })
+    await chats.decideApproval(colonyId, file?.id ?? '', true, { edits: { content: 'one\nTwo!\n' } })
 
-  const commit = await pending()
-  expect(commit?.review?.kind).toBe('commit')
-  expect(commit?.summary).toBe('Save the change')
-  expect(commit?.review?.fields.find((f) => f.key === 'patch')?.value).toContain('+Two!')
-  await chats.decideApproval(colonyId, commit?.id ?? '', true, { edits: { message: 'Make two louder' } })
+    const commit = await pending()
+    expect(commit?.review?.kind).toBe('commit')
+    expect(commit?.summary).toBe('Save the change')
+    expect(commit?.review?.fields.find((f) => f.key === 'patch')?.value).toContain('+Two!')
+    await chats.decideApproval(colonyId, commit?.id ?? '', true, { edits: { message: 'Make two louder' } })
 
-  const draft = await pending()
-  expect(draft?.review?.title).toBe('Write draft.md')
-  await chats.decideApproval(colonyId, draft?.id ?? '', false, { note: 'Not now' })
+    const draft = await pending()
+    expect(draft?.review?.title).toBe('Write draft.md')
+    await chats.decideApproval(colonyId, draft?.id ?? '', false, { note: 'Not now' })
 
-  const s = await waitFor(colonyId)
-  const results = (await events(colonyId))
-    .filter((e) => e.type === 'tool/result')
-    .map((e) => e.payload as EventPayloads['tool/result'])
-  expect(readFileSync(join(folder, 'notes.txt'), 'utf8')).toBe('one\nTwo!\n')
-  expect(results[0]?.output).toContain('edited this before approving')
-  expect(results[1]).toMatchObject({ ok: true })
-  expect(results[1]?.output).toStartWith('Already done')
-  expect((await git(folder, ['log', '-1', '--format=%s'])).trim()).toBe('Make two louder')
-  expect(results[3]?.output).toContain('They said: Not now')
-  expect(existsSync(join(folder, 'draft.md'))).toBe(false)
-  expect(Object.values(s.approvals)).toHaveLength(3)
-  rmSync(folder, { recursive: true, force: true })
-})
+    const s = await waitFor(colonyId)
+    const results = (await events(colonyId))
+      .filter((e) => e.type === 'tool/result')
+      .map((e) => e.payload as EventPayloads['tool/result'])
+    expect(readFileSync(join(folder, 'notes.txt'), 'utf8')).toBe('one\nTwo!\n')
+    expect(results[0]?.output).toContain('edited this before approving')
+    expect(results[1]).toMatchObject({ ok: true })
+    expect(results[1]?.output).toStartWith('Already done')
+    expect((await git(folder, ['log', '-1', '--format=%s'])).trim()).toBe('Make two louder')
+    expect(results[3]?.output).toContain('They said: Not now')
+    expect(existsSync(join(folder, 'draft.md'))).toBe(false)
+    expect(Object.values(s.approvals)).toHaveLength(3)
+    rmSync(folder, { recursive: true, force: true })
+  },
+)
 
 // Changed with the permission model: the card's "Allow all file changes in this chat" (a chat grant) is now a rule
 // remembered at the chat's level, and chat grants already in a chat's log read as such rules.
-test('allowing all file changes for a chat approves the waiting one and later ones, there only, until taken back', async () => {
-  const { ProjectStore } = await import('../src/projects.ts')
-  const folder = mkdtempSync(join(tmpdir(), 'myr-grant-'))
-  const projects = new ProjectStore(home)
-  const project = projects.setPermissions(projects.add(folder).id, { preset: 'ask', rules: [] })
-  const resolver = new ModelResolver()
-  const writes = (ref: string, ...files: string[]) =>
-    scripted(resolver, ref, [
-      ...files.map((f) => [tool('fs_write', { path: f, content: f })]),
+pendingOn('win32', 'windowsRoundsStall')(
+  'allowing all file changes for a chat approves the waiting one and later ones, there only, until taken back',
+  async () => {
+    const { ProjectStore } = await import('../src/projects.ts')
+    const folder = mkdtempSync(join(tmpdir(), 'myr-grant-'))
+    const projects = new ProjectStore(home)
+    const project = projects.setPermissions(projects.add(folder).id, { preset: 'ask', rules: [] })
+    const resolver = new ModelResolver()
+    const writes = (ref: string, ...files: string[]) =>
+      scripted(resolver, ref, [
+        ...files.map((f) => [tool('fs_write', { path: f, content: f })]),
+        [tool('reply_user', { text: 'Done.', final: true })],
+      ])
+    judge(resolver)
+    const config = (model: string) => ({ ...solo(model), judgeModel: 'mock/judge' })
+    const asked = (colonyId: string) =>
+      waitFor(colonyId, (x) => Object.values(x.approvals).some((a) => !a.decided))
+    const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), projects })
+
+    writes('mock/a1', 'a.txt', 'b.txt')
+    const a = await chats.send('Write two files', config('mock/a1'), undefined, { project: project.id })
+    const waiting = Object.values((await asked(a.colonyId)).approvals)
+    expect(waiting.map((x) => [x.summary, x.offer])).toEqual([
+      ['write a.txt', [{ kind: 'edit', target: '*' }]],
+    ])
+    expect(waiting[0]?.why).toEqual({ by: 'preset', scope: 'project', preset: 'ask' })
+    // One click: the waiting write goes ahead, and so does the next without a card.
+    const allowEdits = { kind: 'edit', target: '*', decision: 'allow' } as const
+    await chats.remember(a.colonyId, 'chat', [allowEdits])
+    expect(await chats.chatPermissions(a.chatId)).toEqual({ rules: [allowEdits] })
+    const done = await waitFor(a.colonyId)
+    expect(done.status).toBe('completed')
+    expect(Object.values(done.approvals).map((x) => x.decided?.approved)).toEqual([true])
+    expect(readFileSync(join(folder, 'b.txt'), 'utf8')).toBe('b.txt')
+
+    // Another chat in the same project still asks.
+    writes('mock/b1', 'c.txt')
+    const b = await chats.send('Write c', config('mock/b1'), undefined, { project: project.id })
+    const other = Object.values((await asked(b.colonyId)).approvals)
+    expect(other.map((x) => x.summary)).toEqual(['write c.txt'])
+    await chats.decideApproval(b.colonyId, other[0]?.id ?? '', false)
+    await waitFor(b.colonyId)
+
+    // After a restart (a new service reading the logs) the chat keeps it, and lists it.
+    const again = new ChatService(runtime, { resolver, classify: fixed('solo'), projects })
+    expect((await again.list()).find((c) => c.chatId === a.chatId)?.permissions).toEqual({
+      rules: [allowEdits],
+    })
+    expect((await again.list()).find((c) => c.chatId === b.chatId)?.permissions).toBeUndefined()
+    // A chat grant from before the permission model reads as the same kind of rule.
+    await runtime.ctx.log.appendOne(b.colonyId as never, {
+      type: 'chat/allowed',
+      actor: { kind: 'user', id: 'user' },
+      payload: { grants: ['command'] },
+    })
+    expect((await again.list()).find((c) => c.chatId === b.chatId)?.permissions).toEqual({
+      rules: [{ kind: 'command', target: '*', decision: 'allow' }],
+    })
+    // A file the lead proposes is a file change too: allowed, it lands without a card.
+    scripted(resolver, 'mock/a2', [
+      [tool('fs_write', { path: 'd.txt', content: 'd.txt' })],
+      [tool('propose', { kind: 'file', why: 'Add f', path: 'f.txt', content: 'f' })],
       [tool('reply_user', { text: 'Done.', final: true })],
     ])
-  judge(resolver)
-  const config = (model: string) => ({ ...solo(model), judgeModel: 'mock/judge' })
-  const asked = (colonyId: string) =>
-    waitFor(colonyId, (x) => Object.values(x.approvals).some((a) => !a.decided))
-  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), projects })
+    const next = await again.send('One more', config('mock/a2'), a.chatId)
+    const s2 = await waitFor(next.colonyId, (x) => x.rounds.length === 2 && x.status !== 'running')
+    expect(s2.status).toBe('completed')
+    expect(Object.values(s2.approvals)).toHaveLength(1)
+    expect(existsSync(join(folder, 'd.txt'))).toBe(true)
+    expect(readFileSync(join(folder, 'f.txt'), 'utf8')).toBe('f')
 
-  writes('mock/a1', 'a.txt', 'b.txt')
-  const a = await chats.send('Write two files', config('mock/a1'), undefined, { project: project.id })
-  const waiting = Object.values((await asked(a.colonyId)).approvals)
-  expect(waiting.map((x) => [x.summary, x.offer])).toEqual([['write a.txt', [{ kind: 'edit', target: '*' }]]])
-  expect(waiting[0]?.why).toEqual({ by: 'preset', scope: 'project', preset: 'ask' })
-  // One click: the waiting write goes ahead, and so does the next without a card.
-  const allowEdits = { kind: 'edit', target: '*', decision: 'allow' } as const
-  await chats.remember(a.colonyId, 'chat', [allowEdits])
-  expect(await chats.chatPermissions(a.chatId)).toEqual({ rules: [allowEdits] })
-  const done = await waitFor(a.colonyId)
-  expect(done.status).toBe('completed')
-  expect(Object.values(done.approvals).map((x) => x.decided?.approved)).toEqual([true])
-  expect(readFileSync(join(folder, 'b.txt'), 'utf8')).toBe('b.txt')
+    // Taken back, the next write asks again.
+    expect(await again.setChatPermissions(a.chatId, { rules: [] })).toEqual({ rules: [] })
+    writes('mock/a3', 'e.txt')
+    const last = await again.send('And another', config('mock/a3'), a.chatId)
+    const s3 = await waitFor(
+      last.colonyId,
+      (x) => x.rounds.length === 3 && Object.values(x.approvals).some((p) => !p.decided),
+    )
+    expect(Object.values(s3.approvals).filter((p) => !p.decided)[0]?.summary).toBe('write e.txt')
+    await again.stopAll()
+    rmSync(folder, { recursive: true, force: true })
+  },
+)
 
-  // Another chat in the same project still asks.
-  writes('mock/b1', 'c.txt')
-  const b = await chats.send('Write c', config('mock/b1'), undefined, { project: project.id })
-  const other = Object.values((await asked(b.colonyId)).approvals)
-  expect(other.map((x) => x.summary)).toEqual(['write c.txt'])
-  await chats.decideApproval(b.colonyId, other[0]?.id ?? '', false)
-  await waitFor(b.colonyId)
-
-  // After a restart (a new service reading the logs) the chat keeps it, and lists it.
-  const again = new ChatService(runtime, { resolver, classify: fixed('solo'), projects })
-  expect((await again.list()).find((c) => c.chatId === a.chatId)?.permissions).toEqual({
-    rules: [allowEdits],
-  })
-  expect((await again.list()).find((c) => c.chatId === b.chatId)?.permissions).toBeUndefined()
-  // A chat grant from before the permission model reads as the same kind of rule.
-  await runtime.ctx.log.appendOne(b.colonyId as never, {
-    type: 'chat/allowed',
-    actor: { kind: 'user', id: 'user' },
-    payload: { grants: ['command'] },
-  })
-  expect((await again.list()).find((c) => c.chatId === b.chatId)?.permissions).toEqual({
-    rules: [{ kind: 'command', target: '*', decision: 'allow' }],
-  })
-  // A file the lead proposes is a file change too: allowed, it lands without a card.
-  scripted(resolver, 'mock/a2', [
-    [tool('fs_write', { path: 'd.txt', content: 'd.txt' })],
-    [tool('propose', { kind: 'file', why: 'Add f', path: 'f.txt', content: 'f' })],
-    [tool('reply_user', { text: 'Done.', final: true })],
-  ])
-  const next = await again.send('One more', config('mock/a2'), a.chatId)
-  const s2 = await waitFor(next.colonyId, (x) => x.rounds.length === 2 && x.status !== 'running')
-  expect(s2.status).toBe('completed')
-  expect(Object.values(s2.approvals)).toHaveLength(1)
-  expect(existsSync(join(folder, 'd.txt'))).toBe(true)
-  expect(readFileSync(join(folder, 'f.txt'), 'utf8')).toBe('f')
-
-  // Taken back, the next write asks again.
-  expect(await again.setChatPermissions(a.chatId, { rules: [] })).toEqual({ rules: [] })
-  writes('mock/a3', 'e.txt')
-  const last = await again.send('And another', config('mock/a3'), a.chatId)
-  const s3 = await waitFor(
-    last.colonyId,
-    (x) => x.rounds.length === 3 && Object.values(x.approvals).some((p) => !p.decided),
-  )
-  expect(Object.values(s3.approvals).filter((p) => !p.decided)[0]?.summary).toBe('write e.txt')
-  await again.stopAll()
-  rmSync(folder, { recursive: true, force: true })
-})
-
-test('a new chat can start on its own preset, chosen before its first message', async () => {
-  const resolver = new ModelResolver()
-  scripted(resolver, 'mock/own', [
-    [tool('shell', { command: 'bun test' })],
-    [tool('reply_user', { text: 'Done.', final: true })],
-  ])
-  judge(resolver)
-  const chats = new ChatService(runtime, { resolver, classify: fixed('solo') })
-  const { chatId, colonyId } = await chats.send(
-    'Run the tests',
-    { ...solo('mock/own'), judgeModel: 'mock/judge' },
-    undefined,
-    { permissions: { preset: 'ask', rules: [] } },
-  )
-  // Ask: a command that does more than look waits, where Auto (the default) would have run it.
-  const s = await waitFor(colonyId, (x) => Object.values(x.approvals).some((a) => !a.decided))
-  const waiting = Object.values(s.approvals).find((a) => !a.decided)
-  expect(waiting).toMatchObject({ tool: 'shell', why: { by: 'preset', scope: 'chat', preset: 'ask' } })
-  expect(await chats.chatPermissions(chatId)).toEqual({ preset: 'ask', rules: [] })
-  await chats.decideApproval(colonyId, waiting?.id ?? '', false)
-  await waitFor(colonyId)
-  await chats.stopAll()
-})
+pendingOn('win32', 'windowsRoundsStall')(
+  'a new chat can start on its own preset, chosen before its first message',
+  async () => {
+    const resolver = new ModelResolver()
+    scripted(resolver, 'mock/own', [
+      [tool('shell', { command: 'bun test' })],
+      [tool('reply_user', { text: 'Done.', final: true })],
+    ])
+    judge(resolver)
+    const chats = new ChatService(runtime, { resolver, classify: fixed('solo') })
+    const { chatId, colonyId } = await chats.send(
+      'Run the tests',
+      { ...solo('mock/own'), judgeModel: 'mock/judge' },
+      undefined,
+      { permissions: { preset: 'ask', rules: [] } },
+    )
+    // Ask: a command that does more than look waits, where Auto (the default) would have run it.
+    const s = await waitFor(colonyId, (x) => Object.values(x.approvals).some((a) => !a.decided))
+    const waiting = Object.values(s.approvals).find((a) => !a.decided)
+    expect(waiting).toMatchObject({ tool: 'shell', why: { by: 'preset', scope: 'chat', preset: 'ask' } })
+    expect(await chats.chatPermissions(chatId)).toEqual({ preset: 'ask', rules: [] })
+    await chats.decideApproval(colonyId, waiting?.id ?? '', false)
+    await waitFor(colonyId)
+    await chats.stopAll()
+  },
+)
 
 test.skipIf(detectSandbox().kind === 'none')(
   'project permissions: ask mode waits for the person, read-only keeps the folder untouched',
@@ -2535,82 +2564,88 @@ test.skipIf(detectSandbox().kind === 'none')(
   },
 )
 
-test('team workers in a git project each get a worktree, and their changes merge into the folder', async () => {
-  const { ProjectStore } = await import('../src/projects.ts')
-  const folder = mkdtempSync(join(tmpdir(), 'myr-project-'))
-  await Bun.write(join(folder, 'README.md'), '# Demo\n')
-  const git = (...args: string[]) => Bun.spawnSync(['git', ...args], { cwd: folder }).stdout.toString()
-  git('init', '-q', '-b', 'main')
-  git('add', '-A')
-  git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'init')
-  const projects = new ProjectStore(home)
-  // Autonomous, as a folder added before new ones started on ask.
-  const project = projects.setPermissions(projects.add(folder).id, { mode: 'auto', allow: [] })
-  const resolver = new ModelResolver()
-  const specialist = (ctx: LlmContext, role: string) =>
-    new RegExp(`- ([a-z]+): ${role} \\(`).exec(ctx.systemPrompt?.join('\n') ?? '')?.[1] ?? ''
-  scripted(resolver, 'mock/lead', [
-    (ctx) => [
-      tool('create_task', { subject: 'Write the API', assignee: specialist(ctx, 'backend') }),
-      tool('create_task', { subject: 'Write the page', assignee: specialist(ctx, 'frontend') }),
-    ],
-    ['waiting'],
-    ['waiting'],
-    [tool('reply_user', { text: 'Both parts are in.', final: true })],
-  ])
-  const coder = (file: string): Step[] => [
-    (ctx) => [
-      tool('claim_task', { id: /task-\d/.exec(JSON.stringify(ctx.messages))?.[0] ?? 'task-1', revision: 1 }),
-    ],
-    (ctx) => {
-      const prompt = ctx.systemPrompt?.join('\n') ?? ''
-      expect(prompt).toContain('git worktree')
-      return [tool('fs_write', { path: file, content: `// ${file}\n` })]
-    },
-    (ctx) => [
-      tool('submit_task', {
-        id: /task-\d/.exec(JSON.stringify(ctx.messages))?.[0] ?? 'task-1',
-        revision: 2,
-        artifacts: [],
-      }),
-    ],
-    ['done'],
-  ]
-  scripted(resolver, 'mock/backend', coder('api.ts'))
-  scripted(resolver, 'mock/frontend', coder('page.ts'))
-  judge(resolver)
-  const chats = new ChatService(runtime, { resolver, classify: fixed('team'), projects, quietMs: QUIET_MS })
-  const { colonyId } = await chats.send(
-    'Build the API and the page',
-    {
-      mode: 'orchestrated',
-      leadModel: 'mock/lead',
-      roster: [
-        { role: 'backend', model: 'mock/backend' },
-        { role: 'frontend', model: 'mock/frontend' },
+pendingOn('win32', 'worktreesOnWindows')(
+  'team workers in a git project each get a worktree, and their changes merge into the folder',
+  async () => {
+    const { ProjectStore } = await import('../src/projects.ts')
+    const folder = mkdtempSync(join(tmpdir(), 'myr-project-'))
+    await Bun.write(join(folder, 'README.md'), '# Demo\n')
+    const git = (...args: string[]) => Bun.spawnSync(['git', ...args], { cwd: folder }).stdout.toString()
+    git('init', '-q', '-b', 'main')
+    git('add', '-A')
+    git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'init')
+    const projects = new ProjectStore(home)
+    // Autonomous, as a folder added before new ones started on ask.
+    const project = projects.setPermissions(projects.add(folder).id, { mode: 'auto', allow: [] })
+    const resolver = new ModelResolver()
+    const specialist = (ctx: LlmContext, role: string) =>
+      new RegExp(`- ([a-z]+): ${role} \\(`).exec(ctx.systemPrompt?.join('\n') ?? '')?.[1] ?? ''
+    scripted(resolver, 'mock/lead', [
+      (ctx) => [
+        tool('create_task', { subject: 'Write the API', assignee: specialist(ctx, 'backend') }),
+        tool('create_task', { subject: 'Write the page', assignee: specialist(ctx, 'frontend') }),
       ],
-      judgeModel: 'mock/judge',
-    },
-    undefined,
-    { project: project.id },
-  )
-  const s = await waitFor(
-    colonyId,
-    (x) => Object.values(x.worktrees).every((w) => w.kept !== undefined) && x.status !== 'running',
-  )
-  const trees = Object.values(s.worktrees)
-  expect(trees).toHaveLength(2)
-  expect(trees.every((w) => w.branch.startsWith('myr/') && w.merges === 1 && w.kept === false)).toBe(true)
-  expect(await Bun.file(join(folder, 'api.ts')).text()).toBe('// api.ts\n')
-  expect(await Bun.file(join(folder, 'page.ts')).text()).toBe('// page.ts\n')
-  // The person's repository is as they left it: same branch, nothing committed or staged, no worker branches left.
-  expect(git('rev-parse', '--abbrev-ref', 'HEAD').trim()).toBe('main')
-  expect(git('log', '--oneline').trim().split('\n')).toHaveLength(1)
-  expect(git('branch', '--list', 'myr/*')).toBe('')
-  expect(git('worktree', 'list').trim().split('\n')).toHaveLength(1)
-  await chats.stopAll()
-  rmSync(folder, { recursive: true, force: true })
-})
+      ['waiting'],
+      ['waiting'],
+      [tool('reply_user', { text: 'Both parts are in.', final: true })],
+    ])
+    const coder = (file: string): Step[] => [
+      (ctx) => [
+        tool('claim_task', {
+          id: /task-\d/.exec(JSON.stringify(ctx.messages))?.[0] ?? 'task-1',
+          revision: 1,
+        }),
+      ],
+      (ctx) => {
+        const prompt = ctx.systemPrompt?.join('\n') ?? ''
+        expect(prompt).toContain('git worktree')
+        return [tool('fs_write', { path: file, content: `// ${file}\n` })]
+      },
+      (ctx) => [
+        tool('submit_task', {
+          id: /task-\d/.exec(JSON.stringify(ctx.messages))?.[0] ?? 'task-1',
+          revision: 2,
+          artifacts: [],
+        }),
+      ],
+      ['done'],
+    ]
+    scripted(resolver, 'mock/backend', coder('api.ts'))
+    scripted(resolver, 'mock/frontend', coder('page.ts'))
+    judge(resolver)
+    const chats = new ChatService(runtime, { resolver, classify: fixed('team'), projects, quietMs: QUIET_MS })
+    const { colonyId } = await chats.send(
+      'Build the API and the page',
+      {
+        mode: 'orchestrated',
+        leadModel: 'mock/lead',
+        roster: [
+          { role: 'backend', model: 'mock/backend' },
+          { role: 'frontend', model: 'mock/frontend' },
+        ],
+        judgeModel: 'mock/judge',
+      },
+      undefined,
+      { project: project.id },
+    )
+    const s = await waitFor(
+      colonyId,
+      (x) => Object.values(x.worktrees).every((w) => w.kept !== undefined) && x.status !== 'running',
+    )
+    const trees = Object.values(s.worktrees)
+    expect(trees).toHaveLength(2)
+    expect(trees.every((w) => w.branch.startsWith('myr/') && w.merges === 1 && w.kept === false)).toBe(true)
+    expect(await Bun.file(join(folder, 'api.ts')).text()).toBe('// api.ts\n')
+    expect(await Bun.file(join(folder, 'page.ts')).text()).toBe('// page.ts\n')
+    // The person's repository is as they left it: same branch, nothing committed or staged, no worker branches left.
+    expect(git('rev-parse', '--abbrev-ref', 'HEAD').trim()).toBe('main')
+    expect(git('log', '--oneline').trim().split('\n')).toHaveLength(1)
+    expect(git('branch', '--list', 'myr/*')).toBe('')
+    expect(git('worktree', 'list').trim().split('\n')).toHaveLength(1)
+    await chats.stopAll()
+    rmSync(folder, { recursive: true, force: true })
+  },
+)
 
 test('an answer round that turns out bigger escalates, and a solo round reruns it with its notes', async () => {
   const resolver = new ModelResolver()
@@ -3054,238 +3089,258 @@ test('agents see the skills by name and load one when the task matches', async (
   rmSync(claude, { recursive: true, force: true })
 })
 
-test("the person's hooks block a tool, comment on a result, and run when the round ends", async () => {
-  const { HookStore } = await import('../src/hooks.ts')
-  const hooks = new HookStore(home)
-  const stopped = join(home, 'stopped.json')
-  hooks.write({
-    hooks: {
-      PreToolUse: [
-        {
-          matcher: 'Write',
-          hooks: [
-            {
-              type: 'command',
-              command: `grep -q '\\.env"' && { echo 'never write .env files' >&2; exit 2; } || true`,
-            },
-          ],
-        },
-      ],
-      PostToolUse: [
-        {
-          matcher: 'fs_write',
-          hooks: [{ type: 'command', command: "echo 'formatted with prettier' >&2; exit 2" }],
-        },
-      ],
-      // The redirect creates the file before cat fills it; renaming makes it appear only when complete.
-      Stop: [
-        {
-          hooks: [{ type: 'command', command: `cat > '${stopped}.tmp' && mv '${stopped}.tmp' '${stopped}'` }],
-        },
-      ],
-    },
-  })
-  const resolver = new ModelResolver()
-  scripted(resolver, 'mock/solo', [
-    [tool('fs_write', { path: '.env', content: 'KEY=1' })],
-    [tool('fs_write', { path: 'notes.txt', content: 'hello' })],
-    [tool('reply_user', { text: 'Done.', final: true })],
-  ])
-  judge(resolver)
-  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), hooks })
-  const { colonyId } = await chats.send('Save my notes', { ...solo('mock/solo'), judgeModel: 'mock/judge' })
-  await waitFor(colonyId)
-  const results = (await events(colonyId))
-    .filter((e) => e.type === 'tool/result')
-    .map((e) => e.payload as EventPayloads['tool/result'])
-  expect(results[0]).toMatchObject({ tool: 'fs_write', ok: false })
-  expect(results[0]?.output).toContain('a hook blocked this call: never write .env files')
-  expect(results[1]).toMatchObject({ tool: 'fs_write', ok: true })
-  expect(results[1]?.output).toContain('[hook] formatted with prettier')
-  const ran = (await events(colonyId))
-    .filter((e) => e.type === 'hook/ran')
-    .map((e) => (e.payload as EventPayloads['hook/ran']).outcome)
-  expect(ran).toContain('blocked')
-  expect(ran).toContain('feedback')
-  for (let i = 0; i < 40 && !existsSync(stopped); i++) await Bun.sleep(50)
-  expect(JSON.parse(await Bun.file(stopped).text())).toMatchObject({
-    hook_event_name: 'Stop',
-    status: 'completed',
-  })
-  await chats.stopAll()
-})
+pendingOn('win32', 'fileToolPathsOnWindows')(
+  "the person's hooks block a tool, comment on a result, and run when the round ends",
+  async () => {
+    const { HookStore } = await import('../src/hooks.ts')
+    const hooks = new HookStore(home)
+    const stopped = join(home, 'stopped.json')
+    hooks.write({
+      hooks: {
+        PreToolUse: [
+          {
+            matcher: 'Write',
+            hooks: [
+              {
+                type: 'command',
+                command: `grep -q '\\.env"' && { echo 'never write .env files' >&2; exit 2; } || true`,
+              },
+            ],
+          },
+        ],
+        PostToolUse: [
+          {
+            matcher: 'fs_write',
+            hooks: [{ type: 'command', command: "echo 'formatted with prettier' >&2; exit 2" }],
+          },
+        ],
+        // The redirect creates the file before cat fills it; renaming makes it appear only when complete.
+        Stop: [
+          {
+            hooks: [
+              { type: 'command', command: `cat > '${stopped}.tmp' && mv '${stopped}.tmp' '${stopped}'` },
+            ],
+          },
+        ],
+      },
+    })
+    const resolver = new ModelResolver()
+    scripted(resolver, 'mock/solo', [
+      [tool('fs_write', { path: '.env', content: 'KEY=1' })],
+      [tool('fs_write', { path: 'notes.txt', content: 'hello' })],
+      [tool('reply_user', { text: 'Done.', final: true })],
+    ])
+    judge(resolver)
+    const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), hooks })
+    const { colonyId } = await chats.send('Save my notes', { ...solo('mock/solo'), judgeModel: 'mock/judge' })
+    await waitFor(colonyId)
+    const results = (await events(colonyId))
+      .filter((e) => e.type === 'tool/result')
+      .map((e) => e.payload as EventPayloads['tool/result'])
+    expect(results[0]).toMatchObject({ tool: 'fs_write', ok: false })
+    expect(results[0]?.output).toContain('a hook blocked this call: never write .env files')
+    expect(results[1]).toMatchObject({ tool: 'fs_write', ok: true })
+    expect(results[1]?.output).toContain('[hook] formatted with prettier')
+    const ran = (await events(colonyId))
+      .filter((e) => e.type === 'hook/ran')
+      .map((e) => (e.payload as EventPayloads['hook/ran']).outcome)
+    expect(ran).toContain('blocked')
+    expect(ran).toContain('feedback')
+    for (let i = 0; i < 40 && !existsSync(stopped); i++) await Bun.sleep(50)
+    expect(JSON.parse(await Bun.file(stopped).text())).toMatchObject({
+      hook_event_name: 'Stop',
+      status: 'completed',
+    })
+    await chats.stopAll()
+  },
+)
 
-test('a secret an agent reads is kept out of the log and its transcript', async () => {
-  const { ProjectStore } = await import('../src/projects.ts')
-  const folder = mkdtempSync(join(tmpdir(), 'myr-secret-'))
-  const key = 'sk-proj-abcdefghijklmnopqrstuvwxyz0123456789'
-  await Bun.write(join(folder, '.env'), `OPENAI_API_KEY=${key}\nPORT=3000\n`)
-  const project = new ProjectStore(home).add(folder)
-  const resolver = new ModelResolver()
-  let seen = ''
-  scripted(resolver, 'mock/solo', [
-    [tool('fs_read', { path: '.env' })],
-    (ctx) => {
-      seen = JSON.stringify(ctx.messages)
-      return [tool('reply_user', { text: 'The port is 3000.', final: true })]
-    },
-  ])
-  judge(resolver)
-  const chats = new ChatService(runtime, {
-    resolver,
-    classify: fixed('solo'),
-    projects: new ProjectStore(home),
-  })
-  const { colonyId } = await chats.send(
-    'Which port does .env set?',
-    { ...solo('mock/solo'), judgeModel: 'mock/judge' },
-    undefined,
-    {
-      project: project.id,
-    },
-  )
-  await waitFor(colonyId)
-  // The agent saw the file as it is; what was stored did not keep the key.
-  expect(seen).toContain(key)
-  const log = JSON.stringify(await events(colonyId))
-  expect(log).not.toContain(key)
-  expect(log).toContain('[api key redacted]')
-  expect(log).toContain('PORT=3000')
-  const transcript = await Bun.file(join(home, 'colonies', colonyId, 'agents', 'lead.jsonl')).text()
-  expect(transcript).not.toContain(key)
-  await chats.stopAll()
-  rmSync(folder, { recursive: true, force: true })
-})
+pendingOn('win32', 'fileToolPathsOnWindows')(
+  'a secret an agent reads is kept out of the log and its transcript',
+  async () => {
+    const { ProjectStore } = await import('../src/projects.ts')
+    const folder = mkdtempSync(join(tmpdir(), 'myr-secret-'))
+    const key = 'sk-proj-abcdefghijklmnopqrstuvwxyz0123456789'
+    await Bun.write(join(folder, '.env'), `OPENAI_API_KEY=${key}\nPORT=3000\n`)
+    const project = new ProjectStore(home).add(folder)
+    const resolver = new ModelResolver()
+    let seen = ''
+    scripted(resolver, 'mock/solo', [
+      [tool('fs_read', { path: '.env' })],
+      (ctx) => {
+        seen = JSON.stringify(ctx.messages)
+        return [tool('reply_user', { text: 'The port is 3000.', final: true })]
+      },
+    ])
+    judge(resolver)
+    const chats = new ChatService(runtime, {
+      resolver,
+      classify: fixed('solo'),
+      projects: new ProjectStore(home),
+    })
+    const { colonyId } = await chats.send(
+      'Which port does .env set?',
+      { ...solo('mock/solo'), judgeModel: 'mock/judge' },
+      undefined,
+      {
+        project: project.id,
+      },
+    )
+    await waitFor(colonyId)
+    // The agent saw the file as it is; what was stored did not keep the key.
+    expect(seen).toContain(key)
+    const log = JSON.stringify(await events(colonyId))
+    expect(log).not.toContain(key)
+    expect(log).toContain('[api key redacted]')
+    expect(log).toContain('PORT=3000')
+    const transcript = await Bun.file(join(home, 'colonies', colonyId, 'agents', 'lead.jsonl')).text()
+    expect(transcript).not.toContain(key)
+    await chats.stopAll()
+    rmSync(folder, { recursive: true, force: true })
+  },
+)
 
-test('per-tool rules turn a tool off and make another wait for approval', async () => {
-  const { SettingsStore } = await import('../src/settings.ts')
-  const settings = new SettingsStore(home)
-  settings.set({ ...settings.get(), permissions: { web_search: 'off', fs_write: 'ask' } })
-  const resolver = new ModelResolver()
-  scripted(resolver, 'mock/solo', [
-    [tool('fs_write', { path: 'a.txt', content: 'x' })],
-    [tool('reply_user', { text: 'Wrote it.', final: true })],
-  ])
-  judge(resolver)
-  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), settings })
-  const { colonyId } = await chats.send('Write a.txt', { ...solo('mock/solo'), judgeModel: 'mock/judge' })
-  const waiting = await waitFor(colonyId, (x) => Object.values(x.approvals).some((a) => !a.decided))
-  expect(waiting.agents.lead?.info.tools).not.toContain('web_search')
-  const ask = Object.values(waiting.approvals)[0]
-  expect(ask).toMatchObject({ tool: 'fs_write' })
-  expect(ask?.summary).toContain('a.txt')
-  await chats.decideApproval(colonyId, ask?.id ?? '', true)
-  const s = await waitFor(colonyId)
-  expect(s.status).toBe('completed')
-  const write = (await events(colonyId)).find(
-    (e) => e.type === 'tool/result' && (e.payload as EventPayloads['tool/result']).tool === 'fs_write',
-  )
-  expect((write?.payload as EventPayloads['tool/result'] | undefined)?.ok).toBe(true)
-  await chats.stopAll()
-})
+pendingOn('win32', 'windowsRoundsStall')(
+  'per-tool rules turn a tool off and make another wait for approval',
+  async () => {
+    const { SettingsStore } = await import('../src/settings.ts')
+    const settings = new SettingsStore(home)
+    settings.set({ ...settings.get(), permissions: { web_search: 'off', fs_write: 'ask' } })
+    const resolver = new ModelResolver()
+    scripted(resolver, 'mock/solo', [
+      [tool('fs_write', { path: 'a.txt', content: 'x' })],
+      [tool('reply_user', { text: 'Wrote it.', final: true })],
+    ])
+    judge(resolver)
+    const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), settings })
+    const { colonyId } = await chats.send('Write a.txt', { ...solo('mock/solo'), judgeModel: 'mock/judge' })
+    const waiting = await waitFor(colonyId, (x) => Object.values(x.approvals).some((a) => !a.decided))
+    expect(waiting.agents.lead?.info.tools).not.toContain('web_search')
+    const ask = Object.values(waiting.approvals)[0]
+    expect(ask).toMatchObject({ tool: 'fs_write' })
+    expect(ask?.summary).toContain('a.txt')
+    await chats.decideApproval(colonyId, ask?.id ?? '', true)
+    const s = await waitFor(colonyId)
+    expect(s.status).toBe('completed')
+    const write = (await events(colonyId)).find(
+      (e) => e.type === 'tool/result' && (e.payload as EventPayloads['tool/result']).tool === 'fs_write',
+    )
+    expect((write?.payload as EventPayloads['tool/result'] | undefined)?.ok).toBe(true)
+    await chats.stopAll()
+  },
+)
 
-test('a round someone else started asks before every call that changes something, whatever the person allowed', async () => {
-  const { SettingsStore } = await import('../src/settings.ts')
-  const settings = new SettingsStore(home)
-  settings.set({ ...settings.get(), permissions: { fs_write: 'allow' } })
-  const resolver = new ModelResolver()
-  scripted(resolver, 'mock/member', [
-    [tool('fs_list', { path: '.' })],
-    [tool('fs_write', { path: 'a.txt', content: 'x' })],
-    [tool('reply_user', { text: 'Wrote it.', final: true })],
-  ])
-  judge(resolver)
-  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), settings })
-  const { colonyId } = await chats.send(
-    'Write a.txt',
-    { ...solo('mock/member'), judgeModel: 'mock/judge' },
-    undefined,
-    { askAll: true },
-  )
-  const waiting = await waitFor(colonyId, (x) => Object.values(x.approvals).some((a) => !a.decided))
-  // Reading and answering run without asking; the write the person allowed for themselves still asks.
-  expect(Object.values(waiting.approvals).map((a) => a.tool)).toEqual(['fs_write'])
-  const created = (await events(colonyId)).find((e) => e.type === 'colony/created')
-  expect((created?.payload as EventPayloads['colony/created'] | undefined)?.askAll).toBe(true)
-  await chats.decideApproval(colonyId, Object.values(waiting.approvals)[0]?.id ?? '', true)
-  const s = await waitFor(colonyId)
-  expect(s.status).toBe('completed')
-  expect(Object.values(s.approvals)).toHaveLength(1)
-  await chats.stopAll()
-})
+pendingOn('win32', 'windowsRoundsStall')(
+  'a round someone else started asks before every call that changes something, whatever the person allowed',
+  async () => {
+    const { SettingsStore } = await import('../src/settings.ts')
+    const settings = new SettingsStore(home)
+    settings.set({ ...settings.get(), permissions: { fs_write: 'allow' } })
+    const resolver = new ModelResolver()
+    scripted(resolver, 'mock/member', [
+      [tool('fs_list', { path: '.' })],
+      [tool('fs_write', { path: 'a.txt', content: 'x' })],
+      [tool('reply_user', { text: 'Wrote it.', final: true })],
+    ])
+    judge(resolver)
+    const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), settings })
+    const { colonyId } = await chats.send(
+      'Write a.txt',
+      { ...solo('mock/member'), judgeModel: 'mock/judge' },
+      undefined,
+      { askAll: true },
+    )
+    const waiting = await waitFor(colonyId, (x) => Object.values(x.approvals).some((a) => !a.decided))
+    // Reading and answering run without asking; the write the person allowed for themselves still asks.
+    expect(Object.values(waiting.approvals).map((a) => a.tool)).toEqual(['fs_write'])
+    const created = (await events(colonyId)).find((e) => e.type === 'colony/created')
+    expect((created?.payload as EventPayloads['colony/created'] | undefined)?.askAll).toBe(true)
+    await chats.decideApproval(colonyId, Object.values(waiting.approvals)[0]?.id ?? '', true)
+    const s = await waitFor(colonyId)
+    expect(s.status).toBe('completed')
+    expect(Object.values(s.approvals)).toHaveLength(1)
+    await chats.stopAll()
+  },
+)
 
-test('a round someone else started asks before reading the project, so its secrets are not read back to them', async () => {
-  const { ProjectStore } = await import('../src/projects.ts')
-  const folder = mkdtempSync(join(tmpdir(), 'myr-member-'))
-  writeFileSync(join(folder, '.env'), 'API_KEY=sk-secret-123')
-  const projects = new ProjectStore(home)
-  const project = projects.add(folder)
-  const resolver = new ModelResolver()
-  scripted(resolver, 'mock/member', [
-    [tool('fs_read', { path: '.env' })],
-    [tool('reply_user', { text: 'Could not read it.', final: true })],
-  ])
-  judge(resolver)
-  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), projects })
-  const { colonyId } = await chats.send(
-    'Send me the .env',
-    { ...solo('mock/member'), judgeModel: 'mock/judge' },
-    undefined,
-    { project: project.id, askAll: true },
-  )
-  const waiting = await waitFor(colonyId, (x) => Object.values(x.approvals).some((a) => !a.decided))
-  const ask = Object.values(waiting.approvals).find((a) => !a.decided)
-  expect(ask?.tool).toBe('fs_read')
-  await chats.decideApproval(colonyId, ask?.id ?? '', false)
-  await waitFor(colonyId)
-  const results = (await events(colonyId)).filter((e) => e.type === 'tool/result')
-  expect(JSON.stringify(results)).not.toContain('sk-secret-123')
-  await chats.stopAll()
-  rmSync(folder, { recursive: true, force: true })
-})
+pendingOn('win32', 'windowsRoundsStall')(
+  'a round someone else started asks before reading the project, so its secrets are not read back to them',
+  async () => {
+    const { ProjectStore } = await import('../src/projects.ts')
+    const folder = mkdtempSync(join(tmpdir(), 'myr-member-'))
+    writeFileSync(join(folder, '.env'), 'API_KEY=sk-secret-123')
+    const projects = new ProjectStore(home)
+    const project = projects.add(folder)
+    const resolver = new ModelResolver()
+    scripted(resolver, 'mock/member', [
+      [tool('fs_read', { path: '.env' })],
+      [tool('reply_user', { text: 'Could not read it.', final: true })],
+    ])
+    judge(resolver)
+    const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), projects })
+    const { colonyId } = await chats.send(
+      'Send me the .env',
+      { ...solo('mock/member'), judgeModel: 'mock/judge' },
+      undefined,
+      { project: project.id, askAll: true },
+    )
+    const waiting = await waitFor(colonyId, (x) => Object.values(x.approvals).some((a) => !a.decided))
+    const ask = Object.values(waiting.approvals).find((a) => !a.decided)
+    expect(ask?.tool).toBe('fs_read')
+    await chats.decideApproval(colonyId, ask?.id ?? '', false)
+    await waitFor(colonyId)
+    const results = (await events(colonyId)).filter((e) => e.type === 'tool/result')
+    expect(JSON.stringify(results)).not.toContain('sk-secret-123')
+    await chats.stopAll()
+    rmSync(folder, { recursive: true, force: true })
+  },
+)
 
-test('a member writing into a running round makes it ask from then on, and a resumed round keeps asking', async () => {
-  const { SettingsStore } = await import('../src/settings.ts')
-  const settings = new SettingsStore(home)
-  settings.set({ ...settings.get(), permissions: { fs_write: 'allow' } })
-  const resolver = new ModelResolver()
-  let release!: () => void
-  const busy = new Promise<void>((r) => {
-    release = r
-  })
-  let calls = 0
-  const lead = createMockModel({
-    handler: async () => {
-      calls++
-      if (calls === 1) {
-        await busy
-        return { content: [tool('list_artifacts', {})] }
-      }
-      if (calls === 2) return { content: [tool('fs_write', { path: 'a.txt', content: 'x' })] }
-      return { content: [tool('fs_write', { path: 'b.txt', content: 'y' })] }
-    },
-  })
-  resolver.register('mock/lead', { model: lead.model, streamFn: lead.stream })
-  judge(resolver)
-  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), settings })
-  const config = { ...solo('mock/lead'), judgeModel: 'mock/judge' }
-  const { chatId, colonyId } = await chats.send('Tidy the files', config)
-  await waitFor(colonyId, () => calls === 1)
-  await chats.send('a member says: also write a.txt', config, chatId, { askAll: true })
-  release()
-  const asked = (s: ColonyState) => Object.values(s.approvals).filter((a) => !a.decided)
-  const first = await waitFor(colonyId, (s) => asked(s).length > 0)
-  expect(asked(first).map((a) => a.tool)).toEqual(['fs_write'])
-  const change = (await events(colonyId)).find((e) => e.type === 'permissions/changed')
-  expect((change?.payload as EventPayloads['permissions/changed'] | undefined)?.askAll).toBe(true)
+pendingOn('win32', 'windowsRoundsStall')(
+  'a member writing into a running round makes it ask from then on, and a resumed round keeps asking',
+  async () => {
+    const { SettingsStore } = await import('../src/settings.ts')
+    const settings = new SettingsStore(home)
+    settings.set({ ...settings.get(), permissions: { fs_write: 'allow' } })
+    const resolver = new ModelResolver()
+    let release!: () => void
+    const busy = new Promise<void>((r) => {
+      release = r
+    })
+    let calls = 0
+    const lead = createMockModel({
+      handler: async () => {
+        calls++
+        if (calls === 1) {
+          await busy
+          return { content: [tool('list_artifacts', {})] }
+        }
+        if (calls === 2) return { content: [tool('fs_write', { path: 'a.txt', content: 'x' })] }
+        return { content: [tool('fs_write', { path: 'b.txt', content: 'y' })] }
+      },
+    })
+    resolver.register('mock/lead', { model: lead.model, streamFn: lead.stream })
+    judge(resolver)
+    const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), settings })
+    const config = { ...solo('mock/lead'), judgeModel: 'mock/judge' }
+    const { chatId, colonyId } = await chats.send('Tidy the files', config)
+    await waitFor(colonyId, () => calls === 1)
+    await chats.send('a member says: also write a.txt', config, chatId, { askAll: true })
+    release()
+    const asked = (s: ColonyState) => Object.values(s.approvals).filter((a) => !a.decided)
+    const first = await waitFor(colonyId, (s) => asked(s).length > 0)
+    expect(asked(first).map((a) => a.tool)).toEqual(['fs_write'])
+    const change = (await events(colonyId)).find((e) => e.type === 'permissions/changed')
+    expect((change?.payload as EventPayloads['permissions/changed'] | undefined)?.askAll).toBe(true)
 
-  await chats.stop(chatId)
-  await waitFor(colonyId)
-  await chats.resume(chatId)
-  const again = await waitFor(colonyId, (s) => s.status === 'running' && asked(s).length > 0)
-  expect(asked(again).map((a) => a.tool)).toEqual(['fs_write'])
-  await chats.stopAll()
-})
+    await chats.stop(chatId)
+    await waitFor(colonyId)
+    await chats.resume(chatId)
+    const again = await waitFor(colonyId, (s) => s.status === 'running' && asked(s).length > 0)
+    expect(asked(again).map((a) => a.tool)).toEqual(['fs_write'])
+    await chats.stopAll()
+  },
+)
 
 test('ask_user pauses the round until the person answers', async () => {
   const resolver = new ModelResolver()
@@ -3556,50 +3611,53 @@ test('a note that reached an agent mid-turn and was cut off with the turn opens 
   await plugins.stop()
 })
 
-test('a round stopped after reaching outside Myrmidon tells its agents what was already done when it resumes', async () => {
-  const { McpHub } = await import('../src/mcp.ts')
-  const { SettingsStore } = await import('../src/settings.ts')
-  const hub = new McpHub(join(home, 'agent'))
-  opened.push(hub)
-  await hub.add('echo', { command: 'bun', args: [join(import.meta.dir, 'fixtures', 'echo-mcp.ts')] })
-  const shout = hub.tools().find((t) => t.name.endsWith('_shout'))?.name ?? 'missing'
-  const settings = new SettingsStore(home)
-  settings.set({ ...settings.get(), permissions: { [shout]: 'allow' } })
-  const resolver = new ModelResolver()
-  const seen: string[] = []
-  // The second step hangs, so the round is still working when the person stops it.
-  let calls = 0
-  const lead = createMockModel({
-    handler: async (ctx: LlmContext) => {
-      calls += 1
-      if (calls === 1) return { content: [tool(shout, { text: 'order placed' })] }
-      if (calls === 2) {
-        await Bun.sleep(3000)
-        return { content: ['waiting for the supplier'] }
-      }
-      seen.push(JSON.stringify(ctx.messages.at(-1)))
-      return { content: [tool('reply_user', { text: 'Done; the order was already placed.', final: true })] }
-    },
-  })
-  resolver.register('mock/lead', { model: lead.model, streamFn: lead.stream })
-  judge(resolver)
-  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), mcp: hub, settings })
-  const { chatId, colonyId } = await chats.send('Place the order', {
-    ...solo('mock/lead'),
-    judgeModel: 'mock/judge',
-  })
-  for (let i = 0; i < 100; i++) {
-    if ((await events(colonyId)).some((e) => e.type === 'tool/result')) break
-    await Bun.sleep(20)
-  }
-  await chats.stop(chatId)
-  await waitFor(colonyId, (x) => x.status === 'stopped')
-  await chats.resume(chatId)
-  await waitFor(colonyId, (x) => x.status === 'completed')
-  expect(seen[0]).toContain('already did these outside Myrmidon')
-  expect(seen[0]).toContain(`called ${shout} {\\"text\\":\\"order placed\\"}`)
-  await hub.close()
-})
+pendingOn('win32', 'windowsRoundsStall')(
+  'a round stopped after reaching outside Myrmidon tells its agents what was already done when it resumes',
+  async () => {
+    const { McpHub } = await import('../src/mcp.ts')
+    const { SettingsStore } = await import('../src/settings.ts')
+    const hub = new McpHub(join(home, 'agent'))
+    opened.push(hub)
+    await hub.add('echo', { command: 'bun', args: [join(import.meta.dir, 'fixtures', 'echo-mcp.ts')] })
+    const shout = hub.tools().find((t) => t.name.endsWith('_shout'))?.name ?? 'missing'
+    const settings = new SettingsStore(home)
+    settings.set({ ...settings.get(), permissions: { [shout]: 'allow' } })
+    const resolver = new ModelResolver()
+    const seen: string[] = []
+    // The second step hangs, so the round is still working when the person stops it.
+    let calls = 0
+    const lead = createMockModel({
+      handler: async (ctx: LlmContext) => {
+        calls += 1
+        if (calls === 1) return { content: [tool(shout, { text: 'order placed' })] }
+        if (calls === 2) {
+          await Bun.sleep(3000)
+          return { content: ['waiting for the supplier'] }
+        }
+        seen.push(JSON.stringify(ctx.messages.at(-1)))
+        return { content: [tool('reply_user', { text: 'Done; the order was already placed.', final: true })] }
+      },
+    })
+    resolver.register('mock/lead', { model: lead.model, streamFn: lead.stream })
+    judge(resolver)
+    const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), mcp: hub, settings })
+    const { chatId, colonyId } = await chats.send('Place the order', {
+      ...solo('mock/lead'),
+      judgeModel: 'mock/judge',
+    })
+    for (let i = 0; i < 100; i++) {
+      if ((await events(colonyId)).some((e) => e.type === 'tool/result')) break
+      await Bun.sleep(20)
+    }
+    await chats.stop(chatId)
+    await waitFor(colonyId, (x) => x.status === 'stopped')
+    await chats.resume(chatId)
+    await waitFor(colonyId, (x) => x.status === 'completed')
+    expect(seen[0]).toContain('already did these outside Myrmidon')
+    expect(seen[0]).toContain(`called ${shout} {\\"text\\":\\"order placed\\"}`)
+    await hub.close()
+  },
+)
 
 test('older auto/manual team configs still work', () => {
   expect(

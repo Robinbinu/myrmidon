@@ -554,106 +554,115 @@ async function nativeRound(
   )
 }
 
-test("a Claude toolset model gets Anthropic's toolset and the app tools, opens an app, and its member calls reach it", async () => {
-  const payloads: unknown[] = []
-  const offered: string[][] = []
-  const results = await nativeRound(
-    { id: 'claude-opus-5-5', api: 'anthropic-messages', provider: 'anthropic' },
-    [
-      // The toolset calls each action by its own name; before an app is open, the error names a tool it has.
-      [tool('screenshot', {})],
-      [tool('open_app', { app: 'Notes' })],
-      [tool('screenshot', {})],
-      [tool('scroll', { coordinate: [10, 10], scroll_direction: 'down', scroll_amount: 2 })],
-    ],
-    undefined,
-    (context, onPayload) => {
-      offered.push((context.tools ?? []).map((t) => t.name))
-      // What pi-ai's Anthropic provider would send, run through the hook the agent set.
-      const body = { tools: (context.tools ?? []).map((t) => ({ name: t.name })), messages: [] }
-      payloads.push((onPayload as ((b: unknown, m: unknown) => unknown) | undefined)?.(body, undefined))
-    },
-  )
-  const first = (await payloads[0]) as { tools: Record<string, unknown>[] }
-  expect(first.tools.some((t) => t.type === 'computer_toolset_20260801')).toBe(true)
-  expect(first.tools.some((t) => t.name === 'computer')).toBe(false)
-  expect(first.tools.filter((t) => t.name === 'open_app' || t.name === 'list_apps')).toHaveLength(2)
-  expect(results[0]).toMatchObject({ tool: 'screenshot', ok: false })
-  expect(results[0]?.output).toContain('open_app')
-  expect(offered[0]).toContain('open_app')
-  expect(results.slice(1, 4).map((r) => [r.tool, r.ok])).toEqual([
-    ['open_app', true],
-    ['screenshot', true],
-    ['scroll', true],
-  ])
-  expect(asked().find((c) => c.name === 'scroll')?.args).toMatchObject({
-    direction: 'down',
-    amount: 2,
-    x: 10,
-    y: 10,
-  })
-})
+pendingOn('win32', 'cuaDriverOnWindows')(
+  "a Claude toolset model gets Anthropic's toolset and the app tools, opens an app, and its member calls reach it",
+  async () => {
+    const payloads: unknown[] = []
+    const offered: string[][] = []
+    const results = await nativeRound(
+      { id: 'claude-opus-5-5', api: 'anthropic-messages', provider: 'anthropic' },
+      [
+        // The toolset calls each action by its own name; before an app is open, the error names a tool it has.
+        [tool('screenshot', {})],
+        [tool('open_app', { app: 'Notes' })],
+        [tool('screenshot', {})],
+        [tool('scroll', { coordinate: [10, 10], scroll_direction: 'down', scroll_amount: 2 })],
+      ],
+      undefined,
+      (context, onPayload) => {
+        offered.push((context.tools ?? []).map((t) => t.name))
+        // What pi-ai's Anthropic provider would send, run through the hook the agent set.
+        const body = { tools: (context.tools ?? []).map((t) => ({ name: t.name })), messages: [] }
+        payloads.push((onPayload as ((b: unknown, m: unknown) => unknown) | undefined)?.(body, undefined))
+      },
+    )
+    const first = (await payloads[0]) as { tools: Record<string, unknown>[] }
+    expect(first.tools.some((t) => t.type === 'computer_toolset_20260801')).toBe(true)
+    expect(first.tools.some((t) => t.name === 'computer')).toBe(false)
+    expect(first.tools.filter((t) => t.name === 'open_app' || t.name === 'list_apps')).toHaveLength(2)
+    expect(results[0]).toMatchObject({ tool: 'screenshot', ok: false })
+    expect(results[0]?.output).toContain('open_app')
+    expect(offered[0]).toContain('open_app')
+    expect(results.slice(1, 4).map((r) => [r.tool, r.ok])).toEqual([
+      ['open_app', true],
+      ['screenshot', true],
+      ['scroll', true],
+    ])
+    expect(asked().find((c) => c.name === 'scroll')?.args).toMatchObject({
+      direction: 'down',
+      amount: 2,
+      x: 10,
+      y: 10,
+    })
+  },
+)
 
-test('an OpenAI computer-use model gets the app tools beside its native tool, opens an app, then takes a screenshot', async () => {
-  const offered: string[][] = []
-  const meta = {
-    type: 'computer',
-    providerItemId: 'cu_1',
-    actions: [{ type: 'screenshot' }],
-    pendingSafetyChecks: [],
-  }
-  // pi-ai hands the native call's actions over as its metadata; the mock provider has none, so they are added here.
-  const withMeta = (stream: AssistantMessageEventStream) => {
-    const out = new AssistantMessageEventStream()
-    void (async () => {
-      for await (const e of stream) {
-        if (e.type === 'done')
-          for (const c of e.message.content)
-            if (c.type === 'toolCall' && c.name === 'computer') c.providerMetadata = meta as never
-        out.push(e)
-      }
-    })()
-    return out
-  }
-  const results = await nativeRound(
-    { id: 'computer-use-preview', api: 'openai-responses', provider: 'openai', supportsComputerUse: true },
-    [[tool('open_app', { app: 'Notes' })], [tool('computer', {})]],
-    withMeta,
-    (context) => offered.push((context.tools ?? []).map((t) => t.name)),
-  )
-  expect(offered[0]).toEqual(expect.arrayContaining(['computer', 'open_app', 'list_apps']))
-  expect(results.slice(0, 2).map((r) => [r.tool, r.ok])).toEqual([
-    ['open_app', true],
-    ['computer', true],
-  ])
-  expect(results[1]?.output).toContain('Notes')
-})
+pendingOn('win32', 'cuaDriverOnWindows')(
+  'an OpenAI computer-use model gets the app tools beside its native tool, opens an app, then takes a screenshot',
+  async () => {
+    const offered: string[][] = []
+    const meta = {
+      type: 'computer',
+      providerItemId: 'cu_1',
+      actions: [{ type: 'screenshot' }],
+      pendingSafetyChecks: [],
+    }
+    // pi-ai hands the native call's actions over as its metadata; the mock provider has none, so they are added here.
+    const withMeta = (stream: AssistantMessageEventStream) => {
+      const out = new AssistantMessageEventStream()
+      void (async () => {
+        for await (const e of stream) {
+          if (e.type === 'done')
+            for (const c of e.message.content)
+              if (c.type === 'toolCall' && c.name === 'computer') c.providerMetadata = meta as never
+          out.push(e)
+        }
+      })()
+      return out
+    }
+    const results = await nativeRound(
+      { id: 'computer-use-preview', api: 'openai-responses', provider: 'openai', supportsComputerUse: true },
+      [[tool('open_app', { app: 'Notes' })], [tool('computer', {})]],
+      withMeta,
+      (context) => offered.push((context.tools ?? []).map((t) => t.name)),
+    )
+    expect(offered[0]).toEqual(expect.arrayContaining(['computer', 'open_app', 'list_apps']))
+    expect(results.slice(0, 2).map((r) => [r.tool, r.ok])).toEqual([
+      ['open_app', true],
+      ['computer', true],
+    ])
+    expect(results[1]?.output).toContain('Notes')
+  },
+)
 
-test("the person's Stop takes down the round's waiting computer card at once; the round goes on", async () => {
-  const resolver = lead([[tool('open_app', { app: 'Notes' })]], [])
-  const chats = new ChatService(runtime, { resolver, settings, mcp, computer: hub })
-  const sent = await chats.send('Open Notes on my Mac', config)
-  let card: string | undefined
-  for (let i = 0; i < 200 && !card; i++) {
-    const s = foldColony(sent.colonyId, await runtime.ctx.log.read(sent.colonyId as never))
-    card = Object.values(s.approvals).find((a) => !a.decided)?.id
-    if (!card) await Bun.sleep(25)
-  }
-  expect(card).toBeDefined()
-  expect(hub.stopAll()).toBe(1)
-  const s = await finished(sent.colonyId)
-  expect(s.status).toBe('completed')
-  const events = await runtime.ctx.log.read(sent.colonyId as never)
-  const decided = events.findIndex(
-    (e) => e.type === 'approval/decided' && (e.payload as { id: string }).id === card,
-  )
-  expect(events[decided]?.payload).toMatchObject({ approved: false, by: 'stopped' })
-  // Closed by the Stop itself, not left up until the round ends (or the card times out).
-  const result = events.findIndex(
-    (e) => e.type === 'tool/result' && (e.payload as { tool: string }).tool === 'open_app',
-  )
-  expect(decided).toBeLessThan(result)
-  expect((events[result]?.payload as { output?: string } | undefined)?.output).toContain(
-    'stopped computer use',
-  )
-})
+pendingOn('win32', 'cuaDriverOnWindows')(
+  "the person's Stop takes down the round's waiting computer card at once; the round goes on",
+  async () => {
+    const resolver = lead([[tool('open_app', { app: 'Notes' })]], [])
+    const chats = new ChatService(runtime, { resolver, settings, mcp, computer: hub })
+    const sent = await chats.send('Open Notes on my Mac', config)
+    let card: string | undefined
+    for (let i = 0; i < 200 && !card; i++) {
+      const s = foldColony(sent.colonyId, await runtime.ctx.log.read(sent.colonyId as never))
+      card = Object.values(s.approvals).find((a) => !a.decided)?.id
+      if (!card) await Bun.sleep(25)
+    }
+    expect(card).toBeDefined()
+    expect(hub.stopAll()).toBe(1)
+    const s = await finished(sent.colonyId)
+    expect(s.status).toBe('completed')
+    const events = await runtime.ctx.log.read(sent.colonyId as never)
+    const decided = events.findIndex(
+      (e) => e.type === 'approval/decided' && (e.payload as { id: string }).id === card,
+    )
+    expect(events[decided]?.payload).toMatchObject({ approved: false, by: 'stopped' })
+    // Closed by the Stop itself, not left up until the round ends (or the card times out).
+    const result = events.findIndex(
+      (e) => e.type === 'tool/result' && (e.payload as { tool: string }).tool === 'open_app',
+    )
+    expect(decided).toBeLessThan(result)
+    expect((events[result]?.payload as { output?: string } | undefined)?.output).toContain(
+      'stopped computer use',
+    )
+  },
+)

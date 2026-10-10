@@ -4,7 +4,7 @@ import { homedir, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { type ColonyState, type EventPayloads, foldColony } from '@myrmidon/protocol'
 import { createMockModel, type MockContent } from '@oh-my-pi/pi-ai/providers/mock'
-import { notOn, pendingOn } from '../../../tests/platform.ts'
+import { notOn, pendingOn, removeTempDir } from '../../../tests/platform.ts'
 import { SANDBOX_HIDDEN_ROOTS } from '../src/config.ts'
 import {
   bootRuntime,
@@ -314,8 +314,8 @@ const setUpChats = async () => {
 
 const tearDownChats = async () => {
   await runtime.dispose()
-  rmSync(myr, { recursive: true, force: true })
-  rmSync(outside, { recursive: true, force: true })
+  removeTempDir(myr)
+  removeTempDir(outside)
 }
 
 const tool = (name: string, args: Record<string, unknown>): MockContent => ({
