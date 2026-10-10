@@ -299,6 +299,30 @@ server down). Letters are fix groups; each group owns its files so they can be w
 
 Open work, in the order it will be done:
 
+0. - [x] **Answers stay in the question card** (done, merged to develop) — answering a question card
+      sent a separate "question → answer" bubble and started the next round under a divider; the card should show the
+      picks itself (kept across reloads, with the read receipt) and the round continue seamlessly.
+0. - [x] **Next-word suggestions in the composer, Tab to accept** (done, merged to develop) — history → next
+      word → finish word; saved 43.6% of keystrokes on 3,530 real prompts vs 34.6% Warp-style, 24.7% zsh.
+0. - [x] **Neural next-word fallback** (done, merged to develop; Pythia-14M, off by default) — Settings → General
+      "Smarter next words" downloads the pinned 17 MB model; the composer asks it after a space when history has
+      nothing, shown at ≥ 0.3 confidence, a few ms a word.
+0. - [ ] **Agent feedback, round 2** (2026-10-09; report: probe chat `i-built-this-harness…`, artifact
+      `myrmidon-feedback.md` §0). In order:
+      1. A task with no required files can never pass: `Verifier.verifyTask` (verifier.ts:51) fails any task with
+         `artifacts: []` ("no artifacts were submitted"), even when its brief says "a note + a message, no files". Let
+         a task whose `outputs` are empty pass on its note/message, or make `create_task` require outputs; and have
+         `submit_task` warn at once instead of an async rejection.
+      2. `ask_crewmate(to: <unknown name>)` silently creates a new crewmate (colony.ts `askCrewmate`): validate
+         against the crew, or say "not on the crew, bringing in <name> as …" in the result and the tool description.
+      3. Sandboxed shell `env` exposes the host `$PATH` (app names, ~/Desktop/Myrmidon): give sandboxed commands a
+         minimal PATH of toolchains only (check against the sandbox-reads work).
+      4. `run_checks` outside a project has no typecheck path: let it run in the agent's scratch folder when there is
+         a package.json/tsconfig there.
+      5. A non-member can read a group but not reply; `read_messages` right after `update_group(remove)` showed the
+         old members once (read-after-write race): check `host.state()` freshness after append.
+      6. Leftovers from the probe (task1-findings.md, task2-findings.md, earlier probe files and tools) — the person
+         chose to keep round-1 leftovers; ask before removing.
 0. - [x] **Schedules at any time** (done, merged to develop) — presets were fixed at 9:00; now a
       repeat (hour, day, weekdays, chosen days, monthly, custom cron), a time and days, said in plain words, and
       Change edits a saved schedule.
@@ -473,7 +497,7 @@ Open work, in the order it will be done:
       (serve over http); crewmate briefs wrong ("solo", tools they lack, two finishing rules); made tools not callable until
       find_tools; find_tools silently drops tools; read_log shows only the first line; repeated prompt text, irrelevant
       skills, tool names differing between prompt and tool list, reviewer not mentioned, mixed time zones.
-12q. - [ ] **Prompts rewritten** — study omp, Qwen Code, Hermes (and others) harness prompts, document them in docs/research,
+12q. - [x] **Prompts rewritten** (done, merged 2c176a1; left: eval A/B, learned rules, failure counts per family, descriptions from transcripts) — study omp, Qwen Code, Hermes (and others) harness prompts, document them in docs/research,
       then rewrite Myrmidon's prompts to that standard.
       The person: match the best of the other harnesses; nothing static — assembled from guarded sections per role, live
       tool list, model family, run state and environment; and evolving — learned rules from runs and feedback, prompt
@@ -492,13 +516,31 @@ Open work, in the order it will be done:
       Clicking it again and again confuses it: swirling eyes, every crew cursor falls with gravity and slowly recovers.
       Crew cursors get their own mechanics (Reynolds steering: wander, arrive, flee, separation; personalities),
       react to the eyes, and are named after random Minions.
-12t. - [ ] **One permission model: global, project, chat** (asked 2026-10-09: "I cannot keep approving tool calls, mcp
+12t. - [x] **One permission model: global, project, chat** (asked 2026-10-09: "I cannot keep approving tool calls, mcp
       calls etc; the ui should be well thought out", like Claude Code and Codex) — today approvals are spread over
       Settings → Tools rules, project modes, chat grants (file/command only) and full access; MCP has no per-chat or
       per-project allow and approval cards have no "don't ask again for this tool/server". Also: a team lead has no web, browser, shell or
       file tools (hard-coded in patterns.ts) and nothing lets the person change it; the lead then told the person the
       team had no browser. Decided: presets + rules, cards once/chat/project/everywhere, Auto default, hands-on lead
       by default with a role x tool-group control. Building on branch `permissions`.
+12u. - [x] **Voice providers from Models & providers** (done, merged f3188ec; untested with real keys) (asked 2026-10-09) — any cloud STT/TTS and realtime
+      (speech-to-speech) provider, configured in Settings → Models & providers like LLM providers, after Pipecat and
+      similar repos; Settings → Voice picks among the configured ones and links to Models & providers to add more.
+      Today: Phonon/Kitten locally, omp, or one OpenAI-compatible endpoint with keys in voice/secrets.json.
+12v. - [x] **Themes like VS Code, and more mascot settings** (done, merged) (asked 2026-10-09) — the themes developers love
+      (research which), applied to the whole UI; more ways to tune the mascot.
+12w. - [ ] **Search in Settings, like iPhone Settings** (asked 2026-10-09: "settings is not searchable and very
+      confusing to find an option") — a search field at the top of Settings; every setting indexed with its page,
+      section, label, help text and synonyms ("dark mode" → Theme, "api key" → Models & providers, "mic" → Voice);
+      results as rows with a breadcrumb (Voice › Speech to text), keyboard first (⌘F / ⌘K, arrows, Enter); choosing one
+      opens its page, scrolls to it and highlights it briefly. Built after the voice and themes branches merge.
+      Never out of date (asked 2026-10-10): one settings registry is the single source — each entry declares id,
+      page, section, label, help, keywords and its control — and the Settings pages render their rows from it, so
+      search reads the same data the screen shows. Guards: (1) a DOM test renders every page and fails on any control
+      without a registry id, or any registry entry that no page renders; (2) a test fails when a key in the runtime
+      settings schema (settings.ts) has no registry entry or an explicit "not shown" mark; (3) dynamic rows (providers,
+      models, MCP servers, plugins, specialists, channels) are indexed from live data through the same registry hook;
+      (4) a short rule in CLAUDE.md/AGENTS.md: add a setting by adding a registry entry. Then tidy the page groups.
 12l. - [x] **Full access, no sandbox** (asked 2026-10-09, like Hermes) — global switch in Settings → Tools (default on)
       and a per-project Full access; lifts the command sandbox, file-path limits and the private-address rule; approvals
       still apply; channel members and read-only projects stay sandboxed. Left: Windows (unconfined commands still use

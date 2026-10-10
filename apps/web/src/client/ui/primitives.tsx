@@ -358,7 +358,7 @@ export function Segmented<T extends string>(props: {
   id: string
 }) {
   return (
-    // Never squeezed by a long hint beside it: its labels stay on one line and the hint wraps instead.
+    // Never squeezed by a long description beside it: each label stays on one line.
     <div className="inline-flex shrink-0 rounded-md bg-fill-strong p-[2px]">
       {props.options.map((o) => (
         <button
@@ -375,7 +375,7 @@ export function Segmented<T extends string>(props: {
             <motion.span
               layoutId={`seg-${props.id}`}
               transition={spring}
-              className="absolute inset-0 rounded-sm bg-thumb shadow-[0_0.5px_2px_rgb(0_0_0/0.18),0_0_0_0.5px_rgb(0_0_0/0.05)]"
+              className="absolute inset-0 rounded-sm bg-segment-on shadow-[0_0.5px_2px_rgb(0_0_0/0.25),0_0_0_0.5px_rgb(0_0_0/0.08)]"
             />
           )}
           <span className="relative inline-flex items-center gap-1.5">{o.label}</span>

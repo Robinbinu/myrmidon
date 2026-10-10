@@ -57,7 +57,8 @@ export function inputSchema(inputs: readonly MadeToolInput[]) {
   return {
     type: 'object',
     properties: Object.fromEntries(
-      inputs.map((i) => [i.name, { type: i.type, ...(i.description ? { description: i.description } : {}) }]),
+      // A tool saved before inputs needed describing still tells its callers the input's name and type.
+      inputs.map((i) => [i.name, { type: i.type, description: i.description || `${i.name} (${i.type})` }]),
     ),
     required: inputs.filter((i) => !i.optional).map((i) => i.name),
     additionalProperties: false,

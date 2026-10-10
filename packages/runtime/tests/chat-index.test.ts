@@ -149,3 +149,30 @@ test('an index from before the trigram index existed is filled from its messages
   expect(again.search('book', []).map((h) => h.chatId)).toEqual(['chat-c', 'chat-b', 'chat-a'])
   consistent()
 })
+
+test("the person's own messages are listed for suggestions, most recent first, each once", () => {
+  const chats = open()
+  chats.noteMessages(
+    'col-a',
+    round('col-a', 'chat-a', [
+      ['user', 'run the tests'],
+      ['lead', 'All 12 pass.'],
+      ['user', 'thanks'],
+    ]),
+  )
+  chats.noteMessages(
+    'col-b',
+    round(
+      'col-b',
+      'chat-b',
+      [
+        ['user', 'run the tests'],
+        ['user', 'summarize the diff'],
+      ],
+      10,
+    ),
+  )
+  // Agents' messages are not the person's words; a message sent twice is offered once, from its latest use.
+  expect(chats.said(10)).toEqual(['summarize the diff', 'run the tests', 'thanks'])
+  expect(chats.said(1)).toEqual(['summarize the diff'])
+})

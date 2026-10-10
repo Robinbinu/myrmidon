@@ -11,7 +11,13 @@ import {
   rulesFromToolDict,
   type SetupState,
 } from '@myrmidon/protocol'
-import { DEFAULT_COST_USD, MAX_READ_FOLDERS } from './config.ts'
+import {
+  DEFAULT_COST_USD,
+  MAX_CREW_NAMES,
+  MAX_IMPORTED_THEMES,
+  MAX_READ_FOLDERS,
+  MAX_THEME_COLORS,
+} from './config.ts'
 
 /** Tool groups a saved specialist can be kept out of (Settings → Specialists). */
 export const TOOL_GROUPS = {
@@ -63,11 +69,11 @@ export interface MyrSettings {
     readHome?: boolean
   }
   /**
-   * Computer use: agents may see and control the person's Mac (through Cua Driver), one app at a time once the person
-   * approves it in the chat. Off until the person turns it on; separate from the sandbox, and never given to rounds a
-   * channel member started.
+   * Computer use: agents may see and control the person's Mac, once the person approves it in the chat. Off until the
+   * person turns it on; separate from the sandbox, and never given to rounds a channel member started. `engine`: Cua
+   * Driver (one approved app at a time; the default when absent) or omp's desktop engine (scripts, approved each time).
    */
-  computerUse: { enabled: boolean }
+  computerUse: { enabled: boolean; engine?: 'cua' | 'omp' }
   /** An omp search provider id (e.g. `brave`, `exa`, `duckduckgo`) or `auto` for omp's fallback chain. */
   search: { provider: string }
   /** `reviewer`: off never reviews; auto lets the speaking agent ask (request_review); always reviews every final answer. */
@@ -93,26 +99,68 @@ export interface MyrSettings {
     look: 'neutral' | 'flower' | 'bow'
     color: 'amber' | 'ice' | 'mint' | 'pink' | 'violet' | 'white'
     screen: 'face' | 'clock' | 'name' | 'crew' | 'rotate'
+    /** How often it plays a trick while left alone. */
+    idle: 'off' | 'rare' | 'normal' | 'often'
+    /** The shows that may take its whole screen. */
+    shows: { pacman: boolean; life: boolean; confetti: boolean; boot: boolean }
+    /** `calm`: no bouncing, dizzy spells or knocked-over crew, and only quiet eye tricks. */
+    temper: 'calm' | 'playful'
+    /** The crew cursors around it: whether they show, how many, whose names they wear, and how bold they are. */
+    crew: {
+      show: boolean
+      count: number
+      names: 'minions' | 'specialists' | 'custom'
+      custom: string[]
+      boldness: 'shy' | 'curious' | 'bold'
+    }
+    /** Its dot screen: the dots' shape, the unlit grid, the glow, the eyes' colour (its own or the theme's), the size. */
+    display: {
+      dots: 'led' | 'round' | 'square'
+      grid: 'faint' | 'tinted' | 'off'
+      glow: 'off' | 'soft' | 'strong'
+      eyeColor: 'own' | 'theme'
+      size: 'small' | 'medium' | 'large'
+    }
+    /** Soft blips made in the page (Web Audio) when it reacts and while the person types; off until turned on. */
+    sounds: { enabled: boolean; reactions: boolean; typing: boolean; volume: 'quiet' | 'normal' | 'loud' }
   }
   /**
-   * Voice calls: the call model (the lead's when unset), speech to text and text to speech (on this machine by
-   * default, omp's cloud models, or any OpenAI-compatible endpoint, whose keys live in `voice/secrets.json`), and how
-   * loud speech must be to count.
+   * VS Code themes the person imported (Settings → Appearance), cut down to the hex colours Myrmidon reads. Which theme
+   * is in use is kept by each browser, like light and dark.
+   */
+  appearance: { imported: ImportedTheme[] }
+  /**
+   * Voice calls: the call model (the lead's when unset), and how a call hears and speaks. `pipeline` (the default):
+   * speech to text, the call model, text to speech, each on this machine (Phonon-2, Kitten TTS), omp's cloud models,
+   * a voice provider set up in Settings → Models & providers, or the person's own OpenAI-compatible service;
+   * `realtime`: one speech-to-speech model does all three. Keys live in the credential vault with the model providers'
+   * (see voice/providers.ts), never here: this file is readable by others.
    */
   voice: {
     /** Voice calls are off until the person turns them on: nothing is downloaded or started before. */
     enabled: boolean
     callModel?: string
-    stt: { provider: 'phonon' | 'omp' | 'endpoint'; baseUrl?: string; model?: string }
+    mode: 'pipeline' | 'realtime'
+    /**
+     * `provider`: `phonon`, `omp`, a voice provider's id (`deepgram`…), or `endpoint:<id>` for one of `endpoints`;
+     * `model`: the provider's model, its default when unset.
+     */
+    stt: { provider: string; model?: string }
     tts: {
-      provider: 'kitten' | 'omp' | 'endpoint'
+      provider: string
+      model?: string
+      /** A cloud provider's voice id (Kitten's is `voice`); the provider's default when unset. */
+      voiceId?: string
       kittenModel: 'nano' | 'micro' | 'mini'
       voice: string
       speed: number
-      baseUrl?: string
-      model?: string
-      endpointVoice?: string
     }
+    /** The realtime model a `realtime` call uses: its provider (`openai`, `gemini`…), model and voice. */
+    realtime?: { provider?: string; model?: string; voice?: string }
+    /** Regions for the providers that need one (Azure, AWS, Speechmatics), by provider id. Not secret. */
+    regions?: Record<string, string>
+    /** The person's own speech services with the OpenAI audio API; each one's key is in the vault. */
+    endpoints?: VoiceEndpoint[]
     sensitivity: 'low' | 'normal' | 'high'
     /**
      * Phone calls on the SMS channel's Twilio number: answered (its voice webhook is pointed at this gateway) and
@@ -126,6 +174,33 @@ export interface MyrSettings {
    */
   setup?: SetupState
 }
+
+/** An imported VS Code theme as saved: only `#hex` colours, by VS Code key and by syntax role. */
+export interface ImportedTheme {
+  id: string
+  name: string
+  type: 'dark' | 'light'
+  colors: Record<string, string>
+  syntax: Record<string, string>
+}
+
+const HEX_COLOR = /^#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i
+const THEME_KEY = /^[A-Za-z][A-Za-z.]{0,59}$/
+const SYNTAX_ROLES = new Set(['comment', 'string', 'keyword', 'function', 'number'])
+
+/** An OpenAI-compatible speech service the person added (a local whisper, Kokoro or Piper server, Groq…). */
+export interface VoiceEndpoint {
+  /** How it is named in pickers (`endpoint:<id>`); lowercase letters, digits and dashes. */
+  id: string
+  /** Up to the API version, e.g. `http://localhost:8880/v1`. */
+  baseUrl: string
+  /** It takes no key. */
+  keyless?: boolean
+}
+
+export const VOICE_ENDPOINT_ID = /^[a-z][a-z0-9-]{0,30}$/
+/** What a voice provider choice may be: a fixed engine, a registry id, or one of the person's endpoints. */
+const VOICE_PROVIDER = /^([a-z][a-z0-9-]{1,30}|endpoint:[a-z][a-z0-9-]{0,30})$/
 
 export const settingsSchema = Schema.object({
   version: Schema.const(1).default(1),
@@ -148,7 +223,10 @@ export const settingsSchema = Schema.object({
     ).max(MAX_READ_FOLDERS),
     readHome: Schema.boolean(),
   }).default({}),
-  computerUse: Schema.object({ enabled: Schema.boolean().default(false) }).default({}),
+  computerUse: Schema.object({
+    enabled: Schema.boolean().default(false),
+    engine: Schema.union(['cua', 'omp']).default('cua'),
+  }).default({}),
   search: Schema.object({
     provider: Schema.string()
       .pattern(/^[a-z][a-z0-9-]{1,30}$/)
@@ -181,24 +259,84 @@ export const settingsSchema = Schema.object({
     look: Schema.union(['neutral', 'flower', 'bow']).default('neutral'),
     color: Schema.union(['amber', 'ice', 'mint', 'pink', 'violet', 'white']).default('amber'),
     screen: Schema.union(['face', 'clock', 'name', 'crew', 'rotate']).default('rotate'),
+    idle: Schema.union(['off', 'rare', 'normal', 'often']).default('normal'),
+    shows: Schema.object({
+      pacman: Schema.boolean().default(true),
+      life: Schema.boolean().default(true),
+      confetti: Schema.boolean().default(true),
+      boot: Schema.boolean().default(true),
+    }).default({}),
+    temper: Schema.union(['calm', 'playful']).default('playful'),
+    crew: Schema.object({
+      show: Schema.boolean().default(true),
+      count: Schema.natural().min(1).max(6).default(3),
+      names: Schema.union(['minions', 'specialists', 'custom']).default('minions'),
+      custom: Schema.array(Schema.string().max(16)).max(MAX_CREW_NAMES).default([]),
+      boldness: Schema.union(['shy', 'curious', 'bold']).default('curious'),
+    }).default({}),
+    display: Schema.object({
+      dots: Schema.union(['led', 'round', 'square']).default('led'),
+      grid: Schema.union(['faint', 'tinted', 'off']).default('faint'),
+      glow: Schema.union(['off', 'soft', 'strong']).default('soft'),
+      eyeColor: Schema.union(['own', 'theme']).default('own'),
+      size: Schema.union(['small', 'medium', 'large']).default('medium'),
+    }).default({}),
+    sounds: Schema.object({
+      enabled: Schema.boolean().default(false),
+      reactions: Schema.boolean().default(true),
+      typing: Schema.boolean().default(true),
+      volume: Schema.union(['quiet', 'normal', 'loud']).default('quiet'),
+    }).default({}),
+  }).default({}),
+  appearance: Schema.object({
+    imported: Schema.array(
+      Schema.object({
+        id: Schema.string()
+          .pattern(/^imported-[a-z0-9]{1,16}$/)
+          .required(),
+        name: Schema.string().max(60).required(),
+        type: Schema.union(['dark', 'light']).required(),
+        colors: Schema.dict(Schema.string().pattern(HEX_COLOR)).default({}),
+        syntax: Schema.dict(Schema.string().pattern(HEX_COLOR)).default({}),
+      }),
+    )
+      .max(MAX_IMPORTED_THEMES)
+      .default([]),
   }).default({}),
   voice: Schema.object({
     enabled: Schema.boolean().default(false),
     callModel: Schema.string(),
+    mode: Schema.union(['pipeline', 'realtime']).default('pipeline'),
     stt: Schema.object({
-      provider: Schema.union(['phonon', 'omp', 'endpoint']).default('phonon'),
-      baseUrl: Schema.string().max(500),
+      provider: Schema.string().pattern(VOICE_PROVIDER).default('phonon'),
       model: Schema.string().max(200),
     }).default({}),
     tts: Schema.object({
-      provider: Schema.union(['kitten', 'omp', 'endpoint']).default('kitten'),
+      provider: Schema.string().pattern(VOICE_PROVIDER).default('kitten'),
+      model: Schema.string().max(200),
+      voiceId: Schema.string().max(200),
       kittenModel: Schema.union(['nano', 'micro', 'mini']).default('nano'),
       voice: Schema.string().max(60).default('Leo'),
       speed: Schema.number().min(0.5).max(2).default(1),
-      baseUrl: Schema.string().max(500),
-      model: Schema.string().max(200),
-      endpointVoice: Schema.string().max(60),
     }).default({}),
+    realtime: Schema.object({
+      provider: Schema.string().pattern(VOICE_PROVIDER),
+      model: Schema.string().max(200),
+      voice: Schema.string().max(200),
+    }).default({}),
+    regions: Schema.dict(Schema.string().pattern(/^[a-z0-9-]{2,40}$/)).default({}),
+    endpoints: Schema.array(
+      Schema.object({
+        id: Schema.string().pattern(VOICE_ENDPOINT_ID).required(),
+        baseUrl: Schema.string()
+          .pattern(/^https?:\/\//)
+          .max(500)
+          .required(),
+        keyless: Schema.boolean(),
+      }),
+    )
+      .max(20)
+      .default([]),
     sensitivity: Schema.union(['low', 'normal', 'high']).default('normal'),
     phone: Schema.boolean().default(false),
   }).default({}),
@@ -246,12 +384,69 @@ function globalPermissions(input: unknown): GlobalPermissions {
   return { preset, rules: level.rules, ...(kept.lead || kept.crew ? { access: kept } : {}) }
 }
 
+/**
+ * Voice settings from before voice providers: one OpenAI-compatible address per direction (`provider: 'endpoint'`,
+ * `baseUrl`, `model`, `endpointVoice`) becomes one of the person's endpoints, named for what it was for
+ * (`endpoint` when both used the same address, else `endpoint-stt` / `endpoint-tts`; their keys move to the vault
+ * under those names, see VOICE_LEGACY_KEYS), and the choice names it. Other choices (Phonon-2, Kitten, omp) are kept.
+ */
+function legacyVoice(voice: unknown): unknown {
+  if (!voice || typeof voice !== 'object') return voice
+  const v = voice as Record<string, unknown> & { endpoints?: unknown }
+  const stt = (v.stt ?? {}) as Record<string, unknown>
+  const tts = (v.tts ?? {}) as Record<string, unknown>
+  const url = (x: unknown) =>
+    typeof x === 'string' && /^https?:\/\//.test(x) ? x.trim().replace(/\/+$/, '') : ''
+  const sttUrl = url(stt.baseUrl)
+  const ttsUrl = url(tts.baseUrl)
+  const legacy =
+    stt.provider === 'endpoint' || tts.provider === 'endpoint' || 'baseUrl' in stt || 'baseUrl' in tts
+  if (!legacy) return voice
+  const shared = sttUrl && sttUrl === ttsUrl
+  const sttId = shared ? 'endpoint' : 'endpoint-stt'
+  const ttsId = shared ? 'endpoint' : 'endpoint-tts'
+  const endpoints = Array.isArray(v.endpoints) ? [...v.endpoints] : []
+  const add = (id: string, baseUrl: string) => {
+    if (baseUrl && !endpoints.some((e) => (e as { id?: unknown }).id === id)) endpoints.push({ id, baseUrl })
+  }
+  add(sttId, sttUrl)
+  add(ttsId, ttsUrl)
+  const { baseUrl: _sb, model: sttModel, ...sttRest } = stt
+  const { baseUrl: _tb, model: ttsModel, endpointVoice, ...ttsRest } = tts
+  return {
+    ...v,
+    endpoints,
+    stt:
+      stt.provider === 'endpoint'
+        ? { ...sttRest, provider: `endpoint:${sttId}`, ...(sttModel ? { model: sttModel } : {}) }
+        : sttRest,
+    tts:
+      tts.provider === 'endpoint'
+        ? {
+            ...ttsRest,
+            provider: `endpoint:${ttsId}`,
+            ...(ttsModel ? { model: ttsModel } : {}),
+            ...(endpointVoice ? { voiceId: endpointVoice } : {}),
+          }
+        : ttsRest,
+  }
+}
+
+/** Where each key of the old `voice/secrets.json` goes in the vault: the endpoint legacyVoice made for it. */
+export const VOICE_LEGACY_KEYS = {
+  shared: 'endpoint',
+  stt: 'endpoint-stt',
+  tts: 'endpoint-tts',
+} as const
+
 /** Validates, then keeps only known fields: the schema passes unknown keys (e.g. from older versions) through. */
 function parse(input: unknown): MyrSettings {
   // Older files say `auto`/`manual`; both were lead-run teams.
   const raw = (input ?? {}) as { team?: { mode?: unknown } }
   if (raw.team && (raw.team.mode === 'auto' || raw.team.mode === 'manual'))
     input = { ...raw, team: { ...raw.team, mode: 'orchestrated' } }
+  const voice = (input as { voice?: unknown } | undefined)?.voice
+  if (voice !== undefined) input = { ...(input as object), voice: legacyVoice(voice) }
   const s = settingsSchema((input ?? {}) as never) as MyrSettings
   // The schema fills in an absent setup; absent must stay absent, so the first read can still decide it.
   const setup = (input as { setup?: unknown } | undefined)?.setup !== undefined ? s.setup : undefined
@@ -262,7 +457,10 @@ function parse(input: unknown): MyrSettings {
       ...(s.sandbox.read?.length ? { read: [...new Set(s.sandbox.read.map((f) => f.trim()))] } : {}),
       ...(s.sandbox.readHome ? { readHome: true } : {}),
     },
-    computerUse: { enabled: s.computerUse.enabled },
+    computerUse: {
+      enabled: s.computerUse.enabled,
+      ...(s.computerUse.engine === 'omp' ? { engine: 'omp' as const } : {}),
+    },
     search: { provider: s.search.provider },
     verification: s.verification,
     instructions: s.instructions,
@@ -274,15 +472,27 @@ function parse(input: unknown): MyrSettings {
       greeting: s.profile.greeting,
       titles: s.profile.titles,
     },
-    mascot: s.mascot,
-    voice: {
-      enabled: s.voice.enabled,
-      ...(s.voice.callModel ? { callModel: s.voice.callModel } : {}),
-      stt: s.voice.stt,
-      tts: s.voice.tts,
-      sensitivity: s.voice.sensitivity,
-      phone: s.voice.phone,
+    mascot: {
+      ...s.mascot,
+      crew: {
+        ...s.mascot.crew,
+        custom: [...new Set(s.mascot.crew.custom.map((n) => n.trim()).filter(Boolean))],
+      },
     },
+    appearance: {
+      imported: [...new Map(s.appearance.imported.map((t) => [t.id, t])).values()].map((t) => ({
+        id: t.id,
+        name: t.name.trim(),
+        type: t.type,
+        colors: Object.fromEntries(
+          Object.entries(t.colors)
+            .filter(([k]) => THEME_KEY.test(k))
+            .slice(0, MAX_THEME_COLORS),
+        ),
+        syntax: Object.fromEntries(Object.entries(t.syntax).filter(([k]) => SYNTAX_ROLES.has(k))),
+      })),
+    },
+    voice: voiceSettings(s.voice),
     ...(setup
       ? {
           setup: {
@@ -292,6 +502,43 @@ function parse(input: unknown): MyrSettings {
           },
         }
       : {}),
+  }
+}
+
+/** The voice settings with only what is set: no empty realtime choice, regions or endpoints. */
+function voiceSettings(v: MyrSettings['voice']): MyrSettings['voice'] {
+  const realtime = Object.fromEntries(
+    Object.entries(v.realtime ?? {}).filter(([, x]) => typeof x === 'string' && x.trim()),
+  )
+  const endpoints = [
+    ...new Map(
+      (v.endpoints ?? []).map((e) => [
+        e.id,
+        { id: e.id, baseUrl: e.baseUrl.trim().replace(/\/+$/, ''), ...(e.keyless ? { keyless: true } : {}) },
+      ]),
+    ).values(),
+  ]
+  const regions = Object.fromEntries(Object.entries(v.regions ?? {}).filter(([, r]) => r))
+  const set = <T extends object>(o: T) =>
+    Object.fromEntries(Object.entries(o).filter(([, x]) => x !== undefined && x !== '')) as T
+  return {
+    enabled: v.enabled,
+    ...(v.callModel ? { callModel: v.callModel } : {}),
+    mode: v.mode,
+    stt: set({ provider: v.stt.provider, model: v.stt.model }),
+    tts: set({
+      provider: v.tts.provider,
+      model: v.tts.model,
+      voiceId: v.tts.voiceId,
+      kittenModel: v.tts.kittenModel,
+      voice: v.tts.voice,
+      speed: v.tts.speed,
+    }),
+    ...(Object.keys(realtime).length ? { realtime } : {}),
+    ...(Object.keys(regions).length ? { regions } : {}),
+    ...(endpoints.length ? { endpoints } : {}),
+    sensitivity: v.sensitivity,
+    phone: v.phone,
   }
 }
 

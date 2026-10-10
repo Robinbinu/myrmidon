@@ -528,6 +528,7 @@ export const copy = {
       'permissions/changed': 'permissions changed',
       'plugin/event': 'plugin event',
       'agent/compacted': 'older messages summarized',
+      'agent/prompt': 'prompt assembled',
       'agent/model': 'model switched',
       'tool/created': 'tool made',
       'chat/user': 'message from you',
@@ -1009,7 +1010,8 @@ export const copy = {
         { keys: ['Alt', 'Enter'], does: 'During a run, send the other way (now or when done)' },
         { keys: ['/'], does: 'Commands, typed at the start of a message' },
         { keys: ['@'], does: 'Write directly to a crewmate by name' },
-        { keys: ['Tab'], does: 'Complete the highlighted command' },
+        { keys: ['Tab'], does: 'Complete the highlighted command, or take the next word of a suggestion' },
+        { keys: ['→'], does: 'Take the whole suggestion (grey text after the cursor)' },
         { keys: ['Esc'], does: 'Close this menu and keep what you typed' },
       ],
     },
@@ -1363,6 +1365,9 @@ export const copy = {
     skipAll: (n: number) => (n === 1 ? 'Skip, you decide' : 'Skip all, you decide'),
     send: (n: number) => (n === 1 ? 'Send answer' : 'Send answers'),
     sending: 'Sending…',
+    /** The card's footer once answered: the answer lives in the card, not in a message of its own. */
+    answered: 'Answered',
+    readBy: (names: readonly string[]) => `Read by ${names.join(', ')}`,
     pickAny: 'Pick any that apply',
     other: 'Other: type your own answer',
     /** Placeholder once the person picked an option that means they will type the rest. */
@@ -1776,6 +1781,18 @@ export const copy = {
     warning:
       'Agents will see the windows of apps you allow and can click and type in them as you. What they see on screen can try to trick them; allow only apps the task needs, and watch while they work.',
     turnOff: 'Turn off',
+    engineTitle: 'Engine',
+    engineNote: 'What agents use your Mac through.',
+    engines: {
+      cua: {
+        label: 'Cua Driver',
+        hint: 'One app at a time, each approved once per chat, with view-only and click-only apps. The default.',
+      },
+      omp: {
+        label: 'omp desktop engine',
+        hint: 'Agents write short scripts against every window and its accessibility tree (oh-my-pi, MIT). Looking is approved once per chat; every script that clicks, types or opens an app asks first, unless you allow it for the chat. Scripts run in Myrmidon itself, outside the sandbox.',
+      },
+    },
     driverTitle: 'Cua Driver',
     driverNote: 'The open-source driver agents use your Mac through (trycua, MIT).',
     driverStates: {
@@ -1817,6 +1834,11 @@ export const copy = {
       'Terminals and code editors: click only, unless you give full control in the chat.',
       'Everything else: see, click and type.',
       'Finder, terminals and System Settings show a warning before you allow them. Myrmidon itself is never shown to agents.',
+    ],
+    ompTiers: [
+      'Looking (window lists, screenshots, accessibility trees, the clipboard): you approve it once per chat, for every window on your screen, Myrmidon’s too.',
+      'Scripts that click, type or open apps: you see each script and approve it, or allow them for the chat from its card.',
+      'No app is view-only here: the per-app limits apply to Cua Driver only.',
     ],
     appsTitle: 'Apps you allowed in chats',
     appsNote: 'Each chat asks once per app; take one back here.',
@@ -1956,6 +1978,8 @@ export const copy = {
     lead: {
       thinking: 'Thinking',
       waiting: 'Waiting for your reply',
+      /** A round that ended on a question the person has since answered. */
+      asked: 'Asked you',
       /** The run is paused on a call the person has to approve. */
       approval: 'Waiting for you to allow a step',
       toTeam: 'Bringing in crewmates',
@@ -2653,8 +2677,9 @@ export const copy = {
       range: (min: string, max: string) => `Between ${min} and ${max}.`,
     },
     sections: {
-      general: { label: 'General', hint: 'Theme, motion, shortcuts' },
-      mascot: { label: 'You & mascot', hint: 'Your name, the greeting, its look' },
+      general: { label: 'General', hint: 'Motion, notifications, shortcuts' },
+      appearance: { label: 'Appearance', hint: 'Light, dark and VS Code themes' },
+      mascot: { label: 'You & mascot', hint: 'Your name, its look, how lively it is' },
       specialists: { label: 'Specialists', hint: 'Agents you keep and bring back' },
       devices: { label: 'Devices', hint: 'Who can use this Myrmidon' },
       gateways: { label: 'Gateways', hint: 'Other Myrmidons, one window' },
@@ -2702,19 +2727,64 @@ export const copy = {
     },
     general: {
       title: 'General',
-      intro: 'How Myrmidon looks and feels on this device.',
-      theme: 'Theme',
-      themeHint: 'System follows your operating system.',
+      intro: 'How Myrmidon feels on this device.',
       themeSystem: 'System',
       themeLight: 'Light',
       themeDark: 'Dark',
       reduceMotion: 'Reduce motion',
       reduceMotionHint: 'Turn off animations and transitions.',
+      suggest: 'Suggest as I type',
+      suggestHint:
+        'Grey text after the cursor from what you have written before: Tab takes the next word, → takes it all, Esc hides it. Worked out on this device; nothing is sent anywhere.',
+      suggestModel: 'Smarter next words',
+      suggestModelHint: (mb: number) =>
+        `When nothing you wrote before fits, a small language model (Pythia-14M) guesses the next word. A ${mb} MB download, once; it runs on the computer Myrmidon runs on and sends nothing anywhere.`,
+      suggestModelDownloading: (mb: number) => `Downloading the ${mb} MB model…`,
+      suggestModelFailed: (error: string) => `The model could not be downloaded: ${error}`,
       setup: 'Setup assistant',
       setupHint: 'Go through the first-run steps again: models, crew, project, voice and the rest.',
       runSetup: 'Run setup again',
       setupStep: 'One step',
       setupStepHint: 'Open a single step on its own; when it is done you come back here.',
+    },
+    appearance: {
+      title: 'Appearance',
+      intro:
+        "Myrmidon's own look, or a theme developers love from VS Code, across the whole app: chats, code, diffs and the terminal. Hover or focus a theme to try it, Esc puts yours back, and a click keeps it. Kept on this device.",
+      gallery: 'Themes',
+      groups: { myrmidon: 'Myrmidon', dark: 'Dark', light: 'Light', imported: 'Imported' },
+      myrmidonHint: 'The default look, with its amber accent.',
+      inUse: 'In use',
+      by: (author: string) => `by ${author}`,
+      importTitle: 'Import a VS Code theme',
+      importHint:
+        "Paste a theme's .json or drop the file here. Only its colours are kept; text is adjusted where needed so it stays readable.",
+      importLabel: 'Theme file contents',
+      importPlaceholder:
+        '{ "name": "My theme", "type": "dark", "colors": { "editor.background": "#1e1e2e" } }',
+      chooseFile: 'Choose file…',
+      check: 'Preview',
+      add: 'Add and use',
+      cancel: 'Cancel',
+      dropped: (n: number) =>
+        `${n} ${n === 1 ? 'value was' : 'values were'} not ${n === 1 ? 'a colour' : 'colours'} and ${n === 1 ? 'was' : 'were'} left out.`,
+      ready: (name: string) => `${name} is ready. Try it here, then add it.`,
+      remove: (name: string) => `Delete ${name}`,
+      removeConfirm: 'Delete?',
+      importedName: 'Imported theme',
+      noImported: 'Themes you import show here.',
+      full: (n: number) => `You can keep ${n} imported themes; delete one to add another.`,
+      importErrors: {
+        empty: "Paste a theme's .json first, or drop the file here.",
+        tooBig: 'This file is too large for a colour theme.',
+        notJson: "This isn't valid JSON. Copy the whole theme file, including its first { and last }.",
+        notTheme: "This JSON isn't a VS Code colour theme: it has no colors section.",
+        include:
+          'This theme builds on another file (its "include"), which can\'t be followed from here. Paste the theme it includes, or a complete one.',
+        noBackground:
+          'This theme has no editor.background colour, so there is nothing to build the look from.',
+        unreadable: "This file couldn't be read.",
+      },
     },
     models: {
       title: 'Models',
@@ -3052,11 +3122,11 @@ export const copy = {
     voice: {
       title: 'Voice',
       intro:
-        'Call your crew from the chat. The call assistant talks with you on a fast model, hands real work to the crew as a run, and tells you when it is done. Your voice becomes text, and replies become speech, on this Mac or through a cloud or any OpenAI-compatible service.',
+        'Call your crew from the chat. The call assistant talks with you on a fast model, hands real work to the crew as a run, and tells you when it is done. Your voice becomes text, and replies become speech, on this Mac or through a voice provider you set up in Models & providers; or one realtime model does all of it.',
       enabled: 'Voice calls',
       /** Sizes are written like "1.3 MB", or empty when the server does not say. */
       enabledHint: (sizes: { detector: string; turn: string; kitten: string }) =>
-        `Off by default. Turning them on downloads, once, what is not here yet: the speech detector${sizes.detector && ` (${sizes.detector})`}, the turn model${sizes.turn && ` (${sizes.turn})`} and, for Kitten TTS, its model${sizes.kitten && ` (${sizes.kitten})`}. Phonon-2 is not installed for you: press Install below, and its model downloads the first time it starts. Cloud and endpoint engines download nothing. All are kept ready, so a call answers at once.`,
+        `Off by default. Turning them on downloads, once, what is not here yet: the speech detector${sizes.detector && ` (${sizes.detector})`}, the turn model${sizes.turn && ` (${sizes.turn})`} and, for Kitten TTS, its model${sizes.kitten && ` (${sizes.kitten})`}. Phonon-2 is not installed for you: press Install below, and its model downloads the first time it starts. Voice providers download nothing. All are kept ready, so a call answers at once.`,
       transcripts: (days: number) =>
         `Call transcripts are kept with their chat for ${days} days, then deleted.`,
       callModel: 'Call assistant model',
@@ -3067,10 +3137,49 @@ export const copy = {
       sttTitle: 'Speech to text',
       ttsTitle: 'Text to speech',
       engineLabel: 'Engine',
+      mode: 'Call mode',
+      modes: { pipeline: 'Pipeline', realtime: 'Realtime' },
+      modeHints: {
+        pipeline:
+          'Your words become text, the call assistant answers on its model, and its answer is spoken: each part is yours to choose below.',
+        realtime:
+          'One realtime model hears you, answers and speaks, so it replies sooner. It has the same tools: it hands work to the crew and puts approvals to you. Calls straight to the lead or a crew member still use speech to text and text to speech below.',
+      },
+      realtimeTitle: 'Realtime model',
+      realtimeProvider: 'Provider',
+      realtimeModel: 'Model',
+      realtimeVoice: 'Voice',
+      noRealtime: 'No realtime model is set up yet: add an OpenAI or Gemini key under Voice providers.',
+      directOnly: 'Used for calls straight to the lead or a crew member.',
+      /** The groups of the speech engine pickers. */
+      groups: {
+        local: 'On this computer',
+        omp: 'Your model providers’ speech models',
+        cloud: 'Voice providers',
+        missing: 'Voice providers without a key',
+        yours: 'Your own services',
+      },
+      needsKey: (provider: string) => `${provider} (needs a key)`,
+      needsRegion: (provider: string) => `${provider} (needs a region)`,
+      addProvider: 'Add a voice provider',
+      addProviderHint:
+        'Voice providers and their keys are set up in Models & providers, with your model providers.',
+      cloudHints: {
+        streams: (provider: string) =>
+          `${provider} hears you as you speak, so your words show while you talk; your audio is sent to ${provider}.`,
+        batch: (provider: string) => `Each turn is sent to ${provider} once you finish speaking.`,
+        speaks: (provider: string) =>
+          `What the call says is sent to ${provider}, and its voice plays as it is made.`,
+        speaksWhole: (provider: string) => `What the call says is sent to ${provider}, a sentence at a time.`,
+        endpoint: (address: string) => `Sent to ${address}.`,
+        fallback: 'If it fails mid-call, the call switches to the engine on this computer, when it is here.',
+      },
+      voicesLoading: 'Loading voices…',
+      endpointModel: 'Model',
+      endpointVoice: 'Voice',
       providers: {
         phonon: 'On-device speech recognition (Phonon-2)',
         omp: 'Cloud (your signed-in providers)',
-        endpoint: 'Your own service (OpenAI-compatible)',
         kitten: 'On-device voices (Kitten TTS)',
       },
       hints: {
@@ -3084,9 +3193,6 @@ export const copy = {
           models
             ? `Uses ${models}: what the call says is sent to that provider to be spoken.`
             : 'Needs an OpenAI or xAI key in Settings → Models; what the call says would be sent to that provider.',
-        endpoint: 'Any service with the OpenAI audio API: Groq, OpenAI, a local whisper or Kokoro server…',
-        endpointStt: 'Your audio is sent to this address to be transcribed.',
-        endpointTts: 'What the call says is sent to this address to be spoken.',
         plainHttp:
           'This address is plain http: your audio and the API key travel unencrypted. Use https unless the service runs on the same computer as Myrmidon.',
         kitten: 'KittenML’s small voices, run locally on the CPU; nothing is sent anywhere.',
@@ -3119,11 +3225,7 @@ export const copy = {
       install: 'Install',
       reinstall: 'Reinstall',
       download: 'Download',
-      baseUrl: 'Address',
       model: 'Model',
-      key: 'API key',
-      keySet: 'Saved; type a new one to replace it',
-      saveKey: 'Save key',
       kittenModel: 'Model size',
       kittenModels: {
         nano: 'Nano (fastest)',
@@ -3148,6 +3250,50 @@ export const copy = {
         callMeHint:
           'The Twilio number calls the SMS owner, who talks with the call assistant as on any call.',
         calling: (to: string) => `Calling ${to}…`,
+      },
+    },
+    /** Settings → Models & providers → Providers: the voice providers part. */
+    voiceProviders: {
+      heading: 'Voice providers',
+      intro:
+        'Speech to text, voices and realtime models for calls. Keys are kept in the same place as your model providers’ keys; where a voice provider is also a model provider (OpenAI, Gemini, Groq), the key you added for its models is used.',
+      tags: { stt: 'Speech to text', tts: 'Voice', realtime: 'Realtime' },
+      streams: 'streams',
+      key: {
+        stored: 'Key saved',
+        shared: (provider: string) => `Uses your ${provider} key`,
+        env: 'Key from the environment',
+        missing: 'No key yet',
+      },
+      addKey: 'Add key',
+      replaceKey: 'Replace key',
+      sharedKeyHint: (provider: string) =>
+        `This is the ${provider} model provider’s key too: add or replace it here, remove it under the model providers above.`,
+      remove: (provider: string) => `Remove ${provider}'s key`,
+      confirmRemove: 'Yes, remove key',
+      savedKey: (provider: string) => `Saved ${provider}'s key`,
+      removedKey: (provider: string) => `Removed ${provider}'s key`,
+      getKey: 'Get a key',
+      apiKey: 'API key',
+      accessKeyId: 'Access key ID',
+      secretAccessKey: 'Secret access key',
+      region: 'Region',
+      regionHint: 'Where your resource is, such as westeurope or us-east-1.',
+      regionSaved: (provider: string) => `Saved ${provider}'s region`,
+      endpoints: {
+        heading: 'Your own speech services',
+        note: 'Any service with the OpenAI audio API: a local whisper, Kokoro or Piper server, and others.',
+        add: 'Add a speech service',
+        name: 'Name',
+        nameHint: 'Lowercase, like kokoro; it is how Settings → Voice lists it.',
+        baseUrl: 'Address',
+        key: 'API key (if it needs one)',
+        connect: 'Add',
+        added: (name: string) => `Added ${name}`,
+        remove: (name: string) => `Remove ${name}`,
+        confirmRemove: 'Yes, remove service',
+        removed: (name: string) => `Removed ${name}`,
+        noKey: 'no key',
       },
     },
     gateways: {
@@ -3243,20 +3389,19 @@ export const copy = {
       greeting: 'Greeting',
       greetingHints: {
         model:
-          'Your lead model writes it from what happened while you were away. Uses a few hundred tokens when there is news.',
+          'A small, fast model you have (the one that names chats) writes it from what happened while you were away. A few hundred tokens when there is news.',
         rules: 'Written by Myrmidon itself, from the same facts. No model calls.',
       },
-      greetingModel: 'Lead',
+      greetingModel: 'Model',
       greetingRules: 'Built in',
       titles: 'Chat names',
       titlesHints: {
         model:
-          'Your lead model names each chat from what it is about after a run (a chat that is only "hi" so far waits). Names you give are kept.',
+          'A small, fast model you have names each chat from what it is about after a run (a chat that is only "hi" so far waits). Names you give are kept.',
         'first-message': 'Chats are named with their first message. No model calls.',
       },
       titlesModel: 'From the topic',
       titlesFirst: 'First message',
-      preview: 'Preview',
       eyes: 'Eyes',
       eyeStyles: { round: 'Round', happy: 'Happy', tall: 'Tall', sleepy: 'Sleepy', lashes: 'Lashes' },
       look: 'Look',
@@ -3271,6 +3416,72 @@ export const copy = {
         crew: 'Crew at work',
         face: 'Nothing',
       },
+      livePreview: 'Live preview of the mascot',
+      liveliness: 'Liveliness',
+      livelinessHint: 'How much it gets up to on its own on the new-chat view.',
+      idle: 'Tricks while left alone',
+      idleLevels: { off: 'Off', rare: 'Rarely', normal: 'Sometimes', often: 'Often' },
+      shows: 'Shows it may play',
+      showNames: { pacman: 'Pac-Man', life: 'Game of Life', confetti: 'Confetti', boot: 'Boot sweep' },
+      showHints: {
+        pacman: 'Now and then one eye eats a row of dots.',
+        life: 'Its screensaver after a long nap.',
+        confetti: 'When a run finishes.',
+        boot: 'A scanline as the screen switches on.',
+      },
+      temper: 'Temperament',
+      tempers: { calm: 'Calm', playful: 'Playful' },
+      temperHints: {
+        calm: 'No bouncing, dizzy spells or knocked-over crew; only quiet eye tricks.',
+        playful: 'Bounces when poked, gets dizzy when shaken, sneezes and plays games.',
+      },
+      crew: 'Crew cursors',
+      crewHint: 'The little cursors that wander around it and poke it, in windows wide enough for them.',
+      crewShow: 'Show crew cursors',
+      crewCount: 'How many',
+      crewNames: 'Names',
+      crewSources: { minions: 'Minions', specialists: 'Your specialists', custom: 'Your own' },
+      crewSourceHints: {
+        minions: 'Kevin, Stuart, Bob and friends.',
+        specialists: (n: number) =>
+          n === 0
+            ? 'You have no specialists yet, so Minions stand in.'
+            : `Named after your ${n} specialist${n === 1 ? '' : 's'}; Minions fill any spare places.`,
+        custom: 'Up to 8 names, separated by commas; Minions fill any spare places.',
+      },
+      crewCustom: 'Your names',
+      crewCustomPlaceholder: 'Ada, Grace, Linus',
+      boldness: 'Boldness',
+      boldnessLevels: { shy: 'Shy', curious: 'Curious', bold: 'Bold' },
+      boldnessHints: {
+        shy: 'Keep their distance, rarely poke it, and scatter at the slightest start.',
+        curious: 'A mix: some poke often, some hang back.',
+        bold: 'Poke it all the time and stand their ground.',
+      },
+      display: 'Screen look',
+      displayHint: 'How its dot screen is drawn.',
+      dots: 'Dots',
+      dotShapes: { led: 'LED', round: 'Round', square: 'Square' },
+      grid: 'Unlit dots',
+      grids: { faint: 'Faint', tinted: 'Tinted', off: 'Hidden' },
+      glow: 'Glow',
+      glows: { off: 'Off', soft: 'Soft', strong: 'Strong' },
+      eyeColor: 'Eye colour',
+      eyeColors: { own: 'Its own', theme: "Theme's accent" },
+      eyeColorHints: {
+        own: 'The colour chosen above, whatever the theme.',
+        theme: 'Follows the accent of the theme in Appearance; moods still bring their own colours.',
+      },
+      size: 'Size',
+      sizes: { small: 'Small', medium: 'Medium', large: 'Large' },
+      sounds: 'Sounds',
+      soundsHint: 'Soft blips made on the fly in this window. Off unless you turn them on.',
+      soundsOn: 'Play sounds',
+      soundReactions: 'When it reacts',
+      soundTyping: 'While you type',
+      volume: 'Volume',
+      volumes: { quiet: 'Quiet', normal: 'Normal', loud: 'Louder' },
+      testSound: 'Play a blip',
     },
     reviewer: {
       hints: {
@@ -3521,6 +3732,8 @@ export const copy = {
       openSettings: 'Open settings',
       send: 'Send message',
       newLine: 'New line',
+      takeWord: 'Take the next word of a suggestion',
+      takeSuggestion: 'Take the whole suggestion',
       close: 'Close sheets, menus and panels',
       muteCall: 'Mute or unmute a call',
       hangUp: 'Hang up a call',

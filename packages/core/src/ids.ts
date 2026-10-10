@@ -10,18 +10,12 @@ export function colonyId(value: string): ColonyId {
   return value as ColonyId
 }
 
-export function newColonyId(name: string): ColonyId {
-  const slug =
-    name
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 40) || 'colony'
-  const stamp = Date.now().toString(36)
-  const rand = crypto
-    .getRandomValues(new Uint8Array(3))
-    .reduce((s, b) => s + b.toString(16).padStart(2, '0'), '')
-  return colonyId(`${slug}-${stamp}-${rand}`)
+/**
+ * An opaque id: it names the colony's directory, which agents see in their paths, so it must not carry the chat's
+ * title or anything else from the interface. Older ids began with a slug of the title; they still load.
+ */
+export function newColonyId(): ColonyId {
+  return colonyId(`colony-${Date.now().toString(36)}-${hex(4)}`)
 }
 
 export function newEventId(): EventId {

@@ -1,6 +1,5 @@
 import { copy } from '../copy.ts'
 import { TIP_HEADING, turn } from '../ui/cursor.tsx'
-import { readStored, store } from '../ui/hooks.ts'
 import { agentColor } from '../ui/pixel.tsx'
 import {
   arrive,
@@ -19,7 +18,7 @@ import {
   type WanderState,
   wander,
 } from '../ui/steering.ts'
-import { CURSOR, MASCOT_CREW as K, MASCOT_GAZE_PX } from '../ui-config.ts'
+import { CREW_BOLDNESS, CURSOR, MASCOT_CREW as K, MASCOT_GAZE_PX } from '../ui-config.ts'
 
 /**
  * The crew cursors around the new-chat mascot, each steering itself (ui/steering.ts). Each picks a state the way
@@ -120,49 +119,33 @@ export function pickCrew(
   return picked
 }
 
-const CREW_KEY = 'myr-hero-crew'
-
 /**
- * The crew of this install: picked once and kept (in `storage`), so the same few people are around the mascot every
- * time it opens. A kept crew whose names are no longer on the list, or of the wrong size, is picked again.
+ * The crew for a visit: `count` cursors named from the person's own names first (their specialists or their list),
+ * with Minions filling any places left.
  */
-export function keptCrew(
+export function crewFor(
   count: number,
-  storage: { read(key: string): string; write(key: string, value: string): void } = {
-    read: (key) => readStored(key, ''),
-    write: store,
-  },
+  own: readonly string[] = [],
   random: Random = Math.random,
-  names: readonly string[] = copy.hero.crewNames,
 ): { name: string; color: string }[] {
-  try {
-    const kept: unknown = JSON.parse(storage.read(CREW_KEY) || 'null')
-    if (
-      Array.isArray(kept) &&
-      kept.length === Math.min(count, names.length) &&
-      new Set(kept).size === kept.length &&
-      kept.every((n) => typeof n === 'string' && names.includes(n))
-    )
-      return (kept as string[]).map((name) => ({ name, color: agentColor(name.toLowerCase()) }))
-  } catch {
-    // Unreadable or blocked storage: pick afresh.
-  }
-  const picked = pickCrew(count, random, names)
-  try {
-    storage.write(CREW_KEY, JSON.stringify(picked.map((p) => p.name)))
-  } catch {
-    // Storage full or blocked: this visit's crew still stands; the next picks again.
-  }
-  return picked
+  const mine = pickCrew(Math.min(count, own.length), random, own)
+  if (mine.length >= count) return mine
+  const taken = new Set(own.map((n) => n.toLowerCase()))
+  const minions = copy.hero.crewNames.filter((n) => !taken.has(n.toLowerCase()))
+  return [...mine, ...pickCrew(count - mine.length, random, minions)]
 }
 
-/** A new member at `at`, with a personality drawn from MASCOT_CREW's ranges. */
+/**
+ * A new member at `at`, with a personality drawn from MASCOT_CREW's ranges; how bold the person set the crew decides
+ * the ranges its curiosity and nerve come from.
+ */
 export function makeMember(
   spec: { name: string; color: string },
   at: Vec,
   random: Random = Math.random,
+  boldness: keyof typeof CREW_BOLDNESS = 'curious',
 ): Member {
-  const p = K.personality
+  const p = { ...K.personality, ...CREW_BOLDNESS[boldness] }
   return {
     ...spec,
     traits: {

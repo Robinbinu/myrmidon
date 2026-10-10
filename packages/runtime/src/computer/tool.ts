@@ -1,9 +1,11 @@
 /**
  * The `computer` tool: an agent sees and controls the person's Mac through Cua Driver, one approved app at a time.
  * One tool serves every model: OpenAI's native computer tool (pi-ai sends it as one when the model supports it), the
- * same tool rewritten into Anthropic's computer toolset (see agent.ts), and a plain function tool for the rest. Each
- * call is gated here: computer use on in Settings, never for a channel member's round, macOS grants present, the app
- * approved for the chat at a tier that allows the action, and consequential steps approved by the person.
+ * same tool rewritten into Anthropic's computer toolset (see agent.ts), and a plain function tool for the rest. Apps
+ * are opened and listed with `open_app` and `list_apps`, function tools beside it for every model, since neither
+ * provider's native tool has such actions. Each call is gated here: computer use on in Settings, never for a channel
+ * member's round, macOS grants present, the app approved for the chat at a tier that allows the action, and
+ * consequential steps approved by the person.
  */
 import type { AgentTool, AgentToolResult } from '@oh-my-pi/pi-agent-core'
 import { type ComputerToolCallMetadata, type Model, type } from '@oh-my-pi/pi-ai'
@@ -33,9 +35,12 @@ import {
   UnsupportedAction,
 } from './actions.ts'
 import { type AppTier, allows, appTier, appWarning, canRaise, isOwnApp, sendsOnReturn } from './apps.ts'
+import { desktopParameters } from './desktop.ts'
 import { ComputerStopped, type DriverResult, type Wait } from './driver.ts'
+import { blocked, needGrants } from './grants.ts'
+import { COMPUTER_TOOL, DESKTOP_TOOL, LIST_APPS_TOOL, OPEN_APP_TOOL } from './names.ts'
 
-export const COMPUTER_TOOL = 'computer'
+export { COMPUTER_TOOL, LIST_APPS_TOOL, OPEN_APP_TOOL } from './names.ts'
 
 const t = prompts.computer
 
@@ -75,8 +80,6 @@ interface Desk {
 }
 
 const desks = new WeakMap<ColonyHost, Map<string, Desk>>()
-/** What computer use waited for that the person was already shown this round. */
-const blockedOnce = new WeakMap<ColonyHost, Set<string>>()
 function deskOf(host: ColonyHost, agent: string): Desk {
   let byAgent = desks.get(host)
   if (!byAgent) {
@@ -91,9 +94,10 @@ function deskOf(host: ColonyHost, agent: string): Desk {
   return desk
 }
 
-const parameters = type({
+/** The computer tool's parameters, one schema for every action. */
+const computerParameters = type({
   action: type(
-    "'screenshot' | 'elements' | 'left_click' | 'right_click' | 'middle_click' | 'double_click' | 'triple_click' | 'click_element' | 'mouse_move' | 'left_click_drag' | 'scroll' | 'type' | 'key' | 'wait' | 'zoom' | 'cursor_position' | 'open_app' | 'list_apps'",
+    "'screenshot' | 'elements' | 'left_click' | 'right_click' | 'middle_click' | 'double_click' | 'triple_click' | 'click_element' | 'mouse_move' | 'left_click_drag' | 'scroll' | 'type' | 'key' | 'wait' | 'zoom' | 'cursor_position'",
   ).describe(prompts.tools.computer.params.action),
   'coordinate?': type('number').array().describe(prompts.tools.computer.params.coordinate),
   'start_coordinate?': type('number').array().describe(prompts.tools.computer.params.start_coordinate),
@@ -106,12 +110,38 @@ const parameters = type({
   'repeat?': type('number').describe(prompts.tools.computer.params.repeat),
   'duration?': type('number').describe(prompts.tools.computer.params.duration),
   'region?': type('number').array().describe(prompts.tools.computer.params.region),
-  'app?': type('string').describe(prompts.tools.computer.params.app),
-  'full_control?': type('boolean').describe(prompts.tools.computer.params.full_control),
   'query?': type('string').describe(prompts.tools.computer.params.query),
   'button?': type("'left' | 'right'").describe(prompts.tools.computer.params.button),
   'count?': type('number').describe(prompts.tools.computer.params.count),
 })
+
+const openAppParameters = type({
+  app: type('string').describe(prompts.tools.open_app.params.app),
+  'full_control?': type('boolean').describe(prompts.tools.open_app.params.full_control),
+})
+
+const listAppsParameters = type({})
+
+/**
+ * What the model reads about one of computer use's tools, both engines' (for the prompt lint and the tool list). Read
+ * when asked, not at load: desktop.ts reaches this module through tools.ts, so its schema may not exist yet then.
+ */
+export function computerToolSpec(
+  name: string,
+): { description: string; parameters: ReturnType<typeof type> } | undefined {
+  switch (name) {
+    case COMPUTER_TOOL:
+      return { description: prompts.tools.computer.description, parameters: computerParameters }
+    case OPEN_APP_TOOL:
+      return { description: prompts.tools.open_app.description, parameters: openAppParameters }
+    case LIST_APPS_TOOL:
+      return { description: prompts.tools.list_apps.description, parameters: listAppsParameters }
+    case DESKTOP_TOOL:
+      return { description: prompts.tools.desktop.description, parameters: desktopParameters }
+    default:
+      return undefined
+  }
+}
 
 /** The context pi-agent-core hands a tool (agent.ts sets it): the call's provider metadata and its batch. */
 interface CallContext {
@@ -124,7 +154,7 @@ export function computerTool(agent: string, host: ColonyHost, model: () => Model
     name: COMPUTER_TOOL,
     label: COMPUTER_TOOL,
     description: prompts.tools.computer.description,
-    parameters,
+    parameters: computerParameters,
     // OpenAI's computer-use models get the native tool; every other model this definition as a function tool.
     native: { type: 'computer' },
     intent: 'omit',
@@ -153,6 +183,41 @@ export function computerTool(agent: string, host: ColonyHost, model: () => Model
         () => [fromGeneric(String(input.action), input)],
         undefined,
         signal,
+      )
+    },
+  } as AgentTool
+}
+
+/**
+ * `open_app` or `list_apps`: function tools for every model, beside its computer tool, run like a computer action
+ * (the same checks, and the person's approval of each app).
+ */
+export function appTool(
+  name: typeof OPEN_APP_TOOL | typeof LIST_APPS_TOOL,
+  agent: string,
+  host: ColonyHost,
+  model: () => Model,
+): AgentTool {
+  return {
+    name,
+    label: name,
+    description: prompts.tools[name].description,
+    parameters: name === OPEN_APP_TOOL ? openAppParameters : listAppsParameters,
+    intent: 'omit',
+    approval: 'write',
+    concurrency: 'exclusive',
+    async execute(callId: string, params: unknown, signal?: AbortSignal) {
+      const input = (params ?? {}) as Record<string, unknown>
+      return run(
+        host,
+        agent,
+        model,
+        callId,
+        'generic',
+        () => [fromGeneric(name, input)],
+        undefined,
+        signal,
+        name,
       )
     },
   } as AgentTool
@@ -351,21 +416,12 @@ async function perform(
   if (!hub) throw new Error(t.notHere)
   if (!hub.enabled) throw new Error(t.off)
   if (hub.stopped(host.id)) throw new Error(t.stopped)
+  if (hub.engine !== 'cua') throw new Error(t.ompEngine)
   if (!hub.driver()) {
     await blocked(host, agent, 'install')
     throw new Error(t.missing)
   }
-  const grants = hub.grants()
-  const missing = [
-    ...(grants && !grants.screenRecording ? (['screen-recording'] as const) : []),
-    ...(grants && !grants.accessibility ? (['accessibility'] as const) : []),
-  ]
-  if (missing.length) {
-    await blocked(host, agent, 'grants', [...missing])
-    throw new Error(
-      t.grants(missing.map((m) => (m === 'screen-recording' ? 'Screen Recording' : 'Accessibility'))),
-    )
-  }
+  await needGrants(host, agent)
   // Apps are approved one at a time below; the permission model can also ask before every step, or refuse them all.
   const verdict = host.permit(agent, { tool: COMPUTER_TOOL, kind: 'other', readOnly: false })
   if (verdict.decision === 'deny')
@@ -393,24 +449,6 @@ async function perform(
   const look = await screenshot(host, desk, model())
   if (last) await keyframe(host, agent, desk, last, look.image)
   return { text: [...notes, look.text].join('\n'), image: look.image }
-}
-
-/** Tells the person, once per round, what computer use is waiting for (the chat shows a card with the way out). */
-async function blocked(
-  host: ColonyHost,
-  agent: string,
-  reason: 'install' | 'grants',
-  missing?: ('accessibility' | 'screen-recording')[],
-) {
-  const told = blockedOnce.get(host) ?? new Set<string>()
-  blockedOnce.set(host, told)
-  if (told.has(reason)) return
-  told.add(reason)
-  await host.append({
-    type: 'computer/blocked',
-    actor: agentActor(agent),
-    payload: { agent, reason, ...(missing ? { missing } : {}) },
-  })
 }
 
 /** One desktop action on the agent's app. */

@@ -504,6 +504,8 @@ export function currentStep(events: readonly MyrEvent[]): string | undefined {
         create_task: copy.steps.now.planningTasks,
         reply_user: copy.steps.now.writingReply,
         computer: copy.steps.now.usingMac,
+        open_app: copy.steps.now.usingMac,
+        list_apps: copy.steps.now.usingMac,
       }
       return copy.steps.now.doing(p.agent, what[p.tool] ?? copy.steps.now.using(p.tool))
     }

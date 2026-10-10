@@ -3,7 +3,7 @@ import { channelCopy } from '../channels/copy.ts'
 import { type TwilioAccount, twilioRequest, twilioSigned } from '../channels/sms.ts'
 import { PHONE_MESSAGE_MAX, PHONE_START_MS, PHONE_TICKET_MS } from '../config.ts'
 import { prompts } from '../prompts.ts'
-import { mulawDecode, mulawEncode, Resampler, resample } from './audio.ts'
+import { mulawDecode, mulawEncode, Resampler } from './audio.ts'
 import type { CallChats, CallOutput, CallSession } from './call.ts'
 import type { VoiceHub } from './hub.ts'
 
@@ -261,6 +261,11 @@ export class PhoneStream {
   private _sid?: string
   private _session?: CallSession
   private readonly _in = new Resampler(LINE_RATE, CALL_RATE)
+  /**
+   * The call's speech on its way to the line's rate: one resampler for the whole stream (speech that streams in comes
+   * in pieces, which resampled one by one would click at every seam), new when the rate changes or speech is cut.
+   */
+  private _outRes?: Resampler
   private readonly _timer: ReturnType<typeof setTimeout>
   private _closed = false
 
@@ -342,14 +347,17 @@ export class PhoneStream {
 
   private _out(out: CallOutput, number: string, caller: PhoneCaller) {
     if (out.type === 'audio') {
-      const ulaw = mulawEncode(resample(out.pcm, out.sampleRate, LINE_RATE))
+      if (this._outRes?.from !== out.sampleRate) this._outRes = new Resampler(out.sampleRate, LINE_RATE)
+      const ulaw = mulawEncode(this._outRes.push(out.pcm))
       this._send({
         event: 'media',
         streamSid: this._sid,
         media: { payload: Buffer.from(ulaw).toString('base64') },
       })
-    } else if (out.type === 'stop-audio') this._send({ event: 'clear', streamSid: this._sid })
-    else if (out.type === 'chat' && !caller.chatId) this.ports.chatMade(number, out.chatId)
+    } else if (out.type === 'stop-audio') {
+      this._outRes = undefined
+      this._send({ event: 'clear', streamSid: this._sid })
+    } else if (out.type === 'chat' && !caller.chatId) this.ports.chatMade(number, out.chatId)
     else if (out.type === 'error') this.ports.log(`call with ${number}: ${out.message}`)
     else if (out.type === 'latency')
       this.ports.log(

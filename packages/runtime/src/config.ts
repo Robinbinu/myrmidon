@@ -42,6 +42,50 @@ export const HUDDLE_MS = 90_000
 /** Failed final verifications before a round gives up. */
 export const MAX_VERIFY_ROUNDS = 3
 
+// Prompts (prompt/lint.ts)
+
+/**
+ * The most words Myrmidon's own text may take under each heading of an agent's system prompt (data it carries, such as
+ * memory, project instructions and roster lines, does not count). The research targets
+ * (docs/research/2026-10-09-harness-prompts.md §4.3) are you ~150, finish ~80, safety ~200, method ~300, others
+ * ~200, person ~200; these sit above them where a heading stacks parts some agents need: the delivery contract under
+ * "How you finish", full access or an ask-first project under "Safety", and project rules (or, for a lead with
+ * hands-on tools, the lead's method too) under "How to work".
+ */
+export const PROMPT_HEADING_WORDS = {
+  you: 210,
+  finish: 150,
+  safety: 350,
+  method: 710,
+  others: 230,
+  person: 210,
+  instructions: 90,
+  environment: 260,
+} as const
+/**
+ * The most words of the stable part (every heading before the person's own text) per kind of agent, the worst case
+ * over the test matrix. §4.4's targets: answer ~350, solo 900-1,100, team lead 700-900, worker 600-800, crewmate
+ * 500-700, swarm peer 800-1,000; each consolidated safety section (~250 words) is most of the difference.
+ */
+export const PROMPT_ROLE_WORDS = {
+  answer: 650,
+  solo: 1340,
+  crewmate: 1040,
+  'team-lead': 940,
+  'team-lead-hands-on': 1620,
+  'team-worker': 1180,
+  'swarm-peer': 1070,
+  'colony-lead': 1000,
+  'colony-worker': 1000,
+  'colony-peer': 1000,
+} as const
+
+/**
+ * The most words the model-family blocks (prompt/families.ts) may add for one model, counted apart from the role's
+ * budget since they follow the model the agent runs on; the largest today, Gemini's two, is about 105.
+ */
+export const PROMPT_FAMILY_WORDS = 130
+
 // Chats (chat.ts)
 
 /**
@@ -106,6 +150,10 @@ export const GREP_LIMIT = 100
 export const GLOB_LIMIT = 200
 /** How much of a fetched page enters the conversation; the rest is saved to a scratch file. */
 export const PAGE_EXCERPT = 8_000
+/** How much of a fetched page an agent without file tools gets, since nothing is saved for it to read on. */
+export const FETCH_SHOWN_CHARS = 16_000
+/** Most tools a find_tools query loads by description alone; the rest that match are named for loading by name. */
+export const FIND_TOOLS_LIMIT = 12
 /** The most characters a tool result carries into the conversation before it is cut. */
 export const MAX_READ_CHARS = 40_000
 /** How much of each tool result read_log shows under its call; read_log(entry) shows one in full. */
@@ -288,6 +336,11 @@ export const SANDBOX_TEMP_READABLE = ['xcrun_db'] as const
 export const SANDBOX_HIDDEN_TMP = 'myr-'
 /** The most extra readable folders the person may list, in Settings or for one project, and grant in one chat. */
 export const MAX_READ_FOLDERS = 50
+/** Imported VS Code themes kept in settings, and the most colours one keeps (Myrmidon reads 34). */
+export const MAX_IMPORTED_THEMES = 12
+export const MAX_THEME_COLORS = 64
+/** Names the person may give the mascot's crew cursors (Settings → You & mascot). */
+export const MAX_CREW_NAMES = 8
 /** How long a hook may run when it sets no timeout, the most it may set, and how much of its output is kept. */
 export const HOOK_TIMEOUT_S = 60
 export const HOOK_MAX_TIMEOUT_S = 600
@@ -511,6 +564,19 @@ export const COMPUTER_SEND_APPS = [
   /^com\.microsoft\.teams/,
   /^com\.microsoft\.Outlook$/,
 ]
+/**
+ * omp's desktop engine (computer/desktop.ts). Screenshots are capped at omp's coordinate-safe frame: a provider that
+ * resizes a larger image would put the model's pointer coordinates off.
+ */
+export const DESKTOP_CAPTURE = { maxWidth: 1280, maxHeight: 896 } as const
+/** How long one desktop script may run by default, and at most, in seconds. */
+export const DESKTOP_TIMEOUT_S = 30
+export const DESKTOP_MAX_TIMEOUT_S = 120
+/** The latest screenshots of a script returned to the model, and how much of its text output. */
+export const DESKTOP_IMAGES_SHOWN = 3
+export const DESKTOP_OUTPUT_CHARS = 12_000
+/** How long launching an app (`open -a`) from a desktop script may take. */
+export const DESKTOP_OPEN_MS = 15_000
 
 // Services (mcp.ts, recovery.ts)
 
@@ -523,6 +589,43 @@ export const RECOVERY_GRACE_MS = 60_000
 
 /** The most chats one message search returns, and how much of the matching message shows around the match. */
 export const CHAT_SEARCH_LIMIT = 50
+/** The person's past messages the composer learns its suggestions from, most recent first. */
+export const SUGGEST_CORPUS = 2_000
+/**
+ * The composer's optional next-word model: Pythia-14M (EleutherAI, Apache-2.0; ONNX by Xenova), 8-bit, pinned by
+ * revision and hash, downloaded once into `<home>/models/pythia-14m` when the person turns it on. Measured on their own
+ * typing it was the smallest that helped, at about 2 ms a call.
+ */
+export const SUGGEST_MODEL = {
+  name: 'pythia-14m',
+  base: 'https://huggingface.co/Xenova/pythia-14m/resolve/29ac7d207305198580e1af9f73a141a08a47e871/',
+  files: [
+    {
+      path: 'onnx/model_quantized.onnx',
+      sha256: '89b2ab5f634da8e5de810652f443d19e276ba4df918da85a93771f8383f51d29',
+      bytes: 14_756_094,
+    },
+    {
+      path: 'tokenizer.json',
+      sha256: '3cf430678137c8491ca82fb7092ee49e44ad38857fffe1e4a4a5ed860139a5b8',
+      bytes: 2_113_738,
+    },
+    {
+      path: 'tokenizer_config.json',
+      sha256: '4d1c4fdcf128d28ffcc56e21a36f7002b5e754624c9c8cbd025df7fa58af8428',
+      bytes: 264,
+    },
+  ],
+  /** The model's shape, for its empty key/value cache on a first call. */
+  layers: 6,
+  heads: 4,
+  headSize: 32,
+} as const
+/** A predicted word is offered only when the model gives its first token at least this probability. */
+export const SUGGEST_MODEL_MIN_P = 0.3
+/** The end of the draft the model reads, and the most tokens one word may take. */
+export const SUGGEST_MODEL_CONTEXT_CHARS = 300
+export const SUGGEST_MODEL_MAX_TOKENS = 4
 export const SNIPPET_BEFORE = 40
 export const SNIPPET_AFTER = 100
 
@@ -648,6 +751,29 @@ export const VOICE_MAX_CALLS = 4
 export const VOICE_TRANSCRIPT_DAYS = 30
 /** How often a running gateway drops transcripts older than that. */
 export const VOICE_TRANSCRIPT_PRUNE_MS = 24 * 60 * 60_000
+/**
+ * Cloud voice providers (voice/providers.ts). A streaming speech to text is asked for the words of a turn once it ends,
+ * and given VOICE_STT_FINISH_MS to send them before the turn falls back to a batch transcription. Speech that streams
+ * in is passed on in pieces of at least VOICE_TTS_CHUNK_MS (a provider's body arrives in small parts). A request to a
+ * provider fails after VOICE_CLOUD_TIMEOUT_MS; its voice list is asked again after VOICE_VOICES_CACHE_MS.
+ */
+export const VOICE_STT_FINISH_MS = 3_000
+export const VOICE_TTS_CHUNK_MS = 80
+export const VOICE_CLOUD_TIMEOUT_MS = 20_000
+export const VOICE_VOICES_CACHE_MS = 10 * 60_000
+/** Streaming speech to text sends audio in pieces of at least this (AssemblyAI takes 50 ms to 1 s per message). */
+export const VOICE_STT_CHUNK_MS = 50
+/** How often an open speech-to-text stream is kept alive while the turn is quiet (Deepgram closes after 10 s). */
+export const VOICE_STT_KEEPALIVE_MS = 5_000
+/**
+ * Realtime calls: how long a realtime model has to set its session up, and how long a tool call that must check the
+ * person's last words (answer_approval) waits for their transcript, which a realtime model writes beside its answer.
+ */
+export const VOICE_REALTIME_CONNECT_MS = 15_000
+export const VOICE_REALTIME_TRANSCRIPT_MS = 3_000
+/** The language cloud speech to text is told to expect, as a BCP-47 tag (each provider takes its own form of it). */
+export const VOICE_LANGUAGE = 'en-US'
+
 /**
  * Phone calls (Twilio Media Streams): how long a call's one-time ticket (in its TwiML) stands, long enough for a call
  * Myrmidon makes to ring out (Twilio's default ring timeout is 60 s); how long a stream may stay open before its

@@ -62,6 +62,7 @@ import {
   type MemoryStore,
   type ModelResolver,
   markSetup,
+  NextWordModel,
   namingModel,
   normalizeTeamConfig,
   type OmpRuntime,
@@ -100,7 +101,9 @@ import {
   TOOL_DEFS,
   type ToolLibrary,
   TWILIO_API,
+  VOICE_ENDPOINT_ID,
   VoiceHub,
+  voiceProvider,
   wav,
   withoutModel,
 } from '@myrmidon/runtime'
@@ -190,6 +193,8 @@ export interface ServeOptions {
   readonly sandboxKind?: string
   /** The speech detector and end-of-turn model for calls; downloaded into the home unless given (tests stay offline). */
   readonly voiceModels?: { vad: SileroVad; turn: SmartTurn }
+  /** The composer's optional next-word model; downloaded into the home when the person turns it on, unless given. */
+  readonly suggestModel?: NextWordModel
   /** Where the setup assistant looks for model servers on this computer; Ollama's and LM Studio's ports unless given. */
   readonly setupServers?: readonly LocalServer[]
 }
@@ -301,6 +306,8 @@ const STOP_WAIT_MS = 500
 const VOICE_OFF = 'voice calls are off: turn them on in Settings → Voice'
 /** The longest text "Try it" in Settings → Voice speaks. */
 const VOICE_SAMPLE_CHARS = 300
+/** The longest key a voice provider is sent (an AWS session token is the longest kind). */
+const VOICE_KEY_MAX = 4096
 /** The largest audio frame (about a second at 48 kHz) and control message a call takes from the person's side. */
 const VOICE_FRAME_MAX = 96_000
 const VOICE_MESSAGE_MAX = 1024
@@ -333,6 +340,19 @@ const sendSchema = Schema.object({
   project: Schema.string().pattern(/^[a-z0-9-]{1,80}$/),
   // A new chat's own permission level, chosen in the composer before its first message (checked by normalizeLevel).
   permissions: Schema.any(),
+  // An answer given on a question card: the card shows it, so the chat need not repeat it as a message.
+  answers: Schema.object({
+    seq: Schema.natural().required(),
+    picks: Schema.array(
+      Schema.object({
+        picked: Schema.array(Schema.string().max(500)).max(50).required(),
+        other: Schema.string().max(MAX_MESSAGE_CHARS),
+        skipped: Schema.boolean(),
+      }),
+    )
+      .max(20)
+      .required(),
+  }),
   attachments: Schema.array(
     Schema.object({
       name: Schema.string().min(1).max(200).required(),
@@ -414,6 +434,7 @@ export function startServer(options: ServeOptions): WebServer {
     const driver = computer?.driver()
     return {
       ...computerControls(),
+      engine: computer?.engine ?? 'cua',
       state: computer?.status() ?? { state: 'unsupported' },
       ...(driver ? { driver } : {}),
       version: computer?.installVersion ?? '',
@@ -467,6 +488,7 @@ export function startServer(options: ServeOptions): WebServer {
     return normalizeTeamConfig({ ...team, leadModel, judgeModel: team?.judgeModel ?? leadModel })
   }
   const chats = options.chats
+  const suggestModel = options.suggestModel ?? new NextWordModel(options.home)
   /** A model that can lead a crew can be called now, however it came (a key here, the environment, a cloud profile). */
   const modelReady = () =>
     !!options.omp &&
@@ -569,7 +591,7 @@ export function startServer(options: ServeOptions): WebServer {
             const fallbackModel = s.team.leadModel ?? automaticLead()
             return { voice: s.voice, ...(fallbackModel ? { fallbackModel } : {}) }
           },
-          ...(options.omp ? { omp: options.omp } : {}),
+          ...(options.omp ? { omp: options.omp, keys: options.omp.voiceKeys } : {}),
           ...(options.voiceModels ?? {}),
           log: (line) => console.error(`voice: ${line}`),
         })
@@ -1475,10 +1497,11 @@ export function startServer(options: ServeOptions): WebServer {
             // Setup is kept by /api/setup alone: a page saving its settings sends the copy it read, which may be older.
             const { setup } = options.settings.get()
             const body = { ...((await req.json()) as Record<string, unknown>), setup }
-            const wasOn = options.settings.get().computerUse.enabled
+            const was = options.settings.get().computerUse
             const settings = options.settings.set(body)
-            // Switched off: agents on the person's Mac stop at once, and the driver with them.
-            if (wasOn && !settings.computerUse.enabled && options.computer) {
+            // Switched off, or to the other engine: agents on the person's Mac stop at once, and the driver with them.
+            const engineChanged = (was.engine ?? 'cua') !== (settings.computerUse.engine ?? 'cua')
+            if (was.enabled && (!settings.computerUse.enabled || engineChanged) && options.computer) {
               options.computer.stopAll()
               await options.computer.stop()
             }
@@ -2310,6 +2333,7 @@ export function startServer(options: ServeOptions): WebServer {
               planFirst: body.plan === true,
               ...(body.project ? { project: body.project } : {}),
               ...(calls ? { context: calls.context } : {}),
+              ...(body.answers ? { answers: body.answers } : {}),
               // Like PUT /api/chats/:id/permissions, a chat's own level needs a device with full access.
               ...(body.permissions !== undefined && !body.chatId
                 ? access.scope === 'full'
@@ -2322,6 +2346,31 @@ export function startServer(options: ServeOptions): WebServer {
           } catch (err) {
             return json({ error: err instanceof Error ? err.message : String(err) }, 422)
           }
+        }),
+      },
+      // What the person has written before, for the composer's suggestions (learned in the page, never sent on).
+      '/api/suggestions': {
+        GET: guard(async () => json({ said: options.chats ? await options.chats.said() : [] })),
+      },
+      // The next-word model (Settings → General): whether it is downloaded, and POST to download and load it.
+      '/api/suggestions/model': {
+        GET: guard(async () => json(suggestModel.status())),
+        POST: guard(async () => {
+          // Settings polls the status, which keeps the failure; the log says it once.
+          suggestModel
+            .load()
+            .catch((err) => console.error(`suggestions: ${err instanceof Error ? err.message : err}`))
+          return json(suggestModel.status())
+        }),
+      },
+      // The word the model expects next; nothing until it has been downloaded, so typing never starts a download.
+      '/api/suggestions/next': {
+        POST: guard(async (req) => {
+          const { text } = (await req.json()) as { text?: unknown }
+          if (typeof text !== 'string') return json({ error: 'text is required' }, 400)
+          if (!suggestModel.downloaded) return json({})
+          const word = await suggestModel.next(text)
+          return json(word ? { word } : {})
         }),
       },
       // Chats by what was said in them; the chat list already matches titles itself.
@@ -2594,11 +2643,129 @@ export function startServer(options: ServeOptions): WebServer {
         })
       }),
       // Voice calls (Settings → Voice): what is installed and chosen, installs, keys, a sample, calls per chat.
-      '/api/voice': guard(() =>
+      '/api/voice': guard(async () =>
         voice
-          ? json({ ...voice.status(), ...(phone ? { phone: phone.status() } : {}) })
+          ? json({
+              ...voice.status(),
+              ...(await voice.providers()),
+              ...(phone ? { phone: phone.status() } : {}),
+            })
           : json({ error: 'voice needs the chat runtime' }, 503),
       ),
+      // Voice providers (Settings → Models & providers → Voice providers): keys in the vault, regions, voice lists.
+      '/api/voice/providers/:id/key': {
+        PUT: guard(async (req) => {
+          if (!voice) return json({ error: 'voice needs the chat runtime' }, 503)
+          const id = req.params.id ?? ''
+          const body = (await req.json().catch(() => ({}))) as Record<string, unknown>
+          const text = (v: unknown) => (typeof v === 'string' ? v.trim().slice(0, VOICE_KEY_MAX) : '')
+          const aws = text(body.accessKeyId) || text(body.secretAccessKey)
+          const key = aws
+            ? JSON.stringify({
+                accessKeyId: text(body.accessKeyId),
+                secretAccessKey: text(body.secretAccessKey),
+                ...(text(body.sessionToken) ? { sessionToken: text(body.sessionToken) } : {}),
+              })
+            : text(body.apiKey)
+          if (!key || (aws && (!text(body.accessKeyId) || !text(body.secretAccessKey))))
+            return json({ error: 'a key is required (for AWS, the access key id and the secret)' }, 400)
+          try {
+            await voice.setKey(id, key)
+            return json(await voice.providers())
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
+        }),
+        DELETE: guard(async (req) => {
+          if (!voice) return json({ error: 'voice needs the chat runtime' }, 503)
+          try {
+            await voice.removeKey(req.params.id ?? '')
+            return json(await voice.providers())
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
+        }),
+      },
+      '/api/voice/providers/:id/region': {
+        PUT: guard(async (req) => {
+          if (!voice || !settingsStore) return json({ error: 'voice needs the chat runtime' }, 503)
+          const id = req.params.id ?? ''
+          if (!voiceProvider(id)?.region) return json({ error: `${id} takes no region` }, 400)
+          const { region } = (await req.json().catch(() => ({}))) as { region?: unknown }
+          const value = typeof region === 'string' ? region.trim().toLowerCase() : ''
+          if (value && !/^[a-z0-9-]{2,40}$/.test(value)) return json({ error: 'not a region name' }, 400)
+          const s = settingsStore.get()
+          const { [id]: _old, ...regions } = s.voice.regions ?? {}
+          settingsStore.set({
+            ...s,
+            voice: { ...s.voice, regions: value ? { ...regions, [id]: value } : regions },
+          })
+          return json(await voice.providers())
+        }),
+      },
+      '/api/voice/providers/:id/voices': guard(async (req) => {
+        if (!voice) return json({ error: 'voice needs the chat runtime' }, 503)
+        const model = new URL(req.url).searchParams.get('model') ?? undefined
+        try {
+          return json({ voices: await voice.voices(req.params.id ?? '', model) })
+        } catch (err) {
+          return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+        }
+      }),
+      // The person's own OpenAI-compatible speech services, with their keys in the vault.
+      '/api/voice/endpoints': {
+        POST: guard(async (req) => {
+          if (!voice || !settingsStore) return json({ error: 'voice needs the chat runtime' }, 503)
+          const body = (await req.json().catch(() => ({}))) as Record<string, unknown>
+          const id = typeof body.id === 'string' ? body.id.trim().toLowerCase() : ''
+          const baseUrl = typeof body.baseUrl === 'string' ? body.baseUrl.trim().replace(/\/+$/, '') : ''
+          const apiKey = typeof body.apiKey === 'string' ? body.apiKey.trim().slice(0, VOICE_KEY_MAX) : ''
+          if (!VOICE_ENDPOINT_ID.test(id))
+            return json({ error: 'the name must be lowercase letters, digits and dashes' }, 400)
+          if (!/^https?:\/\/[^\s]+$/.test(baseUrl) || baseUrl.length > 500)
+            return json({ error: 'the address must be an http(s) URL' }, 400)
+          const s = settingsStore.get()
+          if ((s.voice.endpoints ?? []).some((e) => e.id === id))
+            return json({ error: `a speech service named ${id} already exists` }, 409)
+          settingsStore.set({
+            ...s,
+            voice: {
+              ...s.voice,
+              endpoints: [
+                ...(s.voice.endpoints ?? []),
+                { id, baseUrl, ...(apiKey ? {} : { keyless: true }) },
+              ],
+            },
+          })
+          if (apiKey) await voice.setKey(`endpoint:${id}`, apiKey)
+          return json(await voice.providers())
+        }),
+      },
+      '/api/voice/endpoints/:id': {
+        DELETE: guard(async (req) => {
+          if (!voice || !settingsStore) return json({ error: 'voice needs the chat runtime' }, 503)
+          const id = req.params.id ?? ''
+          const s = settingsStore.get()
+          if (!(s.voice.endpoints ?? []).some((e) => e.id === id))
+            return json({ error: `no speech service ${id}` }, 404)
+          await voice.removeKey(`endpoint:${id}`).catch(() => {})
+          const ref = `endpoint:${id}`
+          // A choice of the removed service goes back to the engines on this machine.
+          settingsStore.set({
+            ...s,
+            voice: {
+              ...s.voice,
+              endpoints: (s.voice.endpoints ?? []).filter((e) => e.id !== id),
+              stt: s.voice.stt.provider === ref ? { provider: 'phonon' } : s.voice.stt,
+              tts:
+                s.voice.tts.provider === ref
+                  ? { ...s.voice.tts, provider: 'kitten', model: undefined, voiceId: undefined }
+                  : s.voice.tts,
+            },
+          })
+          return json(await voice.providers())
+        }),
+      },
       // Myrmidon calls someone SMS lets in (the owner unless `to` names another) from the Twilio number.
       '/api/voice/phone/call': {
         POST: guard(async (req) => {
@@ -2637,15 +2804,6 @@ export function startServer(options: ServeOptions): WebServer {
             .download(model)
             .then(() => voice.warm())
             .catch((err) => console.error(`voice: ${err instanceof Error ? err.message : err}`))
-          return json(voice.status())
-        }),
-      },
-      '/api/voice/keys': {
-        PUT: guard(async (req) => {
-          if (!voice) return json({ error: 'voice needs the chat runtime' }, 503)
-          const body = (await req.json().catch(() => ({}))) as { stt?: unknown; tts?: unknown }
-          if (typeof body.stt === 'string') voice.setKey('stt', body.stt)
-          if (typeof body.tts === 'string') voice.setKey('tts', body.tts)
           return json(voice.status())
         }),
       },
