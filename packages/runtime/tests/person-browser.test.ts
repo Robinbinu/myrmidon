@@ -58,6 +58,11 @@ function setup(ownPorts: number[] = []) {
   return { dir, hub, person }
 }
 
+/** Waits for Chrome to report something: a loaded machine can take seconds, so the bound is the test's, not a guess. */
+async function until(check: () => boolean, ms = 20_000) {
+  for (const end = Date.now() + ms; !check() && Date.now() < end; ) await Bun.sleep(25)
+}
+
 const code = async (p: Promise<unknown>) => {
   const err = await p.then(
     () => undefined,
@@ -155,8 +160,7 @@ test.skipIf(!findChrome())(
     const events: PersonEvent[] = []
     const unwatch = await person.watch(tab.id, (e) => events.push(e))
     await person.input(tab.id, { type: 'resize', width: 600, height: 400, scale: 1 })
-    for (let i = 0; i < 60 && !events.some((e) => e.type === 'frame' && e.width === 600); i++)
-      await Bun.sleep(50)
+    await until(() => events.some((e) => e.type === 'frame' && e.width === 600))
     expect(events.find((e) => e.type === 'frame' && e.width === 600)).toMatchObject({ height: 400 })
     expect(events.some((e) => e.type === 'tabs')).toBe(true)
 
@@ -284,7 +288,7 @@ test.skipIf(!findChrome())(
     await person.page(tab.id)?.evaluate((u) => {
       location.href = u
     }, `http://127.0.0.1:${other.port}/`)
-    for (let i = 0; i < 60 && refused().length === 0; i++) await Bun.sleep(50)
+    await until(() => refused().length > 0)
     expect(refused()).toEqual([
       { type: 'refused', site: `localhost:${other.port}`, from: `127.0.0.1:${page.port}`, local: true },
     ])
