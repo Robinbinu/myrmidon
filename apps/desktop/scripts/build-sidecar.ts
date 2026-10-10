@@ -49,10 +49,28 @@ const ortBesideExecutable: BunPlugin = {
   },
 }
 
+// A large JSON file bundled as is becomes one huge object literal, slow to parse at every start; as a string handed to
+// JSON.parse it parses fast. Only whole-file imports (`import X from './x.json'`) are rewritten, which is how oh-my-pi
+// reads its model catalog (models.json, ~12 MB).
+const LARGE_JSON_BYTES = 64 * 1024
+const jsonAsString: BunPlugin = {
+  name: 'large-json-as-string',
+  setup(build) {
+    build.onLoad({ filter: /\.json$/ }, async ({ path }) => {
+      const file = Bun.file(path)
+      if (file.size < LARGE_JSON_BYTES) return undefined
+      return { contents: `export default JSON.parse(${JSON.stringify(await file.text())})`, loader: 'js' }
+    })
+  },
+}
+
+// Minified, not bytecode: Bun stores bytecode beside the source for every module, which made the executable three
+// times the size (~290 MB) for a start ~0.4 s quicker, and a slower first launch while macOS checks the larger file.
 const result = await Bun.build({
   entrypoints: [join(repo, 'apps/desktop/src/sidecar.ts')],
   target: 'bun',
-  plugins: [tailwind, ortBesideExecutable],
+  minify: true,
+  plugins: [tailwind, ortBesideExecutable, jsonAsString],
   // An optional import oh-my-pi makes only for legacy pi plugins, which Myrmidon does not use.
   external: ['omp-legacy-pi-modules'],
   compile: { target: target.bun, outfile: join(dist, executableName('myrmidon', target.platform)) },
@@ -81,4 +99,22 @@ if (!binding) throw new Error(desktopCopy.build.ortMissing(tag))
 const folder = join(ort, dirname(binding))
 for (const name of [basename(binding), ...onnxRuntimeLibraries(target.platform, readdirSync(folder))])
   copyFileSync(join(folder, name), join(dist, name))
+// onnxruntime ships its macOS library with its local symbols (44 MB, 29 MB without). Stripping breaks its signature,
+// which Apple silicon needs to load it, so it is signed again (ad hoc; a signed release signs it over). Only for a
+// macOS target built on a Mac, where strip and codesign exist and know the format.
+if (target.platform === 'darwin' && process.platform === 'darwin') {
+  for (const name of onnxRuntimeLibraries(target.platform, readdirSync(folder)).filter((n) =>
+    n.endsWith('.dylib'),
+  )) {
+    const library = join(dist, name)
+    for (const command of [
+      ['strip', '-x', library],
+      ['codesign', '--force', '--sign', '-', library],
+    ]) {
+      const run = Bun.spawnSync(command, { stdout: 'inherit', stderr: 'inherit' })
+      if (run.exitCode !== 0)
+        throw new Error(desktopCopy.build.commandFailed(command.join(' '), run.exitCode))
+    }
+  }
+}
 console.log(dist)
