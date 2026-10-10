@@ -1066,7 +1066,7 @@ export function VoiceStep() {
 
   const trouble =
     choice === 'local'
-      ? phonon?.state === 'error'
+      ? phonon?.state === 'error' || phonon?.state === 'unsupported'
         ? { engine: 'phonon' as const, raw: phonon.error ?? '' }
         : kitten?.state === 'error'
           ? { engine: 'kitten' as const, raw: kitten.error ?? '' }

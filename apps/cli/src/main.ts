@@ -32,6 +32,7 @@ import {
   MemoryStore,
   ModelResolver,
   ompWebTools,
+  ownerOnly,
   PluginHost,
   PluginStore,
   ProjectStore,
@@ -441,6 +442,7 @@ async function main() {
           mode: 0o600,
         },
       )
+      ownerOnly(serverFile)
       // Once, however many ways the stop arrives (the desktop app's request, then its signal if that is slow).
       let stopping: Promise<void> | undefined
       const shutdown = () =>

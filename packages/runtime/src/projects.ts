@@ -8,7 +8,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { homedir } from 'node:os'
-import { basename, join, relative, resolve, sep } from 'node:path'
+import { basename, join, parse, relative, resolve, sep } from 'node:path'
 import { type LegacyProjectPermissions, type ProjectPermissions, projectLevelFrom } from '@myrmidon/protocol'
 import {
   MAX_FIND_RESULTS,
@@ -18,7 +18,7 @@ import {
   MAX_TREE_ENTRIES,
 } from './config.ts'
 import { git } from './git.ts'
-import { readFolder, realPath, secretAt, secretPaths, within } from './read-access.ts'
+import { expandHome, pathOf, readFolder, realPath, secretAt, secretPaths, within } from './read-access.ts'
 
 /**
  * Project folders, like Claude Code's and Codex's: a chat can belong to a directory on this machine. Its agents
@@ -123,30 +123,67 @@ export class ProjectStore {
   }
 }
 
+/** A folder path the person typed as an absolute one (`~` is the home folder); a relative one is refused. */
+export function absoluteFolder(
+  path: string,
+  home = homedir(),
+  platform: NodeJS.Platform = process.platform,
+): string {
+  const expanded = expandHome(path.trim(), home, platform)
+  if (!pathOf(platform).isAbsolute(expanded)) throw new Error('use an absolute path (or one starting with ~)')
+  return pathOf(platform).resolve(expanded)
+}
+
+/** Whether `path` (absolute) is the top of its file system: `/`, a drive (`C:\`) or a network share. */
+export function isFsRoot(path: string, platform: NodeJS.Platform = process.platform): boolean {
+  const p = pathOf(platform)
+  const abs = p.resolve(path)
+  return p.parse(abs).root === abs || p.dirname(abs) === abs
+}
+
 /** An existing directory, as an absolute path with symlinks resolved; `~` means the home directory. */
 function checkedDir(path: string): string {
-  const expanded = path.trim().replace(/^~(?=$|\/)/, homedir())
-  if (!expanded.startsWith('/')) throw new Error('use an absolute path (or one starting with ~)')
-  const abs = resolve(expanded)
+  const abs = absoluteFolder(path)
   if (!existsSync(abs) || !statSync(abs).isDirectory()) throw new Error(`not a folder: ${abs}`)
   const real = realpathSync(abs)
-  if (real === '/' || real === realpathSync(homedir()))
-    throw new Error('pick a project folder, not / or your home folder')
+  if (isFsRoot(real) || real === realpathSync(homedir()))
+    throw new Error(`pick a project folder, not ${parse(real).root} or your home folder`)
   return real
 }
 
-/** Sub-folders of a directory, for the folder picker. Hidden folders are left out. */
-export function listFolders(path: string): { path: string; parent: string | undefined; folders: string[] } {
-  const expanded = (path.trim() || '~').replace(/^~(?=$|\/)/, homedir())
-  const abs = resolve(expanded)
+/** The drives Windows has now (`C:\`, `D:\`…), for the folder picker to start from. */
+export function windowsDrives(exists: (path: string) => boolean = existsSync): string[] {
+  return [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'].map((letter) => `${letter}:\\`).filter(exists)
+}
+
+/** The folder above `abs` for the picker's "..", none at the top of a file system (on Windows, a drive). */
+export function folderParent(abs: string, platform: NodeJS.Platform = process.platform): string | undefined {
+  return isFsRoot(abs, platform) ? undefined : pathOf(platform).resolve(abs, '..')
+}
+
+/**
+ * Sub-folders of a directory, for the folder picker. Hidden folders are left out. On Windows the drives come too,
+ * as the picker cannot go above one.
+ */
+export function listFolders(path: string): {
+  path: string
+  parent: string | undefined
+  folders: string[]
+  drives?: string[]
+} {
+  const abs = resolve(expandHome(path.trim() || '~'))
   if (!existsSync(abs) || !statSync(abs).isDirectory()) throw new Error(`not a folder: ${abs}`)
   const folders = readdirSync(abs, { withFileTypes: true })
     .filter((d) => d.isDirectory() && !d.name.startsWith('.'))
     .map((d) => d.name)
     .sort((a, b) => a.localeCompare(b))
     .slice(0, 500)
-  const parent = abs === '/' ? undefined : resolve(abs, '..')
-  return { path: abs, parent, folders }
+  return {
+    path: abs,
+    parent: folderParent(abs),
+    folders,
+    ...(process.platform === 'win32' ? { drives: windowsDrives() } : {}),
+  }
 }
 
 /** Whose keys a project's file views hide: the person's home (the real one unless a test sets it), Myrmidon's data. */
@@ -165,7 +202,7 @@ export interface SecretGuard {
  */
 function secretsIn(base: string, guard: SecretGuard): string[] {
   const guarded = [...secretPaths(guard.home), ...(guard.dataDir ? [realPath(guard.dataDir)] : [])]
-  return guarded.filter((s) => s.startsWith(base + sep))
+  return guarded.filter((s) => within(s, base) && !within(base, s))
 }
 
 /** Whether `path` (absolute) is or leads into one of `secrets`, a symlink followed to where it really points. */
@@ -203,13 +240,16 @@ function projectPath(
   const base = realpathSync(root)
   const abs = resolve(base, path)
   const real = existsSync(abs) ? realpathSync(abs) : abs
-  if ((!path && !allowRoot) || !(real.startsWith(base + sep) || (allowRoot && real === base)))
+  if ((!path && !allowRoot) || !within(real, base) || (!allowRoot && within(base, real)))
     throw new Error(`${path} is not in this project`)
   const secrets = secretsIn(base, guard)
   if (hiddenBy(abs, secrets)) throw new Error(secretRefused(path))
   if (!existsSync(real)) throw new Error(`${path} is no longer in the folder`)
   return { base, real, secrets }
 }
+
+/** A path relative to a project folder as git and the app write it, with `/` on Windows too. */
+const slashed = (path: string) => path.split(sep).join('/')
 
 /** A text file in a project folder, for the person to read in the app: one an agent edited, say. */
 export function readProjectFile(
@@ -223,7 +263,7 @@ export function readProjectFile(
   if (stat.size > MAX_PROJECT_FILE_BYTES) throw new Error(`${file} is over 2 MB, too large to show`)
   const bytes = readFileSync(real)
   if (bytes.includes(0)) throw new Error(`${file} is not a text file`)
-  return { path: relative(base, real), text: bytes.toString('utf8') }
+  return { path: slashed(relative(base, real)), text: bytes.toString('utf8') }
 }
 
 export interface ProjectEntry {
@@ -250,7 +290,7 @@ export async function listProjectDir(
 ): Promise<{ path: string; entries: ProjectEntry[]; truncated: boolean }> {
   const { base, real, secrets } = projectPath(root, dir, true, guard)
   if (!statSync(real).isDirectory()) throw new Error(`${dir} is not a folder`)
-  const at = relative(base, real)
+  const at = slashed(relative(base, real))
   const marks = await gitMarks(base, at)
   const entries: ProjectEntry[] = []
   for (const d of readdirSync(real, { withFileTypes: true })) {
