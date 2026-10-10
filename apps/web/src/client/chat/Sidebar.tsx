@@ -1,12 +1,21 @@
 import {
+  Archive,
+  ArchiveX,
   BarChart3,
+  Bookmark,
+  BookmarkX,
   ChevronRight,
   CircleAlert,
   Download,
   Folder,
+  FolderInput,
+  FolderOpen,
   FolderPlus,
+  GitFork,
   HeartPulse,
   Link,
+  ListPlus,
+  MessageSquareDot,
   Monitor,
   Moon,
   Network,
@@ -15,6 +24,7 @@ import {
   Plus,
   Search,
   Settings,
+  SquareArrowOutUpRight,
   SquarePen,
   Sun,
   Trash2,
@@ -23,24 +33,26 @@ import {
 } from 'lucide-react'
 import { motion } from 'motion/react'
 import { type KeyboardEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
-import { api, type ChatSummary, type Project } from '../api.ts'
+import { activeGateway, api, type ChatGroup, type ChatSummary, type Project } from '../api.ts'
 import { copy } from '../copy.ts'
 import { useScope } from '../DeviceGate.tsx'
 import { useStatus } from '../status.tsx'
 import { isPalette, themeLabel } from '../themes/apply.ts'
 import { ChannelLogo } from '../ui/ChannelLogo.tsx'
 import { ConfirmButton } from '../ui/ConfirmButton.tsx'
+import { desktop } from '../ui/desktop.ts'
 import { type ThemeChoice, useUnreadChats } from '../ui/hooks.ts'
 import { FEATURE_ICONS } from '../ui/icons.ts'
-import { copyAction, openContextMenu } from '../ui/Menu.tsx'
-import { isMac } from '../ui/platform.ts'
+import { copyAction, type MenuEntries, openContextMenu } from '../ui/Menu.tsx'
+import { detectPlatform, isMac } from '../ui/platform.ts'
 import { Button, CountBadge, cn, Dot, IconButton } from '../ui/primitives.tsx'
 import { comboLabel, matchCombo } from '../ui/shortcuts.ts'
 import { needsYou, runPhase } from '../ui/status.ts'
 import { useToast } from '../ui/Toast.tsx'
 import { Toolbar } from '../ui/Toolbar.tsx'
-import { MESSAGE_SEARCH_DELAY_MS, spring } from '../ui-config.ts'
+import { CHAT_GROUP_NAME_MAX, MESSAGE_SEARCH_DELAY_MS, spring } from '../ui-config.ts'
 import { GatewaySwitcher } from './GatewaySwitcher.tsx'
+import { editorLink } from './open-in.ts'
 import { PermissionMark } from './ProjectPermissions.tsx'
 
 export type View = 'chat' | 'colonies' | 'compare' | 'system'
@@ -103,6 +115,14 @@ export function Sidebar(props: {
   onDelete(chats: ChatSummary[]): void
   onRename(chat: ChatSummary, title: string): Promise<void>
   onExport?(chat: ChatSummary): void
+  /** The person's own groups, as headings in the list. */
+  groups?: ChatGroup[]
+  /** Pins, archives or files chats in a group (`false` and `null` take each back); left out, the menu has none. */
+  onFile?(chats: ChatSummary[], place: { pinned?: boolean; archived?: boolean; group?: string | null }): void
+  onFork?(chat: ChatSummary): void
+  onNewGroup?(name: string): Promise<ChatGroup | undefined>
+  onRenameGroup?(group: ChatGroup, name: string): void
+  onDeleteGroup?(group: ChatGroup): void
   onNew(): void
   projects: Project[]
   onNewInProject(project: Project): void
@@ -117,6 +137,8 @@ export function Sidebar(props: {
 }) {
   const [query, setQuery] = useState('')
   const toast = useToast()
+  const groups = props.groups ?? []
+  const file = props.onFile
   const { status } = useStatus()
   // System reports on this machine and points to Settings, both of which a chats-only device cannot use.
   const fullAccess = useScope() === 'full'
@@ -136,6 +158,19 @@ export function Sidebar(props: {
     props.loaded,
     props.view === 'chat' ? props.activeChat : undefined,
   )
+  const [archiveOpen, setArchiveOpen] = useState(false)
+  // A group named in place, as a Finder folder is: a new one starts out being named.
+  const [editingGroup, setEditingGroup] = useState<string>()
+  const [groupDraft, setGroupDraft] = useState('')
+  const startGroupRename = (g: ChatGroup) => {
+    setEditingGroup(g.id)
+    setGroupDraft(g.name)
+  }
+  const finishGroupRename = (g: ChatGroup, save: boolean) => {
+    setEditingGroup(undefined)
+    const next = groupDraft.trim()
+    if (save && next && next !== g.name) props.onRenameGroup?.(g, next)
+  }
   const [editing, setEditing] = useState<string>()
   const [draft, setDraft] = useState('')
   const [closed, setClosed] = useState<ReadonlySet<string>>(new Set())
@@ -184,9 +219,31 @@ export function Sidebar(props: {
     const q = query.trim().toLowerCase()
     return props.chats.filter((c) => !q || titled(c, q) || said?.has(c.chatId))
   }, [props.chats, query, said])
-  // Chats waiting on the person come first, as in Codex and Claude Code, out of their project or date group.
+  // Chats waiting on the person come first, as in Codex and Claude Code, out of their project or date group, archived
+  // or not. Then the pinned ones, the person's groups, projects and dates; archived chats fold at the bottom.
   const waitingOnYou = useMemo(() => hits.filter(needsYou), [hits])
-  const rest = useMemo(() => hits.filter((c) => !needsYou(c)), [hits])
+  const archived = useMemo(() => hits.filter((c) => !needsYou(c) && c.archivedAt), [hits])
+  const pinned = useMemo(
+    () =>
+      hits
+        .filter((c) => !needsYou(c) && !c.archivedAt && c.pinnedAt)
+        .sort((a, b) => (b.pinnedAt ?? '').localeCompare(a.pinnedAt ?? '')),
+    [hits],
+  )
+  const groupIds = useMemo(() => new Set(groups.map((g) => g.id)), [groups])
+  const byGroup = useMemo(() => {
+    const out = new Map<string, ChatSummary[]>()
+    for (const c of hits) {
+      if (needsYou(c) || c.archivedAt || c.pinnedAt || !c.group || !groupIds.has(c.group)) continue
+      out.set(c.group, [...(out.get(c.group) ?? []), c])
+    }
+    return out
+  }, [hits, groupIds])
+  const rest = useMemo(
+    () =>
+      hits.filter((c) => !needsYou(c) && !c.archivedAt && !c.pinnedAt && !(c.group && groupIds.has(c.group))),
+    [hits, groupIds],
+  )
   // A chat whose project was removed from the list falls back to the date groups.
   const known = useMemo(() => new Set(props.projects.map((p) => p.id)), [props.projects])
   const byProject = useMemo(() => {
@@ -216,8 +273,11 @@ export function Sidebar(props: {
   // Only rows on screen can hold it: a chat inside a folded project has no row to Tab to.
   const shownRows = [
     ...waitingOnYou,
+    ...pinned,
+    ...groups.filter((g) => !closed.has(g.id)).flatMap((g) => byGroup.get(g.id) ?? []),
     ...props.projects.filter((p) => !closed.has(p.id)).flatMap((p) => byProject.get(p.id) ?? []),
     ...grouped.flatMap((g) => g.chats),
+    ...(archiveOpen ? archived : []),
   ].map((c) => c.chatId)
   const tabRow = tabStopRow(shownRows, [lastRow, props.activeChat])
   // Chats picked together, as in a Mac list: ⌘-click toggles one, ⇧-click takes a range, ⌘A takes all shown, Esc or a
@@ -322,12 +382,70 @@ export function Sidebar(props: {
       return next
     })
 
+  /** Where a chat's project folder opens: the file manager (the desktop app, on this computer), VS Code or Cursor. */
+  const openIn = (c: ChatSummary): MenuEntries[number] => {
+    const path = c.project && props.projects.find((p) => p.id === c.project?.id)?.path
+    if (!path) return false
+    const m = copy.contextMenu.chat
+    const shell = activeGateway() ? undefined : desktop()
+    const platform = detectPlatform(navigator.userAgent)
+    const files =
+      platform === 'mac'
+        ? m.fileManager.mac
+        : platform === 'windows'
+          ? m.fileManager.windows
+          : m.fileManager.other
+    // The desktop app hands window.open to the system; a browser asks before opening the editor itself.
+    const go = (url: string) => () => (shell ? window.open(url) : location.assign(url))
+    return {
+      label: m.openIn,
+      icon: SquareArrowOutUpRight,
+      submenu: [
+        shell && {
+          label: files,
+          icon: FolderOpen,
+          run: () => void shell.reveal(path).catch((err: Error) => toast(err.message, 'error')),
+        },
+        { label: m.vscode, run: go(editorLink('vscode', path)) },
+        { label: m.cursor, run: go(editorLink('cursor', path)) },
+      ],
+    }
+  }
+  /** The person's groups to move a chat into, a new one, or out of the one it is in. */
+  const groupMenu = (c: ChatSummary, put: NonNullable<typeof file>): MenuEntries => {
+    const m = copy.contextMenu.chat
+    const add = props.onNewGroup
+    return [
+      ...groups.map((g) => ({
+        label: g.name,
+        disabled: c.group === g.id,
+        run: () => put([c], { group: g.id }),
+      })),
+      'separator',
+      add && {
+        label: m.newGroup,
+        icon: ListPlus,
+        run: () =>
+          void add(copy.contextMenu.group.untitled).then((g) => {
+            if (!g) return
+            put([c], { group: g.id })
+            startGroupRename(g)
+          }),
+      },
+      !!c.group && groupIds.has(c.group) && { label: m.leaveGroup, run: () => put([c], { group: null }) },
+    ]
+  }
+  const sectionHeading = (label: string) => (
+    <div className="px-2 pb-1 pt-3 text-caption font-semibold text-muted">{label}</div>
+  )
+
   const row = (c: ChatSummary) => {
     const on = c.chatId === props.activeChat && props.view === 'chat'
     const phase = runPhase(c)
     // A chat that finished while the person was elsewhere is marked until they open it; one that needs them or failed
     // keeps its own mark.
-    const dot = (phase === 'completed' || phase === 'stopped') && unread(c) ? 'unread' : phase
+    const finished = phase === 'completed' || phase === 'stopped'
+    const dot = finished && unread.isUnread(c) ? 'unread' : phase
     // A chat found only by its messages shows the line that matched.
     const q = query.trim()
     const line = q && !titled(c, q.toLowerCase()) ? said?.get(c.chatId) : undefined
@@ -391,11 +509,51 @@ export function Sidebar(props: {
               }
               const link = new URL(location.pathname, location.origin)
               link.searchParams.set('chat', c.chatId)
+              const isUnread = finished && unread.isUnread(c)
               openContextMenu(e, m.label(c.title), [
-                { label: m.rename, icon: Pencil, combo: 'f2', run: () => startRename(c) },
-                props.onExport && { label: m.export, icon: Download, run: () => props.onExport?.(c) },
-                { ...copyAction(m.copyLink, link.href, () => toast(m.linkCopied, 'success')), icon: Link },
-                { label: m.delete, icon: Trash2, destructive: true, run: () => requestDelete(c) },
+                openIn(c),
+                'separator',
+                file &&
+                  (c.pinnedAt
+                    ? { label: m.unpin, icon: BookmarkX, key: 'p', run: () => file([c], { pinned: false }) }
+                    : { label: m.pin, icon: Bookmark, key: 'p', run: () => file([c], { pinned: true }) }),
+                {
+                  label: isUnread ? m.markRead : m.markUnread,
+                  icon: MessageSquareDot,
+                  key: 'u',
+                  run: () => unread.mark(c, !isUnread),
+                },
+                { label: m.rename, icon: Pencil, key: 'r', run: () => startRename(c) },
+                props.onFork && { label: m.fork, icon: GitFork, key: 'f', run: () => props.onFork?.(c) },
+                'separator',
+                file && { label: m.moveToGroup, icon: FolderInput, submenu: groupMenu(c, file) },
+                'separator',
+                props.onExport && {
+                  label: m.export,
+                  icon: Download,
+                  key: 'e',
+                  run: () => props.onExport?.(c),
+                },
+                {
+                  ...copyAction(m.copyLink, link.href, () => toast(m.linkCopied, 'success')),
+                  icon: Link,
+                  key: 'l',
+                },
+                file &&
+                  (c.archivedAt
+                    ? {
+                        label: m.unarchive,
+                        icon: ArchiveX,
+                        key: 'a',
+                        run: () => file([c], { archived: false }),
+                      }
+                    : {
+                        label: m.archive,
+                        icon: Archive,
+                        key: 'a',
+                        run: () => file([c], { archived: true }),
+                      }),
+                { label: m.delete, icon: Trash2, destructive: true, key: 'd', run: () => requestDelete(c) },
               ])
             }}
             onKeyDown={(e) => {
@@ -546,6 +704,67 @@ export function Sidebar(props: {
             {rowList(copy.sidebar.groups.needsYou, waitingOnYou)}
           </div>
         )}
+        {pinned.length > 0 && (
+          <div>
+            {sectionHeading(copy.sidebar.groups.pinned)}
+            {rowList(copy.sidebar.groups.pinned, pinned)}
+          </div>
+        )}
+        {groups.map((g) => {
+          const open = !closed.has(g.id)
+          const chats = byGroup.get(g.id) ?? []
+          // A search shows only the groups it found something in.
+          if (query.trim() && !chats.length) return null
+          const t = copy.contextMenu.group
+          return (
+            <div key={g.id}>
+              {editingGroup === g.id ? (
+                <input
+                  // biome-ignore lint/a11y/noAutofocus: focus moves into the field the person just asked to edit
+                  autoFocus
+                  value={groupDraft}
+                  maxLength={CHAT_GROUP_NAME_MAX}
+                  aria-label={t.nameField}
+                  onChange={(e) => setGroupDraft(e.target.value)}
+                  onFocus={(e) => e.currentTarget.select()}
+                  onBlur={(e) => finishGroupRename(g, e.currentTarget.dataset.cancel !== '1')}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') e.currentTarget.dataset.cancel = '1'
+                    if (e.key === 'Enter' || e.key === 'Escape') e.currentTarget.blur()
+                  }}
+                  className="mt-3 h-7 w-full rounded-md border border-focus bg-control px-2 text-body outline-none ring-3 ring-focus/30"
+                />
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => toggle(g.id)}
+                  onDoubleClick={() => startGroupRename(g)}
+                  onContextMenu={(e) =>
+                    openContextMenu(e, t.label(g.name), [
+                      { label: t.rename, icon: Pencil, key: 'r', run: () => startGroupRename(g) },
+                      {
+                        label: t.delete,
+                        icon: Trash2,
+                        destructive: true,
+                        key: 'd',
+                        run: () => props.onDeleteGroup?.(g),
+                      },
+                    ])
+                  }
+                  aria-expanded={open}
+                  className="flex w-full items-center gap-1 rounded-md px-2 pb-1 pt-3 text-left text-caption font-semibold text-muted hover:text-fg-2"
+                >
+                  <span className="truncate">{g.name}</span>
+                  <ChevronRight
+                    aria-hidden
+                    className={cn('size-3 shrink-0 transition-transform', open && 'rotate-90')}
+                  />
+                </button>
+              )}
+              {open && rowList(g.name, chats)}
+            </div>
+          )
+        })}
         {(props.projects.length > 0 || props.onAddProject) && (
           <div className="group/projects flex items-center px-2 pb-1 pt-3">
             <span className="flex-1 text-caption font-semibold text-muted">
@@ -665,6 +884,24 @@ export function Sidebar(props: {
             {rowList(g.label, g.chats)}
           </div>
         ))}
+        {archived.length > 0 && (
+          <div>
+            <button
+              type="button"
+              onClick={() => setArchiveOpen((v) => !v)}
+              aria-expanded={archiveOpen}
+              className="flex w-full items-center gap-1 rounded-md px-2 pb-1 pt-4 text-left text-caption font-semibold text-muted hover:text-fg-2"
+            >
+              {copy.sidebar.groups.archived}
+              <span className="tabular-nums font-normal">{archived.length}</span>
+              <ChevronRight
+                aria-hidden
+                className={cn('size-3 shrink-0 transition-transform', archiveOpen && 'rotate-90')}
+              />
+            </button>
+            {archiveOpen && rowList(copy.sidebar.groups.archived, archived)}
+          </div>
+        )}
       </nav>
       {picked.length > 0 && (
         <div

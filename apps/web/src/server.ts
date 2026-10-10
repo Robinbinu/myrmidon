@@ -30,6 +30,7 @@ import {
   type ChannelChats,
   ChannelHub,
   type ChatService,
+  type ChatShelf,
   type ComputerHub,
   CUSTOM_APIS,
   type CustomApi,
@@ -193,6 +194,8 @@ export interface ServeOptions {
   readonly pluginHost?: PluginHost
   /** Rounds that start on a schedule; the server starts the due ones. */
   readonly schedules?: ScheduleStore
+  /** Where the person filed chats: pins, archive, groups, forks (the same store the chat runtime reads). */
+  readonly shelf?: ChatShelf
   /** Shown in settings so users know whether the shell tool is confined. */
   readonly sandboxKind?: string
   /** The speech detector and end-of-turn model for calls; downloaded into the home unless given (tests stay offline). */
@@ -349,6 +352,8 @@ const sendSchema = Schema.object({
   delivery: Schema.union(['steer', 'queue']),
   plan: Schema.boolean(),
   project: Schema.string().pattern(/^[a-z0-9-]{1,80}$/),
+  // A new chat that continues another's conversation (Fork in the chat list).
+  forkOf: Schema.string().pattern(/^chat-[a-z0-9-]{1,40}$/),
   // A new chat's own permission level, chosen in the composer before its first message (checked by normalizeLevel).
   permissions: Schema.any(),
   // An answer given on a question card: the card shows it, so the chat need not repeat it as a message.
@@ -2383,6 +2388,7 @@ export function startServer(options: ServeOptions): WebServer {
               attachments,
               planFirst: body.plan === true,
               ...(body.project ? { project: body.project } : {}),
+              ...(body.forkOf && !body.chatId ? { forkOf: body.forkOf } : {}),
               ...(calls ? { context: calls.context } : {}),
               ...(body.answers ? { answers: body.answers } : {}),
               // Like PUT /api/chats/:id/permissions, a chat's own level needs a device with full access.
@@ -2424,6 +2430,37 @@ export function startServer(options: ServeOptions): WebServer {
           return json(word ? { word } : {})
         }),
       },
+      // The person's own sections of the chat list; chats go into one with PATCH /api/chats/:chatId { group }.
+      '/api/chat-groups': {
+        GET: guard(async () => json({ groups: options.shelf?.groups() ?? [] })),
+        POST: guard(async (req) => {
+          if (!options.shelf) return json({ error: 'this server keeps no chat groups' }, 503)
+          const { name } = (await req.json().catch(() => ({}))) as { name?: unknown }
+          if (typeof name !== 'string') return json({ error: 'name is required' }, 400)
+          try {
+            return json(options.shelf.addGroup(name))
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
+        }),
+      },
+      '/api/chat-groups/:groupId': {
+        PATCH: guard(async (req) => {
+          if (!options.shelf) return json({ error: 'this server keeps no chat groups' }, 503)
+          const { name } = (await req.json().catch(() => ({}))) as { name?: unknown }
+          if (typeof name !== 'string') return json({ error: 'name is required' }, 400)
+          try {
+            return json(options.shelf.renameGroup(req.params.groupId ?? '', name))
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
+        }),
+        DELETE: guard(async (req) => {
+          if (!options.shelf) return json({ error: 'this server keeps no chat groups' }, 503)
+          options.shelf.removeGroup(req.params.groupId ?? '')
+          return json({ ok: true })
+        }),
+      },
       // Chats by what was said in them; the chat list already matches titles itself.
       '/api/chats/search': {
         GET: guard(async (_req, url) =>
@@ -2431,12 +2468,32 @@ export function startServer(options: ServeOptions): WebServer {
         ),
       },
       '/api/chats/:chatId': {
+        // A new title, or where the chat sits in the list: pinned, archived, in a group (null takes it out).
         PATCH: guard(async (req) => {
           if (!options.chats) return json({ error: 'this server was started without the chat runtime' }, 503)
-          const { title } = (await req.json()) as { title?: unknown }
-          if (typeof title !== 'string') return json({ error: 'title is required' }, 400)
+          const body = (await req.json().catch(() => ({}))) as Record<string, unknown>
+          const { title, pinned, archived, group } = body
+          const flag = (v: unknown) => v === undefined || typeof v === 'boolean'
+          if (title !== undefined && typeof title !== 'string')
+            return json({ error: 'title must be text' }, 400)
+          if (!flag(pinned) || !flag(archived))
+            return json({ error: 'pinned and archived are true or false' }, 400)
+          if (group !== undefined && group !== null && typeof group !== 'string')
+            return json({ error: 'group is a group id or null' }, 400)
+          if ([title, pinned, archived, group].every((v) => v === undefined))
+            return json({ error: 'title, pinned, archived or group is required' }, 400)
+          const chatId = req.params.chatId ?? ''
           try {
-            return json({ ok: true, title: await options.chats.rename(req.params.chatId ?? '', title) })
+            const filed =
+              pinned !== undefined || archived !== undefined || group !== undefined
+                ? await options.chats.file(chatId, {
+                    ...(pinned !== undefined ? { pinned: pinned as boolean } : {}),
+                    ...(archived !== undefined ? { archived: archived as boolean } : {}),
+                    ...(group !== undefined ? { group: group as string | null } : {}),
+                  })
+                : undefined
+            const named = typeof title === 'string' ? await options.chats.rename(chatId, title) : undefined
+            return json({ ok: true, ...(named ? { title: named } : {}), ...(filed ? { place: filed } : {}) })
           } catch (err) {
             return json({ error: err instanceof Error ? err.message : String(err) }, 400)
           }

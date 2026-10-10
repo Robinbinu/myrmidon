@@ -1057,6 +1057,31 @@ export const copy = {
       copyLink: 'Copy link',
       linkCopied: 'Link copied',
       delete: 'Delete chat',
+      pin: 'Pin',
+      unpin: 'Unpin',
+      markUnread: 'Mark as unread',
+      markRead: 'Mark as read',
+      fork: 'Fork',
+      archive: 'Archive',
+      unarchive: 'Unarchive',
+      moveToGroup: 'Move to group',
+      newGroup: 'New group…',
+      leaveGroup: 'Out of the group',
+      openIn: 'Open in',
+      /** The system's file manager, by platform. */
+      fileManager: { mac: 'Finder', windows: 'File Explorer', other: 'Files' },
+      vscode: 'VS Code',
+      cursor: 'Cursor',
+    },
+    /** A heading of the person's own group in the chat list. */
+    group: {
+      label: (name: string) => `Group ${name}`,
+      rename: 'Rename group',
+      delete: 'Delete group',
+      /** A new group's name until the person types theirs. */
+      untitled: 'New group',
+      nameField: 'Group name',
+      deleted: (name: string) => `Deleted the group ${name}; its chats are back in their project or date.`,
     },
     project: {
       label: (name: string) => `Project ${name}`,
@@ -1094,6 +1119,10 @@ export const copy = {
     groups: {
       /** Above everything else: chats waiting on the person's answer or approval. */
       needsYou: 'Needs you',
+      /** Chats the person pinned, below those waiting on them. */
+      pinned: 'Pinned',
+      /** Chats the person archived, folded at the bottom of the list. */
+      archived: 'Archived',
       today: 'Today',
       yesterday: 'Yesterday',
       previous7Days: 'Previous 7 days',
@@ -2314,6 +2343,11 @@ export const copy = {
   },
 
   app: {
+    /** Above a new chat forked from another (Fork in the chat list's menu), until its first message. */
+    fork: {
+      note: (title: string) => `Continues “${title}”: the crew reads that conversation before your message.`,
+      cancel: 'Start fresh instead',
+    },
     /** Title of the desktop notification when a run finishes in the background. */
     fileTooLarge: (name: string) => `${name} is larger than 10 MB`,
     /** The Markdown file written by /export. */

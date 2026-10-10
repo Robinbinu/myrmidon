@@ -612,6 +612,8 @@ export const SUGGEST_MIN_WORD_PREFIX = 2
 export const SUGGEST_MIN_COUNT = 2
 /** The longest ghost text shown; a longer past message is cut at a word. */
 export const SUGGEST_MAX_CHARS = 80
+/** The longest name a chat group may have (the server's CHAT_GROUP_NAME_MAX). */
+export const CHAT_GROUP_NAME_MAX = 40
 /** A pause in typing before the next-word model is asked, so it runs once a word rather than once a key. */
 export const SUGGEST_MODEL_DEBOUNCE_MS = 120
 /** How often settings checks on the model's download while it runs. */

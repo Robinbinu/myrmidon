@@ -699,6 +699,8 @@ export const RECOVERY_GRACE_MS = 60_000
 export const CHAT_SEARCH_LIMIT = 50
 /** The person's past messages the composer learns its suggestions from, most recent first. */
 export const SUGGEST_CORPUS = 2_000
+/** The longest name a chat group may have, as it fits a sidebar heading. */
+export const CHAT_GROUP_NAME_MAX = 40
 /**
  * The composer's optional next-word model: Pythia-14M (EleutherAI, Apache-2.0; ONNX by Xenova), 8-bit, pinned by
  * revision and hash, downloaded once into `<home>/models/pythia-14m` when the person turns it on. Measured on their own

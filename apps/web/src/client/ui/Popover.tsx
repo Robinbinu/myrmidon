@@ -39,7 +39,10 @@ export function usePopover(
 
 /** Arrow keys, Home and End move between a menu's items, wrapping at the ends. */
 export function moveMenuFocus(e: KeyboardEvent<HTMLElement>) {
-  const items = [...e.currentTarget.querySelectorAll<HTMLElement>(ITEMS)]
+  // A submenu open inside the menu walks its own items.
+  const items = [...e.currentTarget.querySelectorAll<HTMLElement>(ITEMS)].filter(
+    (el) => el.closest('[role="menu"]') === e.currentTarget || !e.currentTarget.matches('[role="menu"]'),
+  )
   const at = items.indexOf(document.activeElement as HTMLElement)
   const next =
     e.key === 'ArrowDown'
