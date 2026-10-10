@@ -1030,7 +1030,18 @@ export const copy = {
       new: { description: 'Start a new chat' },
       rename: { args: '<title>', description: 'Rename this chat' },
       attach: { description: 'Attach files to your next message' },
-      export: { description: 'Download this chat as Markdown' },
+      export: {
+        description: 'Download this chat as Markdown, a web page, or an encrypted file to share',
+        options: {
+          md: { label: 'Markdown', description: 'Text to read or paste anywhere (the default)' },
+          html: { label: 'Web page', description: 'One HTML file that opens offline, secrets hidden' },
+          share: {
+            label: 'Encrypted share file',
+            description: 'The web page, locked with a key you send apart',
+          },
+        },
+      },
+      family: { description: 'Show the chats forked from this one, and the one it came from' },
       learn: { description: 'Learn a skill from how this chat did its work' },
       rule: {
         args: '<what went wrong>',
@@ -1094,6 +1105,9 @@ export const copy = {
       settings: 'Open Settings',
       shortcuts: 'Keyboard shortcuts',
       export: 'Export this chat as Markdown',
+      exportHtml: 'Export this chat as a web page',
+      share: 'Share this chat as an encrypted file',
+      family: 'Show this chat’s family (forks and rounds)',
       crewConsole: 'Open the crew console',
       importSession: 'Import a Claude Code or Codex session',
     },
@@ -1109,7 +1123,11 @@ export const copy = {
     chat: {
       label: (title: string) => `Chat “${title}”`,
       rename: 'Rename',
-      export: 'Export as Markdown',
+      export: 'Export',
+      exportMarkdown: 'Markdown (.md)',
+      exportHtml: 'Web page (.html)',
+      share: 'Encrypted share file…',
+      family: 'Show family',
       copyLink: 'Copy link',
       linkCopied: 'Link copied',
       delete: 'Delete chat',
@@ -1201,6 +1219,7 @@ export const copy = {
       count: (n: number) => `${n} selected`,
       delete: (n: number) => (n === 1 ? 'Delete chat' : `Delete ${n} chats`),
       export: (n: number) => (n === 1 ? 'Export as Markdown' : `Export ${n} chats as Markdown`),
+      exportHtml: (n: number) => (n === 1 ? 'Export as a web page' : `Export ${n} chats as web pages`),
       clear: 'Clear selection',
       clearTitle: (key: string) => `Clear selection (${key})`,
     },
@@ -2506,6 +2525,64 @@ export const copy = {
     gone: 'The imported transcript is no longer here.',
   },
 
+  /** Sharing a chat as an encrypted file (chat menu → Export → Encrypted share file, `/export share`). */
+  share: {
+    title: 'Share as an encrypted file',
+    /** Before the file is made: what happens, and where things go. */
+    intro:
+      'Myrmidon makes one web page of this chat (secrets hidden), locks it in this browser with a new key, and saves ' +
+      'it as a file in your downloads. Nothing is uploaded: you send the file, and the key separately.',
+    noHost:
+      'Myrmidon has no public place to put a share link, so the file itself is what you send; whoever has it and the key can read it.',
+    create: 'Create encrypted file',
+    creating: 'Encrypting…',
+    /** After: the key, shown only here. */
+    saved: (name: string) => `Saved ${name} to your downloads.`,
+    keyLabel: 'Key',
+    keyHint:
+      'Send the key another way than the file (a message, not the same email). It is shown only now and is not kept anywhere.',
+    copyKey: 'Copy key',
+    keyCopied: 'Key copied',
+    howToOpen:
+      'To read it: open the file in a browser and paste the key, or add # and the key to the end of its address.',
+    done: 'Done',
+    failed: (reason: string) => `Couldn’t create the share file: ${reason}`,
+    /** The downloaded file's name: no chat title, as the file reveals nothing until it is opened. */
+    fileName: 'myrmidon-chat-encrypted.html',
+    /** What the file itself says before it is opened, to someone who may not know Myrmidon. */
+    file: {
+      title: 'Encrypted chat',
+      body: 'This chat was shared from Myrmidon and is encrypted. Paste the key you were sent; it is decrypted in this browser, and nothing is sent anywhere.',
+      keyLabel: 'Key',
+      open: 'Open',
+      errors: {
+        key: 'That key does not open this file. Check that you copied all of it.',
+        sealed: 'This file is damaged. Ask for it again.',
+        browser:
+          'This browser cannot decrypt the file. Open it in a current Chrome, Safari, Firefox or Edge.',
+      },
+    },
+  },
+
+  /** A chat's family: the chat it was forked from, the chats forked from it, and each one's runs. */
+  family: {
+    title: 'Chat family',
+    open: 'Show family',
+    openTitle: 'Show the chats this one was forked from and into',
+    intro: 'Forks start from another chat’s conversation and go their own way. Choose a chat to open it.',
+    alone: 'No forks yet. Fork this chat from its menu in the list to try another direction from here.',
+    current: 'This chat',
+    gone: 'A deleted chat',
+    imported: (tool: string) => `Imported from ${tool}`,
+    importedAny: 'Imported from another tool',
+    tools: { claude: 'Claude Code', codex: 'Codex' } as Record<string, string>,
+    forkedAfter: (n: number) => `Forked after run ${n}`,
+    forked: 'Forked',
+    run: (n: number) => `Run ${n}`,
+    runs: (n: number) => `${n} run${n === 1 ? '' : 's'}`,
+    openChat: (title: string) => `Open “${title}”`,
+  },
+
   app: {
     /** Above a new chat forked from another (Fork in the chat list's menu), until its first message. */
     fork: {
@@ -2559,6 +2636,7 @@ export const copy = {
       thinkingAuto: 'Thinking: each role decides',
       thinkingLevel: (level: string) => `Thinking: ${level} while the crew works`,
       openChatToExport: 'Open a chat to export it',
+      exportUsage: 'Export as md, html or share, e.g. /export html',
       stopping: 'Stopping the crew…',
       deleted: (title: string) => `Deleted “${title}”`,
       deletedMany: (n: number) => `Deleted ${n} chats`,
