@@ -570,10 +570,11 @@ test('crewmates on call: a lead working alone asks them for work and gets their 
 test('ask_crewmate refuses a name not on call, listing who is, and list_agents shows them before they join', async () => {
   const resolver = new ModelResolver()
   const seen: { results?: string } = {}
+  // Not a call sign (identity.ts CALL_SIGNS), so the researcher can never be drawn under it.
   scripted(resolver, 'mock/lead', [
     [
       tool('list_agents', {}),
-      tool('ask_crewmate', { to: 'rune', job: 'Write a test for the parser module.' }),
+      tool('ask_crewmate', { to: 'bramble', job: 'Write a test for the parser module.' }),
     ],
     (ctx) => {
       seen.results = JSON.stringify(ctx.messages.filter((m) => m.role === 'toolResult'))
@@ -592,7 +593,7 @@ test('ask_crewmate refuses a name not on call, listing who is, and list_agents s
   const s = await waitFor(colonyId)
   const onCall = /\b([a-z]+) \(researcher\) on call/.exec(seen.results ?? '')?.[1]
   expect(onCall).toBeDefined()
-  expect(seen.results).toContain(`rune is not one of your crewmates on call`)
+  expect(seen.results).toContain(`bramble is not one of your crewmates on call`)
   expect(seen.results).toContain(`${onCall} (researcher)`)
   // Nobody joined under the unknown name, or at all.
   expect(Object.values(s.agents).map((a) => a.info.name)).toEqual(['lead'])
