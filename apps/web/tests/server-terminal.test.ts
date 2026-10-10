@@ -90,6 +90,9 @@ pendingOn('win32', 'terminalForeground')(
       expect(one.seen.text).not.toContain('second-42')
       expect(two.seen.text).not.toContain('first-21')
 
+      // At the next prompt, as a person types: PowerShell's line editor drops a key that comes while it starts up.
+      await until(() => /first-21\s*\S/.test(one.seen.text), seen)
+      await Bun.sleep(500)
       // A program, not PowerShell's own sleep (Start-Sleep), which runs inside the shell and is no process to name.
       one.type(process.platform === 'win32' ? 'sleep.exe 30\r' : 'sleep 30\r')
       await until(() => one.seen.controls.some((c) => c.type === 'process' && c.name === 'sleep 30'), seen)

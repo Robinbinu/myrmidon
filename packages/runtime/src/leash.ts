@@ -17,6 +17,7 @@
  * Self-contained (node builtins only): a compiled Myrmidon has no file to run, so it runs this source with `-e`
  * (see leashed.ts). Imported, it only lends its process table.
  */
+import { appendFileSync } from 'node:fs'
 import { constants } from 'node:os'
 
 /** A running process: its parent, its process group (not on Windows) and its command line. */
@@ -122,12 +123,23 @@ export function alive(pid: number): boolean {
   }
 }
 
-function signal(pid: number, sig: NodeJS.Signals) {
+/** Signals a process; the error when it could not be (most often: gone between the listing and the signal). */
+function signal(pid: number, sig: NodeJS.Signals): string | undefined {
   try {
     process.kill(pid, sig)
-  } catch {
-    // Gone between the listing and the signal.
+    return undefined
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code ?? String(err)
   }
+}
+
+/**
+ * MYR_LEASH_LOG names a file each sweep is written to, a JSON line per look at the tree: what was in it and how
+ * signalling each went. For finding why a tree was not stopped on a given system.
+ */
+function sweepLog(entry: object) {
+  const file = process.env.MYR_LEASH_LOG
+  if (file) appendFileSync(file, `${JSON.stringify({ leash: process.pid, at: Date.now(), ...entry })}\n`)
 }
 
 async function main() {
@@ -183,6 +195,7 @@ async function main() {
       for (;;) {
         // From the command down, not from the leash, whose other child is the listing itself.
         const rows = processTable()
+        sweepLog({ top, listed: rows?.length })
         if (!rows) {
           // No listing (PowerShell blocked by policy, say): Windows can still end the tree below the command as it
           // stands, though not what it orphaned.
@@ -190,15 +203,21 @@ async function main() {
           return
         }
         const running = new Set(rows.map((r) => r.pid))
-        for (const pid of treeOf(rows, top))
+        const tree = treeOf(rows, top)
+        const signalled: [number, string, string | undefined][] = []
+        for (const pid of tree)
           if (!seen.has(pid)) {
             seen.add(pid)
-            signal(pid, 'SIGTERM')
+            signalled.push([pid, rows.find((r) => r.pid === pid)?.command ?? '', signal(pid, 'SIGTERM')])
           }
+        sweepLog({
+          signalled,
+          below: rows.filter((r) => tree.has(r.ppid) || r.ppid === top).map((r) => r.pid),
+        })
         const left = [...seen].filter((pid) => running.has(pid))
         if (!left.length) return
         if (Date.now() >= deadline) {
-          for (const pid of left) signal(pid, 'SIGKILL')
+          sweepLog({ killed: left.map((pid) => [pid, signal(pid, 'SIGKILL')]) })
           return
         }
         await Bun.sleep(100)

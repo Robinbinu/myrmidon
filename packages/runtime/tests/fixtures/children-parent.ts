@@ -67,6 +67,8 @@ switch (kind) {
       command: twoSleeps(),
       cwd: join(dir, 'project'),
       writable: [join(dir, 'project')],
+      // A confined command keeps little of this environment: the sweep log (see leash.ts) is passed on by name.
+      env: { MYR_LEASH_LOG: join(dir, 'leash.log') },
     })
     keep.push(server)
     await descendants(server.pid, 3)
