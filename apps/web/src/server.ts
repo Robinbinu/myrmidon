@@ -260,6 +260,8 @@ type StreamData = Opened &
         watch?: ReturnType<typeof setInterval>
         /** The socket closed, maybe before the shell had started. */
         closed?: boolean
+        /** What was typed before the shell had started (slow on Windows), written to it once it has. */
+        typed?: string[]
       }
     /**
      * A voice call: the person's audio in, the call's speech and state out. `refusal`: the call is refused, said as
@@ -3238,6 +3240,7 @@ export function startServer(options: ServeOptions): WebServer {
               term.close()
               return
             }
+            for (const typed of data.typed?.splice(0) ?? []) term.write(typed)
             void term.exited.then(() => ws.close(1000, 'shell exited'))
             // The tab is named by what runs in it, as IDE terminals do. Polling `ps` is cheap and needs no native
             // module (Windows asks for the shell's children instead); a JSON text frame tells the page, beside the
@@ -3435,8 +3438,10 @@ export function startServer(options: ServeOptions): WebServer {
             rows?: unknown
           }
           const term = ws.data.proc
-          if (msg.type === 'input' && typeof msg.data === 'string') term?.write(msg.data)
-          else if (msg.type === 'resize' && typeof msg.cols === 'number' && typeof msg.rows === 'number')
+          if (msg.type === 'input' && typeof msg.data === 'string') {
+            if (term) term.write(msg.data)
+            else ws.data.typed = [...(ws.data.typed ?? []), msg.data]
+          } else if (msg.type === 'resize' && typeof msg.cols === 'number' && typeof msg.rows === 'number')
             term?.resize(Math.min(500, Math.max(10, msg.cols)), Math.min(500, Math.max(5, msg.rows)))
           return
         }
