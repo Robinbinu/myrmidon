@@ -1,5 +1,8 @@
 import { type AccessChange, accessLoosened, type PermissionSource } from '@myrmidon/protocol'
 import {
+  AST_EDIT_MAX_FILES,
+  AST_EDIT_MAX_REPLACEMENTS,
+  AST_GREP_LIMIT,
   BROWSER_LOG_LIMIT,
   BROWSER_VIEWPORT,
   FETCH_SHOWN_CHARS,
@@ -1486,6 +1489,59 @@ Reply with JSON only: {"lines": ["...", "...", "..."]}.`,
       `\nBundled files (read one with use_skill and file):\n${files.map((f) => `- ${f}`).join('\n')}`,
   },
 
+  /** What ast_grep, ast_edit and lsp tell the agent (code-intel.ts). */
+  codeIntel: {
+    noMatches: (pattern: string) => `No matches for ${pattern}.`,
+    /** Parse issues are a malformed pattern or a mis-scoped path more often than real absence (after omp). */
+    parseIssues: (errors: readonly string[], total: number) =>
+      `Some files could not be parsed with this pattern, so the result may be incomplete; fix the pattern or narrow path:\n${errors.map((e) => `  ${e}`).join('\n')}${total > errors.length ? `\n  … ${total - errors.length} more` : ''}`,
+    missingGrammars: (languages: readonly string[]) =>
+      `Skipped ${languages.join(', ')} files: no grammar for them is installed here, and none is downloaded.`,
+    matches: (total: number, files: number, first: number, last: number) =>
+      `${total} match${total === 1 ? '' : 'es'} in ${files} file${files === 1 ? '' : 's'}${last < total || first > 1 ? ` (showing ${first}-${last})` : ''}`,
+    moreMatches: (skip: number) => `More matches: call again with skip: ${skip}.`,
+    hiddenMatches: (n: number) => `(${n} match${n === 1 ? '' : 'es'} in files you may not read left out)`,
+    tooBig: (files: number, replacements: number) =>
+      `this rewrite reaches ${files > AST_EDIT_MAX_FILES ? `more than ${AST_EDIT_MAX_FILES} files` : `${files} files`} and ${replacements > AST_EDIT_MAX_REPLACEMENTS ? `more than ${AST_EDIT_MAX_REPLACEMENTS} replacements` : `${replacements} replacements`}, past what one call may change; narrow path or glob and do it in parts`,
+    cannotChange: (path: string) =>
+      `a match is in ${path}, which you may read but not change; narrow path or glob to leave it out`,
+    changedSince: (path: string) =>
+      `${path} changed while the rewrite was being worked out; run ast_edit again`,
+    previewed: (replacements: number, files: number) =>
+      `Preview: ${replacements} replacement${replacements === 1 ? '' : 's'} in ${files} file${files === 1 ? '' : 's'}; nothing was changed. Call again without preview to apply.`,
+    rewrote: (replacements: number, files: number) =>
+      `Rewrote ${replacements} match${replacements === 1 ? '' : 'es'} in ${files} file${files === 1 ? '' : 's'}:`,
+    /** No server for this kind of file: say so plainly, and how to go on without one. */
+    noServer: (path: string) =>
+      `No language server is installed for ${path} (Myrmidon uses the ones on this computer, such as typescript-language-server, pyright, rust-analyzer or gopls, and installs none). Use grep, ast_grep and fs_read instead.`,
+    noServers:
+      'No language server is installed for this project (Myrmidon uses the ones on this computer, such as typescript-language-server, pyright, rust-analyzer or gopls, and installs none). Use grep, ast_grep and fs_read instead.',
+    servers: (names: readonly string[]) => `Language servers for this project: ${names.join(', ')}.`,
+    needsSandbox: 'language servers and type checks need the OS sandbox, which this computer does not have',
+    needsPath: (action: string) => `${action} needs path: the file to ask about`,
+    needsLine: (action: string) =>
+      `${action} needs line and symbol: the 1-based line and the name as written on it`,
+    needsQuery:
+      'symbols across the workspace needs query: the name or part of it (or give path for one file)',
+    needsNewName: 'rename needs newName',
+    notFile: (path: string) => `${path} is not a file; give the file to ask about`,
+    timedOut: (server: string, seconds: number) =>
+      `${server} did not answer within ${seconds}s; it may still be indexing the project. Try again shortly.`,
+    serverFailed: (server: string, error: string) => `${server} failed: ${error}`,
+    clean: (path: string) => `${path}: no problems found.`,
+    none: (what: string) => `No ${what} found.`,
+    found: (n: number, what: string) => `${n} ${what}:`,
+    moreListed: (n: number) => `… ${n} more not listed`,
+    renameNone: 'The language server returned no changes for this rename; check line and symbol.',
+    renameMoves:
+      'this rename would also create, move or delete files, which lsp does not do; rename the file yourself, then the symbol',
+    renamed: (edits: number, files: number) =>
+      `Renamed: ${edits} edit${edits === 1 ? '' : 's'} in ${files} file${files === 1 ? '' : 's'}:`,
+    noChecker:
+      "No project type check found here (tsconfig.json with tsc installed, Cargo.toml, go.mod, or pyproject.toml with pyright). Ask for one file's diagnostics with path, or run the project's checks with run_checks.",
+    checked: (command: string, ok: boolean) => `${ok ? 'PASS' : 'FAIL'} \`${command}\``,
+  },
+
   /** Computer use: what agents read in the computer tool's results, and what the person reads on its cards. */
   computer: {
     halted: 'Not executed: an earlier computer action in this turn failed.',
@@ -2055,6 +2111,68 @@ Reply with JSON only: {"lines": ["...", "...", "..."]}.`,
       params: {
         pattern: 'Glob pattern, e.g. "**/*.ts" or "docs/*.md"',
         path: 'Folder to search, relative to your working directory (default: all of it)',
+      },
+    },
+    // After omp's ast_grep (one pattern, one language, narrow the path; parse issues are not absence).
+    ast_grep: {
+      description: (p: Place) =>
+        `Search code in ${place(p)} by its syntax rather than its text, with an ast-grep pattern: calls, declarations, ` +
+        'imports, any construct, whatever the spacing or line breaks. $NAME matches one node, $$$NAME zero or more ' +
+        '(never $$NAME), $_ one without capturing; names are UPPERCASE and stand for a whole node. The same name twice ' +
+        'must match the same code. The pattern must parse as one node of the language: "console.log($$$ARGS)", ' +
+        '"import { $$$NAMES } from \'react\'", "async function $NAME($$$ARGS) { $$$BODY }". Each file is parsed in ' +
+        `its own language. Returns at most ${AST_GREP_LIMIT} matches with their lines and captures; narrow path or ` +
+        'glob, or page on with skip. Parse issues mean the pattern or path is wrong, not that nothing is there. For ' +
+        'plain text use grep.',
+      params: {
+        pattern:
+          'One ast-grep pattern, e.g. "useEffect($$$ARGS)" or "class $NAME extends Component { $$$BODY }"',
+        path: 'Folder or file to search, relative to your working directory (default: all of it); keep it narrow',
+        glob: 'Only files matching this, e.g. "src/**/*.ts" (default: every file with a known language)',
+        lang: 'Language to parse every file as, e.g. "tsx" or "cpp" for .h files (default: from each extension)',
+        skip: 'Matches to skip, to page past the first ones (default 0)',
+      },
+    },
+    // After omp's ast_edit (metavariables carry into the rewrite, 1:1 substitution, empty rewrite deletes).
+    ast_edit: {
+      description: (p: Place) =>
+        `Rewrite code in ${place(p)} by syntax: every match of an ast-grep pattern becomes the rewrite, with the ` +
+        "pattern's captures ($NAME, $$$ARGS) put back in. Use it for a codemod across files where a text replace " +
+        'would hit the wrong places; for one change in one file use fs_edit, and to rename a symbol use lsp ' +
+        "rename, which follows imports and shadowing. Patterns follow ast_grep's rules; an empty rewrite deletes " +
+        `each match. Set preview to see the replacements without changing anything. At most ${AST_EDIT_MAX_FILES} ` +
+        `files and ${AST_EDIT_MAX_REPLACEMENTS} replacements in one call; narrow path or glob past that. Changes ` +
+        'to the project follow the same permissions as fs_edit.',
+      params: {
+        pattern: 'One ast-grep pattern to find, e.g. "console.log($$$ARGS)"',
+        rewrite:
+          'What each match becomes, using the captures, e.g. "logger.debug($$$ARGS)"; empty deletes it',
+        path: 'Folder or file to rewrite, relative to your working directory (default: all of it); keep it narrow',
+        glob: 'Only files matching this, e.g. "src/**/*.ts" (default: every file with a known language)',
+        lang: 'Language to parse every file as (default: from each extension)',
+        preview: 'true lists the replacements without changing any file (default false)',
+      },
+    },
+    // After omp's lsp (position by line plus symbol, never a guessed column; rename over text edits) and Claude
+    // Code's LSP (1-based lines, a query for workspace symbols, no server means an error).
+    lsp: {
+      description: (p: Place) =>
+        `Ask the language server for ${place(p)}'s code (typescript, pyright, rust-analyzer, gopls and others ` +
+        'installed on the computer) what text search cannot know. Actions: diagnostics (type errors and warnings ' +
+        'for path; with no path, the project type check), definition, references and hover (path, line and the ' +
+        "symbol on that line), symbols (path lists a file's symbols; query searches the workspace), rename " +
+        '(path, line, symbol and newName: changes every use across files, following imports and shadowing, with ' +
+        'the same permissions as fs_edit), status (which servers this project has). Lines are 1-based; symbol is ' +
+        'the name as written on that line, name#2 for its second occurrence there. Prefer lsp to grep and ' +
+        'ast_edit for renames and for who calls what. When no server is installed for a file it says so: fall ' +
+        'back to grep and read the code.',
+      params: {
+        action: 'diagnostics, definition, references, hover, symbols, rename or status',
+        path: 'File, relative to your working directory (diagnostics without one checks the whole project)',
+        line: 'Line of the symbol, 1-based as fs_read and grep show it',
+        symbol: 'The symbol on that line as written, e.g. "parseSlash"; "name#2" for its second occurrence',
+        query: 'For symbols across the workspace: the name or part of it to find',
+        newName: 'For rename: the new name',
       },
     },
     // After Gemini CLI's google_web_search ("use this when you don't have a specific URL ... follow up with
