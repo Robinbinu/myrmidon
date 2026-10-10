@@ -217,6 +217,13 @@ export interface VoiceEndpoint {
 }
 
 export const VOICE_ENDPOINT_ID = /^[a-z][a-z0-9-]{0,30}$/
+/**
+ * A folder the person lists for agents to read, as typed: `~`, `~/…` or a full path; on Windows also `~\…`, a drive
+ * (`C:\…`) or a share (`\\server\…`). `readFolder` checks it in full where it is used.
+ */
+export const readFolderPattern = (platform: NodeJS.Platform = process.platform): RegExp =>
+  platform === 'win32' ? /^(~$|~[\\/]|[A-Za-z]:[\\/]|[\\/])/ : /^(~$|~\/|\/)/
+
 /** What a voice provider choice may be: a fixed engine, a registry id, or one of the person's endpoints. */
 const VOICE_PROVIDER = /^([a-z][a-z0-9-]{1,30}|endpoint:[a-z][a-z0-9-]{0,30})$/
 
@@ -234,11 +241,7 @@ export const settingsSchema = Schema.object({
     tokens: Schema.natural().max(1_000_000_000).default(0),
   }).default({}),
   sandbox: Schema.object({
-    read: Schema.array(
-      Schema.string()
-        .pattern(/^(~$|~\/|\/)/)
-        .max(1000),
-    ).max(MAX_READ_FOLDERS),
+    read: Schema.array(Schema.string().pattern(readFolderPattern()).max(1000)).max(MAX_READ_FOLDERS),
     readHome: Schema.boolean(),
   }).default({}),
   computerUse: Schema.object({
