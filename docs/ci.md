@@ -1,18 +1,20 @@
 # CI
 
-`.github/workflows/ci.yml` proves Myrmidon builds and passes its suite on macOS, Linux and Windows.
+`.github/workflows/ci.yml` proves Myrmidon builds and passes its suite on macOS. Myrmidon is built for macOS first:
+full Linux and Windows support comes later, tracked in GitHub issues #27 (Linux) and #28 (Windows) with labels
+`linux` and `windows`. Their jobs still exist and run by hand.
 
 ## When it runs
 
-- every push to `develop`, and to any `xp-*` branch (the platform branches);
-- every pull request to `main` or `develop`;
-- by hand (`workflow_dispatch`), for one OS or all, optionally for some test files only.
+- every push to `develop`, and to any `xp-*` branch (the platform branches): macOS;
+- every pull request to `main` or `develop`: macOS;
+- by hand (`workflow_dispatch`), for one OS or all (macOS by default), optionally for some test files only.
 
 A newer push to the same branch cancels the run in progress.
 
 ## What runs where
 
-One job per OS, `fail-fast` off so each OS reports on its own, 45 minutes at most:
+One job per OS run, `fail-fast` off so each OS reports on its own, 45 minutes at most:
 
 | Runner | Machine |
 | --- | --- |
