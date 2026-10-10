@@ -3758,7 +3758,7 @@ function VoiceSection(props: {
         {v.stt.provider === 'phonon' && status && (
           <CardRow>
             <div className="flex items-center gap-3 text-body">
-              {status.stt.phonon.state === 'error' ? (
+              {status.stt.phonon.state === 'error' || status.stt.phonon.state === 'unsupported' ? (
                 <EngineTrouble engine="phonon" raw={status.stt.phonon.error ?? ''} />
               ) : (
                 <span className="min-w-0 flex-1 truncate text-fg-2" title={status.stt.phonon.line}>
@@ -3766,13 +3766,15 @@ function VoiceSection(props: {
                   {status.stt.phonon.line && <span className="text-muted"> · {status.stt.phonon.line}</span>}
                 </span>
               )}
-              <Button
-                size="sm"
-                disabled={status.stt.phonon.state === 'installing'}
-                onClick={() => void act(post('/api/voice/phonon/install', {}))}
-              >
-                {status.stt.phonon.state === 'missing' ? t.install : t.reinstall}
-              </Button>
+              {status.stt.phonon.state !== 'unsupported' && (
+                <Button
+                  size="sm"
+                  disabled={status.stt.phonon.state === 'installing'}
+                  onClick={() => void act(post('/api/voice/phonon/install', {}))}
+                >
+                  {status.stt.phonon.state === 'missing' ? t.install : t.reinstall}
+                </Button>
+              )}
             </div>
           </CardRow>
         )}

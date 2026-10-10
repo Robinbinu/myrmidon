@@ -544,7 +544,8 @@ export class VoiceHub {
   }
 
   private _warmEngines(voice: VoiceSettings): Promise<void> {
-    const phonon = voice.stt.provider === 'phonon' && this.phonon.status().state !== 'missing'
+    const phonon =
+      voice.stt.provider === 'phonon' && !['missing', 'unsupported'].includes(this.phonon.status().state)
     const kitten = voice.tts.provider === 'kitten'
     const key = JSON.stringify([phonon, kitten, voice.tts.kittenModel, voice.tts.voice])
     if (this._warm?.key === key) return this._warm.done
@@ -736,7 +737,8 @@ export class VoiceHub {
       const phonon = this.phonon.status()
       if (phonon.state === 'missing') return r.phononMissing
       if (phonon.state === 'installing') return r.phononInstalling
-      if (phonon.state === 'error') return r.failed('Phonon-2', phonon.error)
+      if (phonon.state === 'error' || phonon.state === 'unsupported')
+        return r.failed('Phonon-2', phonon.error)
     }
     if (voice.tts.provider === 'kitten') {
       const kitten = this.kitten.status()

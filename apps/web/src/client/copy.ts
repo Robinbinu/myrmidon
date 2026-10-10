@@ -3380,6 +3380,11 @@ export const copy = {
           cause: 'Phonon-2 needs uv, the Python installer, and it is not on this Mac.',
           fix: 'Install uv from docs.astral.sh/uv, then press Install again.',
         },
+        /** Fermion publishes no Phonon-2 engine for this computer (Windows on Arm). */
+        unsupported: {
+          cause: 'Phonon-2 does not run on this computer.',
+          fix: 'Pick Cloud for speech to text, or a voice provider of your own.',
+        },
         phonon: {
           cause: 'Phonon-2 could not install or start.',
           fix: 'Check the internet connection and press Reinstall, or pick Cloud for speech to text.',

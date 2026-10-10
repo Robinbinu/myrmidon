@@ -7,6 +7,8 @@ import { sandboxHiddenRoots, sandboxSecrets, sandboxSystemBins, sandboxToolchain
 import { absoluteFolder, folderParent, isFsRoot, projectSecret, windowsDrives } from '../src/projects.ts'
 import { expandHome, keysAt, readFolder, within } from '../src/read-access.ts'
 import { confinedEnvFor, sandboxPath } from '../src/sandbox.ts'
+import { PhononStream } from '../src/voice/phonon-stream.ts'
+import { phononInstall, phononListenArgs, phononUnsupported, socketFolder } from '../src/voice/stt.ts'
 
 /**
  * Myrmidon runs on macOS, Linux and Windows. These check the Windows and Linux rules of the path and OS helpers with
@@ -167,4 +169,64 @@ test('Chrome is looked for where each system installs it, Edge last on Windows',
   expect(linux).toContain('/snap/bin/chromium')
   expect(linux).toContain('/var/lib/flatpak/exports/bin/com.google.Chrome')
   expect(linux).toContain('/home/ada/.local/share/flatpak/exports/bin/com.google.Chrome')
+})
+
+test('Phonon-2 installs MLX only on Apple silicon, says where it cannot run, and listens on a port on Windows', () => {
+  expect(phononInstall('darwin', 'arm64')).toContain('mlx')
+  for (const [platform, arch] of [
+    ['win32', 'x64'],
+    ['linux', 'x64'],
+    ['linux', 'arm64'],
+    ['darwin', 'x64'],
+  ] as const) {
+    expect(phononInstall(platform, arch)).not.toContain('mlx')
+    expect(phononInstall(platform, arch)).not.toContain('mlx-audio')
+    expect(phononUnsupported(platform, arch)).toBeUndefined()
+  }
+  expect(phononUnsupported('win32', 'arm64')).toContain('Windows on Arm')
+  expect(phononListenArgs({ unix: '/x/phonon.sock' })).toEqual(['--unix-socket', '/x/phonon.sock'])
+  expect(phononListenArgs({ port: 4567, token: 'k' })).toEqual([
+    '--host',
+    '127.0.0.1',
+    '--port',
+    '4567',
+    '--api-key',
+    'k',
+  ])
+  const long = `/Users/${'a'.repeat(120)}/voice/phonon.sock`
+  expect(socketFolder(long, 'win32', 'C:\\Users\\ada\\AppData\\Local\\Temp')).toMatch(
+    /^C:\\Users\\ada\\AppData\\Local\\Temp\\myr-/,
+  )
+  expect(socketFolder(long, 'linux')).toMatch(/^\/tmp\/myr-/)
+})
+
+test('Phonon’s live stream reaches a loopback port with its key, as on Windows', async () => {
+  let auth: string | null = null
+  let config: unknown
+  const server = Bun.serve({
+    hostname: '127.0.0.1',
+    port: 0,
+    fetch(req, srv) {
+      auth = req.headers.get('authorization')
+      if (auth !== 'Bearer s3cret') return new Response('no', { status: 401 })
+      return srv.upgrade(req) ? undefined : new Response('no', { status: 400 })
+    },
+    websocket: {
+      message(ws, msg) {
+        if (typeof msg === 'string') {
+          config = JSON.parse(msg)
+          ws.send(JSON.stringify({ type: 'partial', text: 'hello' }))
+        }
+      },
+    },
+  })
+  servers.push(server)
+  const heard: string[] = []
+  const stream = new PhononStream({ port: server.port ?? 0, token: 's3cret' }, 16_000, (t) => heard.push(t))
+  const end = Date.now() + 3000
+  while (!heard.length && Date.now() < end) await Bun.sleep(5)
+  stream.close()
+  expect(auth as string | null).toBe('Bearer s3cret')
+  expect(config).toEqual({ sample_rate: 16_000, format: 'pcm_s16le' })
+  expect(heard).toEqual(['hello'])
 })
