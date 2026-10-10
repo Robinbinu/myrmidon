@@ -206,6 +206,8 @@ export interface EventPayloads {
       escalate?: ('solo' | 'team')[]
       /** What the person keeps across chats (memory), as prompt lines, when the round started. */
       memory?: string[]
+      /** Kept memories left out of `memory` for room. */
+      memoryMore?: number
       /** The person started this round by writing to these crew members directly (@name): they start it, not the lead. */
       addressed?: string[]
     }
@@ -272,6 +274,13 @@ export interface EventPayloads {
     /** Set: for this project's chats only. */
     project?: string
     why: string
+    /** Kept memories it corrects or merges: keeping it removes them. */
+    replaces?: { id: string; text: string }[]
+    /**
+     * Suggested by Myrmidon's memory reviewer from what the person said in the round (then `why` quotes their words),
+     * not by an agent at work.
+     */
+    suggested?: boolean
   }
   'memory/decided': { id: string; kept: boolean }
   /** A reviewer read the round and proposes a skill (or, with `update`, a change to one it learned before). */

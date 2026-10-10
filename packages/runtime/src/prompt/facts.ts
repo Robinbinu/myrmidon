@@ -189,6 +189,8 @@ export interface PromptFacts {
   }
   readonly context: {
     readonly memory: readonly string[]
+    /** Kept memories not in `memory`, which the agent can search with recall. */
+    readonly memoryMore: number
     /** `fits`: the request may need it, so its description is shown. */
     readonly skills: readonly {
       readonly name: string
@@ -353,6 +355,7 @@ export function factsFor(spec: ColonySpec, agent: AgentSpec, env: Environment): 
     },
     context: {
       memory: spec.chat?.memory ?? [],
+      memoryMore: spec.chat?.memoryMore ?? 0,
       skills: skills.map((s) => ({ name: s.name, description: s.description, fits: fits.has(s) })),
       plugins: env.plugins ?? [],
       ...(project && env.project?.layout ? { layout: env.project.layout } : {}),

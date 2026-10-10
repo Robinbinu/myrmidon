@@ -551,7 +551,12 @@ Open work, in the order it will be done:
       run inside WSL2 with bubblewrap when available, otherwise every command asks and Settings says why. Start
       from the cross-platform audit; fix blockers first.
 12y. - [ ] **omp features Myrmidon lacks** (asked 2026-10-10; reuse omp's modules where they fit):
-      1. Long-term memory engine: extraction from chats, recall / reflect / edit (omp hindsight, mnemopi).
+      1. Long-term memory engine: extraction from chats, recall / reflect / edit (omp hindsight, mnemopi). Done
+         2026-10-10 (memory.ts, memory-review.ts): prompts carry every kept memory while they fit, then the newest
+         preferences and the most relevant (BM25, freshness, MMR) with `recall` for the rest; a cheap model suggests
+         memories from what the person said after a round (quoting them, never secrets) and merges for repeats or
+         stale ones (Tidy up, or daily when two overlap); agents correct one with remember's `replaces`; all wait for
+         the person. Left: embeddings (lexical recall misses synonyms); memory for channel members' rounds.
       2. Debugger for agents over the Debug Adapter Protocol (omp dap).
       3. Live session sharing: another person joins a chat live (omp collab).
       4. Autoresearch: an experiment loop on its own branch, measured and kept or dropped (omp autoresearch).

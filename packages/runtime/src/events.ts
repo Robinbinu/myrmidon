@@ -84,6 +84,7 @@ const colonySpec = Schema.object({
       history: Schema.string(),
       escalate: Schema.array(oneOf('solo', 'team')).default([]),
       memory: strs(),
+      memoryMore: Schema.natural(),
       addressed: optional(Schema.array(str())),
       project: optional(
         Schema.object({
@@ -225,7 +226,8 @@ const defs: EventTypeDefinition[] = [
   {
     type: 'memory/proposed',
     version: 1,
-    actors: ['agent'],
+    // The memory reviewer's suggestions from a finished round are Myrmidon's own.
+    actors: ['agent', 'system'],
     schema: Schema.object({
       id: str(),
       agent: str(),
@@ -233,6 +235,8 @@ const defs: EventTypeDefinition[] = [
       kind: oneOf('preference', 'decision', 'lesson', 'fact'),
       project: Schema.string(),
       why: Schema.string().default(''),
+      replaces: optional(Schema.array(Schema.object({ id: str(), text: str() }))),
+      suggested: optional(Schema.boolean()),
     }),
   },
   {
