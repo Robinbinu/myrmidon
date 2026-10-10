@@ -4,7 +4,7 @@ import { homedir, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { type ColonyState, type EventPayloads, foldColony } from '@myrmidon/protocol'
 import { createMockModel, type MockContent } from '@oh-my-pi/pi-ai/providers/mock'
-import { notOn, pendingOn } from '../../../tests/platform.ts'
+import { notOn } from '../../../tests/platform.ts'
 import { SANDBOX_HIDDEN_ROOTS } from '../src/config.ts'
 import {
   bootRuntime,
@@ -85,11 +85,7 @@ const confined = (extra: { readable?: string[]; hidden?: string[] } = {}) => ({
   hidden: [data, join(home, '.ssh'), ...(extra.hidden ?? [])],
 })
 
-pendingOn(
-  'linux',
-  'bwrapHiddenFolders',
-  detectSandbox().kind === 'none',
-)(
+test.skipIf(detectSandbox().kind === 'none')(
   "a sandboxed command cannot read the home, other chats or keys, but reads its project, this chat's files and toolchains",
   async () => {
     const sandbox = detectSandbox({ home })
@@ -97,6 +93,11 @@ pendingOn(
     expect((await run(`cat "${home}/.zshrc"`)).code).not.toBe(0)
     expect((await run(`ls "${home}"`)).code).not.toBe(0)
     expect((await run(`ls "${data}/colonies"`)).code).not.toBe(0)
+    // Nor write there, nor make a hidden folder its own again (bubblewrap covers them with a tmpfs of its own).
+    expect((await run(`touch "${home}/x"`)).code).not.toBe(0)
+    expect((await run(`mkdir "${home}/.ssh/x"`)).code).not.toBe(0)
+    expect((await run(`touch "${data}/colonies/x"`)).code).not.toBe(0)
+    expect((await run(`chmod 700 "${home}" || true; ls "${home}"`)).code).not.toBe(0)
     expect((await run(`cat "${other}/events.txt"`)).code).not.toBe(0)
     expect((await run(`cat "${home}/.ssh/id_ed25519"`)).code).not.toBe(0)
     expect((await run(`cat "${home}/notes/todo.md"`)).code).not.toBe(0)
@@ -191,7 +192,8 @@ notOn('win32', 'bwrapMounts')(
     const pairs: string[] = []
     for (let i = 0; i < mounts.length; i++) {
       const flag = mounts[i] as string
-      if (flag === '--tmpfs') pairs.push(`tmpfs ${mounts[++i]}`)
+      if (flag === '--tmpfs' || flag === '--remount-ro') pairs.push(`${flag.slice(2)} ${mounts[++i]}`)
+      else if (flag === '--chmod') pairs.push(`chmod ${mounts[++i]} ${mounts[++i]}`)
       else {
         const from = mounts[++i]
         const to = mounts[++i]
@@ -208,6 +210,29 @@ notOn('win32', 'bwrapMounts')(
     expect(index(`ro-bind ${colony}`)).toBeGreaterThan(index(`tmpfs ${data}`))
     expect(index(`bind ${scratch}`)).toBeGreaterThan(index(`ro-bind ${colony}`))
     expect(index(`ro-bind ${realpathSync.native(join(home, '.bun'))}`)).toBeGreaterThan(0)
+    // Hidden folders are passed through on the way to an open one, closed otherwise, then made read-only: after
+    // every mount, so bubblewrap can still make the folders it mounts on inside them.
+    expect(index(`chmod 0111 ${home}`)).toBeGreaterThan(index(`bind ${scratch}`))
+    expect(index(`chmod 0111 ${data}`)).toBeGreaterThan(0)
+    expect(index(`chmod 0111 ${join(data, 'colonies')}`)).toBeGreaterThan(0)
+    expect(index(`chmod 0111 ${join(home, 'code')}`)).toBeGreaterThan(0)
+    expect(index(`chmod 0000 ${join(home, '.ssh')}`)).toBeGreaterThan(0)
+    for (const dir of [home, data, join(home, '.ssh')])
+      expect(index(`remount-ro ${dir}`)).toBeGreaterThan(index(`chmod 0111 ${home}`))
+    // Folders only hidden for lying outside the home may be listed on the way down, as macOS lets bun do.
+    expect(index(`chmod 0555 ${root}`)).toBeGreaterThan(0)
+    // Nothing that opens is touched: no mode on, and no read-only remount of, the project or scratch.
+    expect(pairs.filter((p) => /^(chmod|remount-ro) /.test(p) && /(app|lead)$/.test(p))).toEqual([])
+    // Opened again where it was hidden, the home is not made read-only for good by the tmpfs below it.
+    const reopened = bwrapMounts({ ...confined(), writable: [project, scratch, home] }, home)
+    const target = (flag: string, i: number) =>
+      reopened[flag === '--tmpfs' || flag === '--remount-ro' ? i + 1 : i + 2]
+    const onHome = reopened.filter((a, i) => a.startsWith('--') && target(a, i) === home)
+    expect(onHome).toEqual(['--tmpfs', '--bind'])
+    // Without --chmod (bubblewrap before 0.5), hidden folders are still made read-only.
+    const old = bwrapMounts(confined(), home, { chmod: false })
+    expect(old).not.toContain('--chmod')
+    expect(old).toContain('--remount-ro')
     // A hidden file is covered with /dev/null, not a tmpfs.
     writeFileSync(join(home, '.netrc'), 'machine x password y')
     expect(bwrapMounts({ ...confined(), hidden: [join(home, '.netrc')], readable: [home] }, home)).toEqual(

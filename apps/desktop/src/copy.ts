@@ -1,6 +1,8 @@
 /** Every word the desktop shell shows or logs, in one place. The page itself uses apps/web/src/client/copy.ts. */
 export const desktopCopy = {
   appName: 'Myrmidon',
+  /** The see-through windows over the screen while an agent drives the Mac. */
+  overlayTitle: 'Myrmidon is using your Mac',
   /** macOS asks with this the first time a voice call uses the microphone. */
   microphoneUsage: 'Myrmidon uses the microphone for voice calls with your crew.',
   starting: 'Starting Myrmidon…',

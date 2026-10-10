@@ -31,6 +31,7 @@ import {
   type Runtime,
   SettingsStore,
   screenshotEdge,
+  sessionOf,
   type TeamConfig,
 } from '../src/index.ts'
 
@@ -226,6 +227,43 @@ pendingOn('win32', 'cuaDriverOnWindows')(
     expect(cards).toHaveLength(3)
     expect(cards[2]).toContain('full control')
     expect((await call(tool, { action: 'type', text: 'ls' })).isError).toBe(false)
+  },
+)
+
+pendingOn('win32', 'cuaDriverOnWindows')(
+  "each agent drives in a driver session of its own; the overlay learns where it acted, and the driver's cursor hides while the overlay draws",
+  async () => {
+    process.env.FAKE_CUA_SESSIONS = '1'
+    try {
+      const { host } = fakeHost()
+      const tool = generic(host)
+      await call(opener(host), { app: 'Notes' })
+      // Element 1, the Send button, spans 1500–1600 × 950–990 on the screen: its middle is where the cursor goes.
+      expect((await call(tool, { action: 'click_element', element: 1 })).isError).toBe(false)
+      const session = sessionOf('colony-test', 'nova')
+      expect(asked().filter((c) => c.name === 'set_agent_cursor_enabled')).toEqual([])
+      expect(hub.pointers()).toEqual([
+        { colonyId: 'colony-test', agent: 'nova', x: 1550, y: 970, action: 'click', at: expect.any(Number) },
+      ])
+      // The overlay has asked, so it is up: the driver stops drawing its own cursor, once.
+      await call(tool, { action: 'left_click', coordinate: [10, 10] })
+      await call(tool, { action: 'left_click', coordinate: [20, 20] })
+      expect(
+        asked()
+          .filter((c) => c.name === 'set_agent_cursor_enabled')
+          .map((c) => c.args),
+      ).toEqual([{ session, enabled: false }])
+      const acting = asked().filter((c) => ['click', 'get_window_state'].includes(c.name))
+      expect(acting.length).toBeGreaterThan(0)
+      expect(acting.every((c) => c.args.session === session)).toBe(true)
+      const [pointer] = hub.pointers()
+      // A pixel click lands inside the window the screenshot showed (100, 50, 1600 × 1000 points).
+      expect(pointer?.x).toBeGreaterThan(100)
+      expect(pointer?.y).toBeGreaterThan(50)
+      expect(pointer?.x).toBeLessThan(150)
+    } finally {
+      delete process.env.FAKE_CUA_SESSIONS
+    }
   },
 )
 

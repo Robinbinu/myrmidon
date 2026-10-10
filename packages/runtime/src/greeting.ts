@@ -33,7 +33,9 @@ function variant<T>(facts: GreetingFacts, kind: string, options: readonly T[]): 
 }
 
 /** What there is to say, most important first: the facts a greeting is written from. */
-export function greetingNews(facts: GreetingFacts) {
+export function greetingNews<C extends GreetingFacts['chats'][number]>(
+  facts: Omit<GreetingFacts, 'chats'> & { readonly chats: readonly C[] },
+) {
   const since = facts.lastSeen?.getTime() ?? 0
   const done = (s: string) => s === 'completed' || s === 'failed' || s === 'stopped'
   return {
@@ -78,18 +80,73 @@ export function ruleGreeting(facts: GreetingFacts): Greeting {
 }
 
 /**
+ * What a greeting writer writes and how: the model's instructions, the facts as it is told them, what the line
+ * depends on, how its reply is read, and the rules' greeting that stands in for it.
+ */
+export interface GreetingStyle<F extends GreetingFacts, G> {
+  readonly system: string
+  brief(facts: F): Record<string, unknown>
+  /** What the greeting depends on: the same key gets the same greeting back without another call. */
+  key(facts: F): string
+  parse(text: string, facts: F): G
+  rules(facts: F): G
+}
+
+/** What the news a greeting tells of depends on: it changes with the news and the part of the day, not every minute. */
+export function newsKey(facts: GreetingFacts): string {
+  const news = greetingNews(facts)
+  const ids = (cs: readonly { chatId: string }[]) => cs.map((c) => c.chatId).join(',')
+  return [
+    facts.name,
+    facts.now.toDateString(),
+    Math.floor(facts.now.getHours() / 6),
+    ids(news.awaiting),
+    ids(news.running),
+    ids(news.failed),
+    ids(news.finished),
+    Math.floor((news.away ?? 0) / 86_400_000),
+  ].join('|')
+}
+
+/** The entry page's line. */
+const PAGE: GreetingStyle<GreetingFacts, Greeting> = {
+  system: prompts.greeting.system,
+  brief: (facts) => {
+    const news = greetingNews(facts)
+    const brief = (cs: typeof facts.chats) => cs.slice(0, 4).map((c) => c.title)
+    return {
+      name: facts.name,
+      localTime: facts.now.toLocaleString('en-GB', { weekday: 'long', hour: '2-digit', minute: '2-digit' }),
+      awayFor: news.away === undefined ? 'first visit' : `${Math.round(news.away / 60_000)} minutes`,
+      waitingOnYou: brief(news.awaiting),
+      failedWhileAway: brief(news.failed),
+      finishedWhileAway: brief(news.finished),
+      stillRunning: brief(news.running),
+      lastChat: news.latest?.title,
+    }
+  },
+  key: newsKey,
+  parse: (text) => parseGreeting(text),
+  rules: ruleGreeting,
+}
+
+/**
  * Lets a model write the greeting from the facts, once per change in them: the same facts get the same line back
  * without another call. It never blocks the page: until the model answers (or if it fails), the rules' line stands.
+ * The entry page's line by default; a call's greeting has a style of its own (voice/greeting.ts).
  */
-export class GreetingWriter {
-  private readonly _written = new Map<string, Greeting>()
+export class GreetingWriter<F extends GreetingFacts = GreetingFacts, G = Greeting> {
+  private readonly _written = new Map<string, G>()
   private readonly _pending = new Set<string>()
 
-  constructor(private readonly resolver: ModelResolver) {}
+  constructor(
+    private readonly resolver: ModelResolver,
+    private readonly style: GreetingStyle<F, G> = PAGE as unknown as GreetingStyle<F, G>,
+  ) {}
 
   /** The model's greeting for these facts if it has written one; otherwise starts writing it and returns undefined. */
-  written(facts: GreetingFacts, model: string): Greeting | undefined {
-    const key = this._key(facts)
+  written(facts: F, model: string): G | undefined {
+    const key = this.style.key(facts)
     const done = this._written.get(key)
     if (done || this._pending.has(key)) return done
     this._pending.add(key)
@@ -101,52 +158,21 @@ export class GreetingWriter {
       .catch((err) => {
         console.error(`the greeting could not be written: ${err instanceof Error ? err.message : err}`)
         // The rules' line stands for these facts, so a failing model is not asked again on every visit.
-        this._written.set(key, ruleGreeting(facts))
+        this._written.set(key, this.style.rules(facts))
       })
       .finally(() => this._pending.delete(key))
     return undefined
   }
 
-  /** What the line depends on: news changes it, and so does the part of the day, but not every minute. */
-  private _key(facts: GreetingFacts): string {
-    const news = greetingNews(facts)
-    const ids = (cs: readonly { chatId: string }[]) => cs.map((c) => c.chatId).join(',')
-    return [
-      facts.name,
-      facts.now.toDateString(),
-      Math.floor(facts.now.getHours() / 6),
-      ids(news.awaiting),
-      ids(news.running),
-      ids(news.failed),
-      ids(news.finished),
-      Math.floor((news.away ?? 0) / 86_400_000),
-    ].join('|')
-  }
-
-  private async _write(facts: GreetingFacts, ref: string): Promise<Greeting> {
+  private async _write(facts: F, ref: string): Promise<G> {
     const resolved = this.resolver.resolve(ref)
     const apiKey = await this.resolver.requireApiKey(resolved.model)
-    const news = greetingNews(facts)
-    const brief = (cs: typeof facts.chats) => cs.slice(0, 4).map((c) => c.title)
     const context = {
-      systemPrompt: [prompts.greeting.system],
+      systemPrompt: [this.style.system],
       messages: [
         {
           role: 'user' as const,
-          content: prompts.greeting.facts({
-            name: facts.name,
-            localTime: facts.now.toLocaleString('en-GB', {
-              weekday: 'long',
-              hour: '2-digit',
-              minute: '2-digit',
-            }),
-            awayFor: news.away === undefined ? 'first visit' : `${Math.round(news.away / 60_000)} minutes`,
-            waitingOnYou: brief(news.awaiting),
-            failedWhileAway: brief(news.failed),
-            finishedWhileAway: brief(news.finished),
-            stillRunning: brief(news.running),
-            lastChat: news.latest?.title,
-          }),
+          content: prompts.greeting.facts(this.style.brief(facts)),
           timestamp: Date.now(),
         },
       ],
@@ -159,7 +185,7 @@ export class GreetingWriter {
       throw new Error(`${ref} did not answer within ${GREETING_MS / 1000} s; the rules' line stands`)
     if (reply.stopReason === 'error') throw new Error(reply.errorMessage ?? 'the model failed')
     const text = reply.content.flatMap((c) => (c.type === 'text' ? [c.text] : [])).join('')
-    return parseGreeting(text)
+    return this.style.parse(text, facts)
   }
 }
 
