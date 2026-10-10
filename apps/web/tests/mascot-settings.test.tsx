@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from 'bun:test'
+import { afterEach, expect, setSystemTime, test } from 'bun:test'
 import { MotionConfig } from 'motion/react'
 import { act } from 'react'
 import { copy } from '../src/client/copy.ts'
@@ -13,6 +13,7 @@ const realAudio = globalThis.AudioContext
 afterEach(() => {
   globalThis.fetch = realFetch
   Math.random = realRandom
+  setSystemTime()
   globalThis.AudioContext = realAudio
   localStorage.clear()
 })
@@ -120,6 +121,8 @@ test('a calm mascot keeps to quiet eye tricks: no Pac-Man even when it would pla
 })
 
 test('the screen is drawn as set: round dots, a hidden grid, and eyes in the theme accent', async () => {
+  // Midday: at night the resting mood brings its own eye colour, and the theme's accent would not show.
+  setSystemTime(new Date('2026-10-09T12:00:00'))
   const view = await hero({
     shows: { boot: false },
     display: { dots: 'round', grid: 'off', eyeColor: 'theme' },
