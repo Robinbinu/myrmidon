@@ -27,6 +27,11 @@ export interface AgentView {
   lastSeq: number
   /** The lead dismissed this worker; later rounds of the chat leave it out. */
   dismissed?: boolean
+  /**
+   * The model this agent was set up with, while it works on a fallback after that one failed: a later round, or a
+   * resume, starts it on this one again.
+   */
+  fellBackFrom?: string
 }
 
 /** One round of a chat colony: a request and the work that answered it, as a range of the log. */
@@ -472,7 +477,20 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
     case 'agent/model': {
       const p = event.payload as EventPayloads['agent/model']
       const view = state.agents[p.agent]
-      if (view) view.info = { ...view.info, model: p.model }
+      if (view) {
+        view.info = { ...view.info, model: p.model }
+        // The person's choice is the agent's model now, not a stand-in for the one it fell back from.
+        delete view.fellBackFrom
+      }
+      break
+    }
+    case 'agent/fallback': {
+      const p = event.payload as EventPayloads['agent/fallback']
+      const view = state.agents[p.agent]
+      if (view) {
+        view.fellBackFrom ??= p.previous
+        view.info = { ...view.info, model: p.model }
+      }
       break
     }
     case 'agent/dismissed': {
@@ -561,6 +579,11 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
         delete round.endSeq
         delete round.endedAt
       }
+      // A resumed round starts its agents on the models they were set up with, or the ones it was resumed on.
+      for (const view of Object.values(state.agents)) {
+        if (view.fellBackFrom) view.info = { ...view.info, model: view.fellBackFrom }
+        delete view.fellBackFrom
+      }
       for (const [name, model] of Object.entries(p.models ?? {})) {
         const view = state.agents[name]
         if (view) view.info = { ...view.info, model }
@@ -594,8 +617,10 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
       state.checkpoints = {}
       for (const info of p.agents) {
         const view = state.agents[info.name]
-        if (view) view.info = info
-        else
+        if (view) {
+          view.info = info
+          delete view.fellBackFrom
+        } else
           state.agents[info.name] = {
             info,
             status: 'provisioning',

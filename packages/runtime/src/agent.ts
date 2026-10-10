@@ -14,7 +14,14 @@ import { getModelPricingStatus } from '@oh-my-pi/pi-catalog'
 import { ContextCompactor } from './compaction.ts'
 import { ANTHROPIC_MEMBERS, anthropicToolsetPayload, computerProtocol } from './computer/actions.ts'
 import { COMPUTER_TOOL, computerMember } from './computer/tool.ts'
-import { KEEP_TURNS, MODEL_RETRIES, QUIET_KEPT, TRANSIENT_STATUS, TURN_TIMEOUT_MS } from './config.ts'
+import {
+  FALLBACK_COOLDOWN_MS,
+  KEEP_TURNS,
+  MODEL_RETRIES,
+  QUIET_KEPT,
+  TRANSIENT_STATUS,
+  TURN_TIMEOUT_MS,
+} from './config.ts'
 import { agentActor, type ColonyHost } from './host.ts'
 import { type ModelResolver, withOllamaContext } from './models.ts'
 import {
@@ -71,6 +78,10 @@ export class ColonyAgent {
   private _stream?: StreamFn
   /** The model the latest call streamed with: a reply is priced by it, even if the agent switched model meanwhile. */
   private _streamedWith?: Model
+  /** The model this agent was set up with, or the person last switched it to: its fallbacks stand in for it. */
+  private _primary: string
+  /** When each model this agent fell back from failed; it is not tried again until FALLBACK_COOLDOWN_MS has passed. */
+  private readonly _failedAt = new Map<string, number>()
   private readonly _compactor = new ContextCompactor({
     model: () => this._agent.state.model,
     summarizers: () => this._earlierModels(),
@@ -109,6 +120,7 @@ export class ColonyAgent {
     const history = options.compact ? compactTranscript(restored) : restored
     this.restored = history.length
     const resolved = resolver.resolve(spec.model)
+    this._primary = spec.model
     this._stream = resolved.streamFn
     this._facts = factsFor(host.spec, spec, {
       sandbox: host.sandbox.kind,
@@ -182,8 +194,17 @@ export class ColonyAgent {
     return this.spec.name
   }
 
-  /** Moves this agent to another model from its next step on; its conversation so far carries over. */
+  /**
+   * Moves this agent to another model from its next step on, as the person chose; its conversation so far carries
+   * over, and its fallbacks now stand in for this model.
+   */
   switchModel(ref: string) {
+    this._use(ref)
+    this._primary = ref
+    this._failedAt.delete(ref)
+  }
+
+  private _use(ref: string) {
     const resolved = this.resolver.resolve(ref)
     this._agent.setModel(resolved.model)
     this._stream = resolved.streamFn
@@ -405,11 +426,14 @@ export class ColonyAgent {
   /**
    * A failed model reply never stays in the agent's context: it is removed, and the turn either continues after a
    * short wait (transient failures), continues once more after folding the context (the provider said it was too
-   * long), or stops so the person can choose another model. Returns true if it stopped.
+   * long), continues on the next of the person's fallback models (anything else, or a transient failure the waits did
+   * not clear), or stops so the person can choose another model. Returns true if it stopped.
    */
   private async _recover(): Promise<boolean> {
     let compacted = false
-    for (let attempt = 0; ; attempt++) {
+    // Retries count per model: one the agent fell back to gets its own.
+    let attempt = 0
+    for (;;) {
       const last = this._agent.state.messages.at(-1) as AssistantMessage | undefined
       if (last?.role !== 'assistant' || last.stopReason !== 'error' || this._stopped) return false
       this._agent.popMessage()
@@ -431,6 +455,12 @@ export class ColonyAgent {
       const error = classifyModelError(last)
       if (error.transient && attempt < MODEL_RETRIES) {
         await Bun.sleep(2_000 * 2 ** attempt)
+        attempt += 1
+        await this._agent.continue()
+        continue
+      }
+      if (await this._fallBack(error)) {
+        attempt = 0
         await this._agent.continue()
         continue
       }
@@ -438,6 +468,44 @@ export class ColonyAgent {
       await this.host.modelFailed(this.name, this.spec.model, error)
       return true
     }
+  }
+
+  /**
+   * After this agent's model failed with `error`, moves it to the next of the person's fallback models (Settings →
+   * Crew & budget): the model it was set up with once that has had time to recover, then the fallbacks in order,
+   * skipping any that failed lately or have no credentials. Logs the move; false when there is none to move to.
+   * Overflows never come here (folding the context is their remedy), nor a stop or an interrupt (not failures).
+   */
+  private async _fallBack(error: ModelError): Promise<boolean> {
+    const chain = this.host.spec.fallbacks?.[this.spec.role === 'lead' ? 'lead' : 'workers'] ?? []
+    if (chain.length === 0 || this._stopped) return false
+    const now = Date.now()
+    const from = this.spec.model
+    this._failedAt.set(from, now)
+    for (const ref of new Set([this._primary, ...chain])) {
+      const failed = this._failedAt.get(ref)
+      if (ref === from || (failed !== undefined && now - failed < FALLBACK_COOLDOWN_MS)) continue
+      try {
+        await this.resolver.requireCredentials(ref)
+      } catch {
+        // Removed from the provider list, or signed out: the next one may still answer.
+        continue
+      }
+      this._use(ref)
+      await this.host.append({
+        type: 'agent/fallback',
+        actor: SYS,
+        payload: {
+          agent: this.name,
+          model: ref,
+          previous: from,
+          kind: error.kind === 'refusal' ? 'refusal' : 'error',
+          message: error.message.slice(0, 2_000),
+        },
+      })
+      return true
+    }
+    return false
   }
 
   /**

@@ -22,6 +22,7 @@ import {
   Trash2,
   TriangleAlert,
   UnfoldVertical,
+  X,
 } from 'lucide-react'
 import { AnimatePresence, motion, useReducedMotionConfig } from 'motion/react'
 import { type ReactNode, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -47,7 +48,7 @@ import { formatSize } from './chat/Attachments.tsx'
 import { TeamSettings } from './chat/Composer.tsx'
 import { ToolLibraryList } from './chat/MadeTools.tsx'
 import { ModelPicker, windowLabel } from './chat/ModelPicker.tsx'
-import { usersOf, withoutModel } from './chat/model-list.ts'
+import { modelName, usersOf, withoutModel } from './chat/model-list.ts'
 import { SpecialistEditor } from './chat/SpecialistEditor.tsx'
 import { copy } from './copy.ts'
 import { type MascotPatch, SETTINGS_SAVED, withMascotDefaults } from './mascot.ts'
@@ -139,6 +140,7 @@ import { useToast } from './ui/Toast.tsx'
 import {
   AGENT_MIN_WINDOW,
   MASCOT_COLORS,
+  MAX_FALLBACKS,
   SETTINGS_NAV_COLLAPSE_PX,
   SETTINGS_SEARCH_COMBO,
   SUGGEST_MODEL_POLL_MS,
@@ -191,6 +193,9 @@ export interface ServerSettings {
     leadModel?: string
     workerModel?: string
     judgeModel?: string
+    /** Models the lead, and the crew, go on with when theirs fails; absent from older servers. */
+    leadFallbacks?: string[]
+    workerFallbacks?: string[]
     wallMinutes: number
     maxTurns: number
     costUsd: number
@@ -2164,6 +2169,23 @@ function TeamSection(props: {
           </Card>
         </>
       )}
+      <SectionHeader as="h3" className="mb-2" title={copy.settings.team.fallbacksTitle} />
+      <Card className="mb-8">
+        <FallbackModels
+          id="team.leadFallbacks"
+          value={t.leadFallbacks ?? []}
+          models={props.models}
+          onChange={(leadFallbacks) => props.update((s) => ({ ...s, team: { ...s.team, leadFallbacks } }))}
+        />
+        <FallbackModels
+          id="team.workerFallbacks"
+          value={t.workerFallbacks ?? []}
+          models={props.models}
+          onChange={(workerFallbacks) =>
+            props.update((s) => ({ ...s, team: { ...s.team, workerFallbacks } }))
+          }
+        />
+      </Card>
       <SectionHeader as="h3" className="mb-2" title={copy.settings.team.limitsTitle} />
       <Card className="mb-8">
         <SettingField id="team.wallMinutes" inline>
@@ -2220,6 +2242,50 @@ function TeamSection(props: {
       </Card>
       <ReviewerSettings settings={props.data.settings} update={props.update} />
     </>
+  )
+}
+
+/** An ordered list of fallback models: each with its place and a remove button, then a picker to add one more. */
+function FallbackModels(props: {
+  id: 'team.leadFallbacks' | 'team.workerFallbacks'
+  value: readonly string[]
+  models: ModelOption[]
+  onChange(v: string[]): void
+}) {
+  const t = copy.settings.team
+  const name = (ref: string) => modelName(props.models.find((m) => m.ref === ref)?.name ?? ref)
+  return (
+    <SettingField id={props.id}>
+      <div className="flex flex-wrap items-center gap-1.5">
+        {props.value.map((ref, i) => (
+          <span
+            key={ref}
+            title={ref}
+            className="inline-flex h-7 max-w-[260px] items-center gap-1 rounded-md border border-line bg-fill/60 pl-2 text-callout"
+          >
+            <span className="tabular-nums text-muted">{i + 1}</span>
+            <span className="truncate">{name(ref)}</span>
+            <IconButton
+              size="sm"
+              label={t.removeFallback(name(ref))}
+              onClick={() => props.onChange(props.value.filter((r) => r !== ref))}
+            >
+              <X className="size-3.5" />
+            </IconButton>
+          </span>
+        ))}
+        {props.value.length < MAX_FALLBACKS && (
+          <ModelPicker
+            variant="compact"
+            placement="down"
+            label={t.addFallback}
+            value=""
+            models={props.models.filter((m) => !props.value.includes(m.ref))}
+            onChange={(ref) => props.onChange([...props.value, ref])}
+          />
+        )}
+      </div>
+    </SettingField>
   )
 }
 
