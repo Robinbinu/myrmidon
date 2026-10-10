@@ -44,6 +44,7 @@ export const desktopCopy = {
       `${path} no longer requires its addon the way scripts/build-sidecar.ts rewrites: update the rewrite`,
     bundleMissing: (path: string) =>
       `${path} is not where Electrobun's build left the app: update src/platform.ts appBundle`,
+    commandFailed: (command: string, code: number | null) => `\`${command}\` failed (exit code ${code})`,
     patched: (path: string) => `set the microphone usage description in ${path}`,
     copied: (path: string) => `copied the Myrmidon server into ${path}`,
   },
