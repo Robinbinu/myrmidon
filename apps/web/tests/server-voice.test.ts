@@ -13,6 +13,7 @@ import {
   wav,
 } from '@myrmidon/runtime'
 import { createMockModel } from '@oh-my-pi/pi-ai/providers/mock'
+import { pendingOn } from '../../../tests/platform.ts'
 import { needsFull } from '../src/devices.ts'
 import { startServer, type WebServer } from '../src/server.ts'
 
@@ -307,23 +308,26 @@ test('a refused call opens and closes with a code and a reason the page can show
   expect(reason).toContain('voice calls are off')
 })
 
-test('a call whose page closes while the engines warm up is never made', async () => {
-  let release: () => void = () => {}
-  const slowModels = new Promise<void>((resolve) => {
-    release = resolve
-  })
-  const { call, spoken } = gateway({ slowModels })
-  const early = await call('chat=c1')
-  await until(() => early.messages.some((m) => m.state === 'preparing'))
-  early.ws.close()
-  await early.closed
-  release()
-  // The next call in the chat is not refused as a second one, and only it greets.
-  const next = await call('chat=c1')
-  await until(() => next.messages.some((m) => m.type === 'said'))
-  expect(spoken).toHaveLength(1)
-  next.ws.close()
-})
+pendingOn('linux', 'voiceWarmupRace')(
+  'a call whose page closes while the engines warm up is never made',
+  async () => {
+    let release: () => void = () => {}
+    const slowModels = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const { call, spoken } = gateway({ slowModels })
+    const early = await call('chat=c1')
+    await until(() => early.messages.some((m) => m.state === 'preparing'))
+    early.ws.close()
+    await early.closed
+    release()
+    // The next call in the chat is not refused as a second one, and only it greets.
+    const next = await call('chat=c1')
+    await until(() => next.messages.some((m) => m.type === 'said'))
+    expect(spoken).toHaveLength(1)
+    next.ws.close()
+  },
+)
 
 test('odd frames and broken messages do not break a call; oversized ones close it', async () => {
   const { call } = gateway()

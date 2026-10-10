@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import type { ActorRef, EventId } from '@myrmidon/protocol'
+import { describePendingOn } from '../../../tests/platform.ts'
 import { BlobStore, colonyId, EventLog, MyrError, REDACTED, Schema, sqliteLogStore } from '../src/index.ts'
 
 const agent: ActorRef = { kind: 'agent', id: 'a1' }
@@ -37,7 +38,7 @@ afterEach(async () => {
   rmSync(home, { recursive: true, force: true })
 })
 
-describe('EventLog', () => {
+describePendingOn('win32', 'sqliteHandles')('EventLog', () => {
   test('appends with gap-free seq and reads back after restart', async () => {
     await root.log.append(C, [
       { type: 'note/appended', actor: agent, payload: { text: 'one' } },

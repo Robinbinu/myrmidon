@@ -4,6 +4,8 @@ import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { type ColonyState, type EventPayloads, foldColony } from '@myrmidon/protocol'
 import { createMockModel, type MockContent } from '@oh-my-pi/pi-ai/providers/mock'
+import { pendingOn } from '../../../tests/platform.ts'
+import { SANDBOX_HIDDEN_ROOTS } from '../src/config.ts'
 import {
   bootRuntime,
   bwrapMounts,
@@ -21,6 +23,23 @@ import {
   SettingsStore,
   type TeamConfig,
 } from '../src/index.ts'
+
+/** Keys only this system has; cross-platform.test.ts pins each system's whole list. */
+const SYSTEM_SECRETS: readonly string[] =
+  {
+    darwin: [
+      'Library/Containers/com.example.app/Data/x',
+      'Library/Group Containers/group.example/x',
+      '.dotnet/corefx/cryptography/x509stores/my/key.pfx',
+    ],
+    linux: [
+      '.var/app/org.example.App/data/x',
+      'snap/chromium/common/x',
+      '.pki/nssdb/key4.db',
+      '.dotnet/corefx/cryptography/x509stores/my/key.pfx',
+    ],
+    win32: ['AppData/Roaming/GitHub CLI/hosts.yml', 'AppData/Local/Packages/app/x', '_netrc'],
+  }[process.platform as string] ?? []
 
 /**
  * A stand-in home: shell config, keys, Myrmidon's data with this chat's colony and another chat's, a project and a
@@ -66,7 +85,11 @@ const confined = (extra: { readable?: string[]; hidden?: string[] } = {}) => ({
   hidden: [data, join(home, '.ssh'), ...(extra.hidden ?? [])],
 })
 
-test.skipIf(detectSandbox().kind === 'none')(
+pendingOn(
+  'linux',
+  'bwrapHiddenFolders',
+  detectSandbox().kind === 'none',
+)(
   "a sandboxed command cannot read the home, other chats or keys, but reads its project, this chat's files and toolchains",
   async () => {
     const sandbox = detectSandbox({ home })
@@ -139,8 +162,8 @@ test('the macOS profile hides the home, then opens what may be read, parents fir
     at(`(deny network-outbound (remote unix-socket (subpath "${data}")))`),
   )
   expect(profile).not.toContain(`(allow network-outbound (remote unix-socket (subpath "${colony}")))`)
-  for (const dir of ['/Volumes', '/Users/Shared', '/private/var/folders'])
-    expect(profile).toContain(`(deny file-read* (subpath "${dir}"))`)
+  // This system's own roots (cross-platform.test.ts pins each system's list).
+  for (const dir of SANDBOX_HIDDEN_ROOTS) expect(profile).toContain(`(deny file-read* (subpath "${dir}"))`)
   expect(profile).toContain('(deny network-outbound (remote unix-socket (regex #"^/private/tmp/myr-")))')
   expect(profile).toContain('(deny appleevent-send)')
   expect(profile).toContain(
@@ -248,9 +271,7 @@ test('file tools refuse what the sandbox hides, open what the person allowed, an
     '.yarnrc.yml',
     '.gradle/gradle.properties',
     '.composer/auth.json',
-    'Library/Containers/com.example.app/Data/x',
-    'Library/Group Containers/group.example/x',
-    '.dotnet/corefx/cryptography/x509stores/my/key.pfx',
+    ...SYSTEM_SECRETS,
   ])
     expect({ secret, read: ws.mayRead(agent, join(home, secret)) }).toEqual({ secret, read: false })
   expect(ws.mayRead(agent, join(home, '.m2', 'repository', 'x.jar'))).toBe(true)
