@@ -25,6 +25,7 @@ const STEP_STYLE: Record<StepKind, { icon: typeof Search; color: string }> = {
   talk: { icon: Megaphone, color: 'text-muted' },
   signal: { icon: CircleAlert, color: 'text-warn-ink' },
   think: { icon: FEATURE_ICONS.thinking, color: 'text-muted' },
+  advice: { icon: FEATURE_ICONS.advisor, color: 'text-muted' },
   computer: { icon: FEATURE_ICONS.computerUse, color: 'text-warn-ink' },
   computerSetup: { icon: FEATURE_ICONS.computerUse, color: 'text-warn-ink' },
 }

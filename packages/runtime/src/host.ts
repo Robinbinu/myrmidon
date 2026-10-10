@@ -10,6 +10,7 @@ import type {
   Review,
 } from '@myrmidon/protocol'
 import type { AgentTool } from '@oh-my-pi/pi-agent-core'
+import type { Advisor } from './advisor.ts'
 import type { ModelError } from './agent.ts'
 import type { BrowserHub } from './browser.ts'
 import type { ComputerHub } from './computer/driver.ts'
@@ -64,6 +65,8 @@ export interface ColonyHost {
    */
   closing?(agent: string): string | undefined
   batchEnded(agent: string): void
+  /** The round's advisor, when it has one: agents show it their steps that called tools. */
+  readonly advisor?: Advisor
   /** An agent's model failed for good (a refusal, or an error that retries did not fix): pause for the person. */
   modelFailed(agent: string, model: string, error: ModelError): Promise<void>
   /** An agent's working checklist (update_todo), kept in view and checked when it stops. */
