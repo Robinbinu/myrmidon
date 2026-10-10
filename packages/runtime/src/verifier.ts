@@ -57,18 +57,40 @@ export class Verifier {
     const task = state.tasks[taskId]
     if (!task) throw new Error(`no such task: ${taskId}`)
     const missing = task.artifacts.filter((a) => !state.artifacts[a])
+    const outputs = task.outputs ?? []
     let outcome: CheckOutcome =
       missing.length > 0
         ? { pass: false, evidence: `missing artifacts: ${missing.join(', ')}` }
-        : task.artifacts.length === 0
-          ? { pass: false, evidence: 'no artifacts were submitted' }
-          : { pass: true, evidence: `artifacts present: ${task.artifacts.join(', ')}` }
+        : task.artifacts.length > 0
+          ? { pass: true, evidence: `artifacts present: ${task.artifacts.join(', ')}` }
+          : outputs.length > 0
+            ? { pass: false, evidence: `no artifacts were submitted; the task names ${outputs.join(', ')}` }
+            : { pass: true, evidence: 'the task names no files; its work is in notes and messages' }
     if (outcome.pass && this.host.spec.taskJudge) {
+      // With no files, the doer's notes and messages are the work; the rest of the round's files are not its.
+      const owner = task.owner ?? ''
+      const work =
+        task.artifacts.length > 0
+          ? ''
+          : prompts.judge.taskNotes(
+              owner,
+              state.notes
+                .filter((n) => n.agent === owner)
+                .slice(-6)
+                .map((n) => `[${n.section ?? 'note'}] ${n.text}`)
+                .join('\n'),
+              state.mail
+                .filter((m) => m.from === owner)
+                .slice(-6)
+                .map((m) => `[to ${m.to}] ${m.body}`)
+                .join('\n'),
+            )
       outcome = await this.judge(
         this.host.spec.taskJudge,
         prompts.judge.task(task.subject, task.description, doneWhen(task.description)),
         0.7,
         task.artifacts,
+        work,
       )
     }
     await this.host.append({
@@ -152,7 +174,7 @@ export class Verifier {
       case 'command':
         return this.command(state, check, index)
       case 'llm-judge':
-        return this.judge(check.model, check.rubric, check.threshold, [])
+        return this.judge(check.model, check.rubric, check.threshold)
     }
   }
 
@@ -270,15 +292,17 @@ export class Verifier {
     return rest > 0 ? `${shown}\n----- ${rest} more cited page(s) were not checked.` : shown
   }
 
+  /** `only`: the artifacts to judge (default: all of them); `work`: more of the work, shown before them. */
   private async judge(
     modelRef: string,
     rubric: string,
     threshold: number,
-    only: readonly string[],
+    only?: readonly string[],
+    work = '',
   ): Promise<CheckOutcome> {
     const state = this.host.state()
-    const names = only.length > 0 ? only : Object.keys(state.artifacts)
-    let corpus = ''
+    const names = only ?? Object.keys(state.artifacts)
+    let corpus = work
     for (const name of names) {
       const latest = state.artifacts[name]?.at(-1)
       if (!latest) continue

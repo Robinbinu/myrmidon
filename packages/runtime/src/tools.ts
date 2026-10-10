@@ -87,7 +87,7 @@ import {
 import { toolsFor } from './patterns.ts'
 import { presetOf } from './permissions.ts'
 import { adoptDraft, isOwnDraft, testPlugin, writeDraft } from './plugin-builder.ts'
-import type { ProjectCheck } from './project-context.ts'
+import { type ProjectCheck, scratchChecks } from './project-context.ts'
 import type { PromptFacts } from './prompt/facts.ts'
 import { type Place, prompts } from './prompts.ts'
 import { SANDBOX_DIRS } from './sandbox.ts'
@@ -211,7 +211,8 @@ function blockersDone(state: ColonyState, task: TaskSnapshot) {
 /**
  * Tool calls from one assistant message run concurrently, but an agent writing several changes in one step expects
  * them to happen in the order it wrote them: a task named in a later blockedBy, a file published before the
- * submit that lists it. Each agent's write calls therefore run one after another; reads stay parallel.
+ * submit that lists it. Each agent's write calls therefore run one after another; reads stay parallel. A read after
+ * a write in the same step must see it too, so writes are scheduled `exclusive` (see `concurrencyOf`).
  */
 const creating = new WeakMap<ColonyHost, Map<string, Promise<unknown>>>()
 function inCallOrder<T>(host: ColonyHost, agent: string, run: () => Promise<T>): Promise<T> {
@@ -406,6 +407,15 @@ const COLONY_ONLY = new Set([
 
 /** Write calls that may run side by side: each waits on someone else's work, so asks in one step go out together. */
 const IN_PARALLEL = new Set(['ask_crewmate'])
+
+/**
+ * How the agent loop schedules a call among the others of its step: reads run side by side, and anything that
+ * changes state runs alone, after the calls before it and before those after it, so a read written after
+ * update_group or publish_artifact sees the change (pi-agent-core's `concurrency`).
+ */
+function concurrencyOf(def: Pick<ToolDef, 'name' | 'tier'>): 'shared' | 'exclusive' {
+  return def.tier === 'read' || IN_PARALLEL.has(def.name) ? 'shared' : 'exclusive'
+}
 
 /** File tools that read from the working directory, which is the person's project in a chat that has one. */
 const PROJECT_READS = new Set(['fs_read', 'fs_list', 'grep', 'glob'])
@@ -1056,14 +1066,15 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     parameters: type({}),
     async run(_args, _agent, host) {
       const s = host.state()
-      return Object.values(s.agents)
-        .map((a) => {
-          const task = Object.values(s.tasks).find(
-            (t) => t.owner === a.info.name && t.status === 'in_progress',
-          )
-          return `${a.info.name} (${a.info.role}) ${a.status}${task ? ` working on ${task.id}` : ''}`
-        })
-        .join('\n')
+      const here = Object.values(s.agents).map((a) => {
+        const task = Object.values(s.tasks).find((t) => t.owner === a.info.name && t.status === 'in_progress')
+        return `${a.info.name} (${a.info.role}) ${a.status}${task ? ` working on ${task.id}` : ''}`
+      })
+      // A solo lead's crewmates on call are crew too, before ask_crewmate brings them in.
+      const onCall = (host.spec.team?.crewmates ?? [])
+        .filter((c) => !s.agents[c.name])
+        .map((c) => `${c.name} (${c.specialty ?? 'crewmate'}) on call`)
+      return [...here, ...onCall].join('\n')
     },
   },
   {
@@ -1257,6 +1268,8 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       const held = host.state().tasks[args.id]
       if (held?.owner !== agent || held.status !== 'in_progress')
         throw new Error(`you do not hold ${args.id}`)
+      if (held.outputs?.length && args.artifacts.length === 0)
+        throw new Error(prompts.toolResults.outputsMissing(args.id, held.outputs))
       // A worker in its own worktree hands its changes to the project folder first, so the reviewer sees them.
       const merged = await host.mergeWork(agent)
       await host.appendAtomic((s) => {
@@ -2430,20 +2443,24 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     describe: (f) => prompts.tools.run_checks.description(f.access.fullAccess),
     parameters: type({ 'only?': type('string').describe(prompts.tools.run_checks.params.only) }),
     async run(args, agent, host) {
-      if (!host.project) throw new Error('run_checks works in project chats; use shell to run commands here')
       if (host.sandbox.kind === 'none' && !host.unsafeNoSandbox)
         throw new Error('run_checks needs the OS sandbox')
-      const all = host.project.checks
+      const cwd = host.workspace.workdir(agent)
+      // A project's checks are read once when the round starts; a scratch folder's change as the agent works.
+      const all = host.project?.checks ?? scratchChecks(cwd)
       const picked = pickChecks(all, args.only)
       if (picked.length === 0)
         throw new Error(
           args.only
-            ? `this project has no ${args.only} check; it has: ${all.map((c) => c.name).join(', ') || 'none'}`
-            : 'this project defines no checks (no scripts in package.json, no Cargo.toml, go.mod or pyproject); use shell',
+            ? prompts.toolResults.noSuchCheck(
+                args.only,
+                all.map((c) => c.name),
+                host.project !== undefined,
+              )
+            : prompts.toolResults.noChecks(host.project !== undefined),
         )
       // The checks are commands, decided as shell's are (the preset, command rules).
       await guardProjectCommand(host, agent, 'run_checks', picked.map((c) => c.command).join(' && '))
-      const cwd = host.workspace.workdir(agent)
       return clip((await runProjectChecks(host, cwd, writableFor(host, agent), picked)).report)
     },
   },
@@ -2929,6 +2946,7 @@ function madeTool(agent: string, tool: EventPayloads['tool/created'], host: Colo
     parameters: inputSchema(tool.inputs) as never,
     intent: 'omit',
     approval: 'exec',
+    concurrency: 'exclusive',
     async execute(_callId: string, params: unknown) {
       const r = await inCallOrder(host, agent, async () => {
         const input = checkedArgs(tool.inputs, params ?? {})
@@ -3114,6 +3132,7 @@ function harnessTools(
         parameters: def.parameters,
         intent: 'omit',
         approval: def.tier,
+        concurrency: concurrencyOf(def),
         async execute(callId: string, params: unknown): Promise<AgentToolResult> {
           const actor = agentActor(agent)
           await host.append({

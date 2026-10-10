@@ -529,7 +529,7 @@ Open work, in the order it will be done:
       Today: Phonon/Kitten locally, omp, or one OpenAI-compatible endpoint with keys in voice/secrets.json.
 12v. - [x] **Themes like VS Code, and more mascot settings** (done, merged) (asked 2026-10-09) — the themes developers love
       (research which), applied to the whole UI; more ways to tune the mascot.
-12w. - [ ] **Search in Settings, like iPhone Settings** (asked 2026-10-09: "settings is not searchable and very
+12w. - [x] **Search in Settings, like iPhone Settings** (done, merged 2526819; on main via #12) (asked 2026-10-09: "settings is not searchable and very
       confusing to find an option") — a search field at the top of Settings; every setting indexed with its page,
       section, label, help text and synonyms ("dark mode" → Theme, "api key" → Models & providers, "mic" → Voice);
       results as rows with a breadcrumb (Voice › Speech to text), keyboard first (⌘F / ⌘K, arrows, Enter); choosing one
@@ -886,8 +886,8 @@ stay small so they merge cleanly into either.
 
 ### Left after the fixes (2026-10-10)
 - [ ] Flaky under full-suite load (passes alone 3/3): person-browser "a page that opens a local address itself…".
-- [ ] On develop itself: apps/web/tests/mascot-settings.test.tsx "the screen is drawn as set…" fails (eyes not in the
-      theme accent) — not from these fixes.
+- [x] On develop itself: apps/web/tests/mascot-settings.test.tsx "the screen is drawn as set…" fails (eyes not in the
+      theme accent) — not from these fixes. Fixed ee3265a: at night the resting mood has its own eye colour; the test pins midday.
 - [ ] A rare double review: requestFinalVerification sets _finalRunning only after awaiting the worktree merge.
 - [ ] An independent, adversarial probe of the command parser after its second round of fixes (I2): the reviewer was
       stopped before probing; the fix agent re-ran the earlier probes (all now ask or are denied). Run
