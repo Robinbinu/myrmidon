@@ -17,6 +17,7 @@ import Electrobun, {
 import { DESKTOP_COMPUTER_STOP } from '../../web/src/client/ui/desktop.ts'
 import {
   badgeLabel,
+  insetScript,
   parseRequest,
   preloadScript,
   type Request,
@@ -26,7 +27,7 @@ import {
 import { COMPUTER_STOP_KEYS, WINDOW_SIZE } from '../src/config.ts'
 import { desktopCopy } from '../src/copy.ts'
 import { setDockBadge } from '../src/dock.ts'
-import { asPlatform, executableName, menuFor, windowChrome } from '../src/platform.ts'
+import { asPlatform, executableName, menuFor, titlebarInset, windowChrome } from '../src/platform.ts'
 import {
   freePort,
   loopbackOrigin,
@@ -57,6 +58,12 @@ const win = new BrowserWindow({
 if (chrome.buttons) win.setWindowButtonPosition(chrome.buttons.x, chrome.buttons.y)
 
 const run = (script: string) => win.webview.executeJavascript(script)
+// Entering or leaving full screen resizes the window; a reload starts again from the preload's windowed inset.
+const fitTitlebar = () => run(insetScript(titlebarInset(chrome, win.isFullScreen())))
+if (chrome.titlebarInsetPx) {
+  win.on('resize', fitTitlebar)
+  win.webview.on('dom-ready', fitTitlebar)
+}
 
 ApplicationMenu.setApplicationMenu(menu())
 ApplicationMenu.on('application-menu-clicked', (event) => {

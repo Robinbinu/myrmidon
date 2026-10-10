@@ -11,6 +11,7 @@ import {
   sidecarDist,
   sidecarFiles,
   sidecarTarget,
+  titlebarInset,
   windowChrome,
 } from '../src/platform.ts'
 
@@ -28,6 +29,13 @@ test('only macOS hides its title bar and insets the toolbar for the traffic ligh
   })
   for (const platform of ['linux', 'win32'] as const)
     expect(windowChrome(platform)).toEqual({ titleBarStyle: 'default', titlebarInsetPx: 0 })
+})
+
+test('full screen hides the traffic lights, so the toolbar keeps no room for them there', () => {
+  const mac = windowChrome('darwin')
+  expect(titlebarInset(mac, false)).toBe(78)
+  expect(titlebarInset(mac, true)).toBe(0)
+  expect(titlebarInset(windowChrome('win32'), false)).toBe(0)
 })
 
 test('the menu keeps macOS-only roles on macOS and drops them, and the separators they leave, elsewhere', () => {
