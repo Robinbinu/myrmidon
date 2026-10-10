@@ -257,6 +257,36 @@ describe('commands', () => {
     expect(readOnlyCommand('git branch -D x')).toBe(false)
   })
 
+  test('gh: reads of GitHub only look, and what changes GitHub is asked about like a push', () => {
+    for (const c of [
+      'gh pr view 12 --repo o/r --json title',
+      'gh issue list --state=open',
+      'gh run view 99',
+      'gh search issues flaky',
+      'gh api --method GET /repos/o/r/actions/runs/1',
+      'gh api -X GET /search/issues -f q=bug',
+    ]) {
+      expect(readOnlyCommand(c)).toBe(true)
+      expect(destructiveCommand(c)).toBe(false)
+    }
+    for (const c of [
+      'gh pr merge 12 --squash',
+      'gh pr comment 12 --body=hi',
+      'gh issue close 3',
+      'gh run rerun 99 --failed',
+      'gh api -X POST /repos/o/r/issues -f title=x',
+      'gh api /repos/o/r/issues -f title=x',
+      'gh api --method=DELETE /repos/o/r',
+    ]) {
+      expect(readOnlyCommand(c)).toBe(false)
+      expect(destructiveCommand(c)).toBe(true)
+    }
+    // Neither a read nor a change: Ask asks, Auto runs it.
+    expect(readOnlyCommand('gh api /user')).toBe(false)
+    expect(destructiveCommand('gh api /user')).toBe(false)
+    expect(readOnlyCommand('gh pr view 12 --web')).toBe(false)
+  })
+
   test('the prefix a card offers', () => {
     expect(commandPrefix('bun test src/a.test.ts')).toBe('bun test')
     expect(commandPrefix('bun run typecheck')).toBe('bun run typecheck')

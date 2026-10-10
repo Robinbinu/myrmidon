@@ -59,8 +59,10 @@ limitations under the License.
 ## oh-my-pi (omp)
 
 The rule-file discovery in `packages/runtime/src/rule-files.ts` (which files each tool keeps rules in, how their
-frontmatter decides when a rule applies, and the check that skips a file already contained in another) is ported from
-oh-my-pi 18.8.7 (https://github.com/can1357/oh-my-pi), MIT License:
+frontmatter decides when a rule applies, and the check that skips a file already contained in another), the github
+tool in `packages/runtime/src/github.ts` (the `gh` operations, their arguments and the Actions run report, after
+omp's `tools/gh*.ts`) and the find tool's search cascade in `packages/runtime/src/find.ts` (after omp's
+`tools/jfind/cascade.ts`) are ported from oh-my-pi 18.8.7 (https://github.com/can1357/oh-my-pi), MIT License:
 
 ```
 MIT License
