@@ -32,7 +32,8 @@ import { agentActor, type ColonyHost } from '../host.ts'
 import { prompts } from '../prompts.ts'
 import { redactSecrets } from '../secrets.ts'
 import { spotlight } from '../tools.ts'
-import type { Holder } from './driver.ts'
+import { DESKTOP_POINT_CALL, desktopPrefix } from './desktop-pointers.ts'
+import type { Holder, Pointer } from './driver.ts'
 import { needGrants } from './grants.ts'
 import { DESKTOP_TOOL } from './names.ts'
 
@@ -67,11 +68,19 @@ export class DesktopEngine {
   private readonly _factory: DesktopControllerFactory
   private readonly _launch: (app: string) => Promise<string>
 
+  private readonly _point?: (holder: Holder, x: number, y: number, action: Pointer['action']) => void
+
   constructor(
-    options: { factory?: DesktopControllerFactory; launch?: (app: string) => Promise<string> } = {},
+    options: {
+      factory?: DesktopControllerFactory
+      launch?: (app: string) => Promise<string>
+      /** Where an agent's script acted on the screen, for the overlay's cursors (`ComputerHub.point`). */
+      point?: (holder: Holder, x: number, y: number, action: Pointer['action']) => void
+    } = {},
   ) {
     this._factory = options.factory ?? ompController
     this._launch = options.launch ?? launchApp
+    if (options.point) this._point = options.point
   }
 
   /** Runs one script for an agent; `readOnly` scripts may only look (omp's facade refuses input in them). */
@@ -101,19 +110,32 @@ export class DesktopEngine {
         this._sessions.delete(key)
         throw err
       })
-      return await controller.run(code, options.timeoutMs, snapshot, options.signal)
+      // Read-only scripts make no input, so there is nothing to place.
+      const script = options.readOnly || !this._point ? code : desktopPrefix() + code
+      return await controller.run(script, options.timeoutMs, snapshot, options.signal)
     } finally {
       session.current = undefined
     }
   }
 
   private async _bridge(key: string, name: string, args: unknown): Promise<unknown> {
+    if (name === DESKTOP_POINT_CALL) return this._pointed(key, args)
     const current = this._sessions.get(key)?.current
     if (name !== 'open_app' || !current) throw new Error(d.bridgeOnly(name))
     if (current.readOnly) throw new Error(d.readOnlyOpen)
     const app = (args as { app?: unknown } | undefined)?.app
     if (typeof app !== 'string' || !app.trim()) throw new Error(d.badApp)
     return this._launch(app.trim())
+  }
+
+  /** A point the script's wrapped `desktop` reported (see desktop-pointers.ts), from the agent the session is for. */
+  private _pointed(key: string, args: unknown): undefined {
+    const p = args as { x?: unknown; y?: unknown; action?: unknown } | undefined
+    const [colonyId = '', agent = ''] = key.split('\0')
+    if (typeof p?.x !== 'number' || typeof p.y !== 'number' || !this._point) return undefined
+    const action = POINTER_ACTIONS.find((a) => a === p.action) ?? 'click'
+    this._point({ colonyId, agent }, p.x, p.y, action)
+    return undefined
   }
 
   /** Ends the sessions of a round (or of one agent in it): their workers stop, running scripts with them. */
@@ -133,6 +155,7 @@ export class DesktopEngine {
 }
 
 const keyOf = (holder: Holder) => `${holder.colonyId}\0${holder.agent}`
+const POINTER_ACTIONS: readonly Pointer['action'][] = ['move', 'click', 'type', 'scroll', 'drag']
 
 /** omp's own supervisor, loaded on first use so Cua Driver users never load it. */
 async function ompController(bridge: DesktopBridge): Promise<ComputerController> {
