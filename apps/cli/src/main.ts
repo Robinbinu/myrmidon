@@ -21,6 +21,7 @@ import {
   bootOmp,
   bootRuntime,
   ChatService,
+  ChatShelf,
   Checkpoints,
   ColonyRun,
   ComputerHub,
@@ -356,8 +357,10 @@ async function main() {
       void mcp
         .start()
         .catch((err) => console.error(c.yellow(`MCP: ${err instanceof Error ? err.message : err}`)))
+      const shelf = new ChatShelf(home)
       const chats = new ChatService(runtime, {
         resolver,
+        shelf,
         settings,
         web: ompWebTools(omp, () => settings.get().search.provider),
         unsafeNoSandbox: values['unsafe-no-sandbox'],
@@ -394,6 +397,7 @@ async function main() {
         plugins,
         pluginHost,
         schedules: new ScheduleStore(home),
+        shelf,
         sandboxKind: sandbox.kind,
         noAuth: values.dev,
         ...(values.host ? { host: values.host } : {}),

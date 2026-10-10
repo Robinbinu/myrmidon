@@ -92,13 +92,17 @@ const CHATS_SEEN = 'myr-chat-seen'
 /**
  * Which chats finished since the person last looked at them, as Codex and Claude Code mark them with a blue dot. Each
  * chat's `updatedAt` when last open is kept in this browser; the chat open now is always seen. The first time, every
- * chat already listed counts as seen, so an existing list does not light up all at once.
+ * chat already listed counts as seen, so an existing list does not light up all at once. `mark` sets a chat read or
+ * unread by hand (Mark as unread keeps it marked until it is opened again).
  */
 export function useUnreadChats(
   chats: readonly { chatId: string; updatedAt: string }[],
   loaded: boolean,
   open: string | undefined,
-): (chat: { chatId: string; updatedAt: string }) => boolean {
+): {
+  isUnread(chat: { chatId: string; updatedAt: string }): boolean
+  mark(chat: { chatId: string; updatedAt: string }, unread: boolean): void
+} {
   const [seen, setSeen] = useState<Record<string, string>>(() => readSeenChats() ?? {})
   const openAt = chats.find((c) => c.chatId === open)?.updatedAt
   // biome-ignore lint/correctness/useExhaustiveDependencies: seeded once, from the first list that loads
@@ -117,7 +121,15 @@ export function useUnreadChats(
       return next
     })
   }, [open, openAt])
-  return (chat) => chat.chatId !== open && chat.updatedAt > (seen[chat.chatId] ?? '')
+  return {
+    isUnread: (chat) => chat.chatId !== open && chat.updatedAt > (seen[chat.chatId] ?? ''),
+    mark: (chat, unread) =>
+      setSeen((prev) => {
+        const next = { ...prev, [chat.chatId]: unread ? '' : chat.updatedAt }
+        store(CHATS_SEEN, JSON.stringify(next))
+        return next
+      }),
+  }
 }
 
 function readSeenChats(): Record<string, string> | undefined {
