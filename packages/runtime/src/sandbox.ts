@@ -12,7 +12,7 @@ import {
 import { spawnLeashed } from './leashed.ts'
 import { presetOf } from './permissions.ts'
 import { pathOf, realOrNone, realPath, toolchainPaths, within } from './read-access.ts'
-import { hostShell } from './shell.ts'
+import { hostShell, shellEnv } from './shell.ts'
 import type { ColonySpec } from './spec.ts'
 
 export interface SandboxRun {
@@ -311,7 +311,7 @@ function confinedEnv(spec: Omit<SandboxRun, 'timeoutMs'>, person: string) {
   mkdirSync(tmp, { recursive: true })
   const env = confinedEnvFor(process.env, { person, home, tmp })
   for (const dir of [env.APPDATA, env.LOCALAPPDATA]) if (dir) mkdirSync(dir, { recursive: true })
-  return { ...env, ...spec.env }
+  return shellEnv({ ...env, ...spec.env })
 }
 
 function startConfined(
@@ -405,7 +405,7 @@ async function runLeashed(
  */
 export function unconfinedSandbox(): Sandbox {
   const argv = plainShell
-  const env = (spec: Omit<SandboxRun, 'timeoutMs'>) => ({ ...process.env, ...spec.env })
+  const env = (spec: Omit<SandboxRun, 'timeoutMs'>) => shellEnv({ ...process.env, ...spec.env })
   return {
     kind: 'unconfined',
     argv,

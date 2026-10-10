@@ -1,5 +1,12 @@
 import { expect, test } from 'bun:test'
-import { commandShell, gitSh, powershellScript, type ShellProbe, terminalShell } from '../src/shell.ts'
+import {
+  commandShell,
+  gitSh,
+  powershellScript,
+  type ShellProbe,
+  shellEnv,
+  terminalShell,
+} from '../src/shell.ts'
 
 /** A machine as the shell choice sees it: which programs are on PATH, which files exist. */
 function probe(
@@ -53,6 +60,22 @@ test("Windows takes an sh on PATH, but not System32's bash family (WSL's)", () =
   expect(gitSh(probe('win32', { sh: onPath }, [], WINDOWS_ENV))).toBe(onPath)
   const wsl = probe('win32', { sh: 'C:\\Windows\\System32\\sh.exe' }, [], WINDOWS_ENV)
   expect(gitSh(wsl)).toBeUndefined()
+})
+
+test("Git Bash's commands run with Git's own folders first on PATH, whichever sh.exe was found", () => {
+  const bins = ['C:\\Program Files\\Git\\usr\\bin', 'C:\\Program Files\\Git\\mingw64\\bin']
+  for (const sh of [GIT_SH, 'C:\\Program Files\\Git\\usr\\bin\\sh.exe']) {
+    const shell = commandShell(probe('win32', { sh }, [sh, ...bins], WINDOWS_ENV))
+    expect(shell.bins).toEqual(bins)
+    // Windows names it Path; a second PATH beside it would leave which one wins to chance.
+    expect(shellEnv({ Path: 'C:\\WINDOWS\\system32', HOME: 'h' }, shell)).toEqual({
+      Path: `${bins.join(';')};C:\\WINDOWS\\system32`,
+      HOME: 'h',
+    })
+  }
+  const sh = commandShell(probe('linux'))
+  const env = { PATH: '/usr/bin' }
+  expect(shellEnv(env, sh)).toBe(env)
 })
 
 test('Windows finds a per-user Git install with no git on PATH', () => {

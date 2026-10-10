@@ -17,6 +17,11 @@ export interface CommandShell {
   readonly syntax: ShellSyntax
   /** The program and arguments that run `command` to completion. */
   argv(command: string): string[]
+  /**
+   * Folders the shell's own commands live in, put first on a command's PATH (see `shellEnv`): Git's `usr\bin` and
+   * `mingw64\bin` for Git Bash, whose `sh.exe` finds `mkdir` and the rest only there. None for the other shells.
+   */
+  readonly bins: readonly string[]
 }
 
 /** What picking a shell looks at, injected so each OS's choice is tested on any OS. */
@@ -34,7 +39,12 @@ export const hostProbe = (): ShellProbe => ({
   exists: existsSync,
 })
 
-const POSIX_SH: CommandShell = { name: 'sh', syntax: 'posix', argv: (command) => ['/bin/sh', '-c', command] }
+const POSIX_SH: CommandShell = {
+  name: 'sh',
+  syntax: 'posix',
+  argv: (command) => ['/bin/sh', '-c', command],
+  bins: [],
+}
 
 /**
  * PowerShell runs the command as given; the last line makes its exit code the command's, as `sh -c` does: the native
@@ -73,6 +83,18 @@ export function gitSh(probe: ShellProbe): string | undefined {
   return roots.map((root) => win32.join(root, 'bin', 'sh.exe')).find((path) => probe.exists(path))
 }
 
+/**
+ * The folders of Git for Windows' own programs, for the `sh.exe` at `sh` (`<Git>\bin\sh.exe` or
+ * `<Git>\usr\bin\sh.exe`): a PATH without them (a confined command's keeps only system folders and toolchains)
+ * leaves its commands not found.
+ */
+export function gitBins(sh: string, probe: ShellProbe): string[] {
+  const dir = win32.dirname(sh)
+  const up = win32.dirname(dir)
+  const root = win32.basename(up).toLowerCase() === 'usr' ? win32.dirname(up) : up
+  return [win32.join(root, 'usr', 'bin'), win32.join(root, 'mingw64', 'bin')].filter((d) => probe.exists(d))
+}
+
 /** PowerShell 7 (`pwsh`) or the Windows PowerShell every Windows has, as a program to run. */
 function powershell(probe: ShellProbe): { path: string; name: string } | undefined {
   const pwsh = probe.which('pwsh')
@@ -88,7 +110,13 @@ function powershell(probe: ShellProbe): { path: string; name: string } | undefin
 export function commandShell(probe: ShellProbe = hostProbe()): CommandShell {
   if (probe.platform !== 'win32') return POSIX_SH
   const sh = gitSh(probe)
-  if (sh) return { name: 'Git Bash', syntax: 'posix', argv: (command) => [sh, '-c', command] }
+  if (sh)
+    return {
+      name: 'Git Bash',
+      syntax: 'posix',
+      argv: (command) => [sh, '-c', command],
+      bins: gitBins(sh, probe),
+    }
   const ps = powershell(probe)
   if (ps)
     return {
@@ -102,11 +130,12 @@ export function commandShell(probe: ShellProbe = hostProbe()): CommandShell {
         '-Command',
         powershellScript(command),
       ],
+      bins: [],
     }
   // Only where PowerShell is missing. Arguments reach cmd.exe quoted by C runtime rules, which it does not read, so a
   // command with double quotes in it may arrive changed.
   const cmd = probe.env.ComSpec ?? 'cmd.exe'
-  return { name: 'cmd.exe', syntax: 'cmd', argv: (command) => [cmd, '/d', '/s', '/c', command] }
+  return { name: 'cmd.exe', syntax: 'cmd', argv: (command) => [cmd, '/d', '/s', '/c', command], bins: [] }
 }
 
 let host: CommandShell | undefined
@@ -114,6 +143,19 @@ let host: CommandShell | undefined
 export function hostShell(): CommandShell {
   host ??= commandShell()
   return host
+}
+
+/**
+ * `env` for a command `shell` runs: its own folders (`CommandShell.bins`) first on PATH, kept under the name PATH has
+ * there (Windows' environment names ignore case, and it is usually `Path`).
+ */
+export function shellEnv<T extends Record<string, string | undefined>>(
+  env: T,
+  shell: CommandShell = hostShell(),
+): T {
+  if (!shell.bins.length) return env
+  const key = Object.keys(env).find((k) => k.toUpperCase() === 'PATH') ?? 'PATH'
+  return { ...env, [key]: [...shell.bins, env[key]].filter(Boolean).join(win32.delimiter) }
 }
 
 /**
