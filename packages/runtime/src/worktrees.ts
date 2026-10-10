@@ -298,7 +298,8 @@ export class ProjectWorktrees {
           const linked = lstatSync(target, { throwIfNoEntry: false })?.isSymbolicLink()
           if (linked) links.push(child)
           else if (!existsSync(target) && existsSync(dirname(target))) {
-            symlinkSync(join(this.top, child), target)
+            // A directory symlink needs Developer Mode or an administrator on Windows; a junction needs neither.
+            symlinkSync(join(this.top, child), target, process.platform === 'win32' ? 'junction' : 'dir')
             links.push(child)
           }
           continue

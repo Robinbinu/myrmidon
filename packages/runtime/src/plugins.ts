@@ -13,6 +13,7 @@ import type { PluginCommand } from '@myrmidon/protocol'
 import { git } from './git.ts'
 import { checkedHooks, HOOK_EVENTS, type HookGroup, type HooksConfig } from './hooks.ts'
 import type { McpServerConfig } from './mcp.ts'
+import { expandHome } from './read-access.ts'
 
 /**
  * Plugins: one folder that adds skills, slash commands, hooks and MCP servers, switched on and off as a unit. The
@@ -154,7 +155,7 @@ export class PluginStore {
     try {
       if (isGit) await git(this.dir, ['clone', '--depth', '1', '--quiet', from, staging])
       else {
-        const path = resolve(from.replace(/^~(?=\/|$)/, process.env.HOME ?? '~'))
+        const path = resolve(expandHome(from))
         if (!existsSync(path)) throw new Error(`no folder at ${path}`)
         cpSync(path, staging, { recursive: true, filter: (p) => !p.includes(`${join(path, '.git')}`) })
       }
