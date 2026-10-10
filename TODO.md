@@ -224,8 +224,12 @@ server down). Letters are fix groups; each group owns its files so they can be w
 - [x] **"Chats only" devices see everything** — `whoami().me.scope` is never read; hide Settings, Terminal, Devices,
       Plugins for that scope.
 - [x] **Empty states flash before data loads** (sidebar, Crews, `?chat=` deep link; a bad id stays on the hero).
-- [ ] **New chat resets the composer** to the default lead and helpers, dropping what the person picked.
-      **Left:** could not reproduce in-session (choices persist via localStorage); fixed the one real loss (`helpers: always` dropped on reload). If it recurs, keep the last composer config on the server.
+- [x] **New chat resets the composer** to the default lead and helpers, dropping what the person picked.
+      Within one browser the pick survives the New chat buttons, ⌘N, a project's new chat and a reload (tested). It
+      was lost wherever the page's storage is new: another browser and the desktop app, which serves each launch
+      from a new port. The last pick is now kept on the server (`composer` in settings.json, PUT
+      /api/settings/composer) and wins over the browser's copy; a default crew saved with no crewmates no longer
+      comes back with two.
 - [x] **Adding a project leaves the open chat** and lands on a new task.
 - [x] **The home greeting quotes the last chat title** (`"Add a multiply(a,…" is done`); the "G 26×29" selection
       box over the greeting reads as a bug.

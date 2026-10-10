@@ -41,6 +41,7 @@ import {
   post,
   reachable,
   send as request,
+  saveComposer,
   type TeamConfig,
 } from './api.ts'
 import { ColonyScreen } from './ColonyScreen.tsx'
@@ -449,9 +450,12 @@ export function App() {
   }, [view, settingsOpen, shownSection, fullAccess])
 
   const loadModels = useCallback(() => {
-    api<{ models: ModelOption[]; default?: string; defaults?: Record<string, unknown> }>(
-      '/api/models?hidden=1',
-    )
+    api<{
+      models: ModelOption[]
+      default?: string
+      defaults?: Record<string, unknown>
+      composer?: Record<string, unknown>
+    }>('/api/models?hidden=1')
       .then((r) => {
         setModels(r.models)
         setModelsError(undefined)
@@ -461,7 +465,8 @@ export function App() {
           const server = Object.fromEntries(
             Object.entries(r.defaults ?? {}).filter(([, v]) => v !== undefined),
           )
-          return normalizeConfig({ ...server, ...readLocalConfig() }, fallback)
+          // The last pick made in any browser wins over this one's own copy, which only an older server lacks.
+          return normalizeConfig({ ...server, ...readLocalConfig(), ...r.composer }, fallback)
         })
       })
       // The message box's stand-in says so and offers to try again.
@@ -716,6 +721,8 @@ export function App() {
     } catch {
       // Preferences are a convenience; private mode simply forgets them.
     }
+    // A chats-only device may not change the server's settings; its picks stay in this browser.
+    if (fullAccess) saveComposer(c)
   }
 
   const chat = chats.find((c) => c.chatId === activeChat)
