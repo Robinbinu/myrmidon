@@ -40,6 +40,13 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
     group: 'Round',
   },
   {
+    name: 'goal',
+    args: copy.commands.list.goal.args,
+    description: copy.commands.list.goal.description,
+    needsArg: true,
+    group: 'Round',
+  },
+  {
     name: 'steer',
     args: copy.commands.list.steer.args,
     description: copy.commands.list.steer.description,

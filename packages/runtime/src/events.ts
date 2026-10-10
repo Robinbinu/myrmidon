@@ -128,6 +128,16 @@ const colonySpec = Schema.object({
   review: Schema.union(['off', 'auto', 'always']),
   fullAccess: Schema.boolean(),
   computerUse: Schema.boolean(),
+  goal: optional(
+    Schema.object({
+      condition: str(),
+      check: Schema.object({ kind: oneOf('checks', 'command', 'judge'), run: Schema.string() }),
+      maxChecks: Schema.natural().required(),
+      judge: str(),
+      threshold: Schema.number().required(),
+    }),
+  ),
+  prewalk: Schema.string(),
   access: optional(roundAccess),
 })
 
@@ -426,6 +436,12 @@ const defs: EventTypeDefinition[] = [
     version: 1,
     actors: ['user'],
     schema: Schema.object({ agent: str(), model: str(), previous: str() }),
+  },
+  {
+    type: 'agent/handoff',
+    version: 1,
+    actors: ['system'],
+    schema: Schema.object({ agent: str(), model: str(), previous: str(), after: str() }),
   },
   {
     type: 'agent/fallback',

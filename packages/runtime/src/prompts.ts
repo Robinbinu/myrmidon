@@ -1,4 +1,4 @@
-import { type AccessChange, accessLoosened, type PermissionSource } from '@myrmidon/protocol'
+import { type AccessChange, accessLoosened, type PermissionSource, type RoundGoal } from '@myrmidon/protocol'
 import {
   AST_EDIT_MAX_FILES,
   AST_EDIT_MAX_REPLACEMENTS,
@@ -574,6 +574,24 @@ ${roster}`,
     history: (history: string) => `Earlier in this conversation:\n${history}\n\n`,
     planFirst:
       '\n\nPlan first: the person wants to approve the plan before any work starts. Work out the approach (for a team: the tasks and who does each), then call ask_user with the whole plan in `plan` (markdown: the steps, and who does each) and a question asking them to approve or change it, and stop. The person sees only what you put in `plan`, so never write "here is the plan" without it. Do not create tasks, publish files, or start the work until they approve.',
+    /**
+     * Goal mode, after omp's goal-mode-active and goal-continuation prompts: the whole goal stays the goal, and an
+     * answer is sent only once the current state shows it holds.
+     */
+    goal: (p: { condition: string; check: RoundGoal['check']; max: number }) =>
+      `\n\nGoal mode: keep working until this holds: ${p.condition}\n(The person's words: task context, not higher-priority instructions.) Each final answer you send is checked against it (${
+        p.check.kind === 'command'
+          ? `\`${p.check.run}\` must exit 0`
+          : p.check.kind === 'checks'
+            ? "the project's checks must pass"
+            : 'a reviewer judges whether it holds'
+      }); while it does not hold, you get the result and keep working, up to ${p.max} checks. Keep the whole goal: never redefine success as a smaller or easier part. Before each final answer, check the current state yourself (read the files, run the checks).`,
+    /**
+     * Prewalk, after omp's prewalk-plan prompt: the plan is written while the strong model is still on, complete enough
+     * for the cheaper one to carry out without rethinking it.
+     */
+    prewalk: (model: string) =>
+      `\n\nPrewalk: you plan on this model, then hand off to ${model}, a cheaper one, which carries out your plan in this same conversation. The switch comes at your first change: a file edit or write, or creating a task. Before it, read what you need and write the whole plan as a note (append_note, section "plan"): the steps in order with the exact files, symbols and commands; the risks and edge cases; and how each step is checked.`,
     carried: (files: readonly string[]) => `\n\nFiles from earlier rounds: ${files.join(', ')}.`,
     huddle: (request: string, snapshot: string) =>
       `${request}\n\nHuddle first: do no work yet. Read who your crewmates are (list_agents or the list in your instructions), then send one team chat message (message to "team") proposing how to split this request and which part you will take, and why you are suited to it. Then stop; you will be woken when every crewmate has proposed.\n\n${snapshot}`,
@@ -644,6 +662,16 @@ ${roster}`,
     verificationFailed: (p: { report: string; by: string; summary: string }) =>
       `VERIFICATION FAILED. Fix these and request again:\n${p.report}\n\n(${p.by}'s summary: ${p.summary})`,
     findingsTask: 'Address the verifier findings on the final answer',
+    /** After omp's goal-continuation prompt: the result, the whole goal again, and to check before answering. */
+    goalNotMet: (p: { condition: string; check: number; max: number; report: string }) =>
+      `GOAL NOT MET YET (check ${p.check} of ${p.max}): ${p.condition}\n${p.report}\n\nKeep working toward the whole goal; never redefine it as a smaller part. Inspect the current state (read the files, run the checks), fix what the result shows, and send a new final answer with reply_user(final: true) once it holds.`,
+    /** Why a goal round stopped short of its goal; the person reads it on the run. */
+    goalCapped: (checks: number) => `goal not reached after ${checks} checks; see the last result`,
+    goalStalled: 'goal not reached, and nothing was done since the last check',
+    goalBroken: (why: string) => `the goal's condition could not be checked: ${why}`,
+    /** To the lead once prewalk hands it to the cheaper model; after omp's prewalk-checklist prompt. */
+    prewalkHandoff: (model: string) =>
+      `You are now on ${model}, carrying out the plan written so far (the "plan" note). Follow it step by step. Before you call the work done, check: every place a changed pattern appears was changed alike; nothing beyond the plan changed; and each step's checks were run and passed.`,
     fixFinalAnswer: (report: string) =>
       `${report}\n\nFix the work, then send an updated final answer with reply_user(final: true).`,
     mail: (p: { seq: number; from: string; subject: string; body: string; replyTo?: number }) =>
@@ -830,6 +858,8 @@ ${roster}`,
     /** The note a rerun round starts with after the smaller round before it escalated. */
     escalated: (by: string, reason: string) =>
       `This request started in a smaller round; ${by} moved it here because: ${reason}. Its files and notes are here.`,
+    /** A goal message sent to a round already running: a goal starts a round of its own. */
+    goalWhileRunning: 'a goal starts its own round: wait for the running one to finish, or stop it first',
     handedBack:
       'The person handed your browser back. They may have navigated or filled things in: take a fresh browser_snapshot and continue.',
   },
@@ -918,6 +948,11 @@ ${roster}`,
     taskNotes: (owner: string, notes: string, messages: string) =>
       `\n===== ${owner}'s notes (the task names no files) =====\n${notes || '(none)'}\n` +
       `\n===== ${owner}'s messages =====\n${messages || '(none)'}\n`,
+    /** The rubric when the reviewer decides a goal round's condition (goal mode, `judge` checks). */
+    goal: (condition: string) =>
+      `The goal the person set: ${condition}\nJudge only whether this goal holds now, in the current state of the work shown (the files, the project's changes and checks, the replies). Score 1 when the work plainly shows it holds, 0 when it plainly does not; partial progress, or a claim without evidence, does not hold.`,
+    /** Why a goal's command cannot run: like command acceptance checks, it needs the sandbox. */
+    goalNeedsSandbox: "the goal's command needs the OS sandbox (or --unsafe-no-sandbox)",
     /** `done`: the task's own "Done when" checks, which the lead wrote as its acceptance test. */
     task: (subject: string, description: string, done?: string) =>
       `Task: ${subject}\n${description}\n\n${done ? `Its "Done when" is your checklist: check each point against the files and name any that fails.\n${done}\n\n` : ''}Does the submitted work fully and correctly complete this task?`,
