@@ -247,7 +247,15 @@ export class ProjectWorktrees {
 
   /** Commits everything in the worktree (except linked dependencies) and returns the branch tip. */
   private async commitWork(tree: Tree, message: string): Promise<string> {
-    await git(tree.path, ['add', '-A', '--', '.', ...tree.links.map((l) => `:(exclude)${l}`)])
+    // Only links git does not ignore already are excluded: `git add` refuses a pathspec naming an ignored path, and
+    // Git for Windows takes a junction for the folder it points to, which `node_modules/` ignores.
+    const ignored = tree.links.length
+      ? new Set(
+          (await run(tree.path, ['check-ignore', '--', ...tree.links])).out.split(/\r?\n/).filter(Boolean),
+        )
+      : new Set<string>()
+    const excluded = tree.links.filter((l) => !ignored.has(l)).map((l) => `:(exclude)${l}`)
+    await git(tree.path, ['add', '-A', '--', '.', ...excluded])
     const staged = await git(tree.path, ['diff', '--cached', '--name-only'])
     if (staged.trim()) await git(tree.path, ['commit', '-q', '--no-verify', '-m', message], IDENTITY)
     return (await git(tree.path, ['rev-parse', 'HEAD'])).trim()
