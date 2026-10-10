@@ -224,6 +224,8 @@ export interface ChatSummary {
   readonly status: ColonyStatus
   /** The latest round stopped to wait for the person's answer. */
   readonly awaiting?: boolean
+  /** The latest round is running and a step of it waits for the person's approval. */
+  readonly approving?: boolean
   /** The latest round stopped because a model failed. */
   readonly failed?: boolean
   readonly rounds: ChatRound[]
@@ -549,6 +551,7 @@ export class ChatService {
           ? { crew: last.crew.filter((c) => c.role !== 'lead') }
           : {}),
         ...(last.awaiting ? { awaiting: true } : {}),
+        ...(last.approving ? { approving: true } : {}),
         ...(last.failed ? { failed: true } : {}),
         ...(last.permissions ? { permissions: last.permissions } : {}),
         ...(last.reads?.length ? { reads: last.reads } : {}),

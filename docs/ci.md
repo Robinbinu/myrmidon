@@ -57,7 +57,6 @@ which are not gaps. `removeTempDir` and `expectOwnerOnly` keep cleanup and the p
 | Gap | Tests | What has to change |
 | --- | --- | --- |
 | `bwrapHiddenFolders` | read-access: *cannot read the home, other chats or keys…*; full-access: *with the sandbox off a chat runs commands…* | bubblewrap hides a folder with an empty, writable tmpfs, so `ls` there and writes into it succeed (into a throwaway layer) where macOS denies them (`sandbox.ts` `bwrapMounts`) |
-| `voiceWarmupRace` | server-voice: *a call whose page closes while the engines warm up is never made* | the call that closed during warm-up still greets, so the next call is spoken twice (2 instead of 1) |
 
 ### Pending on Windows
 

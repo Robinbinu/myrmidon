@@ -14,6 +14,7 @@ import {
 import type { TurnJudge } from '../src/voice/smart-turn.ts'
 import { speakable } from '../src/voice/speech.ts'
 import type { SpeechToText } from '../src/voice/stt.ts'
+import type { TextToSpeech } from '../src/voice/tts.ts'
 import { type SpeechDetector, VAD_CHUNK } from '../src/voice/vad.ts'
 
 const RATE = 16_000
@@ -53,6 +54,8 @@ function setup(
     /** Every message lands in this one running colony (a round already going). */
     colony?: string
     judge?: TurnJudge
+    /** The voice, in place of the instant one. */
+    speak?: TextToSpeech['speak']
   } = {},
 ) {
   const heard: string[] = []
@@ -97,10 +100,12 @@ function setup(
       ...(options.judge ? { judge: options.judge } : {}),
       log: (line) => logged.push(line),
       tts: {
-        speak: async (text) => {
-          if (options.slowVoiceMs) await Bun.sleep(options.slowVoiceMs)
-          return { pcm: new Int16Array(Math.max(1, text.length) * 16), sampleRate: RATE }
-        },
+        speak:
+          options.speak ??
+          (async (text) => {
+            if (options.slowVoiceMs) await Bun.sleep(options.slowVoiceMs)
+            return { pcm: new Int16Array(Math.max(1, text.length) * 16), sampleRate: RATE }
+          }),
       },
     },
     {
@@ -832,4 +837,42 @@ test('with an engine that streams, the turn is shown as it is heard and its stre
   expect(closed).toBe(1)
   expect(out.find((o) => o.type === 'heard')).toEqual({ type: 'heard', text: 'check the build' })
   call.hangUp()
+})
+
+test('a call that ended before it started never greets', async () => {
+  const spoken: string[] = []
+  const { call, out } = setup(() => [], {
+    speak: async (text) => {
+      spoken.push(text)
+      return { pcm: new Int16Array(16), sampleRate: RATE }
+    },
+  })
+  call.hangUp()
+  await call.start()
+  expect(spoken).toEqual([])
+  expect(out).toEqual([{ type: 'ended', reason: 'hung-up' }])
+})
+
+test('hanging up while the greeting is being voiced stops it, so an ended call never greets', async () => {
+  let release: () => void = () => {}
+  const voiced = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  let signal: AbortSignal | undefined
+  const { call, out } = setup(() => [], {
+    speak: async (_text, s) => {
+      signal = s
+      await voiced
+      return { pcm: new Int16Array(16), sampleRate: RATE }
+    },
+  })
+  const starting = call.start()
+  await until(() => signal !== undefined)
+  call.hangUp()
+  // A cloud voice is paid per request: the greeting's is called off, not left to finish unheard.
+  expect(signal?.aborted).toBe(true)
+  release()
+  await starting
+  expect(out.some((o) => o.type === 'audio' || o.type === 'said')).toBe(false)
+  expect(out.at(-1)).toEqual({ type: 'ended', reason: 'hung-up' })
 })

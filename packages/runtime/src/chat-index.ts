@@ -26,6 +26,8 @@ export interface IndexedRound {
   readonly swarm: boolean
   /** The round stopped to wait for the person's answer. */
   readonly awaiting?: boolean
+  /** On a chat's latest round, while it runs: a step waits for the person's approval. */
+  readonly approving?: boolean
   /** On a chat's latest round: whether it stopped because a model failed. */
   readonly failed?: boolean
   readonly title?: { readonly title: string; readonly at: string; readonly by?: 'auto' }
@@ -305,6 +307,9 @@ function summarize(colonyId: string, s: ColonyState): IndexedRound[] {
     ...(r.endedAt ? { endedAt: r.endedAt } : {}),
     swarm: r.swarm,
     ...(r === last && cause.awaiting ? { awaiting: true } : {}),
+    ...(r === last && r.status === 'running' && Object.values(s.approvals).some((a) => !a.decided)
+      ? { approving: true }
+      : {}),
     ...(title ? { title: { title: title.title, at: title.at, ...(title.by ? { by: title.by } : {}) } } : {}),
     ...(r === last
       ? {
