@@ -28,6 +28,9 @@ export function PermissionsPage(props: {
   sandbox: string
   /** The readable-folders section, kept with the rest of Settings' sandbox controls. */
   reads?: ReactNode
+  /** Whether computer use is on in Settings; while it is off, no switch here can give it. */
+  computerUse: boolean
+  onSetUpComputer(): void
 }) {
   const [projects, setProjects] = useState<Project[]>([])
   useEffect(() => {
@@ -64,6 +67,7 @@ export function PermissionsPage(props: {
         <AccessMatrix
           levels={{ global: level }}
           scope="global"
+          {...(props.computerUse ? {} : { computerOff: { onSetUp: props.onSetUpComputer } })}
           onChange={(access) => {
             const { access: _, ...rest } = level
             props.onChange(access ? { ...rest, access } : rest, true)

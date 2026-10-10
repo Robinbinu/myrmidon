@@ -13,6 +13,9 @@ import {
   COMPUTER_ELEMENTS_SHOWN,
   COMPUTER_ELEMENTS_WALKED,
   COMPUTER_OWN_WINDOW_TITLE,
+  COMPUTER_SCRIPT_APPS,
+  COMPUTER_SCRIPT_KEYS,
+  COMPUTER_SCRIPT_LABEL,
   COMPUTER_SENSITIVE_KEYS,
   COMPUTER_SENSITIVE_LABEL,
 } from '../config.ts'
@@ -33,7 +36,7 @@ import {
 } from './actions.ts'
 import { type AppTier, allows, appTier, appWarning, canRaise, isOwnApp, sendsOnReturn } from './apps.ts'
 import { desktopParameters } from './desktop.ts'
-import type { DriverResult } from './driver.ts'
+import { ComputerStopped, type DriverResult, type Wait } from './driver.ts'
 import { blocked, needGrants } from './grants.ts'
 import { COMPUTER_TOOL, DESKTOP_TOOL, LIST_APPS_TOOL, OPEN_APP_TOOL } from './names.ts'
 
@@ -260,6 +263,39 @@ export function computerMember(name: string, agent: string, host: ColonyHost, mo
       return result
     },
   } as AgentTool
+}
+
+const runsScripts = (bundleId: string) => COMPUTER_SCRIPT_APPS.some((r) => r.test(bundleId))
+
+/** Whether clicking what bears this label is consequential: it buys, sends, deletes…, or runs a script app's script. */
+export function sensitiveLabel(label: string | undefined, bundleId: string): boolean {
+  if (!label) return false
+  return COMPUTER_SENSITIVE_LABEL.test(label) || (runsScripts(bundleId) && COMPUTER_SCRIPT_LABEL.test(label))
+}
+
+/**
+ * A key press written one way whatever order the model gave its modifiers in: modifiers in alphabetical order, then
+ * the key (`cmd+option+shift+delete`). The sensitive and script key patterns are written against this.
+ */
+export function computerCombo(keys: readonly string[]): string {
+  const key = keys.at(-1) ?? ''
+  return [...new Set(keys.slice(0, -1))].sort().concat(key).join('+')
+}
+
+/**
+ * Whether a key press or typed text sends, deletes or runs something in this app: a sensitive combo, Return (or a
+ * newline typed) where Return sends or runs (a launcher like Raycast), a script app's run key.
+ */
+export function sendsOrRuns(action: DesktopAction, bundleId: string): boolean {
+  if (action.kind === 'type')
+    return /[\r\n]/.test(action.text) && (sendsOnReturn(bundleId) || runsScripts(bundleId))
+  if (action.kind !== 'key') return false
+  const combo = computerCombo(action.keys)
+  return (
+    COMPUTER_SENSITIVE_KEYS.some((r) => r.test(combo)) ||
+    (combo === 'return' && sendsOnReturn(bundleId)) ||
+    (runsScripts(bundleId) && COMPUTER_SCRIPT_KEYS.some((r) => r.test(combo)))
+  )
 }
 
 /** A short line for the log and the chat's steps: what the action did. */
@@ -491,7 +527,7 @@ async function act(
       const shot = needShot(desk)
       if (!inside(point, shot)) throw new Error(t.outside(point[0], point[1], shot.width, shot.height))
       const label = labelAt(desk, point)
-      if (label && COMPUTER_SENSITIVE_LABEL.test(label))
+      if (sensitiveLabel(label, target.bundleId))
         await approveStep(host, agent, [action], t.review.sensitive, label)
       const args = {
         ...at,
@@ -513,7 +549,7 @@ async function act(
       const el = shot.elements.find((e) => e.index === action.element)
       if (shot.elements.length && !el) throw new Error(t.noElement(action.element))
       const label = el?.label ?? el?.value
-      if (label && COMPUTER_SENSITIVE_LABEL.test(label))
+      if (sensitiveLabel(label, target.bundleId))
         await approveStep(host, agent, [action], t.review.sensitive, label)
       const ref = {
         ...at,
@@ -563,6 +599,7 @@ async function act(
     }
     case 'type': {
       if (redactSecrets(action.text) !== action.text) throw new Error(t.secret)
+      if (sendsOrRuns(action, target.bundleId)) await approveStep(host, agent, [action], t.review.sensitive)
       const shot = desk.shot
       await call('type_text', {
         ...at,
@@ -574,13 +611,8 @@ async function act(
       return undefined
     }
     case 'key': {
-      const combo = action.keys.join('+')
       const key = action.keys.at(-1) ?? ''
-      if (
-        COMPUTER_SENSITIVE_KEYS.some((r) => r.test(combo)) ||
-        (key === 'return' && action.keys.length === 1 && sendsOnReturn(target.bundleId))
-      )
-        await approveStep(host, agent, [action], t.review.sensitive)
+      if (sendsOrRuns(action, target.bundleId)) await approveStep(host, agent, [action], t.review.sensitive)
       const modifiers = action.keys.slice(0, -1)
       for (let i = 0; i < action.repeat; i++)
         if (modifiers.length) await call('hotkey', { ...at, keys: [...action.keys] })
@@ -632,9 +664,17 @@ async function openApp(
     throw new Error(t.noRaise(app.name))
   const approved = host.state().computerApps?.find((a) => a.bundleId === app.bundleId)
   const want: AppTier = fullControl && canRaise(app.bundleId) ? 'full' : appTier(app.bundleId)
-  if (!approved || (want === 'full' && approved.tier !== 'full'))
-    await approveApp(host, agent, app, want, !!approved)
-  await hub.take({ name: app.name, bundleId: app.bundleId }, { colonyId: host.id, agent })
+  // On the card and while another agent has the app, the round is about to drive the desktop: Stop reaches it.
+  try {
+    await hub.beforeControl(host.id, async (wait) => {
+      if (!approved || (want === 'full' && approved.tier !== 'full'))
+        await approveApp(host, agent, app, want, !!approved, wait)
+      await hub.take({ name: app.name, bundleId: app.bundleId }, { colonyId: host.id, agent })
+    })
+  } catch (err) {
+    if (err instanceof ComputerStopped) throw new Error(t.stopped)
+    throw err
+  }
   const launched = await call('launch_app', { bundle_id: app.bundleId })
   const pid = Number((launched.structured as { pid?: unknown } | undefined)?.pid ?? app.pid)
   const windows = windowsOf(launched)
@@ -666,6 +706,7 @@ async function approveApp(
   app: { name: string; bundleId: string },
   tier: AppTier,
   raising: boolean,
+  wait: Wait,
 ) {
   const warning = appWarning(app.bundleId)
   const r = t.review
@@ -708,6 +749,7 @@ async function approveApp(
     },
   )
   if (!decision.approved) throw new Error(t.denied(app.name, decision.note))
+  if (wait.ended) throw new Error(t.stopped)
   const others = (host.state().computerApps ?? []).filter((a) => a.bundleId !== app.bundleId)
   await host.append({
     type: 'computer/apps',

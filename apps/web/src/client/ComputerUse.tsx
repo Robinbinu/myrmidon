@@ -27,17 +27,20 @@ const t = copy.computerUse
 /** Opens Settings at a section (its id as the event's detail) from anywhere in the page, e.g. a chat's step. */
 export const OPEN_SETTINGS_EVENT = 'myr:open-settings'
 
-/** What the server says about computer use (GET /api/computer). */
+/**
+ * What the server says about computer use (GET /api/computer). A chats-only device hears only whether it is on and
+ * who controls the Mac; the rest is for Settings, with full access.
+ */
 export interface ComputerStatus {
   supported: boolean
   enabled: boolean
-  engine: 'cua' | 'omp'
-  state: { state: string; received?: number; total?: number; error?: string }
-  driver?: { path: string; version?: string; own: boolean }
-  version: string
-  downloadBytes: number
-  grants: { accessibility: boolean; screenRecording: boolean } | null
   controls: { colonyId: string; agent: string; app: string; since: number }[]
+  engine?: 'cua' | 'omp'
+  state?: { state: string; received?: number; total?: number; error?: string }
+  driver?: { path: string; version?: string; own: boolean }
+  version?: string
+  downloadBytes?: number
+  grants?: { accessibility: boolean; screenRecording: boolean } | null
 }
 
 /** GET /api/computer, again every `everyMs` (every `idleMs` while computer use is off). */
@@ -110,7 +113,7 @@ export function ComputerSection(props: {
         <p className="text-body text-muted">{t.unsupported}</p>
       </>
     )
-  const state = status?.state.state ?? 'missing'
+  const state = status?.state?.state ?? 'missing'
   const size = formatSize(status?.downloadBytes ?? 0)
   const cua = props.engine === 'cua'
   return (
@@ -164,7 +167,7 @@ export function ComputerSection(props: {
               <div className="min-w-0 flex-1 text-body">
                 <div className="font-medium">
                   {t.driverStates[state] ?? state}
-                  {state === 'installing' && status?.state.received !== undefined && (
+                  {state === 'installing' && status?.state?.received !== undefined && (
                     <span className="text-muted">
                       {' '}
                       · {t.progress(formatSize(status.state.received), formatSize(status.state.total ?? 0))}
@@ -176,7 +179,7 @@ export function ComputerSection(props: {
                     ? t.installedAt(status.driver.version, status.driver.own)
                     : t.installHint(status?.version ?? '', size)}
                 </div>
-                {state === 'error' && status?.state.error && (
+                {state === 'error' && status?.state?.error && (
                   <div className="mt-1 text-callout text-bad-ink">{status.state.error}</div>
                 )}
               </div>

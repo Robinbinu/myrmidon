@@ -112,9 +112,10 @@ export interface StageLayout {
 }
 
 /**
- * Lays the stage out so the content and the mascot are centred together, across and down. On Welcome and Ready the
- * mascot sits above the content and the two are centred as one stack; elsewhere it sits beside the content, level
- * with its top, and the pair is centred. Content taller than the stage starts at the top and scrolls.
+ * Lays the stage out. On Welcome and Ready the mascot sits above the content and the two are centred as one stack,
+ * across and down. Elsewhere it sits beside the content, level with its top, and the pair is centred across but starts
+ * at the same height (`sideTop`) on every step, so stepping through them does not move the heading and buttons up and
+ * down; longer content scrolls. On a stage too narrow for the pair, it sits small above the content instead.
  */
 export function stageLayout(input: {
   place: Place
@@ -144,12 +145,30 @@ export function stageLayout(input: {
       },
     }
   }
+  if (input.width < SETUP_MASCOT.stackBelow) {
+    // Too narrow to sit beside the content: smaller, above it, with the content as wide as the stage allows.
+    const scale = sizes.stacked / sizes.center
+    const side = SETUP_MASCOT.stackEdge
+    const width = Math.min(contentMax, Math.max(0, input.width - side * 2))
+    const top = side
+    return {
+      scale,
+      x: 0,
+      top,
+      content: {
+        width,
+        left: (input.width - width) / 2,
+        paddingTop: top + input.frameHeight * scale + side,
+        paddingRight: 0,
+      },
+    }
+  }
   const mascot = input.width < narrowBelow ? sizes.narrowSide : sizes.side
   const scale = mascot / sizes.center
   const column = Math.max(0, Math.min(contentMax, room - gap - mascot))
   const pair = column + gap + mascot
   const left = Math.max(edge, (input.width - pair) / 2)
-  const top = Math.max(edge, (input.height - input.contentHeight) / 2)
+  const top = SETUP_MASCOT.sideTop
   return {
     scale,
     x: left + column + gap + mascot / 2 - input.width / 2,

@@ -372,6 +372,9 @@ test('a round after the person changed access opens by saying so; a round after 
     'Since your last answer the person changed what you may do: full access is now on (no sandbox; your commands run as the person',
   )
   expect(opening).toContain('may work now: try it.')
+  // What the person declined is theirs to change: the notice never invites a retry of it.
+  expect(opening).toContain('Do not retry a step the person declined')
+  expect(opening).not.toContain('Anything you declined')
   // The round logs what its agents were told, so the next change is told as a change.
   const started = (await events(two.colonyId)).filter((e) => e.type === 'round/started').at(-1)
   expect((started?.payload as EventPayloads['round/started'] | undefined)?.access).toMatchObject({

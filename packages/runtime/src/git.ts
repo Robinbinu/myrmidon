@@ -138,8 +138,11 @@ export async function gitStatus(path: string, limit = 50): Promise<GitStatus | {
   }
 }
 
-/** Uncommitted changes (staged and unstaged) against HEAD, with untracked files listed. */
-export async function gitWorkingChanges(path: string): Promise<Changes> {
+/**
+ * Uncommitted changes (staged and unstaged) against HEAD, with untracked files listed. `hidden` leaves out new files
+ * that must not be shown (their whole content would be), such as the person's keys in a folder around their home.
+ */
+export async function gitWorkingChanges(path: string, hidden?: (file: string) => boolean): Promise<Changes> {
   const base = (await git(path, ['rev-parse', '--verify', '-q', 'HEAD']).catch(() => '')).trim()
   // Before the first commit, compare against git's empty tree.
   const against = base || (await git(path, ['hash-object', '-t', 'tree', '/dev/null'])).trim()
@@ -149,7 +152,7 @@ export async function gitWorkingChanges(path: string): Promise<Changes> {
   )
   const untracked = (await git(path, ['ls-files', '--others', '--exclude-standard']))
     .split('\n')
-    .filter(Boolean)
+    .filter((p) => p && !hidden?.(p))
   // New files are not in `git diff`; show the first few in full, as additions, like an editor's source control.
   let extra = ''
   const fresh: ChangedFile[] = []
@@ -214,6 +217,9 @@ export async function gitFileDiff(
 ): Promise<string> {
   const [p] = checkedPaths([file])
   if (kind === 'untracked') {
+    // `--no-index` reads any file: only one git itself lists as new is shown, never an ignored one (a .env, say).
+    const listed = await git(path, ['ls-files', '--others', '--exclude-standard', '--', `:(literal)${p}`])
+    if (!listed.split('\n').includes(p as string)) throw new Error(`${p} is not a new file in this project`)
     // `--no-index` exits 1 when the files differ, which they always do against /dev/null.
     const proc = Bun.spawn(['git', 'diff', '--no-index', '--', '/dev/null', p as string], {
       cwd: path,

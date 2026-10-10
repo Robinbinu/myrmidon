@@ -31,6 +31,8 @@ export function MascotScreen(props: {
   tweak?: EyeTweak
   clip?: Clip
   playId?: string | number
+  /** Holds the screen still (its blinks, glances and clips wait) while nobody can see it. */
+  paused?: boolean
   onClipEnd(): void
   /** Clicked with the pointer, on this cell of the screen. */
   onTap(cell: Look): void
@@ -61,8 +63,12 @@ export function MascotScreen(props: {
   }
 
   const onPointerDown = (e: PointerEvent<HTMLButtonElement>) => {
+    // Only the main button clicks: a right-click opens a menu, and must not make the next key press look like a tap.
+    if (e.button !== 0) return
     pointed.current = true
-    if (e.button !== 0 || reduce) return
+    // A new press starts clean, whatever the last one left.
+    swallowClick.current = false
+    if (reduce) return
     press.current = { x: e.clientX, y: e.clientY, t: e.timeStamp, held: false, dragged: false }
     e.currentTarget.setPointerCapture?.(e.pointerId)
     clearTimeout(holdTimer.current)
@@ -93,12 +99,14 @@ export function MascotScreen(props: {
       d && d.look[0] === look[0] && d.look[1] === look[1] && d.stretch === stretch ? d : { look, stretch },
     )
   }
-  const onPointerUp = () => {
+  /** The press is over: let go (`up`), or taken away by the browser (no click follows, so none is swallowed). */
+  const endPress = (up: boolean) => {
     const p = press.current
     press.current = undefined
     clearTimeout(holdTimer.current)
     if (!p) return
-    if (p.dragged || p.held) swallowClick.current = true
+    if (up && (p.dragged || p.held)) swallowClick.current = true
+    if (!up) pointed.current = false
     if (p.dragged) setDrag(undefined)
     if (p.held) props.onRelease()
   }
@@ -121,8 +129,8 @@ export function MascotScreen(props: {
       onDoubleClick={() => props.onDoubleTap()}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      onPointerCancel={onPointerUp}
+      onPointerUp={() => endPress(true)}
+      onPointerCancel={() => endPress(false)}
       aria-label={props.label}
       className="block touch-none select-none rounded-xl outline-offset-4"
     >
@@ -144,6 +152,7 @@ export function MascotScreen(props: {
           {...(tweak ? { tweak } : {})}
           {...(props.clip ? { clip: props.clip } : {})}
           {...(props.playId !== undefined ? { playId: props.playId } : {})}
+          {...(props.paused ? { paused: true } : {})}
           onClipEnd={props.onClipEnd}
           className="h-auto"
           style={{ width: `min(${MASCOT_DISPLAY.widthPx[props.display.size]}px, calc(100vw - 96px))` }}

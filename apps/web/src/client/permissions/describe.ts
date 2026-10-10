@@ -79,10 +79,23 @@ export function sourceText(source: PermissionSource, decision: RuleDecision): st
     case 'read-only':
       return w.readOnly(w.where[source.scope])
     case 'preset':
-      return w.preset(presetLabel(source.preset), w.where[source.scope], w.presetWhat[decision])
+      return w.preset(presetLabel(source.preset), w.setOn[source.scope], w.presetWhat[decision])
     case 'rule':
       return w.rule(w.where[source.scope], w.ruleDecision[source.rule.decision], targetText(source.rule))
   }
+}
+
+/**
+ * The prefix of an MCP server's tool names, `mcp__<server>_`, with the server's name folded as omp folds it. Mirrors
+ * `toolPrefix` in packages/runtime/src/mcp.ts (the runtime's copy, which follows omp's): change both together.
+ */
+export function mcpToolPrefix(server: string): string {
+  const part = server
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '')
+  return `mcp__${part || 'server'}_`
 }
 
 /** A tool as the server lists it for rules and the explainer. */

@@ -455,10 +455,13 @@ export function Sidebar(props: {
             )}
           </button>
         )}
+        {/* The listbox may own only its options, so these pointer shortcuts stay out of the accessibility tree: F2,
+            Delete and the context menu (named in the row's aria-keyshortcuts) do the same from the keyboard. */}
         {editing !== c.chatId && (
           <button
             type="button"
             tabIndex={-1}
+            aria-hidden="true"
             onClick={() => startRename(c)}
             aria-label={copy.sidebar.chat.renameLabel(c.title)}
             title={copy.sidebar.chat.rename}
@@ -471,6 +474,7 @@ export function Sidebar(props: {
           type="button"
           hidden={editing === c.chatId}
           tabIndex={-1}
+          aria-hidden="true"
           onClick={() => requestDelete(c)}
           aria-label={copy.sidebar.chat.deleteLabel(c.title)}
           title={copy.sidebar.chat.delete}

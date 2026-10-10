@@ -2,6 +2,7 @@ import { afterEach, expect, test } from 'bun:test'
 import { MotionConfig } from 'motion/react'
 import { act } from 'react'
 import { copy } from '../src/client/copy.ts'
+import { DEFAULT_MASCOT } from '../src/client/mascot.ts'
 import { MASCOT_CREW, MASCOT_TOUCH } from '../src/client/ui-config.ts'
 import { mount, withDom } from './dom.ts'
 
@@ -159,5 +160,179 @@ test('with reduced motion the mascot plays nothing and its crew stands still, ev
     expect(states(view.host).every((s) => s === 'roam')).toBe(true)
   } finally {
     await view.unmount()
+  }
+})
+
+test('scattering never carries a cursor out of its bounds', async () => {
+  const { makeMember, pickCrew, stepCrew } = await import('../src/client/chat/hero-crew.ts')
+  const random = seeded(5)
+  // Starting close to every edge, so fleeing the mascot pushes each hard against one.
+  const starts = [
+    { x: -560, y: -280 },
+    { x: 560, y: 380 },
+    { x: 0, y: 400 },
+  ]
+  const crew = pickCrew(3, random).map((c, i) => makeMember(c, starts[i] ?? { x: 0, y: 0 }, random))
+  const { bounds } = world(0)
+  for (let i = 0; i < 60 * 3; i++) {
+    stepCrew(crew, world(i * 16, { signal: 'scatter' }), 1 / 60, random)
+    for (const m of crew) {
+      expect(m.body.x).toBeGreaterThanOrEqual(bounds.left)
+      expect(m.body.x).toBeLessThanOrEqual(bounds.right)
+      expect(m.body.y).toBeGreaterThanOrEqual(bounds.top)
+      expect(m.body.y).toBeLessThanOrEqual(bounds.bottom)
+    }
+  }
+})
+
+test('left alone, the crew finishes what it is doing and stands still', async () => {
+  const { knockDown, makeMember, pickCrew, settled, stepCrew } = await import(
+    '../src/client/chat/hero-crew.ts'
+  )
+  const random = seeded(9)
+  const crew = pickCrew(3, random).map((c, i) => makeMember(c, { x: i % 2 ? 400 : -400, y: i * 60 }, random))
+  // Busy: roaming about, and one knocked down mid-way.
+  let t = 0
+  for (let i = 0; i < 120; i++) {
+    t += 16
+    stepCrew(crew, world(t), 1 / 60, random)
+  }
+  knockDown(crew[0] as (typeof crew)[number], t, random)
+  expect(settled(crew)).toBe(false)
+  // While someone is about, it never settles; quiet, it does within a few seconds, and makes no more pokes.
+  let still = -1
+  for (let i = 0; i < 60 * 10 && still < 0; i++) {
+    t += 16
+    const events = stepCrew(crew, world(t, { quiet: true }), 1 / 60, random)
+    expect(events.some((e) => e.type === 'poke')).toBe(false)
+    if (settled(crew)) still = i
+  }
+  expect(still).toBeGreaterThan(0)
+  expect(crew.every((m) => m.state === 'roam')).toBe(true)
+})
+
+test('the crew holds still while the window is in the background, and moves again once it is back', async () => {
+  const view = await hero('never')
+  const spots = () =>
+    [...view.host.querySelectorAll('[data-crew] > div')].map((n) => (n as HTMLElement).style.transform)
+  try {
+    await act(async () => Bun.sleep(300))
+    await act(async () => {
+      window.dispatchEvent(new Event('blur'))
+    })
+    // Springs settle on where the physics left them, then nothing moves.
+    await act(async () => Bun.sleep(1200))
+    const held = spots()
+    await act(async () => Bun.sleep(400))
+    expect(spots()).toEqual(held)
+    await act(async () => {
+      window.dispatchEvent(new Event('focus'))
+    })
+    const end = Date.now() + 2000
+    while (JSON.stringify(spots()) === JSON.stringify(held) && Date.now() < end)
+      await act(async () => Bun.sleep(20))
+    expect(spots()).not.toEqual(held)
+  } finally {
+    await view.unmount()
+  }
+})
+
+test('a right-click does not make the next key press a tap, and a cancelled drag does not eat the next click', async () => {
+  const { MascotScreen } = await import('../src/client/chat/MascotScreen.tsx')
+  const taps: string[] = []
+  const view = await mount(
+    <MotionConfig reducedMotion="never" skipAnimations>
+      <MascotScreen
+        label="mascot"
+        mood="idle"
+        color="#ffffff"
+        eyes="round"
+        display={DEFAULT_MASCOT.display}
+        onClipEnd={() => {}}
+        onTap={() => taps.push('tap')}
+        onPress={() => taps.push('press')}
+        onDoubleTap={() => {}}
+        onHold={() => {}}
+        onRelease={() => {}}
+      />
+    </MotionConfig>,
+  )
+  try {
+    const button = view.host.querySelector('button') as HTMLButtonElement
+    // A right-click, then Enter: the keyboard's click.
+    await act(async () => {
+      button.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 2, pointerId: 1 }))
+      button.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, button: 2, pointerId: 1 }))
+      button.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 0 }))
+    })
+    expect(taps).toEqual(['press'])
+    // A drag the browser takes over (pointercancel): no click follows it, and the next real one still counts.
+    await act(async () => {
+      button.dispatchEvent(
+        new PointerEvent('pointerdown', { bubbles: true, button: 0, pointerId: 2, clientX: 10, clientY: 10 }),
+      )
+      button.dispatchEvent(
+        new PointerEvent('pointermove', { bubbles: true, button: 0, pointerId: 2, clientX: 80, clientY: 10 }),
+      )
+      button.dispatchEvent(new PointerEvent('pointercancel', { bubbles: true, pointerId: 2 }))
+    })
+    await act(async () => tap(button))
+    expect(taps).toEqual(['press', 'tap'])
+  } finally {
+    await view.unmount()
+  }
+})
+
+test('the mascot is on stage only while it can be seen: no sheet over it, its window in front', async () => {
+  const { useOnStage } = await import('../src/client/chat/Hero.tsx')
+  const { Sheet } = await import('../src/client/ui/Sheet.tsx')
+  const { usePopover } = await import('../src/client/ui/Popover.tsx')
+  const { useRef } = await import('react')
+  const seen: boolean[] = []
+  function Menu() {
+    const box = useRef<HTMLDivElement>(null)
+    usePopover(box, () => {})
+    return <div ref={box} tabIndex={-1} />
+  }
+  function Probe(props: { sheet?: boolean; menu?: boolean }) {
+    const el = useRef<HTMLDivElement>(null)
+    seen.push(useOnStage(el))
+    return (
+      <div ref={el}>
+        {props.menu && <Menu />}
+        {props.sheet && (
+          <Sheet title="Over it" onClose={() => {}}>
+            <p>…</p>
+          </Sheet>
+        )}
+      </div>
+    )
+  }
+  const { createRoot } = await import('react-dom/client')
+  const host = document.body.appendChild(document.createElement('div'))
+  const root = createRoot(host)
+  const show = (sheet: boolean, menu = false) =>
+    act(async () => root.render(<Probe sheet={sheet} menu={menu} />))
+  try {
+    await show(false)
+    expect(seen.at(-1)).toBe(true)
+    // A menu beside it leaves it in view; a sheet over the page does not.
+    await show(false, true)
+    expect(seen.at(-1)).toBe(true)
+    await show(true)
+    expect(seen.at(-1)).toBe(false)
+    await show(false)
+    expect(seen.at(-1)).toBe(true)
+    await act(async () => {
+      window.dispatchEvent(new Event('blur'))
+    })
+    expect(seen.at(-1)).toBe(false)
+    await act(async () => {
+      window.dispatchEvent(new Event('focus'))
+    })
+    expect(seen.at(-1)).toBe(true)
+  } finally {
+    await act(async () => root.unmount())
+    host.remove()
   }
 })

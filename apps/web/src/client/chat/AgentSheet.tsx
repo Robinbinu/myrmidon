@@ -40,7 +40,7 @@ export function AgentSheet(props: {
   const [keeping, setKeeping] = useState(false)
   const kept = useSpecialists().find((s) => s.name === props.name)
   const sheet = useRef<HTMLElement>(null)
-  useDialog(sheet, props.onClose)
+  useDialog(sheet, props.onClose, { covers: true })
 
   const { focus, thought, steps } = useMemo(() => {
     let focus: string | undefined

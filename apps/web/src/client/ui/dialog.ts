@@ -5,6 +5,8 @@ import { matchCombo } from './shortcuts.ts'
 interface OpenDialog {
   readonly box: RefObject<HTMLElement | null>
   readonly close: RefObject<() => void>
+  /** It lies over the whole page (a sheet, the command palette), not beside a control as a menu does. */
+  readonly covers: boolean
 }
 
 /** Dialogs on screen, newest last. Only the newest answers Escape and holds Tab, so one Escape closes one dialog. */
@@ -12,6 +14,18 @@ const openDialogs: OpenDialog[] = []
 
 /** Whether a sheet, popover or menu is open, so window-wide keys (⌘. stopping a round) leave it the key. */
 export const anyDialogOpen = () => openDialogs.length > 0
+
+/** Whether a dialog lies over the whole page, hiding what is under it; a menu or popover does not. */
+export const pageCovered = () => openDialogs.some((d) => d.covers)
+
+/** Told whenever a dialog opens or closes. */
+const watchers = new Set<() => void>()
+
+/** Calls `onChange` whenever a dialog opens or closes (ask `anyDialogOpen` or `pageCovered`); returns how to stop. */
+export function watchDialogs(onChange: () => void): () => void {
+  watchers.add(onChange)
+  return () => watchers.delete(onChange)
+}
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), iframe, [contenteditable="true"], [tabindex]:not([tabindex="-1"])'
@@ -49,9 +63,13 @@ function onDialogKey(e: KeyboardEvent) {
 
 /**
  * What every dialog does: moves focus into `box`, keeps Tab inside it, closes on Escape (or ⌘.) when it is the
- * topmost dialog, and gives focus back to where it was once it closes.
+ * topmost dialog, and gives focus back to where it was once it closes. `covers` says it lies over the whole page.
  */
-export function useDialog(box: RefObject<HTMLElement | null>, onClose: () => void) {
+export function useDialog(
+  box: RefObject<HTMLElement | null>,
+  onClose: () => void,
+  { covers = false }: { covers?: boolean } = {},
+) {
   // Callers pass inline handlers; keep the latest in a ref so the dialog registers once per opening.
   const close = useRef(onClose)
   close.current = onClose
@@ -60,16 +78,18 @@ export function useDialog(box: RefObject<HTMLElement | null>, onClose: () => voi
   useEffect(() => {
     if (!present) return
     const previous = document.activeElement as HTMLElement | null
-    const entry: OpenDialog = { box, close }
+    const entry: OpenDialog = { box, close, covers }
     // Effects run child first, so a dialog that contains one already registered goes below it, not on top.
     const inside = openDialogs.findIndex((d) => !!d.box.current && !!box.current?.contains(d.box.current))
     openDialogs.splice(inside === -1 ? openDialogs.length : inside, 0, entry)
     if (openDialogs.length === 1) window.addEventListener('keydown', onDialogKey)
     if (!box.current?.contains(document.activeElement)) box.current?.focus()
+    for (const w of watchers) w()
     return () => {
       openDialogs.splice(openDialogs.indexOf(entry), 1)
       if (openDialogs.length === 0) window.removeEventListener('keydown', onDialogKey)
       previous?.focus()
+      for (const w of watchers) w()
     }
-  }, [box, present])
+  }, [box, present, covers])
 }

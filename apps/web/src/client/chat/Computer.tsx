@@ -40,7 +40,7 @@ interface Box {
 }
 
 /** Keys sent as key presses; anything else that is one character is typed as text. */
-const KEYS = new Set([
+export const KEYS = new Set([
   'Enter',
   'Backspace',
   'Delete',
@@ -57,7 +57,7 @@ const KEYS = new Set([
 ])
 
 /** While the person drives the page every other key goes to it, so this one leaves it (Apple's "cancel" chord). */
-const LEAVE_PAGE = 'mod+.'
+export const LEAVE_PAGE = 'mod+.'
 
 /**
  * The agents' computers, like Manus: pick an agent with a browser open and watch its tab live, with its cursor

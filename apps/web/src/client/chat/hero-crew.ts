@@ -2,23 +2,23 @@ import { copy } from '../copy.ts'
 import { TIP_HEADING, turn } from '../ui/cursor.tsx'
 import { agentColor } from '../ui/pixel.tsx'
 import {
-  add,
   arrive,
   avoidBox,
   type Body,
   type Bounds,
+  type Box,
   contain,
   fall,
   flee,
   integrate,
-  scale,
+  keepInside,
   separation,
   speedOf,
   type Vec,
   type WanderState,
   wander,
 } from '../ui/steering.ts'
-import { CREW_BOLDNESS, CURSOR, MASCOT_CREW as K } from '../ui-config.ts'
+import { CREW_BOLDNESS, CURSOR, MASCOT_CREW as K, MASCOT_GAZE_PX } from '../ui-config.ts'
 
 /**
  * The crew cursors around the new-chat mascot, each steering itself (ui/steering.ts). Each picks a state the way
@@ -85,8 +85,10 @@ export interface World {
   bounds: Bounds
   signal: CrewSignal
   /** Where the mascot's eyes look, in cells (as `gaze` gives them). */
-  look?: readonly [number, number]
+  look?: readonly [number, number] | undefined
   typing: boolean
+  /** Nobody about for a while: no new spots and no pokes, so the crew finishes what it is at and stands still. */
+  quiet?: boolean
 }
 
 export type CrewEvent = { type: 'poke'; name: string } | { type: 'watch'; x: number; y: number }
@@ -95,8 +97,10 @@ type Random = () => number
 type Range = readonly [number, number]
 const between = ([lo, hi]: Range, r: number) => lo + (hi - lo) * r
 const ORIGIN: Vec = { x: 0, y: 0 }
+/** How much longer than usual a timid member runs off or lies dazed. */
+const timid = (nerve: number) => K.timid[0] - nerve * K.timid[1]
 
-/** `count` names from the list for this visit, each with a colour no other has while the list allows. */
+/** `count` names from the list, each with a colour no other has while the list allows. */
 export function pickCrew(
   count: number,
   random: Random = Math.random,
@@ -166,13 +170,14 @@ export function makeMember(
   }
 }
 
+/** Member `i` of `n`'s row down the screen's side, in px from its centre. */
+const rowOf = (i: number, n: number, face: World['face']) =>
+  (n > 1 ? i / (n - 1) - 0.5 : 0) * face.hh * K.rowSpread
+
 /** Where member `i` of `n` starts: either side of the screen, staggered top to bottom. */
 export function startSpot(i: number, n: number, face: World['face'], random: Random = Math.random): Vec {
   const side = i % 2 === 0 ? -1 : 1
-  return {
-    x: side * (face.hw + 90 + random() * 100),
-    y: -face.hh * 0.5 + (i / Math.max(1, n - 1)) * face.hh * 1.2,
-  }
+  return { x: side * (face.hw + between(K.startOut, random())), y: rowOf(i, n, face) }
 }
 
 /** Knocked off its feet: a hop up and sideways, tumbling, then it falls. */
@@ -190,9 +195,8 @@ export function knockDown(m: Member, now: number, random: Random = Math.random):
 /** Whether the mascot's eyes point at it: within a cone that narrows with its nerve. */
 export function lookedAt(m: Member, look: World['look']): boolean {
   if (!look || (look[0] === 0 && look[1] === 0)) return false
-  // A look of one cell is about this many px of the pointer away, as `gaze` measures it.
-  const gx = look[0] * 110
-  const gy = look[1] * 90
+  const gx = look[0] * MASCOT_GAZE_PX.x
+  const gy = look[1] * MASCOT_GAZE_PX.y
   const d = Math.hypot(m.body.x, m.body.y)
   if (d < 1) return false
   const cos = (gx * m.body.x + gy * m.body.y) / (Math.hypot(gx, gy) * d)
@@ -209,10 +213,10 @@ function roamSpot(m: Member, crew: readonly Member[], w: World, random: Random):
   const others = crew.filter((o) => o !== m).map((o) => o.target)
   let best = m.target
   let bestGap = -1
-  for (let k = 0; k < 6; k++) {
+  for (let k = 0; k < K.roamTries; k++) {
     const side = random() < 0.5 ? -1 : 1
     const c = clampTo(
-      { x: side * (w.face.hw + 50 + random() * 170), y: -w.face.hh * 0.9 + random() * w.face.hh * 1.6 },
+      { x: side * (w.face.hw + between(K.roamOut, random())), y: w.face.hh * between(K.roamRise, random()) },
       w.bounds,
       K.edge,
     )
@@ -231,8 +235,7 @@ function roamSpot(m: Member, crew: readonly Member[], w: World, random: Random):
  */
 function edgeSpot(i: number, n: number, w: World, gap: number): Vec {
   const left = i % 2 === 0
-  const row = n > 1 ? i / (n - 1) - 0.5 : 0
-  return { x: left ? -(w.face.hw + gap + K.tagRoom) : w.face.hw + gap, y: row * w.face.hh * 1.2 }
+  return { x: left ? -(w.face.hw + gap + K.tagRoom) : w.face.hw + gap, y: rowOf(i, n, w.face) }
 }
 
 function enter(m: Member, state: CrewState, i: number, crew: readonly Member[], w: World, random: Random) {
@@ -243,10 +246,45 @@ function enter(m: Member, state: CrewState, i: number, crew: readonly Member[], 
   if (state === 'roam') {
     m.target = roamSpot(m, crew, w, random)
     m.until = w.now + between(K.roamMs, random())
-  } else if (state === 'scatter') m.until = w.now + K.scatterMs * (1.4 - m.traits.nerve * 0.8)
-  else if (state === 'gather') m.target = edgeSpot(i, crew.length, w, 44)
-  else if (state === 'sneak') m.target = edgeSpot(i, crew.length, w, 8)
+  } else if (state === 'scatter') m.until = w.now + K.scatterMs * timid(m.traits.nerve)
+  else if (state === 'gather') m.target = edgeSpot(i, crew.length, w, K.gatherGap)
+  else if (state === 'sneak') m.target = edgeSpot(i, crew.length, w, K.sneakGap)
 }
+
+/** The states a member can stand still in, nothing else due to happen until the mascot or the person does something. */
+const STILL: ReadonlySet<CrewState> = new Set(['roam', 'gather', 'sneak', 'frozen'])
+
+/** Whether, in a quiet world, every member has finished what it was at and stands still: its physics can stop. */
+export function settled(crew: readonly Member[]): boolean {
+  return crew.every((m) => STILL.has(m.state) && speedOf(m.body) < K.settledSpeed)
+}
+
+// One frame's steering, kept between frames so a step allocates nothing: the bodies to keep apart from, the screen
+// to keep clear of, each behaviour's force (`part`) and their weighted sum (`force`).
+const bodies: Body[] = []
+const faceBox: Box = { x: 0, y: 0, hw: 0, hh: 0 }
+const wanderOpts: { distance: number; radius: number; jitter: number } = { ...K.wander }
+const limits = { maxSpeed: 0, maxForce: 0 }
+const fallOpts = {
+  gravity: K.gravity,
+  bounds: K.fallback.bounds as Bounds,
+  restitution: K.restitution,
+  friction: K.friction,
+  restSpeed: K.restSpeed,
+}
+const force: Vec = { x: 0, y: 0 }
+const part: Vec = { x: 0, y: 0 }
+const plus = (v: Vec, k: number) => {
+  force.x += v.x * k
+  force.y += v.y * k
+}
+const apart = (b: Body, k = 1) =>
+  plus(separation(b, bodies, K.separationRadius, part), K.weights.separation * k)
+const clear = (b: Body) => plus(avoidBox(b, faceBox, K.faceMargin, K.lookahead, part), K.weights.avoid)
+const inside = (b: Body, bounds: Bounds) => plus(contain(b, bounds, K.edge, part), K.weights.contain)
+const toward = (m: Member, speed: number, slow: number) =>
+  plus(arrive(m.body, m.target, speed, slow, K.gain, part), 1)
+const poking = (m: Member) => m.state === 'poke'
 
 /**
  * Moves the crew on by `dt` seconds: each member hears the signal, freezes if looked at, picks its next spot or poke,
@@ -254,8 +292,13 @@ function enter(m: Member, state: CrewState, i: number, crew: readonly Member[], 
  */
 export function stepCrew(crew: Member[], w: World, dt: number, random: Random = Math.random): CrewEvent[] {
   const events: CrewEvent[] = []
-  const faceBox = { x: 0, y: 0, hw: w.face.hw, hh: w.face.hh }
-  for (const [i, m] of crew.entries()) {
+  bodies.length = 0
+  for (const m of crew) bodies.push(m.body)
+  faceBox.hw = w.face.hw
+  faceBox.hh = w.face.hh
+  fallOpts.bounds = w.bounds
+  for (let i = 0; i < crew.length; i++) {
+    const m = crew[i] as Member
     const t = m.traits
     const b = m.body
     const down = m.state === 'falling' || m.state === 'dazed' || m.state === 'rising'
@@ -271,45 +314,49 @@ export function stepCrew(crew: Member[], w: World, dt: number, random: Random = 
       } else if (!seen && m.state === 'frozen') m.state = m.resume
     }
 
-    const others = crew.filter((o) => o !== m).map((o) => o.body)
-    const apart = () => scale(separation(b, others, K.separationRadius), K.weights.separation)
-    const clear = () => scale(avoidBox(b, faceBox, K.faceMargin, K.lookahead), K.weights.avoid)
-    const inside = () => scale(contain(b, w.bounds, K.edge), K.weights.contain)
-    const meander = () =>
-      scale(
-        wander(b, m.wander, { ...K.wander, jitter: K.wander.jitter * t.jitter }, dt, random),
-        K.weights.wander,
-      )
     let speed = t.maxSpeed
-    let force: Vec = { x: 0, y: 0 }
+    force.x = 0
+    force.y = 0
 
     switch (m.state) {
       case 'roam': {
-        if (Math.hypot(m.target.x - b.x, m.target.y - b.y) < 24 && w.now > m.until) {
+        const there = Math.hypot(m.target.x - b.x, m.target.y - b.y) < K.arrivedPx
+        if (!w.quiet && there && w.now > m.until) {
           enter(m, 'roam', i, crew, w, random)
-          if (random() < 0.5) events.push({ type: 'watch', x: m.target.x, y: m.target.y })
+          if (random() < K.watchChance) events.push({ type: 'watch', x: m.target.x, y: m.target.y })
         }
-        const someonePoking = crew.some((o) => o.state === 'poke')
         if (
+          !w.quiet &&
           !w.typing &&
           w.signal === 'roam' &&
-          !someonePoking &&
+          !crew.some(poking) &&
           random() < K.pokePerSecond * t.curiosity * dt
         ) {
           m.state = 'poke'
           m.poke = 'fly'
           m.target = {
-            x: (random() * 2 - 1) * w.face.hw * 0.55,
-            y: (random() * 2 - 1) * w.face.hh * 0.45,
+            x: (random() * 2 - 1) * w.face.hw * K.pokeReach[0],
+            y: (random() * 2 - 1) * w.face.hh * K.pokeReach[1],
           }
           events.push({ type: 'watch', x: m.target.x, y: m.target.y })
         }
-        force = add(arrive(b, m.target, speed, K.slowRadius, K.gain), meander(), apart(), clear(), inside())
+        toward(m, speed, K.slowRadius)
+        // Left alone it stops meandering, so it comes to rest on its spot.
+        if (!w.quiet) {
+          wanderOpts.jitter = K.wander.jitter * t.jitter
+          plus(wander(b, m.wander, wanderOpts, dt, random, part), K.weights.wander)
+        }
+        apart(b)
+        clear(b)
+        inside(b, w.bounds)
         break
       }
       case 'poke': {
-        force = add(arrive(b, m.target, speed, K.slowRadius * 0.6, K.gain), scale(apart(), 0.3), inside())
-        if (m.poke === 'fly' && Math.hypot(m.target.x - b.x, m.target.y - b.y) < 4 && speedOf(b) < 40) {
+        toward(m, speed, K.slowRadius * 0.6)
+        apart(b, 0.3)
+        inside(b, w.bounds)
+        const there = Math.hypot(m.target.x - b.x, m.target.y - b.y) < K.pokeArrivedPx
+        if (m.poke === 'fly' && there && speedOf(b) < K.pokeLandSpeed) {
           m.poke = 'click'
           m.clicking = true
           m.until = w.now + K.clickMs
@@ -323,40 +370,39 @@ export function stepCrew(crew: Member[], w: World, dt: number, random: Random = 
       }
       case 'scatter':
         speed = t.maxSpeed * K.scatterBoost
-        force = add(flee(b, ORIGIN, speed, K.gain), apart(), inside())
+        plus(flee(b, ORIGIN, speed, K.gain, part), 1)
+        apart(b)
+        inside(b, w.bounds)
         if (w.now > m.until) enter(m, 'roam', i, crew, w, random)
         break
       case 'gather':
         speed = t.maxSpeed * K.gatherSpeed
-        force = add(arrive(b, m.target, speed, K.slowRadius, K.gain), apart(), clear(), inside())
+        toward(m, speed, K.slowRadius)
+        apart(b)
+        clear(b)
+        inside(b, w.bounds)
         break
       case 'sneak':
         // Creeping right up to the screen's edge, so no keeping clear of it.
         speed = t.maxSpeed * K.sneakSpeed
-        force = add(arrive(b, m.target, speed, K.slowRadius * 0.5, K.gain), apart(), inside())
+        toward(m, speed, K.slowRadius * 0.5)
+        apart(b)
+        inside(b, w.bounds)
         break
       case 'frozen':
-        force = { x: -b.vx * K.gain * 2, y: -b.vy * K.gain * 2 }
+        force.x = -b.vx * K.gain * 2
+        force.y = -b.vy * K.gain * 2
         break
       case 'falling': {
-        const landed = fall(
-          b,
-          {
-            gravity: K.gravity,
-            bounds: w.bounds,
-            restitution: K.restitution,
-            friction: K.friction,
-            restSpeed: K.restSpeed,
-          },
-          dt,
-        )
+        const landed = fall(b, fallOpts, dt)
+        keepInside(b, w.bounds)
         m.angle += m.spin * dt
         if (landed === 'bounce') m.spin *= 0.5
         else if (landed === 'slide') m.spin *= 0.9
         else if (landed === 'rest') {
           m.state = 'dazed'
           m.since = w.now
-          m.until = w.now + K.dazedMs * (1.4 - t.nerve * 0.8)
+          m.until = w.now + K.dazedMs * timid(t.nerve)
           m.spin = 0
         }
         continue
@@ -374,16 +420,22 @@ export function stepCrew(crew: Member[], w: World, dt: number, random: Random = 
         // Slowly at first, then finding its feet.
         const ramp = Math.min(1, (w.now - m.since) / K.riseMs)
         speed = t.maxSpeed * K.riseSpeed * (0.15 + 0.85 * ramp * ramp)
-        force = add(arrive(b, m.target, speed, K.slowRadius, K.gain), apart(), clear(), inside())
+        toward(m, speed, K.slowRadius)
+        apart(b)
+        clear(b)
+        inside(b, w.bounds)
         m.angle += turn(m.angle, CURSOR.startTilt) * Math.min(1, 2 * dt)
-        if (Math.hypot(m.target.x - b.x, m.target.y - b.y) < 20) {
+        if (Math.hypot(m.target.x - b.x, m.target.y - b.y) < K.risenPx) {
           m.heard = 'roam'
           enter(m, 'roam', i, crew, w, random)
         }
         break
       }
     }
-    integrate(b, force, { maxSpeed: speed, maxForce: t.maxForce }, dt)
+    limits.maxSpeed = speed
+    limits.maxForce = t.maxForce
+    integrate(b, force, limits, dt)
+    keepInside(b, w.bounds)
     // The arrow turns its tip toward where it is going, more the faster it goes; at rest it holds its heading.
     const pointing = (Math.atan2(b.vy, b.vx) * 180) / Math.PI - TIP_HEADING
     const weight = Math.min(1, speedOf(b) / K.fullTurnSpeed)

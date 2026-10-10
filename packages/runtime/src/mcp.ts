@@ -60,8 +60,29 @@ type Manager = {
   disconnectAll(): Promise<void>
 }
 
-/** The prefix omp gives a server's tool names: `mcp__<server>_<tool>`. */
-const toolPrefix = (server: string) => `mcp__${server.toLowerCase().replace(/[^a-z0-9_]/g, '_')}_`
+/**
+ * The prefix omp gives a server's tool names: `mcp__<server>_<tool>`, the name sanitised as omp's
+ * `sanitizeMCPToolNamePart` does (pi-coding-agent src/mcp/tool-bridge.ts; not exported): lowercased, each run of
+ * other characters an underscore, runs of underscores folded into one and trimmed at the ends, `server` if nothing
+ * is left.
+ */
+const toolPrefix = (server: string) => {
+  const part = server
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '')
+  return `mcp__${part || 'server'}_`
+}
+
+/**
+ * Myrmidon's own servers are named `myrmidon-…` (computer use's `myrmidon-computer`), so their tools are
+ * `mcp__myrmidon_…`. Any other server whose name comes out as `myrmidon` or `myrmidon_…` in a tool name would share
+ * that prefix: its tools would be taken for Myrmidon's (hidden from agents and Settings) or stand in for the driver's.
+ */
+const reserved = (server: string) => toolPrefix(server).startsWith(toolPrefix('myrmidon'))
+const reservedError = (server: string) =>
+  `${server} is reserved for Myrmidon's own servers (names starting with "myrmidon-" or "myrmidon_"): rename it`
 
 export class McpHub {
   private readonly _file: string
@@ -161,8 +182,13 @@ export class McpHub {
     const doc = this._read()
     const configs: Record<string, unknown> = {}
     const sources: Record<string, unknown> = {}
+    const refused: string[] = []
     for (const [name, config] of Object.entries(doc.mcpServers ?? {})) {
       if (!this._enabled(doc, name)) continue
+      if (reserved(name)) {
+        refused.push(name)
+        continue
+      }
       configs[name] = this._launchConfig(config)
       sources[name] = { provider: 'myrmidon', providerName: 'Myrmidon', path: this._file, level: 'user' }
     }
@@ -172,6 +198,10 @@ export class McpHub {
     }
     for (const [name, config] of Object.entries(this.plugins())) {
       if (name in configs || config.enabled === false) continue
+      if (reserved(name)) {
+        refused.push(name)
+        continue
+      }
       configs[name] = this._launchConfig(config)
       sources[name] = {
         provider: 'myrmidon',
@@ -184,6 +214,7 @@ export class McpHub {
       await this._manager.disconnectServer(gone)
     this._connected = new Set(Object.keys(configs))
     this._errors.clear()
+    for (const name of refused) this._errors.set(name, reservedError(name))
     if (Object.keys(configs).length > 0) {
       const result = await this._manager.connectServers(configs, sources)
       for (const [name, error] of result.errors) this._errors.set(name, error)
@@ -299,6 +330,7 @@ export class McpHub {
   async add(name: string, config: McpServerConfig): Promise<void> {
     if (!SERVER_NAME.test(name))
       throw new Error('server name must be letters, digits, dot, dash or underscore')
+    if (reserved(name)) throw new Error(reservedError(name))
     const transport = config.type ?? 'stdio'
     if (transport === 'stdio' && !config.command?.trim()) throw new Error('a stdio server needs a command')
     if (transport !== 'stdio' && !/^https?:\/\//.test(config.url ?? ''))
@@ -325,6 +357,7 @@ export class McpHub {
    * a connected server as it is, so it is dropped first.
    */
   async setInternal(name: string, config: McpServerConfig | undefined): Promise<void> {
+    if (!reserved(name)) throw new Error(`Myrmidon's own MCP servers are named myrmidon-…, not ${name}`)
     if (this._internal.has(name)) {
       this._internal.delete(name)
       await this._manager?.disconnectServer(name)

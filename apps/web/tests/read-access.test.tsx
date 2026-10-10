@@ -87,8 +87,13 @@ test('a request to read a folder is allowed once or for the chat; the chat’s f
       buttonIn(doc, copy.approvals.reads.approveAll).click()
       await Bun.sleep(10)
     })
-    // Allowing it for the chat answers the request too: no separate approval is sent.
+    // The request itself is answered first (so a note or edits go with it), then the folder is allowed for the chat.
     expect(sent).toEqual([
+      {
+        url: expect.stringContaining('/api/colonies/colony-1/approvals/approval-1'),
+        method: 'POST',
+        body: { approved: true },
+      },
       {
         url: expect.stringContaining('/api/chats/chat-1/readable'),
         method: 'PUT',
@@ -101,7 +106,7 @@ test('a request to read a folder is allowed once or for the chat; the chat’s f
       ;(remove as HTMLButtonElement).click()
       await Bun.sleep(10)
     })
-    expect(sent[1]).toMatchObject({ method: 'PUT', body: { folder: '/Users/me/notes', allowed: false } })
+    expect(sent[2]).toMatchObject({ method: 'PUT', body: { folder: '/Users/me/notes', allowed: false } })
   } finally {
     await unmount()
   }
@@ -154,6 +159,43 @@ test('a request to read a folder of keys warns, and offers it once or for this c
         body: { approved: true },
       },
     ])
+  } finally {
+    await unmount()
+  }
+})
+
+test('when the read is allowed but the folder cannot be opened for the chat, the person is told just that', async () => {
+  globalThis.fetch = (async (input: RequestInfo | URL) =>
+    String(input).includes('/readable')
+      ? Response.json({ error: 'at most 20 folders in one chat' }, { status: 422 })
+      : Response.json({})) as unknown as typeof fetch
+  const { Approval } = await import('../src/client/chat/ApprovalCards.tsx')
+  const { ToastProvider } = await import('../src/client/ui/Toast.tsx')
+  const { copy } = await import('../src/client/copy.ts')
+  const request = {
+    id: 'approval-2',
+    agent: 'lead',
+    tool: 'request_read',
+    summary: 'read ~/Documents/specs',
+    read: '/Users/me/Documents/specs',
+    time: '',
+  }
+  const { host, unmount } = await mount(
+    <MotionConfig reducedMotion="always">
+      <ToastProvider>
+        <Approval colonyId="colony-1" chatId="chat-1" request={request} />
+      </ToastProvider>
+    </MotionConfig>,
+  )
+  const doc = host.ownerDocument
+  try {
+    await act(async () => {
+      buttonIn(doc, copy.approvals.reads.approveAll).click()
+      await Bun.sleep(10)
+    })
+    expect(doc.body.textContent).toContain(
+      copy.approvals.reads.onceOnly('/Users/me/Documents/specs', 'at most 20 folders in one chat'),
+    )
   } finally {
     await unmount()
   }

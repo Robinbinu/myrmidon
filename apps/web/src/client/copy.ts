@@ -388,7 +388,8 @@ export const copy = {
     attach: 'Attach files',
     attachTitle: 'Attach files (or drop / paste them)',
     deliveryTitle: (hint?: string) => `${hint}. Click to switch (Alt+Enter sends the other way).`,
-    deliveryLabel: (delivery: string, other: string) => `Delivery: ${delivery}. Switch to ${other}`,
+    /** Starts with what the button shows, so speech control finds it by that. */
+    deliveryLabel: (delivery: string, other: string) => `${delivery}. Switch to ${other}`,
     stopLabel: 'Stop the crew',
     stopTitle: (status: string) => `${status} Click to stop.`,
     stop: 'Stop',
@@ -652,6 +653,7 @@ export const copy = {
       done: 'done',
       current: 'current step',
       later: 'set up later',
+      skipped: 'skipped',
       todo: 'not set up yet',
     },
     steps: {
@@ -725,6 +727,11 @@ export const copy = {
       testing: 'Waiting for the reply…',
       answered: (seconds: string, reply?: string) =>
         reply ? `It answered in ${seconds} s: “${reply}”` : `It answered in ${seconds} s`,
+      /** The mascot's speech line when the model answered with no words. */
+      answeredSilently: 'It answered',
+      /** Under the answer: what Continue does with the model that answered. */
+      leadNote: (button: string, model: string, reviewerToo: boolean) =>
+        `${button} makes ${model} the model every new chat starts with${reviewerToo ? ', and the reviewer' : ''}. You can change it in Your crew.`,
       failed: 'The model did not answer',
       noModel: 'Connect a model above, then test it here.',
       gate: 'Continue opens once a model answers.',
@@ -734,6 +741,11 @@ export const copy = {
       intro:
         'Every new chat starts with this crew; the message box changes it for one chat. The lead does the talking and asks crewmates for work.',
       waiting: 'The crew can be set once a model is connected.',
+      cost: 'Each crewmate makes its own calls to the model shown beside it, so more crewmates and bigger models cost more.',
+      spend: 'Spend limit per run',
+      spendHint: 'A run stops once its model calls cost this much. 0 means no limit.',
+      reviewer: 'Review the work',
+      reviewerHint: 'An independent reviewer checks the crew’s answers before they reach you.',
     },
     project: {
       title: 'Your first project',
@@ -745,10 +757,6 @@ export const copy = {
       git: 'A git repository, so it starts on Ask first: each change waits for your yes.',
       notGit: 'Not a git repository, so it starts read-only: agents read it and propose changes.',
       permissions: 'What agents may do here',
-      spend: 'Spend limit per run',
-      spendHint: 'A run stops once its model calls cost this much. 0 means no limit.',
-      reviewer: 'Review the work',
-      reviewerHint: 'An independent reviewer checks the crew’s answers before they reach you.',
       saveFailed: (reason: string) => `Could not save the folder’s permissions: ${reason}`,
     },
     voice: {
@@ -821,11 +829,11 @@ export const copy = {
     },
     ready: {
       title: 'You’re ready',
-      intro: 'Here is what you set up. Anything left waits on the home screen.',
+      intro: 'Here is where each step stands. Anything set up later waits on the home screen.',
       done: 'Set up',
       later: 'Set up later',
+      skipped: 'Skipped',
       todo: 'Not set up',
-      open: (step: string) => `Open ${step}`,
       starters: 'Start your first chat',
       noModel: 'The crew needs a model before it can start a chat.',
       connect: 'Connect a model',
@@ -858,8 +866,9 @@ export const copy = {
       title: (n: number) => `Finish setting up · ${n} left`,
       body: (steps: string) => `Still to do: ${steps}.`,
       action: 'Continue',
-      dismiss: 'Not now',
-      dismissTitle: 'Hide this for good. Every step stays in Settings → General.',
+      dismiss: 'Hide for good',
+      dismissTitle: 'Hide this card for good. Every step stays in Settings → General.',
+      dismissConfirm: 'Yes, hide this card',
       dismissed: 'Hidden for good. You can run any step from Settings → General.',
     },
   },
@@ -1121,7 +1130,7 @@ export const copy = {
       removeTitle: 'Remove from projects (the folder and its chats stay)',
       noChats: 'No chats yet',
       /** The armed remove button: the second click removes the project from the list. */
-      removeConfirm: 'Yes, remove',
+      removeConfirm: 'Yes, remove project',
     },
     /** `combo` is the New chat shortcut, written for this platform. */
     empty: (combo: string) => `No chats yet. Start one with New chat (${combo}).`,
@@ -1169,6 +1178,8 @@ export const copy = {
     refresh: 'Refresh',
     collapseAll: 'Collapse folders',
     loading: 'Loading…',
+    /** After a folder that could not be listed, beside the reason. */
+    tryAgain: 'Try again',
     empty: 'This folder is empty',
     noMatches: (q: string) => `No file names contain “${q}”`,
     moreMatches: 'More files match; type more of the name to narrow it down.',
@@ -1265,6 +1276,9 @@ export const copy = {
       sensitive:
         'This folder holds keys or sign-ins. Agents can read anything in it, and what they read can end up in a reply or leave over the network. Allow it only if the task needs it.',
       allowed: (folder: string) => `Agents may read ${folder} for the rest of this chat`,
+      /** The request was allowed, but opening the folder for the whole chat then failed. */
+      onceOnly: (folder: string, why: string) =>
+        `Allowed reading ${folder} this once, but it could not be opened for the rest of the chat: ${why}`,
       chip: (name: string) => `Reads ${name}`,
       chipTitle: (folder: string) => `Agents may read ${folder} in this chat (never change it)`,
       revoke: (folder: string) => `Stop agents reading ${folder}`,
@@ -1454,7 +1468,7 @@ export const copy = {
       },
       full: {
         label: 'Full access',
-        hint: 'No sandbox and no asking: agents work as you on this computer. Rules still apply.',
+        hint: 'No sandbox and no asking: agents work as you on this computer. Your rules still apply, though an agent with full access could get around them.',
       },
     },
     /** The first choice of a project or chat: take the level above's preset. */
@@ -1529,6 +1543,9 @@ export const copy = {
         `${group} for the ${role.toLowerCase()}: use the level above`,
       leadTip:
         'The lead plans and assigns; with these on it also does hands-on work itself. Turn a group off to keep it delegating.',
+      /** A group whose feature is switched off in Settings: no agent gets it, whatever the switches here say. */
+      computerOff: 'Off for everyone while computer use is off.',
+      computerOn: 'Set up computer use',
     },
     /** The rules table. */
     rules: {
@@ -1566,7 +1583,7 @@ export const copy = {
         tool: 'A tool by name.',
         edit: 'Every file change (writes, edits, proposed files).',
         command:
-          'Commands starting with these words; * is every command. Chained commands must match in every part.',
+          'Commands starting with these words; * is every command. Chained commands must match in every part. A deny is best effort: a script or a program that runs commands of its own can still run what it names, so Myrmidon asks when it cannot tell what a command runs.',
         'mcp-server': 'Every tool of one server; * is every MCP tool.',
         'mcp-tool': 'One MCP tool by its full name.',
       },
@@ -1593,18 +1610,103 @@ export const copy = {
       noProject: 'A chat without a project',
       inProject: (name: string) => `A chat in ${name}`,
       outcome: { allow: 'Runs', ask: 'Asks you', deny: 'Refused' },
+      /** A tool in the list: what it does, then the name agents and rules use. */
+      option: (name: string, id: string) => `${name} · ${id}`,
+      /** Tools outside every "who can use what" group: the crew's own work together. */
+      otherGroup: 'Crew, tasks and replies',
+      mcpGroup: (server: string) => `MCP · ${server}`,
+      /** Names people know for the built-in tools; one missing shows its id. */
+      names: {
+        shell: 'Run a command',
+        run_checks: 'Run checks',
+        start_server: 'Start a dev server',
+        server_logs: 'Read server logs',
+        stop_server: 'Stop a dev server',
+        create_tool: 'Make a tool',
+        fs_read: 'Read a file',
+        fs_list: 'List a folder',
+        fs_write: 'Write a file',
+        fs_edit: 'Edit a file',
+        grep: 'Search file contents',
+        glob: 'Find files by name',
+        request_read: 'Ask to read a folder',
+        propose: 'Propose changes',
+        web_search: 'Search the web',
+        web_fetch: 'Read a web page',
+        browser_open: 'Open a page',
+        request_login: 'Ask you to sign in',
+        browser_tabs: 'Switch tabs',
+        browser_downloads: 'Downloads',
+        browser_extract: 'Pull data from a page',
+        browser_network: 'Watch network requests',
+        browser_upload: 'Upload a file',
+        browser_snapshot: 'Read the page',
+        browser_click: 'Click',
+        browser_type: 'Type',
+        browser_press: 'Press a key',
+        browser_screenshot: 'Take a screenshot',
+        browser_console: 'Read the console',
+        browser_eval: 'Run a script in the page',
+        mcp: 'Any MCP tool',
+        computer: 'Use your Mac',
+        message: 'Message a crewmate',
+        create_group: 'Start a group chat',
+        update_group: 'Change a group chat',
+        append_note: 'Add a shared note',
+        read_notes: 'Read shared notes',
+        read_messages: 'Read messages',
+        create_plugin: 'Build a plugin',
+        test_plugin: 'Test a plugin',
+        propose_plugin: 'Propose a plugin',
+        read_task: 'Read a task',
+        list_agents: 'List the crew',
+        list_tasks: 'List tasks',
+        create_task: 'Create a task',
+        claim_task: 'Take a task',
+        assign_task: 'Assign a task',
+        release_task: 'Give a task back',
+        reject_task: 'Send a task back',
+        submit_task: 'Hand in a task',
+        update_todo: 'Update the to-do list',
+        publish_artifact: 'Publish a file',
+        read_artifact: 'Read a published file',
+        list_artifacts: 'List published files',
+        observe: 'Look in on the crew',
+        use_skill: 'Use a skill',
+        find_tools: 'Find tools',
+        read_docs: 'Read Myrmidon’s docs',
+        read_log: 'Read the run’s log',
+        request_review: 'Ask for a review',
+        request_final_verification: 'Ask for the final review',
+        ask_crewmate: 'Ask a crewmate',
+        add_crewmate: 'Bring in a crewmate',
+        dismiss_crewmate: 'Let a crewmate go',
+        escalate: 'Raise it with you',
+        reply_user: 'Reply to you',
+        reply_person: 'Reply to a person',
+        ask_user: 'Ask you a question',
+        remember: 'Remember something',
+        check_in: 'Check in',
+      } as Record<string, string>,
     },
     /** Why a call was decided as it was, as the approval card and the explainer say it. */
     why: {
       askAll: 'Someone other than you started this round, so every step asks.',
       readOnly: (where: string) => `Files are read only ${where}.`,
-      preset: (preset: string, where: string, what: string) => `${preset} ${where} ${what}.`,
+      /** `who` is what the preset was set on, from `setOn`: "This project is set to Ask, so this waits for you." */
+      preset: (preset: string, who: string, what: string) => `${who} is set to ${preset}, so ${what}.`,
       rule: (where: string, decision: string, what: string) => `A rule ${where} ${decision} ${what}.`,
       ruleDecision: { allow: 'allows', ask: 'asks before', deny: 'denies' },
       presetWhat: {
-        allow: 'runs this without asking',
-        ask: 'asks before this',
-        deny: 'does not allow this',
+        allow: 'this runs without asking',
+        ask: 'this waits for you',
+        deny: 'this is not allowed',
+      },
+      setOn: {
+        default: 'The default',
+        global: 'Your default',
+        project: 'This project',
+        chat: 'This chat',
       },
       /** Where a preset or rule was set, as the sentence says it. */
       where: {
@@ -1635,7 +1737,21 @@ export const copy = {
       denyAlways: 'Always deny',
       rememberIn: 'Remember for',
       scopes: { chat: 'This chat', project: 'This project', global: 'Everywhere' },
-      scopeHint: { chat: 'Until you remove it', project: 'Every chat in this project', global: 'Every chat' },
+      scopeHint: { chat: 'Only in this chat', project: 'Every chat in this project', global: 'Every chat' },
+      /** Under a remembered test, script or build command, which runs code the crew can change. */
+      projectCode:
+        'This runs code the crew can change (tests, scripts, build files). Remembered for a project or every chat, it lets them run whatever they write there.',
+      /** Remembering an answer for every chat, or for every command or tool, asks once more before it is saved. */
+      confirm: {
+        allow: (what: string, where: string) => `Yes, allow ${what} ${where}`,
+        deny: (what: string, where: string) => `Yes, deny ${what} ${where}`,
+        where: { chat: 'in this chat', project: 'in every chat in this project', global: 'in every chat' },
+        warning: {
+          allow: 'Agents will do this without asking you.',
+          deny: 'Agents will be refused this without asking you.',
+        },
+        back: 'Back',
+      },
       target: {
         command: (prefix: string) => `${prefix} …`,
         everyCommand: 'every command',
@@ -1651,12 +1767,11 @@ export const copy = {
     },
   },
 
-  /** Agents running without the sandbox: the warning before it is given, and the badge on chats that have it. */
   /** Computer use: agents seeing and controlling the person's Mac through Cua Driver. */
   computerUse: {
     title: 'Computer use',
     intro:
-      'Agents can see your Mac and use its apps with the mouse and keyboard, as you would: for native apps, simulators and tools with no other way in. They use it only after you approve each app in the chat, and you can stop them at any time.',
+      'Agents can see your Mac and use its apps with the mouse and keyboard, as you would: for native apps, simulators and tools with no other way in. They use it only after you allow each app in the chat, and you can stop them at any time.',
     unsupported: 'Computer use runs on macOS only.',
     switchLabel: 'Let agents use my Mac',
     switchHint: 'Off by default. Chats from channels never get it.',
@@ -1664,7 +1779,7 @@ export const copy = {
     turnOnName: 'Turn on computer use',
     confirmOn: 'Yes, let agents use my Mac',
     warning:
-      'Agents will see the windows of apps you approve and can click and type in them as you. What they see on screen can try to trick them; approve only apps the task needs, and watch while they work.',
+      'Agents will see the windows of apps you allow and can click and type in them as you. What they see on screen can try to trick them; allow only apps the task needs, and watch while they work.',
     turnOff: 'Turn off',
     engineTitle: 'Engine',
     engineNote: 'What agents use your Mac through.',
@@ -1701,7 +1816,7 @@ export const copy = {
     grants: {
       screenRecording: {
         label: 'Screen Recording',
-        hint: 'Lets agents see the windows of apps you approve.',
+        hint: 'Lets agents see the windows of apps you allow.',
       },
       accessibility: { label: 'Accessibility', hint: 'Lets agents click, type and scroll in them.' },
     },
@@ -1718,7 +1833,7 @@ export const copy = {
       'Browsers and trading apps: view only (agents use their own browser for websites).',
       'Terminals and code editors: click only, unless you give full control in the chat.',
       'Everything else: see, click and type.',
-      'Finder, terminals and System Settings show a warning before you approve them. Myrmidon itself is never shown to agents.',
+      'Finder, terminals and System Settings show a warning before you allow them. Myrmidon itself is never shown to agents.',
     ],
     ompTiers: [
       'Looking (window lists, screenshots, accessibility trees, the clipboard): you approve it once per chat, for every window on your screen, Myrmidon’s too.',
@@ -1738,6 +1853,8 @@ export const copy = {
     stopped: 'Computer use stopped',
     notifyTitle: 'Myrmidon is using your Mac',
     notifyBody: 'Press Esc to stop.',
+    /** In a chat's step, in place of what the agent saw. */
+    shotFailed: 'The screenshot could not be loaded.',
     blocked: {
       install: 'An agent wants to use your Mac, but Cua Driver is not installed yet.',
       grants: (missing: string) =>
@@ -1746,6 +1863,7 @@ export const copy = {
     },
   },
 
+  /** Agents running without the sandbox: the warning before it is given, and the badge on chats that have it. */
   fullAccess: {
     badge: 'Full access',
     title: 'This chat runs without the sandbox: its agents can read and change anything you can',
@@ -1766,10 +1884,39 @@ export const copy = {
     after: (tasks: string) => `after ${tasks}`,
   },
 
+  /** The person's own terminals in the workspace's Terminal view, one tab each, as in Claude Code. */
   shellTerminal: {
     /** Why the shell ended when the server gave no reason. */
     closed: 'The shell closed.',
     newShell: 'New shell',
+    tabs: 'Terminals',
+    /** A tab: its number among the project's terminals, then what runs in it, else its folder (`~` for home). */
+    name: (n: number) => `Terminal ${n}`,
+    tab: (n: number, what: string) => `Terminal ${n} · ${what}`,
+    /** The part of a tab's name a narrow panel leaves out, keeping what runs in view. */
+    tabPrefix: (n: number) => `Terminal ${n} · `,
+    /** How the tab's × and the Delete key are offered to screen readers. */
+    closeHint: 'Delete closes it',
+    close: (name: string) => `Close ${name}`,
+    /** Asked before closing a terminal with a command still running in it. */
+    stillRunning: (name: string, command: string) => `${command} is still running in ${name}.`,
+    confirmClose: 'Yes, close terminal',
+    cancel: 'Cancel',
+    add: 'New terminal',
+    addTitle: (keys: string) => `New terminal (${keys})`,
+    full: (n: number) => `Up to ${n} terminals at once`,
+    emptyTitle: 'No terminals open',
+    emptyBody: 'Your own shell on this computer, starting in the chat’s project folder.',
+    options: 'Terminal options',
+    cursorStyle: 'Cursor style',
+    cursorStyles: { block: 'Block', bar: 'Bar', underline: 'Underline' },
+    cursor: 'Cursor and selection',
+    blink: 'Blink cursor',
+    copyOnSelect: 'Copy on select',
+    scrollback: 'Scrollback',
+    lines: (n: number) => `${n.toLocaleString('en-US')} lines`,
+    maximize: 'Maximize terminal',
+    restore: 'Restore terminal (Esc)',
   },
 
   folds: {
@@ -1935,6 +2082,7 @@ export const copy = {
       git: 'Git',
       shell: 'Terminal',
       computer: 'Computer',
+      browser: 'Browser',
       tasks: 'Tasks',
       team: 'Crew',
       mail: 'Mail',
@@ -1950,8 +2098,6 @@ export const copy = {
     viewsLabel: 'Workspace views',
     close: 'Close panel',
     closeTitle: 'Close panel (⌘J)',
-    /** Under the shell's title; `where` is the project's name or `~`. */
-    shellCwd: (where: string) => `${where} · your shell`,
     files: {
       emptyTitle: 'No files yet',
       emptyBody: 'Everything the crew publishes appears here, with every version kept.',
@@ -2058,6 +2204,99 @@ export const copy = {
     /** Under the page while the person drives it; `paste` and `leave` are shortcuts such as ⌘V and ⌘. */
     controlHint: (agent: string, paste: string, leave: string) =>
       `Click and type in the page as usual; ${paste} pastes. ${leave} leaves the page. ${agent} waits until you hand it back.`,
+  },
+
+  /** The person's own browser in the workspace, with tabs, like Claude Code's browser pane. */
+  browser: {
+    tabsLabel: 'Browser tabs',
+    newTab: 'New tab',
+    newTabFull: (max: number) => `At most ${max} tabs can be open`,
+    closeTab: (title: string) => `Close ${title}`,
+    untitled: 'New tab',
+    /** A tab showing an HTML file opened from the person's computer. */
+    fileTab: (name: string) => `${name} (from your computer)`,
+    back: 'Back',
+    forward: 'Forward',
+    reload: 'Reload',
+    address: 'Address',
+    addressPlaceholder: 'Type an address, like localhost:3000',
+    options: 'Browser options',
+    maximise: 'Maximise',
+    restore: 'Restore',
+    pageLabel: (title: string) => `Page: ${title}`,
+    /** The field that carries the person's typing into the page. */
+    keyboardLabel: (title: string) => `Type into ${title}`,
+    connecting: 'Opening the page…',
+    unavailable: 'No browser on this Myrmidon',
+    unavailableBody:
+      'Install Google Chrome or Chromium on this computer, or set MYR_CHROME to one, then restart Myrmidon.',
+    /** Under the page while it has the keyboard; `paste` and `leave` are shortcuts such as ⌘V and ⌘. */
+    keyboardHint: (paste: string, leave: string) =>
+      `The page has the keyboard: ${paste} pastes into it and ${leave} leaves it.`,
+    /** What the address bar refused, by the server's reason. */
+    refused: {
+      scheme:
+        'Only web pages open here: file:, javascript: and chrome: addresses reach this computer’s files and internals.',
+      address: 'That isn’t a web address. Type one like example.com or localhost:3000.',
+      size: 'That file is too large to open here.',
+      full: 'Close a tab first: the browser has as many open as it can hold.',
+      missing: 'That tab was closed.',
+      private: 'Addresses on your local network (a router, another computer) don’t open in this browser.',
+    },
+    blocked: (site: string) =>
+      `${site} is a port on this computer that isn’t one of your allowed sites, so the browser didn’t open it.`,
+    /** A page itself (a link, a script, a redirect) tried to open a local address; `from` is its host. */
+    pageRefusedLocal: (from: string, site: string) =>
+      `${from || 'This page'} tried to open ${site}, a port on this computer that isn’t one of your allowed sites. If you meant to open it, type it in the address bar.`,
+    pageRefusedNetwork: (from: string, site: string) =>
+      `${from || 'This page'} tried to open ${site} on your local network, which this browser doesn’t open.`,
+    allowAndOpen: 'Allow and open',
+    allow: 'Allow',
+    menu: {
+      openOutside: 'Open in your browser',
+      copyUrl: 'Copy URL',
+      copied: 'URL copied',
+      screenshot: 'Save screenshot',
+      screenshotName: 'screenshot.png',
+      openFile: 'Open HTML file…',
+      openFileLabel: 'Choose an HTML file',
+      viewport: 'Viewport',
+      viewports: {
+        responsive: 'Responsive',
+        phone: 'Phone · 390 × 844',
+        tablet: 'Tablet · 820 × 1180',
+        desktop: 'Desktop · 1440 × 900',
+      },
+      linksHere: 'Open links in built-in browser',
+      linksHereDetail: 'Links in chats open in a tab here',
+      allowedSites: 'Manage allowed sites…',
+      cookies: 'Keep cookies',
+      cookieModes: {
+        quit: 'Until quit',
+        always: 'Always',
+        never: 'Never',
+      },
+      cookieDetail: {
+        quit: 'Forgotten when Myrmidon quits',
+        always: 'Kept across restarts in a file on this computer, which agents with full access could read',
+        never: 'Forgotten when you close the last tab',
+      },
+      clear: 'Clear browsing data',
+      clearConfirm: 'Yes, clear browsing data',
+      clearWarning: 'Signs you out of every site here.',
+      cleared: 'Browsing data cleared',
+    },
+    sites: {
+      title: 'Allowed sites',
+      body: 'Pages here reach the internet, this Myrmidon and its agent-built pages. Other servers on this computer open only once you allow their port. Agents’ browsers keep their own tabs and cookies. Agents with full access run as you and could still reach this browser, as could sandboxed agents on Linux, whose sandbox can’t shut out one port.',
+      empty: 'No other ports allowed yet.',
+      add: 'Add',
+      addLabel: 'Port or address on this computer',
+      addPlaceholder: 'localhost:3000',
+      invalid: 'Give a port on this computer, like 3000 or localhost:3000.',
+      remove: (site: string) => `Remove ${site}`,
+      back: 'Back to options',
+    },
   },
 
   app: {
@@ -2958,7 +3197,7 @@ export const copy = {
       waitingHint:
         'People and groups who messaged your bot. To approve one, type the code the bot sent them: only they, or someone they told, can know it.',
       ownerFirst:
-        'No owner yet: the first person you approve becomes the owner, who approves risky steps and can allow tools for good. Approve yourself first, with the code your own message got.',
+        'No owner yet: the first person you approve becomes the owner, who allows or denies risky steps and can allow tools for good. Approve yourself first, with the code your own message got.',
       group: (title: string) => `group “${title}”`,
       sender: (platform: string, id: string, handle?: string) =>
         `${handle ? `@${handle} · ` : ''}${platform} ID ${id}`,
@@ -2969,8 +3208,8 @@ export const copy = {
       makeOwnerName: (name: string) => `Make ${name} the owner`,
       makeOwnerConfirm: 'Yes, make owner',
       makeOwnerWarning:
-        'They approve risky steps and can allow tools for good; the current owner becomes a member.',
-      makeOwnerFirstWarning: 'They approve risky steps and can allow tools for good.',
+        'They allow or deny risky steps and can allow tools for good; the current owner becomes a member.',
+      makeOwnerFirstWarning: 'They allow or deny risky steps and can allow tools for good.',
       madeOwner: (name: string) => `${name} is now the owner`,
       confirmOwner: (name: string) =>
         `${name} is the owner, but may have become it just by being under "Let in without a code", which no longer gives ownership. Confirm them if they are you or someone you trust; otherwise make someone else the owner or revoke them.`,
@@ -2988,7 +3227,7 @@ export const copy = {
       revokeConfirm: 'Yes, revoke access',
       revokeWarning: 'Their messages are ignored until they are approved again with a new code.',
       revokeOwnerWarning:
-        'This channel will have no owner: nothing can be approved in the chat until you approve someone with a new code or make a member the owner.',
+        'This channel will have no owner: no step can be allowed in the chat until you approve someone with a new code or make a member the owner.',
       revokeGroupWarning: 'The bot ignores the group until it is approved again with a new code.',
       none: 'No one yet: message your bot to get a code.',
       approved: (name: string) => `Approved ${name}`,
@@ -3436,7 +3675,8 @@ export const copy = {
         monthly: 'Monthly',
         custom: 'Custom (cron)',
       },
-      time: 'Time',
+      hour: 'Hour',
+      minute: 'Minute',
       minutePast: 'Minutes past the hour',
       dayOfMonth: 'Day of the month',
       days: 'Days',
@@ -3462,7 +3702,8 @@ export const copy = {
         return `${n}${suffix}`
       },
       describe: {
-        hourly: (minute: string) => `Every hour at :${minute}`,
+        /** `minute` as the locale writes it, separator included (":15"). */
+        hourly: (minute: string) => `Every hour at ${minute}`,
         daily: (time: string) => `Every day at ${time}`,
         weekdays: (time: string) => `Weekdays at ${time}`,
         days: (days: string, time: string) => `${days} at ${time}`,
@@ -3470,6 +3711,8 @@ export const copy = {
         custom: (cron: string) => `Custom: ${cron}`,
       },
       localTime: 'in this computer’s time zone',
+      /** This Myrmidon runs schedules by its own clock, which a browser on another computer may not share. */
+      serverZone: (zone: string) => `in ${zone} time, where this Myrmidon runs`,
       pickADay: 'Pick at least one day',
       shortMonths: (day: string) => `Months without a ${day} are skipped`,
       change: 'Change',
@@ -3664,7 +3907,10 @@ export const copy = {
       previousChat: 'Previous chat',
       nextChat: 'Next chat',
       stopRun: 'Stop the run',
-      groups: { app: 'App', window: 'Window', chat: 'Chat', calls: 'Calls' },
+      newTerminal: 'New terminal',
+      nextTerminal: 'Next terminal',
+      previousTerminal: 'Previous terminal',
+      groups: { app: 'App', window: 'Window', chat: 'Chat', terminal: 'Terminal', calls: 'Calls' },
     },
     about: {
       title: 'About Myrmidon',

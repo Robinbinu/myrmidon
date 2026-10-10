@@ -1,5 +1,7 @@
 import { SETUP_STEPS, type SetupHave, type SetupState, type SetupStep } from '@myrmidon/protocol'
 import { copy } from '../copy.ts'
+import { desktop } from '../ui/desktop.ts'
+import { NOTIFY_KEY, readStored } from '../ui/hooks.ts'
 
 /** Every screen of the assistant, in order: its steps, then Ready. */
 export const SETUP_SCREENS = [...SETUP_STEPS, 'ready'] as const
@@ -27,8 +29,11 @@ export interface SetupView {
   have: SetupHave
 }
 
-/** done: the person went through it, or its thing exists; later: Set up later; todo: neither yet. */
-export type StepStatus = 'done' | 'current' | 'later' | 'todo'
+/**
+ * done: its thing exists (or, for a step with nothing to be missing, the person went through it); later: Set up
+ * later; skipped: Continue with nothing set up; todo: not reached yet.
+ */
+export type StepStatus = 'done' | 'current' | 'later' | 'skipped' | 'todo'
 
 export const isScreen = (value: unknown): value is SetupScreen =>
   typeof value === 'string' && (SETUP_SCREENS as readonly string[]).includes(value)
@@ -38,28 +43,52 @@ export function screenFromAddress(search: string = location.search): SetupScreen
   return isScreen(value) ? value : undefined
 }
 
-/** A step shows done once its thing exists, set up here or in Settings, or once the person went through it. */
+/** Whether this window may notify: the desktop app always can, a browser once the person allowed it. */
+export function alertsAllowed(): boolean {
+  if (desktop()) return true
+  return typeof Notification !== 'undefined' && Notification.permission === 'granted'
+}
+
+/** Alerts live in each browser, so the server cannot say: on here, and allowed, counts as set up. */
+export const withAlerts = (view: SetupView): SetupView => ({
+  ...view,
+  have: { ...view.have, alerts: readStored<string>(NOTIFY_KEY, '0') === '1' && alertsAllowed() },
+})
+
+/**
+ * Steps where going through them is the setting up: Welcome has nothing to set, and You & mascot always has a mascot
+ * and a name to call the person (their account's when they type none). Every other step is set up only once its thing
+ * exists, so Continue past it with nothing chosen is not.
+ */
+const SET_UP_BY_VISIT: readonly SetupStep[] = ['welcome', 'you']
+
+/** A step is set up once its thing exists, set up here or in Settings. */
 export function isDone(step: SetupStep, view: SetupView): boolean {
-  return !!view.have[step] || view.setup.steps[step] === 'done'
+  return !!view.have[step] || (SET_UP_BY_VISIT.includes(step) && view.setup.steps[step] === 'done')
 }
 
 export function stepStatus(step: SetupStep, view: SetupView, current?: SetupScreen): StepStatus {
   if (step === current) return 'current'
   if (isDone(step, view)) return 'done'
-  return view.setup.steps[step] === 'later' ? 'later' : 'todo'
+  const mark = view.setup.steps[step]
+  return mark === 'later' ? 'later' : mark === 'done' ? 'skipped' : 'todo'
 }
 
-/** The status dot each status draws (ui/status.ts): done green, current amber, later a grey ring, todo dashed. */
+/**
+ * The status dot each status draws (ui/status.ts): done green, current amber, later and skipped a grey ring, todo
+ * dashed.
+ */
 export const STATUS_DOT: Record<StepStatus, string> = {
   done: 'ready',
   current: 'waiting',
   later: 'idle',
+  skipped: 'idle',
   todo: 'queued',
 }
 
-/** Where the assistant opens: the first step neither done nor set up later, or Ready once there is none. */
+/** Where the assistant opens: the first step not set up and not gone through yet, or Ready once there is none. */
 export function resumeAt(view: SetupView): SetupScreen {
-  return SETUP_STEPS.find((s) => !isDone(s, view) && view.setup.steps[s] !== 'later') ?? 'ready'
+  return SETUP_STEPS.find((s) => !isDone(s, view) && !view.setup.steps[s]) ?? 'ready'
 }
 
 /** Whether the assistant takes the place of the home screen: until it is finished, or when the address names it. */
@@ -70,12 +99,14 @@ export function opensOnLoad(view: SetupView, search: string = location.search): 
 }
 
 /**
- * The steps set up later whose thing does not exist yet: what the home screen's card says is left. None once the
- * card was dismissed, which is for good.
+ * The steps set up later whose thing does not exist yet: what the home screen's card says is left. A step skipped with
+ * Continue is not listed: going past it (voice left Off) was a choice, not something still to do. None once the card
+ * was dismissed, which is for good.
  */
 export function leftToSetUp(view: SetupView): SetupStep[] {
   if (!view.setup.finishedAt || view.setup.dismissedAt) return []
-  return SETUP_STEPS.filter((s) => view.setup.steps[s] === 'later' && !view.have[s])
+  const here = withAlerts(view)
+  return SETUP_STEPS.filter((s) => stepStatus(s, here) === 'later')
 }
 
 export function nextScreen(screen: SetupScreen): SetupScreen {

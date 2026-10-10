@@ -4,6 +4,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { BlobStore, colonyId, MyrError, Schema, SqliteLogStore } from '@myrmidon/core'
 import {
+  alwaysOffer,
   type ColonyId,
   colonyMetrics,
   DEFAULT_PRESET,
@@ -11,6 +12,7 @@ import {
   foldColony,
   isSetupStep,
   normalizeLevel,
+  offered,
   PERMISSION_PRESETS,
   type PermissionScope,
   type ProjectPermissions,
@@ -64,6 +66,11 @@ import {
   namingModel,
   normalizeTeamConfig,
   type OmpRuntime,
+  PersonBrowser,
+  PersonBrowserError,
+  type PersonBrowserSettings,
+  type PersonInput,
+  type PersonTab,
   PHONE_HOOK,
   PHONE_STREAM,
   PhoneLine,
@@ -72,7 +79,10 @@ import {
   type PluginStore,
   PRIVACY_PANES,
   type ProjectStore,
+  personInput,
+  projectSecret,
   readProjectFile,
+  refuseProjectSecret,
   requestScreenRecording,
   restartSetup,
   ruleGreeting,
@@ -118,6 +128,7 @@ import {
 } from './gateways.ts'
 import { Logins } from './logins.ts'
 import { buildPluginUI, uiStamp } from './plugin-ui.ts'
+import { foregroundCommand } from './terminal-foreground.ts'
 
 export interface ServeOptions {
   readonly home: string
@@ -221,7 +232,21 @@ type StreamData = Opened &
         pending: (string | Uint8Array<ArrayBuffer>)[]
       }
     | { kind: 'browser'; colony: ColonyId; agent: string; unwatch?: () => void }
-    | { kind: 'terminal'; cwd: string; cols: number; rows: number; proc?: Bun.Subprocess }
+    /** One of the person's own tabs (Browser view): its frames and the tab list out, input in. */
+    | { kind: 'person-browser'; tab: string; unwatch?: () => void; inputs?: Promise<void> }
+    /**
+     * `watch`: the timer that looks up what runs in the terminal's foreground, to name its tab. `refused`: one too many
+     * terminals; it closes with the reason as soon as it opens, since a refused upgrade tells the page nothing.
+     */
+    | {
+        kind: 'terminal'
+        refused?: boolean
+        cwd: string
+        cols: number
+        rows: number
+        proc?: Bun.Subprocess
+        watch?: ReturnType<typeof setInterval>
+      }
     /**
      * A voice call: the person's audio in, the call's speech and state out. `refusal`: the call is refused, said as
      * the socket's close code and reason once it opens; `closed`: the person's side went away.
@@ -272,6 +297,8 @@ function cookie(req: Request, name: string): string | undefined {
 
 /** Interactive shells open at once; each is a real login shell with the person's own permissions. */
 const MAX_TERMINALS = 8
+/** How often an open terminal looks up what runs in its foreground; the page hears only when that changes. */
+const TERMINAL_FOREGROUND_MS = 1_500
 
 const POLL_MS = 400
 /** How long stopping waits for Bun to report the server stopped (see `stop`). */
@@ -391,20 +418,28 @@ function specialistInput(body: unknown): SpecialistInput {
 }
 
 export function startServer(options: ServeOptions): WebServer {
-  /** Settings → Computer use and the "controlling your Mac" indicator read this. */
-  const computerStatus = () => {
+  /**
+   * What every device may know about computer use: whether it is on and who controls the Mac now, for the banner and
+   * its Stop. The driver's path and version, its state and macOS's grants are Settings', for full access only.
+   */
+  const computerControls = () => ({
+    supported: options.computer?.supported ?? false,
+    enabled: options.computer?.enabled ?? false,
+    controls: options.computer?.controls() ?? [],
+  })
+  /** Settings → Computer use and the "controlling your Mac" indicator read this; chats-only devices the part above. */
+  const computerStatus = (access: Access) => {
+    if (access.scope !== 'full') return computerControls()
     const computer = options.computer
     const driver = computer?.driver()
     return {
-      supported: computer?.supported ?? false,
-      enabled: computer?.enabled ?? false,
+      ...computerControls(),
       engine: computer?.engine ?? 'cua',
       state: computer?.status() ?? { state: 'unsupported' },
       ...(driver ? { driver } : {}),
       version: computer?.installVersion ?? '',
       downloadBytes: computer?.downloadBytes ?? 0,
       grants: (computer?.supported ? computer.grants() : undefined) ?? null,
-      controls: computer?.controls() ?? [],
     }
   }
   const bindHost = options.host ?? '127.0.0.1'
@@ -509,13 +544,12 @@ export function startServer(options: ServeOptions): WebServer {
         onStream: (listener) => chats.onStream(listener),
         read: (colonyId) => chats.events(colonyId),
         decideApproval: (colonyId, id, approved) => chats.decideApproval(colonyId, id, approved),
-        // "Always" on a channel remembers the card's first offer everywhere (a command's prefix, an MCP tool).
+        // "Always" on a channel remembers everywhere what its button names (see alwaysOffer).
         allowAlways: async (colonyId, approvalId) => {
           const state = foldColony(colonyId as ColonyId, await chats.events(colonyId))
           const request = state.approvals[approvalId]
-          const offer =
-            request?.offer?.[0] ?? (request ? { kind: 'tool' as const, target: request.tool } : undefined)
-          if (offer) await chats.remember(colonyId, 'global', [{ ...offer, decision: 'allow' }])
+          const rules = request ? alwaysOffer(request).map((o) => ({ ...o, decision: 'allow' as const })) : []
+          if (rules.length) await chats.remember(colonyId, 'global', rules)
         },
         artifact: async (colonyId, name) => {
           const found = await latestArtifact(colonyId, name)
@@ -806,6 +840,52 @@ export function startServer(options: ServeOptions): WebServer {
         'cache-control': 'no-store',
       },
     })
+  /**
+   * The person's own browser: tabs in the agents' Chrome, in a context agents never see. It may always open this
+   * dashboard and the agent-built pages it serves; other ports on this computer only once the person allows them.
+   */
+  const personBrowser: PersonBrowser | undefined = options.browser
+    ? new PersonBrowser(() => (options.browser as BrowserHub).browser(), {
+        dir: join(options.home, 'person-browser'),
+        ownPorts: (): number[] =>
+          [server.port, preview.port].filter((p): p is number => typeof p === 'number'),
+      })
+    : undefined
+  // Kept cookies are saved, and the context closed, while Chrome still runs: the CLI closes Chrome before the server.
+  if (personBrowser) options.browser?.beforeClose(() => personBrowser.shutdown())
+  /** A refusal from the person's browser, with what the Browser view needs to say why (and offer to allow a site). */
+  const browserFailure = (err: unknown) => {
+    if (!(err instanceof PersonBrowserError))
+      return json({ error: err instanceof Error ? err.message : String(err) }, 502)
+    const status = {
+      scheme: 400,
+      address: 400,
+      size: 413,
+      blocked: 403,
+      private: 403,
+      full: 429,
+      missing: 404,
+    }[err.code]
+    return json({ error: err.message, code: err.code, ...(err.site ? { site: err.site } : {}) }, status)
+  }
+  const browserState = ():
+    | {
+        available: boolean
+        tabs: PersonTab[]
+        settings: PersonBrowserSettings
+        maxTabs: number
+        maxHtmlBytes: number
+      }
+    | undefined =>
+    personBrowser
+      ? {
+          available: options.browser?.available ?? false,
+          tabs: personBrowser.tabs(),
+          settings: personBrowser.settings,
+          maxTabs: personBrowser.maxTabs,
+          maxHtmlBytes: personBrowser.maxHtmlBytes,
+        }
+      : undefined
   const preview = Bun.serve({
     hostname: bindHost,
     port: options.previewPort ?? 0,
@@ -1645,12 +1725,15 @@ export function startServer(options: ServeOptions): WebServer {
             Array.isArray(list) ? list.filter((a): a is string => typeof a === 'string') : []
           try {
             // The project's level (`preset`, `rules`, `access`), or the shape from before it (`mode`, `allow`). A
-            // client that does not send the readable folders keeps them.
-            const read =
-              body.read === undefined
-                ? (options.projects.get(req.params.id ?? '')?.permissions?.read ?? [])
-                : strings(body.read)
+            // client that does not send the readable folders keeps them, and one that sends only a preset (no mode,
+            // no rules) keeps the rules and who-can-use-what too.
+            const now = options.projects.get(req.params.id ?? '')?.permissions
+            const read = body.read === undefined ? (now?.read ?? []) : strings(body.read)
+            const keepRules = body.mode === undefined && body.allow === undefined && body.rules === undefined
             const project = options.projects.setPermissions(req.params.id ?? '', {
+              ...(keepRules
+                ? { rules: now?.rules ?? [], ...(now?.access ? { access: now.access } : {}) }
+                : {}),
               ...(body as unknown as ProjectPermissions),
               ...(body.mode !== undefined ? { allow: strings(body.allow) } : {}),
               read,
@@ -1663,7 +1746,13 @@ export function startServer(options: ServeOptions): WebServer {
         }),
       },
       '/api/schedules': {
-        GET: guard(() => json({ schedules: options.schedules?.list() ?? [] })),
+        // Schedules run by this computer's clock; the zone lets a browser elsewhere say which one their times are in.
+        GET: guard(() =>
+          json({
+            schedules: options.schedules?.list() ?? [],
+            timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          }),
+        ),
         POST: guard(async (req) => {
           if (!options.schedules) return json({ error: 'schedules need the chat runtime' }, 503)
           const body = (await req.json().catch(() => ({}))) as Record<string, unknown>
@@ -1935,8 +2024,8 @@ export function startServer(options: ServeOptions): WebServer {
             remember?: { scope?: unknown; rule?: unknown; rules?: unknown }
           }
           const { approved, edits, note, remember } = body
-          // "For this chat / project / everywhere": this call is decided, then the rule saved, which decides every
-          // other waiting call it covers.
+          // "For this chat / project / everywhere": the rule is saved, which decides every waiting call it covers
+          // (this one too, usually), then this call is decided with the answer given.
           const scope = remember?.scope
           if (remember !== undefined && scope !== 'chat' && scope !== 'project' && scope !== 'global')
             return json({ error: 'remember.scope is chat, project or global' }, 400)
@@ -1949,9 +2038,6 @@ export function startServer(options: ServeOptions): WebServer {
           const rules = normalizeLevel({ rules: given }).rules
           if (remember && (!rules.length || rules.length !== given.length))
             return json({ error: 'remember.rule is not a valid rule' }, 400)
-          // A chats-only device may remember an answer for the chat, as it may approve the step; wider levels are
-          // Settings and a project's permissions, which need full access.
-          if (rules.length && scope !== 'chat' && access.scope !== 'full') return forbidden()
           if (typeof approved !== 'boolean') return json({ error: 'approved must be true or false' }, 400)
           // The person may rewrite a review's text fields before approving; only strings, by field key.
           const fields =
@@ -1961,15 +2047,37 @@ export function startServer(options: ServeOptions): WebServer {
           if (fields.some(([, v]) => typeof v !== 'string')) return json({ error: 'edits must be text' }, 400)
           if (note !== undefined && (typeof note !== 'string' || note.length > 2000))
             return json({ error: 'note must be text, at most 2000 characters' }, 400)
+          const chats = options.chats
+          const colony = req.params.id ?? ''
+          const id = req.params.approval ?? ''
+          const outcome = async () => foldColony(colony as ColonyId, await chats.events(colony)).approvals[id]
+          if (rules.length) {
+            // Only what the card offered may be remembered, as allow when approving and deny when denying: an answer
+            // to one step cannot carry a wider rule.
+            const request = await outcome()
+            if (!request || request.decided) return json({ error: 'that request is no longer waiting' }, 409)
+            const decision = approved ? 'allow' : 'deny'
+            if (!rules.every((r) => r.decision === decision && offered(request.offer ?? [], r)))
+              return json({ error: `remember only what the card offers, as ${decision}` }, 400)
+            // A chats-only device may remember an answer for this chat, as it may approve the step, but not every
+            // command or file change there (that is the chat's permissions) nor wider levels (Settings, a project).
+            if (access.scope !== 'full' && (scope !== 'chat' || rules.some((r) => r.target === '*')))
+              return forbidden()
+          }
           try {
-            await options.chats.decideApproval(req.params.id ?? '', req.params.approval ?? '', approved, {
+            if (rules.length) await chats.remember(colony, scope as PermissionScope, rules)
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 409)
+          }
+          try {
+            await chats.decideApproval(colony, id, approved, {
               ...(fields.length ? { edits: Object.fromEntries(fields) as Record<string, string> } : {}),
               ...(typeof note === 'string' && note.trim() ? { note } : {}),
             })
-            if (rules.length)
-              await options.chats.remember(req.params.id ?? '', scope as PermissionScope, rules)
             return json({ ok: true })
           } catch (err) {
+            // Saving the rule already decided this step the way the person answered.
+            if (rules.length && (await outcome())?.decided?.approved === approved) return json({ ok: true })
             return json({ error: err instanceof Error ? err.message : String(err) }, 409)
           }
         }),
@@ -1980,12 +2088,15 @@ export function startServer(options: ServeOptions): WebServer {
           return json({ projects: options.projects?.list() ?? [] })
         }),
       },
-      // A file in the folder as it is now, for the chat to open one its crew edited. Read-only, like the diffs.
+      // A file in the folder as it is now, for the chat to open one its crew edited. Read-only; full access only
+      // (devices.ts), and never the person's keys or Myrmidon's data in a folder around them (projects.ts).
       '/api/projects/:id/file': guard(async (req, url) => {
         const project = options.projects?.get(req.params.id ?? '')
         if (!project) return json({ error: 'no such project' }, 404)
         try {
-          return json(readProjectFile(project.path, url.searchParams.get('path') ?? ''))
+          return json(
+            readProjectFile(project.path, url.searchParams.get('path') ?? '', { dataDir: options.home }),
+          )
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err)
           return json({ error: message }, message.endsWith('no longer in the folder') ? 404 : 400)
@@ -1996,7 +2107,9 @@ export function startServer(options: ServeOptions): WebServer {
         const project = options.projects?.get(req.params.id ?? '')
         if (!project) return json({ error: 'no such project' }, 404)
         try {
-          return json(await listProjectDir(project.path, url.searchParams.get('path') ?? ''))
+          return json(
+            await listProjectDir(project.path, url.searchParams.get('path') ?? '', { dataDir: options.home }),
+          )
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err)
           return json({ error: message }, message.endsWith('no longer in the folder') ? 404 : 400)
@@ -2005,7 +2118,9 @@ export function startServer(options: ServeOptions): WebServer {
       '/api/projects/:id/find': guard(async (req, url) => {
         const project = options.projects?.get(req.params.id ?? '')
         if (!project) return json({ error: 'no such project' }, 404)
-        return json(await findProjectFiles(project.path, url.searchParams.get('q') ?? ''))
+        return json(
+          await findProjectFiles(project.path, url.searchParams.get('q') ?? '', { dataDir: options.home }),
+        )
       }),
       // Read-only views of a project's own git repository for the workspace's Git tab.
       '/api/projects/:id/git': guard(async (req) => {
@@ -2016,7 +2131,11 @@ export function startServer(options: ServeOptions): WebServer {
       '/api/projects/:id/git/changes': guard(async (req) => {
         const project = options.projects?.get(req.params.id ?? '')
         if (!project) return json({ error: 'no such project' }, 404)
-        return json(await gitWorkingChanges(project.path))
+        return json(
+          await gitWorkingChanges(project.path, (file) =>
+            projectSecret(project.path, file, { dataDir: options.home }),
+          ),
+        )
       }),
       '/api/projects/:id/git/diff': guard(async (req, url) => {
         const project = options.projects?.get(req.params.id ?? '')
@@ -2024,8 +2143,11 @@ export function startServer(options: ServeOptions): WebServer {
         const kind = url.searchParams.get('kind')
         if (kind !== 'staged' && kind !== 'unstaged' && kind !== 'untracked')
           return json({ error: 'kind is staged, unstaged or untracked' }, 400)
+        const file = url.searchParams.get('path') ?? ''
         try {
-          return json({ patch: await gitFileDiff(project.path, url.searchParams.get('path') ?? '', kind) })
+          // Open to chats-only devices, for the changes a chat made: never the person's keys around the project.
+          refuseProjectSecret(project.path, file, { dataDir: options.home })
+          return json({ patch: await gitFileDiff(project.path, file, kind) })
         } catch (err) {
           return json({ error: err instanceof Error ? err.message : String(err) }, 400)
         }
@@ -2391,22 +2513,22 @@ export function startServer(options: ServeOptions): WebServer {
         }),
       },
       '/api/computer': {
-        GET: guard(() => json(computerStatus())),
+        GET: guard((_req, _url, access) => json(computerStatus(access))),
       },
       '/api/computer/install': {
-        POST: guard(() => {
+        POST: guard((_req, _url, access) => {
           const computer = options.computer
           if (!computer) return json({ error: 'computer use needs the chat runtime' }, 503)
           if (!computer.supported) return json({ error: 'computer use runs on macOS only' }, 409)
           void computer
             .install()
             .catch((err) => console.error(`computer use: ${err instanceof Error ? err.message : err}`))
-          return json(computerStatus())
+          return json(computerStatus(access))
         }),
       },
       '/api/computer/grants': {
         // Asks macOS for Screen Recording (its own dialog) and opens the privacy pane the person grants it in.
-        POST: guard(async (req) => {
+        POST: guard(async (req, _url, access) => {
           const computer = options.computer
           if (!computer?.supported) return json({ error: 'computer use runs on macOS only' }, 409)
           const { grant } = (await req.json().catch(() => ({}))) as { grant?: unknown }
@@ -2414,21 +2536,23 @@ export function startServer(options: ServeOptions): WebServer {
             return json({ error: 'grant is accessibility or screenRecording' }, 400)
           if (grant === 'screenRecording') requestScreenRecording()
           Bun.spawn(['open', PRIVACY_PANES[grant]], { stdout: 'ignore', stderr: 'ignore' })
-          return json(computerStatus())
+          return json(computerStatus(access))
         }),
       },
       '/api/computer/restart': {
         // macOS answers a process's grants from a cache: the driver starts afresh to see new ones.
-        POST: guard(async () => {
+        POST: guard(async (_req, _url, access) => {
           const computer = options.computer
           if (!computer) return json({ error: 'computer use needs the chat runtime' }, 503)
           await computer.stop()
-          return json(computerStatus())
+          return json(computerStatus(access))
         }),
       },
       '/api/computer/stop': {
         // The person's Stop (the chat's button, or Esc in the desktop app): open to every device, as a safety stop.
-        POST: guard(() => json({ stopped: options.computer?.stopAll() ?? 0, ...computerStatus() })),
+        POST: guard((_req, _url, access) =>
+          json({ stopped: options.computer?.stopAll() ?? 0, ...computerStatus(access) }),
+        ),
       },
       '/api/chats/:chatId/stop': {
         POST: guard(async (req) => {
@@ -2775,17 +2899,133 @@ export function startServer(options: ServeOptions): WebServer {
         const access = req.headers.get('origin') ? authorized(req, url) : undefined
         if (!access) return json({ error: 'unauthorized' }, 401)
         if (access.scope !== 'full') return forbidden()
-        if (terminals >= MAX_TERMINALS) return json({ error: 'too many terminals open' }, 429)
         const project = url.searchParams.get('project')
         const path = project ? options.projects?.get(project)?.path : homedir()
         if (!path) return json({ error: 'no such project' }, 404)
         const size = (key: string, fallback: number) =>
           Math.min(500, Math.max(10, Number(url.searchParams.get(key)) || fallback))
+        // Counted here rather than once open, so requests arriving together cannot pass the limit between them.
+        const refused = terminals >= MAX_TERMINALS
         const data = {
           kind: 'terminal' as const,
+          ...(refused ? { refused } : {}),
           cwd: path,
           cols: size('cols', 100),
           rows: size('rows', 30),
+          ...(access.device ? { device: access.device.id } : {}),
+        }
+        if (!server.upgrade(req, { data })) return json({ error: 'websocket upgrade failed' }, 400)
+        if (!refused) terminals += 1
+        return undefined as unknown as Response
+      },
+      // The person's own browser (the Browser view). needsFull keeps chats-only devices out of every route here.
+      '/api/browser': guard(() => {
+        const state = browserState()
+        return state ? json(state) : json({ error: 'no browser on this server' }, 404)
+      }),
+      '/api/browser/settings': {
+        PUT: guard(async (req) => {
+          if (!personBrowser) return json({ error: 'no browser on this server' }, 404)
+          const body = (await req.json().catch(() => ({}))) as Record<string, unknown>
+          const cookies = (['quit', 'always', 'never'] as const).find((m) => m === body.cookies)
+          const viewport = (['responsive', 'phone', 'tablet', 'desktop'] as const).find(
+            (v) => v === body.viewport,
+          )
+          const sites = Array.isArray(body.allowedSites)
+            ? body.allowedSites.filter((s): s is string => typeof s === 'string').slice(0, 100)
+            : undefined
+          personBrowser.updateSettings({
+            ...(cookies ? { cookies } : {}),
+            ...(viewport ? { viewport } : {}),
+            ...(sites ? { allowedSites: sites } : {}),
+          })
+          return json(browserState())
+        }),
+      },
+      '/api/browser/tabs': {
+        POST: guard(async (req) => {
+          if (!personBrowser) return json({ error: 'no browser on this server' }, 404)
+          const body = (await req.json().catch(() => ({}))) as {
+            url?: unknown
+            html?: unknown
+            name?: unknown
+          }
+          try {
+            const tab = await personBrowser.open(
+              typeof body.html === 'string'
+                ? { html: body.html, name: typeof body.name === 'string' ? body.name : '' }
+                : typeof body.url === 'string'
+                  ? body.url
+                  : undefined,
+            )
+            return json({ tab })
+          } catch (err) {
+            return browserFailure(err)
+          }
+        }),
+      },
+      '/api/browser/tabs/:id': {
+        DELETE: guard(async (req) => {
+          if (!personBrowser) return json({ error: 'no browser on this server' }, 404)
+          try {
+            await personBrowser.close(req.params.id ?? '')
+            return json(browserState())
+          } catch (err) {
+            return browserFailure(err)
+          }
+        }),
+      },
+      '/api/browser/tabs/:id/go': {
+        POST: guard(async (req) => {
+          if (!personBrowser) return json({ error: 'no browser on this server' }, 404)
+          const body = (await req.json().catch(() => ({}))) as { url?: unknown; action?: unknown }
+          const action = (['back', 'forward', 'reload'] as const).find((a) => a === body.action)
+          if (!action && typeof body.url !== 'string') return json({ error: 'give a url or an action' }, 400)
+          try {
+            const tab = await personBrowser.go(
+              req.params.id ?? '',
+              action ? { action } : { url: String(body.url) },
+            )
+            return json({ tab })
+          } catch (err) {
+            return browserFailure(err)
+          }
+        }),
+      },
+      '/api/browser/tabs/:id/screenshot': {
+        POST: guard(async (req) => {
+          if (!personBrowser) return json({ error: 'no browser on this server' }, 404)
+          try {
+            const png = await personBrowser.screenshot(req.params.id ?? '')
+            return new Response(Buffer.from(png), {
+              headers: {
+                'content-type': 'image/png',
+                'content-disposition': 'attachment; filename="screenshot.png"',
+                'cache-control': 'no-store',
+              },
+            })
+          } catch (err) {
+            return browserFailure(err)
+          }
+        }),
+      },
+      '/api/browser/clear': {
+        POST: guard(async () => {
+          if (!personBrowser) return json({ error: 'no browser on this server' }, 404)
+          await personBrowser.clear()
+          return json(browserState())
+        }),
+      },
+      '/api/browser/tabs/:id/live': (req: Request & { params: Record<string, string> }) => {
+        const url = new URL(req.url)
+        // As for the person's terminal: a socket that drives their browser must come from a page of this dashboard.
+        const access = req.headers.get('origin') ? authorized(req, url) : undefined
+        if (!access) return json({ error: 'unauthorized' }, 401)
+        if (access.scope !== 'full') return forbidden()
+        if (!personBrowser) return json({ error: 'no browser on this server' }, 404)
+        const data = {
+          kind: 'person-browser' as const,
+          tab: req.params.id ?? '',
           ...(access.device ? { device: access.device.id } : {}),
         }
         if (server.upgrade(req, { data })) return undefined as unknown as Response
@@ -2834,7 +3074,10 @@ export function startServer(options: ServeOptions): WebServer {
         }
         if (ws.data.kind === 'terminal') {
           const data = ws.data
-          terminals += 1
+          if (data.refused) {
+            ws.close(4429, `Too many terminals are open (${MAX_TERMINALS}). Close one to open another.`)
+            return
+          }
           try {
             data.proc = Bun.spawn([process.env.SHELL || '/bin/zsh', '-l'], {
               cwd: data.cwd,
@@ -2851,6 +3094,24 @@ export function startServer(options: ServeOptions): WebServer {
             return
           }
           void data.proc.exited.then(() => ws.close(1000, 'shell exited'))
+          // The tab is named by what runs in it, as IDE terminals do. Polling `ps` is cheap and needs no native
+          // module; a JSON text frame tells the page, beside the shell's output in binary frames.
+          const shell = data.proc.pid
+          let shown: string | null = null
+          let looking = false
+          data.watch = setInterval(() => {
+            if (looking) return
+            looking = true
+            void foregroundCommand(shell)
+              .then((name) => {
+                if (name === undefined || name === shown) return
+                shown = name
+                ws.send(JSON.stringify({ type: 'process', name }))
+              })
+              .finally(() => {
+                looking = false
+              })
+          }, TERMINAL_FOREGROUND_MS)
           return
         }
         if (ws.data.kind === 'call') {
@@ -2919,6 +3180,18 @@ export function startServer(options: ServeOptions): WebServer {
           if (!ws.data.stream) ws.close(1011, 'phone calls are off')
           return
         }
+        if (ws.data.kind === 'person-browser') {
+          const data = ws.data
+          personBrowser
+            ?.watch(data.tab, (e) => ws.send(JSON.stringify(e)))
+            .then((unwatch) => {
+              // The socket may have closed while the tab was coming to the front.
+              if (ws.readyState === WebSocket.OPEN) data.unwatch = unwatch
+              else unwatch()
+            })
+            .catch((err) => ws.close(1011, err instanceof Error ? err.message.slice(0, 120) : 'no tab'))
+          return
+        }
         if (ws.data.kind === 'browser') {
           const data = ws.data
           options.browser
@@ -2941,7 +3214,8 @@ export function startServer(options: ServeOptions): WebServer {
         }
         if (ws.data.kind === 'ping') return
         if (ws.data.kind === 'terminal') {
-          terminals -= 1
+          if (!ws.data.refused) terminals -= 1
+          clearInterval(ws.data.watch)
           ws.data.proc?.terminal?.close()
           ws.data.proc?.kill()
           return
@@ -2955,7 +3229,7 @@ export function startServer(options: ServeOptions): WebServer {
           ws.data.stream?.closed()
           return
         }
-        if (ws.data.kind === 'browser') ws.data.unwatch?.()
+        if (ws.data.kind === 'browser' || ws.data.kind === 'person-browser') ws.data.unwatch?.()
         else sockets.delete(ws)
       },
       message(ws, raw) {
@@ -3006,6 +3280,29 @@ export function startServer(options: ServeOptions): WebServer {
           if (msg.type === 'input' && typeof msg.data === 'string') term?.write(msg.data)
           else if (msg.type === 'resize' && typeof msg.cols === 'number' && typeof msg.rows === 'number')
             term?.resize(Math.min(500, Math.max(10, msg.cols)), Math.min(500, Math.max(5, msg.rows)))
+          return
+        }
+        if (ws.data.kind === 'person-browser') {
+          const data = ws.data
+          let msg: PersonInput | undefined
+          try {
+            msg = personInput(JSON.parse(String(raw)))
+          } catch {
+            return
+          }
+          if (!msg) return
+          const input = msg
+          // One at a time, in the order they came: a button's release must not overtake its press.
+          data.inputs = (data.inputs ?? Promise.resolve()).then(async () => {
+            try {
+              const answer = await personBrowser?.input(data.tab, input)
+              if (answer) ws.send(JSON.stringify(answer))
+            } catch (err) {
+              ws.send(
+                JSON.stringify({ type: 'error', message: err instanceof Error ? err.message : String(err) }),
+              )
+            }
+          })
           return
         }
         if (ws.data.kind !== 'browser' || !options.browser) return
@@ -3068,6 +3365,7 @@ export function startServer(options: ServeOptions): WebServer {
     token,
     warmVoice: () => voice?.warm() ?? Promise.resolve(),
     async stop() {
+      await personBrowser?.shutdown()
       stopScheduler?.()
       clearInterval(poll)
       stopStreaming?.()
