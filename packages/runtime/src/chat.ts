@@ -55,6 +55,7 @@ import type { PluginHost } from './plugin-host.ts'
 import type { ProjectStore } from './projects.ts'
 import { prompts } from './prompts.ts'
 import { chatsAt, grantCovers, keysAt, readFolder, realPath, secretAt } from './read-access.ts'
+import { checkRuleFile, draftStreamRule, type RuleDraft, roundOutputs } from './rule-draft.ts'
 import { importedConversation, type SessionImports } from './session-import.ts'
 import type { SettingsStore } from './settings.ts'
 import {
@@ -67,9 +68,18 @@ import {
 import type { SkillLibrary } from './skills.ts'
 import type { AcceptanceCheck, AgentSpec, ColonySpec, Tier } from './spec.ts'
 import { type SpecialistStore, specialistAgent } from './specialists.ts'
+import type { StreamRuleScope, StreamRuleStore } from './stream-rules.ts'
 import type { WebTools } from './web.ts'
 
 /** One round of a chat: the colony it ran in, its place in that colony's log, and the colony's state. */
+/** Saving a stream rule over one of the same name, which the person has not said to replace. */
+export class RuleExistsError extends Error {
+  constructor(readonly rule: string) {
+    super(`a rule named ${rule} already exists`)
+    this.name = 'RuleExistsError'
+  }
+}
+
 interface RoundRef {
   readonly id: string
   readonly round: RoundInfo
@@ -336,6 +346,8 @@ export class ChatService {
       skills?: SkillLibrary
       /** The person's hooks around tools and round ends. */
       hooks?: HookStore
+      /** The person's stream rules, kept to by every round's agents and added to with `/rule`. */
+      rules?: StreamRuleStore
       /** Project folders chats can work in. */
       projects?: ProjectStore
       /** Agents the person defined once and brings back. */
@@ -434,6 +446,59 @@ export class ChatService {
       actor: { kind: 'user', id: 'user' },
       payload: { id, kept: keep },
     })
+  }
+
+  /**
+   * The person complained about a chat's last reply (`/rule`): the lead's model drafts a stream rule that would have
+   * stopped it, checked against what the latest round's agents wrote. `amend`: a change asked for to an earlier draft.
+   */
+  async draftRule(
+    chatId: string,
+    complaint: string,
+    amend?: { previous: string; change: string },
+  ): Promise<RuleDraft> {
+    const latest = (await this.rounds(chatId)).at(-1)
+    if (!latest) throw new Error('no such chat')
+    const agents = Object.values(latest.state.agents)
+    const model = (agents.find((a) => a.info.role === 'lead') ?? agents[0])?.info.model
+    if (!model) throw new Error('this chat has no reply to make a rule from')
+    const events = await this.store.read(latest.id as never)
+    const cwd = this._chatProject(latest.state) ?? this.store.colonyDir(latest.id as never)
+    return draftStreamRule({
+      resolver: this.options.resolver,
+      model,
+      complaint,
+      outputs: roundOutputs(events, latest.round.startSeq, cwd),
+      ...(amend ? { amend } : {}),
+    })
+  }
+
+  /**
+   * Saves a stream rule the person confirmed: theirs, for every chat, or in the chat's project. An existing rule of
+   * the name is replaced only when `replace` says so. Returns where it went; agents keep to it from their next turn.
+   */
+  async saveRule(input: {
+    name: string
+    text: string
+    where: StreamRuleScope
+    chatId?: string
+    replace?: boolean
+  }): Promise<{ name: string; path: string }> {
+    const rules = this.options.rules
+    if (!rules) throw new Error('stream rules are not set up on this server')
+    const rule = checkRuleFile(input.name, input.text)
+    const latest = input.chatId ? (await this.rounds(input.chatId)).at(-1) : undefined
+    const project = latest ? this._chatProject(latest.state) : undefined
+    if (input.where === 'project' && !project) throw new Error('this chat has no project to save the rule in')
+    if (!input.replace && rules.target(rule.name, input.where, project).exists)
+      throw new RuleExistsError(rule.name)
+    return { name: rule.name, path: rules.write(rule.name, input.text, input.where, project) }
+  }
+
+  /** The project folder a round's chat works in, if any. */
+  private _chatProject(state: ColonyState): string | undefined {
+    const id = state.chat?.project?.id
+    return (id ? this.options.projects?.get(id)?.path : undefined) ?? state.chat?.project?.path
   }
 
   /**
@@ -759,6 +824,7 @@ export class ChatService {
       ...(this.options.computer ? { computer: this.options.computer } : {}),
       ...(this.options.skills ? { skills: this.options.skills } : {}),
       ...(this.options.hooks ? { hooks: this.options.hooks } : {}),
+      ...(this.options.rules ? { rules: this.options.rules } : {}),
       ...(this.options.memory ? { memory: this.options.memory } : {}),
       // A chat's follow-ups continue its colony: same log, files, notes and agents' conversations.
       ...(latest ? { resumeId: latest.id as ColonyId } : {}),
@@ -1389,6 +1455,7 @@ export class ChatService {
       ...(this.options.computer ? { computer: this.options.computer } : {}),
       ...(this.options.skills ? { skills: this.options.skills } : {}),
       ...(this.options.hooks ? { hooks: this.options.hooks } : {}),
+      ...(this.options.rules ? { rules: this.options.rules } : {}),
     })
     this._live.set(chatId, run)
     this._own(run)
