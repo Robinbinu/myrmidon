@@ -5,6 +5,7 @@ import {
   SANDBOX_HIDDEN_ROOTS,
   SANDBOX_HIDDEN_TMP,
   SANDBOX_MAX_OUTPUT,
+  SANDBOX_SYSTEM_BINS,
   SANDBOX_TEMP_READABLE,
 } from './config.ts'
 import { spawnLeashed } from './leashed.ts'
@@ -232,19 +233,35 @@ const TMP_DIR = '.tmp'
 /** A command's private HOME and TMPDIR, folders of the agent's scratch that file listings leave out. */
 export const SANDBOX_DIRS: ReadonlySet<string> = new Set([HOME_DIR, TMP_DIR])
 
-function confinedEnv(spec: Omit<SandboxRun, 'timeoutMs'>) {
+/**
+ * A sandboxed command's PATH: the entries of the person's `path` that are toolchains in their `home` or system
+ * folders (SANDBOX_SYSTEM_BINS), in their order, then the system folders it lacks. The rest would name their apps
+ * and folders, and the sandbox could not run what is in them anyway.
+ */
+export function sandboxPath(path: string | undefined, home: string): string {
+  const toolchains = toolchainPaths(home)
+  const system: readonly string[] = SANDBOX_SYSTEM_BINS
+  const kept = (path ?? '').split(':').filter((dir) => {
+    if (system.includes(dir)) return true
+    const real = dir.startsWith(sep) ? realOrNone(dir) : undefined
+    return real !== undefined && toolchains.some((t) => within(real, t))
+  })
+  return [...new Set([...kept, ...system.filter((dir) => existsSync(dir))])].join(':')
+}
+
+function confinedEnv(spec: Omit<SandboxRun, 'timeoutMs'>, person: string) {
   const own = spec.writable.find((d) => d !== spec.cwd) ?? spec.cwd
   const home = join(own, HOME_DIR)
   const tmp = join(own, TMP_DIR)
   mkdirSync(home, { recursive: true })
   mkdirSync(tmp, { recursive: true })
-  return { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: home, TMPDIR: tmp, ...spec.env }
+  return { PATH: sandboxPath(process.env.PATH, person), HOME: home, TMPDIR: tmp, ...spec.env }
 }
 
 function startConfined(
   argv: string[],
   spec: Omit<SandboxRun, 'timeoutMs'>,
-  env: Record<string, string | undefined> = confinedEnv(spec),
+  env: Record<string, string | undefined>,
 ): SandboxProcess {
   // Leashed outside the confinement, so a dev server and what it started stop when Myrmidon dies, however it dies.
   const proc = spawnLeashed(argv, { cwd: spec.cwd, env, stdout: 'pipe', stderr: 'pipe' })
@@ -286,10 +303,10 @@ function killTree(pid: number, signal: 'SIGTERM' | 'SIGKILL') {
   }
 }
 
-async function spawnConfined(argv: string[], spec: SandboxRun): Promise<SandboxResult> {
+async function spawnConfined(argv: string[], spec: SandboxRun, home: string): Promise<SandboxResult> {
   const proc = Bun.spawn(argv, {
     cwd: spec.cwd,
-    env: confinedEnv(spec),
+    env: confinedEnv(spec, home),
     stdout: 'pipe',
     stderr: 'pipe',
     timeout: spec.timeoutMs,
@@ -373,8 +390,8 @@ export function detectSandbox(options: { home?: string } = {}): Sandbox {
     return {
       kind: 'sandbox-exec',
       argv,
-      run: (spec) => spawnConfined(argv(spec), spec),
-      start: (spec) => startConfined(argv(spec), spec),
+      run: (spec) => spawnConfined(argv(spec), spec, home),
+      start: (spec) => startConfined(argv(spec), spec, confinedEnv(spec, home)),
     }
   }
   const bwrap = process.platform === 'linux' ? Bun.which('bwrap') : null
@@ -400,15 +417,15 @@ export function detectSandbox(options: { home?: string } = {}): Sandbox {
     return {
       kind: 'bubblewrap',
       argv,
-      run: (spec) => spawnConfined(argv(spec), spec),
-      start: (spec) => startConfined(argv(spec), spec),
+      run: (spec) => spawnConfined(argv(spec), spec, home),
+      start: (spec) => startConfined(argv(spec), spec, confinedEnv(spec, home)),
     }
   }
   const argv = plainShell
   return {
     kind: 'none',
     argv,
-    run: (spec) => spawnConfined(argv(spec), spec),
-    start: (spec) => startConfined(argv(spec), spec),
+    run: (spec) => spawnConfined(argv(spec), spec, home),
+    start: (spec) => startConfined(argv(spec), spec, confinedEnv(spec, home)),
   }
 }
