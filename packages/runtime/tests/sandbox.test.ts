@@ -11,8 +11,10 @@ import {
 } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { notOn, pendingOn } from '../../../tests/platform.ts'
 import { RUNTIMES } from '../src/patterns.ts'
 import { detectSandbox, fullAccessIn, sandboxPath, unconfinedSandbox } from '../src/sandbox.ts'
+import { hostShell } from '../src/shell.ts'
 
 let root: string
 
@@ -24,70 +26,79 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true })
 })
 
-test('a command run in the project keeps HOME and TMPDIR in the agent scratch, not the project', async () => {
-  const project = join(root, 'project')
-  const scratch = join(root, 'scratch')
-  mkdirSync(project)
-  mkdirSync(scratch)
-  const caches = '$HOME/Library/Caches/com.apple.python'
-  const r = await detectSandbox().run({
-    command: `mkdir -p "${caches}" && touch "${caches}/x.pyc" "$TMPDIR/t" && echo "$HOME"`,
-    cwd: project,
-    writable: [project, scratch],
-    timeoutMs: 10_000,
-  })
-  expect(r.stderr).toBe('')
-  expect(r.code).toBe(0)
-  expect(readdirSync(project)).toEqual([])
-  expect(r.stdout.trim()).toBe(join(scratch, '.home'))
-  expect(existsSync(join(scratch, '.home/Library/Caches/com.apple.python/x.pyc'))).toBe(true)
-  expect(existsSync(join(scratch, '.tmp/t'))).toBe(true)
-})
+pendingOn('win32', 'windowsShellPath')(
+  'a command run in the project keeps HOME and TMPDIR in the agent scratch, not the project',
+  async () => {
+    const project = join(root, 'project')
+    const scratch = join(root, 'scratch')
+    mkdirSync(project)
+    mkdirSync(scratch)
+    const caches = '$HOME/Library/Caches/com.apple.python'
+    const r = await detectSandbox().run({
+      command: `mkdir -p "${caches}" && touch "${caches}/x.pyc" "$TMPDIR/t" && echo "$HOME"`,
+      cwd: project,
+      writable: [project, scratch],
+      timeoutMs: 10_000,
+    })
+    expect(r.stderr).toBe('')
+    expect(r.code).toBe(0)
+    expect(readdirSync(project)).toEqual([])
+    expect(r.stdout.trim()).toBe(join(scratch, '.home'))
+    expect(existsSync(join(scratch, '.home/Library/Caches/com.apple.python/x.pyc'))).toBe(true)
+    expect(existsSync(join(scratch, '.tmp/t'))).toBe(true)
+  },
+)
 
-test("a sandboxed PATH keeps the person's toolchains and system folders, never their apps or other folders", async () => {
-  const home = join(root, 'home')
-  const bun = join(home, '.bun', 'bin')
-  const nvm = join(home, '.nvm', 'versions', 'node', 'v22', 'bin')
-  mkdirSync(bun, { recursive: true })
-  mkdirSync(nvm, { recursive: true })
-  const person = [
-    join(home, '.railway', 'bin'),
-    '/Applications/Little Snitch.app/Contents/Components',
-    bun,
-    join(home, 'Desktop', 'Myrmidon', 'node_modules', '.bin'),
-    nvm,
-    '/usr/bin',
-    '/bin',
-  ].join(':')
-  const path = sandboxPath(person, home).split(':')
-  // The person's order for what is kept, then the system folders it lacked.
-  expect(path.slice(0, 4)).toEqual([bun, nvm, '/usr/bin', '/bin'])
-  expect(path).toContain('/usr/sbin')
-  expect(path.join(':')).not.toContain('Little Snitch')
-  expect(path.join(':')).not.toContain('Desktop')
-  expect(path.join(':')).not.toContain('.railway')
-  // Every runtime agents are told about is still found.
-  const real = sandboxPath(process.env.PATH, homedir())
-  for (const runtime of RUNTIMES) expect(Bun.which(runtime, { PATH: real })).not.toBeNull()
+notOn('win32', 'posixPath')(
+  "a sandboxed PATH keeps the person's toolchains and system folders, never their apps or other folders",
+  async () => {
+    const home = join(root, 'home')
+    const bun = join(home, '.bun', 'bin')
+    const nvm = join(home, '.nvm', 'versions', 'node', 'v22', 'bin')
+    mkdirSync(bun, { recursive: true })
+    mkdirSync(nvm, { recursive: true })
+    const person = [
+      join(home, '.railway', 'bin'),
+      '/Applications/Little Snitch.app/Contents/Components',
+      bun,
+      join(home, 'Desktop', 'Myrmidon', 'node_modules', '.bin'),
+      nvm,
+      '/usr/bin',
+      '/bin',
+    ].join(':')
+    const path = sandboxPath(person, home).split(':')
+    // The person's order for what is kept, then the system folders it lacked.
+    expect(path.slice(0, 4)).toEqual([bun, nvm, '/usr/bin', '/bin'])
+    expect(path).toContain('/usr/sbin')
+    expect(path.join(':')).not.toContain('Little Snitch')
+    expect(path.join(':')).not.toContain('Desktop')
+    expect(path.join(':')).not.toContain('.railway')
+    // Every runtime agents are told about is still found.
+    const real = sandboxPath(process.env.PATH, homedir())
+    for (const runtime of RUNTIMES) expect(Bun.which(runtime, { PATH: real })).not.toBeNull()
 
-  // A confined command sees that PATH; full access keeps the person's.
-  const saved = process.env.PATH
-  process.env.PATH = `/Applications/Wireshark.app/Contents/MacOS:${saved}`
-  try {
-    const spec = { command: 'echo "$PATH"', cwd: root, writable: [root], timeoutMs: 10_000 }
-    const confined = await detectSandbox({ home }).run(spec)
-    expect(confined.code).toBe(0)
-    expect(confined.stdout).not.toContain('Wireshark')
-    expect((await unconfinedSandbox().run(spec)).stdout).toContain('Wireshark')
-  } finally {
-    process.env.PATH = saved
-  }
-})
+    // A confined command sees that PATH; full access keeps the person's.
+    const saved = process.env.PATH
+    process.env.PATH = `/Applications/Wireshark.app/Contents/MacOS:${saved}`
+    try {
+      const spec = { command: 'echo "$PATH"', cwd: root, writable: [root], timeoutMs: 10_000 }
+      const confined = await detectSandbox({ home }).run(spec)
+      expect(confined.code).toBe(0)
+      expect(confined.stdout).not.toContain('Wireshark')
+      expect((await unconfinedSandbox().run(spec)).stdout).toContain('Wireshark')
+    } finally {
+      process.env.PATH = saved
+    }
+  },
+)
 
 test('full access runs the command itself, with no sandbox around it; the default wraps it', () => {
   const spec = { command: 'echo hi', cwd: root, writable: [root] }
   const bare = unconfinedSandbox().argv(spec)
-  expect(bare).toEqual(['/bin/sh', '-c', 'echo hi'])
+  // The system's own shell: /bin/sh, or on Windows the one shell.ts picks (Git's sh first).
+  expect(bare).toEqual(
+    process.platform === 'win32' ? hostShell().argv('echo hi') : ['/bin/sh', '-c', 'echo hi'],
+  )
   expect(bare.some((a) => /sandbox-exec|bwrap/.test(a))).toBe(false)
   const confined = detectSandbox()
   if (confined.kind === 'sandbox-exec') expect(confined.argv(spec)[0]).toBe('sandbox-exec')
@@ -117,21 +128,25 @@ test.skipIf(detectSandbox().kind === 'none')(
   },
 )
 
-test('a full-access command that runs too long is stopped, with what it started', async () => {
-  const marker = join(root, 'late')
-  const started = Date.now()
-  const r = await unconfinedSandbox().run({
-    command: `(sleep 3 && touch "${marker}") & sleep 30`,
-    cwd: root,
-    writable: [root],
-    timeoutMs: 500,
-  })
-  expect(r.timedOut).toBe(true)
-  expect(r.code).toBeNull()
-  expect(Date.now() - started).toBeLessThan(10_000)
-  await Bun.sleep(3_500)
-  expect(existsSync(marker)).toBe(false)
-}, 20_000)
+pendingOn('win32', 'timeoutStopOnWindows')(
+  'a full-access command that runs too long is stopped, with what it started',
+  async () => {
+    const marker = join(root, 'late')
+    const started = Date.now()
+    const r = await unconfinedSandbox().run({
+      command: `(sleep 3 && touch "${marker}") & sleep 30`,
+      cwd: root,
+      writable: [root],
+      timeoutMs: 500,
+    })
+    expect(r.timedOut).toBe(true)
+    expect(r.code).toBeNull()
+    expect(Date.now() - started).toBeLessThan(10_000)
+    await Bun.sleep(3_500)
+    expect(existsSync(marker)).toBe(false)
+  },
+  20_000,
+)
 
 test.skipIf(detectSandbox().kind === 'none')(
   "a sandboxed command cannot connect to a socket in a hidden folder or another run's /tmp/myr-*, only its own",

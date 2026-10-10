@@ -1,12 +1,13 @@
 import { afterAll, expect, test } from 'bun:test'
-import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
+import { mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { expectOwnerOnly, removeTempDir } from '../../../tests/platform.ts'
 import { bootOmp, ModelResolver, pointOmpAt } from '../src/index.ts'
 
 const home = mkdtempSync(join(tmpdir(), 'myr-omp-'))
 pointOmpAt(home)
-afterAll(() => rmSync(home, { recursive: true, force: true }))
+afterAll(() => removeTempDir(home))
 
 test('custom providers go to models.yml, keys to the vault, and models resolve through omp', async () => {
   const omp = await bootOmp(home)
@@ -23,7 +24,7 @@ test('custom providers go to models.yml, keys to the vault, and models resolve t
   expect(info).toMatchObject({ id: 'lmstudio', custom: true, ready: true, models: 1 })
   const yml = join(home, 'agent', 'models.yml')
   expect(readFileSync(yml, 'utf8')).toContain('http://localhost:1234/v1')
-  expect(statSync(yml).mode & 0o777).toBe(0o600)
+  expectOwnerOnly(yml)
 
   const { model } = resolver.resolve('lmstudio/qwen3-8b')
   expect(model.baseUrl).toBe('http://localhost:1234/v1')

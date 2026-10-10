@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { type ColonyState, type EventPayloads, foldColony } from '@myrmidon/protocol'
 import { createMockModel, type MockContent } from '@oh-my-pi/pi-ai/providers/mock'
+import { notOn, pendingOn, removeTempDir } from '../../../tests/platform.ts'
+import { SANDBOX_HIDDEN_ROOTS } from '../src/config.ts'
 import {
   bootRuntime,
   bwrapMounts,
@@ -21,6 +23,23 @@ import {
   SettingsStore,
   type TeamConfig,
 } from '../src/index.ts'
+
+/** Keys only this system has; cross-platform.test.ts pins each system's whole list. */
+const SYSTEM_SECRETS: readonly string[] =
+  {
+    darwin: [
+      'Library/Containers/com.example.app/Data/x',
+      'Library/Group Containers/group.example/x',
+      '.dotnet/corefx/cryptography/x509stores/my/key.pfx',
+    ],
+    linux: [
+      '.var/app/org.example.App/data/x',
+      'snap/chromium/common/x',
+      '.pki/nssdb/key4.db',
+      '.dotnet/corefx/cryptography/x509stores/my/key.pfx',
+    ],
+    win32: ['AppData/Roaming/GitHub CLI/hosts.yml', 'AppData/Local/Packages/app/x', '_netrc'],
+  }[process.platform as string] ?? []
 
 /**
  * A stand-in home: shell config, keys, Myrmidon's data with this chat's colony and another chat's, a project and a
@@ -66,7 +85,11 @@ const confined = (extra: { readable?: string[]; hidden?: string[] } = {}) => ({
   hidden: [data, join(home, '.ssh'), ...(extra.hidden ?? [])],
 })
 
-test.skipIf(detectSandbox().kind === 'none')(
+pendingOn(
+  'linux',
+  'bwrapHiddenFolders',
+  detectSandbox().kind === 'none',
+)(
   "a sandboxed command cannot read the home, other chats or keys, but reads its project, this chat's files and toolchains",
   async () => {
     const sandbox = detectSandbox({ home })
@@ -111,78 +134,87 @@ test.skipIf(detectSandbox().kind === 'none')(
 )
 
 test('the deepest rule decides: a hidden folder inside a readable one stays hidden, a root inside it reopens', () => {
-  expect(reachable('/h/a/b', ['/h/a'], ['/h'])).toBe(true)
-  expect(reachable('/h/.ssh/k', ['/h'], ['/h', '/h/.ssh'])).toBe(false)
-  expect(reachable('/h/.ssh/k', ['/h', '/h/.ssh'], ['/h', '/h/.ssh'])).toBe(true)
-  expect(reachable('/h/data/c/x', ['/h/data/c'], ['/h/data'])).toBe(true)
-  expect(reachable('/h/data/other', ['/h/data/c'], ['/h/data'])).toBe(false)
-  expect(reachable('/elsewhere', ['/h'], [])).toBe(false)
+  // Absolute on this system: /h is C:\\h on Windows.
+  const at = (path: string) => resolve(path)
+  const all = (paths: string[]) => paths.map(at)
+  expect(reachable(at('/h/a/b'), all(['/h/a']), all(['/h']))).toBe(true)
+  expect(reachable(at('/h/.ssh/k'), all(['/h']), all(['/h', '/h/.ssh']))).toBe(false)
+  expect(reachable(at('/h/.ssh/k'), all(['/h', '/h/.ssh']), all(['/h', '/h/.ssh']))).toBe(true)
+  expect(reachable(at('/h/data/c/x'), all(['/h/data/c']), all(['/h/data']))).toBe(true)
+  expect(reachable(at('/h/data/other'), all(['/h/data/c']), all(['/h/data']))).toBe(false)
+  expect(reachable(at('/elsewhere'), all(['/h']), [])).toBe(false)
 })
 
-test('the macOS profile hides the home, then opens what may be read, parents first', () => {
-  const profile = macProfile(confined(), home)
-  const at = (line: string) => profile.indexOf(line)
-  expect(at(`(deny file-read* (subpath "${home}"))`)).toBeGreaterThan(0)
-  expect(at(`(deny file-read* (subpath "${data}"))`)).toBeGreaterThan(
-    at(`(deny file-read* (subpath "${home}"))`),
-  )
-  expect(at(`(allow file-read* (subpath "${colony}"))`)).toBeGreaterThan(
-    at(`(deny file-read* (subpath "${data}"))`),
-  )
-  expect(at(`(allow file-read* (subpath "${realpathSync(join(home, '.bun'))}"))`)).toBeGreaterThan(0)
-  expect(at(`(allow file-write* (subpath "${scratch}"))`)).toBeGreaterThan(at('(deny file-write*)'))
-  // Folders above an open one can be looked up, not listed.
-  expect(profile).toContain(`(literal "${home}")`)
-  // Sockets follow the write rules: none in the data folder or a folder only read, the agent's scratch is fine.
-  expect(at(`(deny network-outbound (remote unix-socket (subpath "${data}")))`)).toBeGreaterThan(0)
-  expect(at(`(allow network-outbound (remote unix-socket (subpath "${scratch}")))`)).toBeGreaterThan(
-    at(`(deny network-outbound (remote unix-socket (subpath "${data}")))`),
-  )
-  expect(profile).not.toContain(`(allow network-outbound (remote unix-socket (subpath "${colony}")))`)
-  for (const dir of ['/Volumes', '/Users/Shared', '/private/var/folders'])
-    expect(profile).toContain(`(deny file-read* (subpath "${dir}"))`)
-  expect(profile).toContain('(deny network-outbound (remote unix-socket (regex #"^/private/tmp/myr-")))')
-  expect(profile).toContain('(deny appleevent-send)')
-  expect(profile).toContain(
-    '(deny mach-lookup (global-name-regex #"^com\\.apple\\.windowserver") (global-name "com.apple.replayd"))',
-  )
-  expect(profile).toContain('(deny lsopen)')
-  expect(profile).toContain('(deny mach-lookup (global-name-regex #"^com\\.apple\\.pasteboard\\."))')
-  // The /tmp/myr-* rule comes after the reads, so no readable folder reopens it, and one regex covers them all.
-  expect(at('(deny file-read* (regex #"^/private/tmp/myr-"))')).toBeGreaterThan(
-    profile.lastIndexOf('(allow file-read* (subpath'),
-  )
-  if (process.platform === 'darwin') expect(profile).not.toContain('(subpath "/private/tmp/myr-')
-})
+notOn('win32', 'macProfile')(
+  'the macOS profile hides the home, then opens what may be read, parents first',
+  () => {
+    const profile = macProfile(confined(), home)
+    const at = (line: string) => profile.indexOf(line)
+    expect(at(`(deny file-read* (subpath "${home}"))`)).toBeGreaterThan(0)
+    expect(at(`(deny file-read* (subpath "${data}"))`)).toBeGreaterThan(
+      at(`(deny file-read* (subpath "${home}"))`),
+    )
+    expect(at(`(allow file-read* (subpath "${colony}"))`)).toBeGreaterThan(
+      at(`(deny file-read* (subpath "${data}"))`),
+    )
+    expect(at(`(allow file-read* (subpath "${realpathSync(join(home, '.bun'))}"))`)).toBeGreaterThan(0)
+    expect(at(`(allow file-write* (subpath "${scratch}"))`)).toBeGreaterThan(at('(deny file-write*)'))
+    // Folders above an open one can be looked up, not listed.
+    expect(profile).toContain(`(literal "${home}")`)
+    // Sockets follow the write rules: none in the data folder or a folder only read, the agent's scratch is fine.
+    expect(at(`(deny network-outbound (remote unix-socket (subpath "${data}")))`)).toBeGreaterThan(0)
+    expect(at(`(allow network-outbound (remote unix-socket (subpath "${scratch}")))`)).toBeGreaterThan(
+      at(`(deny network-outbound (remote unix-socket (subpath "${data}")))`),
+    )
+    expect(profile).not.toContain(`(allow network-outbound (remote unix-socket (subpath "${colony}")))`)
+    // This system's own roots (cross-platform.test.ts pins each system's list).
+    for (const dir of SANDBOX_HIDDEN_ROOTS) expect(profile).toContain(`(deny file-read* (subpath "${dir}"))`)
+    expect(profile).toContain('(deny network-outbound (remote unix-socket (regex #"^/private/tmp/myr-")))')
+    expect(profile).toContain('(deny appleevent-send)')
+    expect(profile).toContain(
+      '(deny mach-lookup (global-name-regex #"^com\\.apple\\.windowserver") (global-name "com.apple.replayd"))',
+    )
+    expect(profile).toContain('(deny lsopen)')
+    expect(profile).toContain('(deny mach-lookup (global-name-regex #"^com\\.apple\\.pasteboard\\."))')
+    // The /tmp/myr-* rule comes after the reads, so no readable folder reopens it, and one regex covers them all.
+    expect(at('(deny file-read* (regex #"^/private/tmp/myr-"))')).toBeGreaterThan(
+      profile.lastIndexOf('(allow file-read* (subpath'),
+    )
+    if (process.platform === 'darwin') expect(profile).not.toContain('(subpath "/private/tmp/myr-')
+  },
+)
 
-test('bubblewrap gets the same rules as mounts: an empty home, then what may be read, then what may be written', () => {
-  const mounts = bwrapMounts(confined(), home)
-  const pairs: string[] = []
-  for (let i = 0; i < mounts.length; i++) {
-    const flag = mounts[i] as string
-    if (flag === '--tmpfs') pairs.push(`tmpfs ${mounts[++i]}`)
-    else {
-      const from = mounts[++i]
-      const to = mounts[++i]
-      pairs.push(`${flag.slice(2)} ${from === '/dev/null' ? 'null ' : ''}${to}`)
+notOn('win32', 'bwrapMounts')(
+  'bubblewrap gets the same rules as mounts: an empty home, then what may be read, then what may be written',
+  () => {
+    const mounts = bwrapMounts(confined(), home)
+    const pairs: string[] = []
+    for (let i = 0; i < mounts.length; i++) {
+      const flag = mounts[i] as string
+      if (flag === '--tmpfs') pairs.push(`tmpfs ${mounts[++i]}`)
+      else {
+        const from = mounts[++i]
+        const to = mounts[++i]
+        pairs.push(`${flag.slice(2)} ${from === '/dev/null' ? 'null ' : ''}${to}`)
+      }
     }
-  }
-  const index = (p: string) => pairs.indexOf(p)
-  // Nothing inside the home comes before the home is emptied.
-  expect(pairs.findIndex((p) => p.includes(home))).toBe(index(`tmpfs ${home}`))
-  expect(index(`tmpfs ${data}`)).toBeGreaterThan(0)
-  expect(index(`tmpfs ${join(home, '.ssh')}`)).toBeGreaterThan(0)
-  expect(index(`ro-bind ${project}`)).toBeGreaterThan(0)
-  expect(index(`bind ${project}`)).toBeGreaterThan(index(`ro-bind ${project}`))
-  expect(index(`ro-bind ${colony}`)).toBeGreaterThan(index(`tmpfs ${data}`))
-  expect(index(`bind ${scratch}`)).toBeGreaterThan(index(`ro-bind ${colony}`))
-  expect(index(`ro-bind ${realpathSync(join(home, '.bun'))}`)).toBeGreaterThan(0)
-  // A hidden file is covered with /dev/null, not a tmpfs.
-  writeFileSync(join(home, '.netrc'), 'machine x password y')
-  expect(bwrapMounts({ ...confined(), hidden: [join(home, '.netrc')], readable: [home] }, home)).toEqual(
-    expect.arrayContaining(['--ro-bind', '/dev/null', join(home, '.netrc')]),
-  )
-})
+    const index = (p: string) => pairs.indexOf(p)
+    // Nothing inside the home comes before the home is emptied.
+    expect(pairs.findIndex((p) => p.includes(home))).toBe(index(`tmpfs ${home}`))
+    expect(index(`tmpfs ${data}`)).toBeGreaterThan(0)
+    expect(index(`tmpfs ${join(home, '.ssh')}`)).toBeGreaterThan(0)
+    expect(index(`ro-bind ${project}`)).toBeGreaterThan(0)
+    expect(index(`bind ${project}`)).toBeGreaterThan(index(`ro-bind ${project}`))
+    expect(index(`ro-bind ${colony}`)).toBeGreaterThan(index(`tmpfs ${data}`))
+    expect(index(`bind ${scratch}`)).toBeGreaterThan(index(`ro-bind ${colony}`))
+    expect(index(`ro-bind ${realpathSync(join(home, '.bun'))}`)).toBeGreaterThan(0)
+    // A hidden file is covered with /dev/null, not a tmpfs.
+    writeFileSync(join(home, '.netrc'), 'machine x password y')
+    expect(bwrapMounts({ ...confined(), hidden: [join(home, '.netrc')], readable: [home] }, home)).toEqual(
+      expect.arrayContaining(['--ro-bind', '/dev/null', join(home, '.netrc')]),
+    )
+  },
+)
 
 test.skipIf(detectSandbox().kind === 'none')(
   ".NET's certificate store stays hidden inside its readable toolchain folder",
@@ -200,68 +232,69 @@ test.skipIf(detectSandbox().kind === 'none')(
   },
 )
 
-test('file tools refuse what the sandbox hides, open what the person allowed, and reach anything with full access', () => {
-  let reads: string[] = []
-  let unconfined = false
-  const ws = new ColonyWorkspace(colony, project, () => unconfined, {
-    dataDir: data,
-    home,
-    reads: () => reads,
-  })
-  const agent = 'lead'
-  expect(ws.resolveForRead(agent, 'README.md')).toBe(join(project, 'README.md'))
-  expect(() => ws.resolveForRead(agent, `${home}/.zshrc`)).toThrow('outside your project')
-  expect(() => ws.resolveForRead(agent, '~/.zshrc')).toThrow('request_read')
-  expect(() => ws.resolveForRead(agent, `${other}/events.txt`)).toThrow('outside your project')
-  // A link in the project that points at the keys does not reach them.
-  symlinkSync(join(home, '.ssh'), join(project, 'keys'))
-  expect(() => ws.resolveForRead(agent, 'keys/id_ed25519')).toThrow('outside your project')
+pendingOn('win32', 'fileToolPathsOnWindows')(
+  'file tools refuse what the sandbox hides, open what the person allowed, and reach anything with full access',
+  () => {
+    let reads: string[] = []
+    let unconfined = false
+    const ws = new ColonyWorkspace(colony, project, () => unconfined, {
+      dataDir: data,
+      home,
+      reads: () => reads,
+    })
+    const agent = 'lead'
+    expect(ws.resolveForRead(agent, 'README.md')).toBe(join(project, 'README.md'))
+    expect(() => ws.resolveForRead(agent, `${home}/.zshrc`)).toThrow('outside your project')
+    expect(() => ws.resolveForRead(agent, '~/.zshrc')).toThrow('request_read')
+    expect(() => ws.resolveForRead(agent, `${other}/events.txt`)).toThrow('outside your project')
+    // A link in the project that points at the keys does not reach them.
+    symlinkSync(join(home, '.ssh'), join(project, 'keys'))
+    expect(() => ws.resolveForRead(agent, 'keys/id_ed25519')).toThrow('outside your project')
 
-  reads = [join(home, 'notes')]
-  expect(ws.resolveForRead(agent, '~/notes/todo.md')).toBe(join(home, 'notes', 'todo.md'))
-  // Reading is not writing.
-  expect(() => ws.resolveInWorkdir(agent, `${home}/notes/todo.md`)).toThrow('outside your project')
+    reads = [join(home, 'notes')]
+    expect(ws.resolveForRead(agent, '~/notes/todo.md')).toBe(join(home, 'notes', 'todo.md'))
+    // Reading is not writing.
+    expect(() => ws.resolveInWorkdir(agent, `${home}/notes/todo.md`)).toThrow('outside your project')
 
-  reads = [home]
-  expect(ws.mayRead(agent, join(home, 'notes', 'todo.md'))).toBe(true)
-  expect(ws.mayRead(agent, join(home, '.ssh', 'id_ed25519'))).toBe(false)
-  // Shell startup files, other agents' sign-ins and app data are keys too.
-  for (const secret of [
-    '.zshrc',
-    '.zshenv',
-    '.bashrc',
-    '.bash_profile',
-    '.profile',
-    '.omp/agent/agent.db',
-    '.claude/.credentials.json',
-    '.claude.json',
-    '.codex/auth.json',
-    '.gemini/oauth_creds.json',
-    '.terraform.d/credentials.tfrc.json',
-    '.vault-token',
-    '.pgpass',
-    '.gem/credentials',
-    '.m2/settings.xml',
-    '.zsh_sessions/x.history',
-    '.python_history',
-    '.psql_history',
-    '.yarnrc.yml',
-    '.gradle/gradle.properties',
-    '.composer/auth.json',
-    'Library/Containers/com.example.app/Data/x',
-    'Library/Group Containers/group.example/x',
-    '.dotnet/corefx/cryptography/x509stores/my/key.pfx',
-  ])
-    expect({ secret, read: ws.mayRead(agent, join(home, secret)) }).toEqual({ secret, read: false })
-  expect(ws.mayRead(agent, join(home, '.m2', 'repository', 'x.jar'))).toBe(true)
-  expect(ws.mayRead(agent, join(home, '.dotnet', 'dotnet'))).toBe(true)
-  expect(ws.mayRead(agent, join(other, 'events.txt'))).toBe(false)
-  expect(ws.confinement().hidden).toEqual(expect.arrayContaining([data, join(home, '.ssh')]))
+    reads = [home]
+    expect(ws.mayRead(agent, join(home, 'notes', 'todo.md'))).toBe(true)
+    expect(ws.mayRead(agent, join(home, '.ssh', 'id_ed25519'))).toBe(false)
+    // Shell startup files, other agents' sign-ins and app data are keys too.
+    for (const secret of [
+      '.zshrc',
+      '.zshenv',
+      '.bashrc',
+      '.bash_profile',
+      '.profile',
+      '.omp/agent/agent.db',
+      '.claude/.credentials.json',
+      '.claude.json',
+      '.codex/auth.json',
+      '.gemini/oauth_creds.json',
+      '.terraform.d/credentials.tfrc.json',
+      '.vault-token',
+      '.pgpass',
+      '.gem/credentials',
+      '.m2/settings.xml',
+      '.zsh_sessions/x.history',
+      '.python_history',
+      '.psql_history',
+      '.yarnrc.yml',
+      '.gradle/gradle.properties',
+      '.composer/auth.json',
+      ...SYSTEM_SECRETS,
+    ])
+      expect({ secret, read: ws.mayRead(agent, join(home, secret)) }).toEqual({ secret, read: false })
+    expect(ws.mayRead(agent, join(home, '.m2', 'repository', 'x.jar'))).toBe(true)
+    expect(ws.mayRead(agent, join(home, '.dotnet', 'dotnet'))).toBe(true)
+    expect(ws.mayRead(agent, join(other, 'events.txt'))).toBe(false)
+    expect(ws.confinement().hidden).toEqual(expect.arrayContaining([data, join(home, '.ssh')]))
 
-  reads = []
-  unconfined = true
-  expect(ws.resolveForRead(agent, `${home}/.zshrc`)).toBe(join(home, '.zshrc'))
-})
+    reads = []
+    unconfined = true
+    expect(ws.resolveForRead(agent, `${home}/.zshrc`)).toBe(join(home, '.zshrc'))
+  },
+)
 
 // --- The three levels, through real chats -------------------------------------------------------------------
 
@@ -273,16 +306,17 @@ let runtime: Runtime
 
 const setUpChats = async () => {
   myr = mkdtempSync(join(tmpdir(), 'myr-reads-home-'))
-  // A folder that is no project and no scratch: file tools reach it only when the person allows it.
-  outside = realpathSync(mkdtempSync(join(tmpdir(), 'myr-reads-outside-')))
+  // A folder that is no project and no scratch: file tools reach it only when the person allows it. Its real path as
+  // the file tools see it: on Windows the native one, with long names where the temp folder may have 8.3 ones.
+  outside = realpathSync.native(mkdtempSync(join(tmpdir(), 'myr-reads-outside-')))
   writeFileSync(join(outside, 'spec.md'), 'the spec')
   runtime = await bootRuntime(myr)
 }
 
 const tearDownChats = async () => {
   await runtime.dispose()
-  rmSync(myr, { recursive: true, force: true })
-  rmSync(outside, { recursive: true, force: true })
+  removeTempDir(myr)
+  removeTempDir(outside)
 }
 
 const tool = (name: string, args: Record<string, unknown>): MockContent => ({
@@ -336,42 +370,45 @@ const readSpec = () => [
   [tool('reply_user', { text: 'Done.', final: true })],
 ]
 
-test('a folder listed in Settings opens for every chat of the person, never for a channel member', async () => {
-  await setUpChats()
-  try {
-    const settings = new SettingsStore(myr)
-    const before = new ChatService(runtime, { resolver: models(readSpec()), settings })
-    const one = await before.send('Read the spec', config)
-    await waitFor(one.colonyId)
-    expect((await results(one.colonyId))[0]?.ok).toBe(false)
-    await before.stopAll()
+pendingOn('win32', 'settingsPosixPaths')(
+  'a folder listed in Settings opens for every chat of the person, never for a channel member',
+  async () => {
+    await setUpChats()
+    try {
+      const settings = new SettingsStore(myr)
+      const before = new ChatService(runtime, { resolver: models(readSpec()), settings })
+      const one = await before.send('Read the spec', config)
+      await waitFor(one.colonyId)
+      expect((await results(one.colonyId))[0]?.ok).toBe(false)
+      await before.stopAll()
 
-    settings.set({ ...settings.get(), sandbox: { enabled: true, read: [outside, '~/.ssh'] } })
-    const told = models(readSpec())
-    const after = new ChatService(runtime, { resolver: told, settings })
-    const two = await after.send('Read the spec', config)
-    await waitFor(two.colonyId)
-    const [read] = await results(two.colonyId)
-    expect(read?.ok).toBe(true)
-    expect(read?.output).toContain('the spec')
-    // The agent is told which folders it may read, and how to ask for more.
-    expect(told.prompts[0]).toContain(outside)
-    expect(told.prompts[0]).toContain('request_read')
-    // Settings alone can open the keys' folder, by naming it (the test never reads it).
-    expect(told.prompts[0]).toContain(join(homedir(), '.ssh'))
-    await after.stopAll()
+      settings.set({ ...settings.get(), sandbox: { enabled: true, read: [outside, '~/.ssh'] } })
+      const told = models(readSpec())
+      const after = new ChatService(runtime, { resolver: told, settings })
+      const two = await after.send('Read the spec', config)
+      await waitFor(two.colonyId)
+      const [read] = await results(two.colonyId)
+      expect(read?.ok).toBe(true)
+      expect(read?.output).toContain('the spec')
+      // The agent is told which folders it may read, and how to ask for more.
+      expect(told.prompts[0]).toContain(outside)
+      expect(told.prompts[0]).toContain('request_read')
+      // Settings alone can open the keys' folder, by naming it (the test never reads it).
+      expect(told.prompts[0]).toContain(join(homedir(), '.ssh'))
+      await after.stopAll()
 
-    const member = models(readSpec())
-    const members = new ChatService(runtime, { resolver: member, settings })
-    const three = await members.send('Read the spec', config, undefined, { askAll: true })
-    await waitFor(three.colonyId)
-    expect((await results(three.colonyId))[0]?.ok).toBe(false)
-    expect(member.prompts[0]).not.toContain(outside)
-    await members.stopAll()
-  } finally {
-    await tearDownChats()
-  }
-})
+      const member = models(readSpec())
+      const members = new ChatService(runtime, { resolver: member, settings })
+      const three = await members.send('Read the spec', config, undefined, { askAll: true })
+      await waitFor(three.colonyId)
+      expect((await results(three.colonyId))[0]?.ok).toBe(false)
+      expect(member.prompts[0]).not.toContain(outside)
+      await members.stopAll()
+    } finally {
+      await tearDownChats()
+    }
+  },
+)
 
 test("a project's readable folders open for its chats only, and it can never name keys or other chats", async () => {
   await setUpChats()

@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Socket } from 'bun'
+import { pendingOn } from '../../../tests/platform.ts'
 import { plainText, splitBytes } from '../src/channels/format.ts'
 import { BUILT_IN_CHANNELS, type ChannelChats, ChannelHub, type ChannelKind } from '../src/channels/index.ts'
 import { addressed, IrcAdapter, parseIrcLine } from '../src/channels/irc.ts'
@@ -98,150 +99,167 @@ test('Markdown becomes plain text, and lines are cut by bytes at spaces, never i
   expect(cut).toEqual(['😀😀', '😀😀', '😀'])
 })
 
-test('check registers and says which nick; a taken nick falls back to nick_', async () => {
-  const { port } = ircServer((line, client) => {
-    if (line === 'NICK myrbot') client.send(':irc.test 433 * myrbot :Nickname is already in use')
-    if (line === 'NICK myrbot_') client.send(':irc.test 001 myrbot_ :Welcome')
-    return true
-  })
-  expect(await new IrcAdapter(settings(port)).check()).toBe('myrbot_ on 127.0.0.1')
-})
-
-test('it joins, answers PING, and maps DMs and addressed channel lines; the rest is ignored', async () => {
-  const { port, clients } = ircServer()
-  const adapter = new IrcAdapter(settings(port))
-  adapters.push(adapter)
-  const { handle, received, statuses } = fakeIO()
-  await adapter.start(handle)
-  await until(() => statuses.some((s) => s.state === 'on'))
-  expect(statuses).toContainEqual({ state: 'on', account: 'myrbot on 127.0.0.1' })
-  const client = clients[0]
-  if (!client) throw new Error('no client')
-  await until(() => client.lines.some((l) => l.line === 'JOIN #ops'))
-  expect(client.lines.map((l) => l.line)).toContain('JOIN #room')
-
-  client.send('PING :keepalive-1')
-  await until(() => client.lines.some((l) => l.line === 'PONG :keepalive-1'))
-
-  client.send(':alice!~al@host.example PRIVMSG myrbot :hello \u0002there\u0002')
-  client.send(':alice!~al@host.example PRIVMSG #Room :myrbot: run the tests')
-  client.send(':bob!~b@elsewhere PRIVMSG #room :just chatting')
-  client.send(':alice!~al@host.example NOTICE myrbot :a notice')
-  client.send(':alice!~al@host.example PRIVMSG myrbot :\u0001VERSION\u0001')
-  client.send(':alice!~al@host.example PRIVMSG myrbot :\u0001ACTION waves\u0001')
-  // IRC clients keep /commands for themselves, so the channel's are typed with !.
-  client.send(':alice!~al@host.example PRIVMSG myrbot :!approve K7QX always')
-  client.send(':alice!~al@host.example PRIVMSG myrbot :!important news')
-  await until(() => received.length === 6)
-
-  expect(received[0]).toMatchObject({
-    chat: { id: 'alice', kind: 'dm' },
-    sender: { id: 'alice!~al@host.example', name: 'alice' },
-    text: 'hello there',
-    mentioned: true,
-  })
-  // A nick is anyone's to take: no handle, so the allowlist can match only the full mask.
-  expect(received[0]?.sender.handle).toBeUndefined()
-  expect(received[1]).toMatchObject({
-    chat: { id: '#room', kind: 'group', title: '#Room' },
-    text: 'run the tests',
-    mentioned: true,
-  })
-  expect(received[2]).toMatchObject({ chat: { id: '#room' }, mentioned: false })
-  expect(received[3]?.text).toBe('* alice waves')
-  expect(received[4]?.text).toBe('/approve K7QX always')
-  expect(received[5]?.text).toBe('!important news')
-})
-
-test('sending: plain text, a line per line, cut to 400 bytes, paced after a burst', async () => {
-  const { port, clients } = ircServer()
-  const adapter = new IrcAdapter(settings(port), { burst: 2, everyMs: 150 })
-  adapters.push(adapter)
-  const { handle, statuses } = fakeIO()
-  await adapter.start(handle)
-  await until(() => statuses.some((s) => s.state === 'on'))
-  const client = clients[0]
-  if (!client) throw new Error('no client')
-
-  const long = 'é'.repeat(300)
-  const t0 = Date.now()
-  const ref = await adapter.send('#room', {
-    text: `**Done** with [the report](https://x.test)\n\n${long}\nlast`,
-  })
-  expect(ref.chat).toBe('#room')
-  await until(() => client.lines.filter((l) => l.line.startsWith('PRIVMSG #room :')).length === 4)
-  const all = client.lines.filter((l) => l.line.startsWith('PRIVMSG #room :'))
-  expect(all.map((l) => l.line.slice('PRIVMSG #room :'.length))).toEqual([
-    'Done with the report (https://x.test)',
-    'é'.repeat(200),
-    'é'.repeat(100),
-    'last',
-  ])
-  for (const l of all)
-    expect(Buffer.byteLength(l.line.slice('PRIVMSG #room :'.length))).toBeLessThanOrEqual(400)
-  // Two at once, then one per 150 ms: the last two waited their turn (measured where they were sent, since the
-  // server's own clock bunches lines up when the machine is busy).
-  expect(Date.now() - t0).toBeGreaterThanOrEqual(280)
-
-  // A CR/LF in what is sent never starts a second command.
-  await adapter.send('alice', { text: 'one\r\nQUIT :gotcha' })
-  await until(() => client.lines.some((l) => l.line === 'PRIVMSG alice :QUIT :gotcha'))
-  expect(client.lines.some((l) => l.line.startsWith('QUIT'))).toBe(false)
-  await expect(adapter.send('bad target', { text: 'x' })).rejects.toThrow('not an IRC channel or nick')
-})
-
-test('SASL PLAIN with the password when offered; a refused password is an error, not retried', async () => {
-  let auth = ''
-  const sasl = (refuse: boolean) =>
-    ircServer((line, client, nick) => {
-      if (line === 'CAP LS 302') client.send(':irc.test CAP * LS :multi-prefix sasl=PLAIN,EXTERNAL')
-      else if (line === 'CAP REQ :sasl') client.send(':irc.test CAP * ACK :sasl')
-      else if (line === 'AUTHENTICATE PLAIN') client.send('AUTHENTICATE +')
-      else if (line.startsWith('AUTHENTICATE ')) {
-        auth = Buffer.from(line.slice(13), 'base64').toString()
-        client.send(
-          refuse ? ':irc.test 904 * :SASL authentication failed' : ':irc.test 903 * :SASL successful',
-        )
-      } else if (line === 'CAP END') client.send(`:irc.test 001 ${nick()} :Welcome`)
-      // Registration waits for CAP END.
+pendingOn('win32', 'bunWindowsSockets')(
+  'check registers and says which nick; a taken nick falls back to nick_',
+  async () => {
+    const { port } = ircServer((line, client) => {
+      if (line === 'NICK myrbot') client.send(':irc.test 433 * myrbot :Nickname is already in use')
+      if (line === 'NICK myrbot_') client.send(':irc.test 001 myrbot_ :Welcome')
       return true
     })
-  const ok = sasl(false)
-  expect(await new IrcAdapter(settings(ok.port, { password: 'hunter2' })).check()).toBe('myrbot on 127.0.0.1')
-  expect(auth).toBe('myrbot\0myrbot\0hunter2')
-  expect(ok.clients[0]?.lines.some((l) => l.line.startsWith('PASS'))).toBe(false)
+    expect(await new IrcAdapter(settings(port)).check()).toBe('myrbot_ on 127.0.0.1')
+  },
+)
 
-  const refused = sasl(true)
-  await expect(new IrcAdapter(settings(refused.port, { password: 'wrong' })).check()).rejects.toThrow(
-    'refused the password',
-  )
-  const adapter = new IrcAdapter(settings(refused.port, { password: 'wrong' }))
-  adapters.push(adapter)
-  const { handle, statuses } = fakeIO()
-  await adapter.start(handle)
-  await until(() => statuses.some((s) => s.state === 'error'))
-  expect(statuses.at(-1)).toMatchObject({ state: 'error', error: expect.stringContaining('SASL') })
-})
+pendingOn('win32', 'bunWindowsSockets')(
+  'it joins, answers PING, and maps DMs and addressed channel lines; the rest is ignored',
+  async () => {
+    const { port, clients } = ircServer()
+    const adapter = new IrcAdapter(settings(port))
+    adapters.push(adapter)
+    const { handle, received, statuses } = fakeIO()
+    await adapter.start(handle)
+    await until(() => statuses.some((s) => s.state === 'on'))
+    expect(statuses).toContainEqual({ state: 'on', account: 'myrbot on 127.0.0.1' })
+    const client = clients[0]
+    if (!client) throw new Error('no client')
+    await until(() => client.lines.some((l) => l.line === 'JOIN #ops'))
+    expect(client.lines.map((l) => l.line)).toContain('JOIN #room')
 
-test('without SASL on offer the password goes as PASS before NICK; bad settings and dead servers say why', async () => {
-  const { port, clients } = ircServer((line, client) => {
-    if (line === 'CAP LS 302') client.send(':irc.test 421 * CAP :Unknown command')
-    return undefined
-  })
-  expect(await new IrcAdapter(settings(port, { password: 'serverpw' })).check()).toBe('myrbot on 127.0.0.1')
-  const lines = clients[0]?.lines.map((l) => l.line) ?? []
-  expect(lines.indexOf('PASS serverpw')).toBeGreaterThan(-1)
-  expect(lines.indexOf('PASS serverpw')).toBeLessThan(lines.indexOf('NICK myrbot'))
+    client.send('PING :keepalive-1')
+    await until(() => client.lines.some((l) => l.line === 'PONG :keepalive-1'))
 
-  await expect(new IrcAdapter(settings(port, { nick: '9lives' })).check()).rejects.toThrow('an IRC nick')
-  await expect(new IrcAdapter({ ...settings(port), server: '' }).check()).rejects.toThrow('server address')
-  const closed = Bun.listen({ hostname: '127.0.0.1', port: 0, socket: { data() {} } })
-  const deadPort = closed.port
-  closed.stop(true)
-  await expect(new IrcAdapter(settings(deadPort)).check()).rejects.toThrow('cannot reach')
-})
+    client.send(':alice!~al@host.example PRIVMSG myrbot :hello \u0002there\u0002')
+    client.send(':alice!~al@host.example PRIVMSG #Room :myrbot: run the tests')
+    client.send(':bob!~b@elsewhere PRIVMSG #room :just chatting')
+    client.send(':alice!~al@host.example NOTICE myrbot :a notice')
+    client.send(':alice!~al@host.example PRIVMSG myrbot :\u0001VERSION\u0001')
+    client.send(':alice!~al@host.example PRIVMSG myrbot :\u0001ACTION waves\u0001')
+    // IRC clients keep /commands for themselves, so the channel's are typed with !.
+    client.send(':alice!~al@host.example PRIVMSG myrbot :!approve K7QX always')
+    client.send(':alice!~al@host.example PRIVMSG myrbot :!important news')
+    await until(() => received.length === 6)
 
-test('a dropped connection is retried and comes back', async () => {
+    expect(received[0]).toMatchObject({
+      chat: { id: 'alice', kind: 'dm' },
+      sender: { id: 'alice!~al@host.example', name: 'alice' },
+      text: 'hello there',
+      mentioned: true,
+    })
+    // A nick is anyone's to take: no handle, so the allowlist can match only the full mask.
+    expect(received[0]?.sender.handle).toBeUndefined()
+    expect(received[1]).toMatchObject({
+      chat: { id: '#room', kind: 'group', title: '#Room' },
+      text: 'run the tests',
+      mentioned: true,
+    })
+    expect(received[2]).toMatchObject({ chat: { id: '#room' }, mentioned: false })
+    expect(received[3]?.text).toBe('* alice waves')
+    expect(received[4]?.text).toBe('/approve K7QX always')
+    expect(received[5]?.text).toBe('!important news')
+  },
+)
+
+pendingOn('win32', 'bunWindowsSockets')(
+  'sending: plain text, a line per line, cut to 400 bytes, paced after a burst',
+  async () => {
+    const { port, clients } = ircServer()
+    const adapter = new IrcAdapter(settings(port), { burst: 2, everyMs: 150 })
+    adapters.push(adapter)
+    const { handle, statuses } = fakeIO()
+    await adapter.start(handle)
+    await until(() => statuses.some((s) => s.state === 'on'))
+    const client = clients[0]
+    if (!client) throw new Error('no client')
+
+    const long = 'é'.repeat(300)
+    const t0 = Date.now()
+    const ref = await adapter.send('#room', {
+      text: `**Done** with [the report](https://x.test)\n\n${long}\nlast`,
+    })
+    expect(ref.chat).toBe('#room')
+    await until(() => client.lines.filter((l) => l.line.startsWith('PRIVMSG #room :')).length === 4)
+    const all = client.lines.filter((l) => l.line.startsWith('PRIVMSG #room :'))
+    expect(all.map((l) => l.line.slice('PRIVMSG #room :'.length))).toEqual([
+      'Done with the report (https://x.test)',
+      'é'.repeat(200),
+      'é'.repeat(100),
+      'last',
+    ])
+    for (const l of all)
+      expect(Buffer.byteLength(l.line.slice('PRIVMSG #room :'.length))).toBeLessThanOrEqual(400)
+    // Two at once, then one per 150 ms: the last two waited their turn (measured where they were sent, since the
+    // server's own clock bunches lines up when the machine is busy).
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(280)
+
+    // A CR/LF in what is sent never starts a second command.
+    await adapter.send('alice', { text: 'one\r\nQUIT :gotcha' })
+    await until(() => client.lines.some((l) => l.line === 'PRIVMSG alice :QUIT :gotcha'))
+    expect(client.lines.some((l) => l.line.startsWith('QUIT'))).toBe(false)
+    await expect(adapter.send('bad target', { text: 'x' })).rejects.toThrow('not an IRC channel or nick')
+  },
+)
+
+pendingOn('win32', 'bunWindowsSockets')(
+  'SASL PLAIN with the password when offered; a refused password is an error, not retried',
+  async () => {
+    let auth = ''
+    const sasl = (refuse: boolean) =>
+      ircServer((line, client, nick) => {
+        if (line === 'CAP LS 302') client.send(':irc.test CAP * LS :multi-prefix sasl=PLAIN,EXTERNAL')
+        else if (line === 'CAP REQ :sasl') client.send(':irc.test CAP * ACK :sasl')
+        else if (line === 'AUTHENTICATE PLAIN') client.send('AUTHENTICATE +')
+        else if (line.startsWith('AUTHENTICATE ')) {
+          auth = Buffer.from(line.slice(13), 'base64').toString()
+          client.send(
+            refuse ? ':irc.test 904 * :SASL authentication failed' : ':irc.test 903 * :SASL successful',
+          )
+        } else if (line === 'CAP END') client.send(`:irc.test 001 ${nick()} :Welcome`)
+        // Registration waits for CAP END.
+        return true
+      })
+    const ok = sasl(false)
+    expect(await new IrcAdapter(settings(ok.port, { password: 'hunter2' })).check()).toBe(
+      'myrbot on 127.0.0.1',
+    )
+    expect(auth).toBe('myrbot\0myrbot\0hunter2')
+    expect(ok.clients[0]?.lines.some((l) => l.line.startsWith('PASS'))).toBe(false)
+
+    const refused = sasl(true)
+    await expect(new IrcAdapter(settings(refused.port, { password: 'wrong' })).check()).rejects.toThrow(
+      'refused the password',
+    )
+    const adapter = new IrcAdapter(settings(refused.port, { password: 'wrong' }))
+    adapters.push(adapter)
+    const { handle, statuses } = fakeIO()
+    await adapter.start(handle)
+    await until(() => statuses.some((s) => s.state === 'error'))
+    expect(statuses.at(-1)).toMatchObject({ state: 'error', error: expect.stringContaining('SASL') })
+  },
+)
+
+pendingOn('win32', 'bunWindowsSockets')(
+  'without SASL on offer the password goes as PASS before NICK; bad settings and dead servers say why',
+  async () => {
+    const { port, clients } = ircServer((line, client) => {
+      if (line === 'CAP LS 302') client.send(':irc.test 421 * CAP :Unknown command')
+      return undefined
+    })
+    expect(await new IrcAdapter(settings(port, { password: 'serverpw' })).check()).toBe('myrbot on 127.0.0.1')
+    const lines = clients[0]?.lines.map((l) => l.line) ?? []
+    expect(lines.indexOf('PASS serverpw')).toBeGreaterThan(-1)
+    expect(lines.indexOf('PASS serverpw')).toBeLessThan(lines.indexOf('NICK myrbot'))
+
+    await expect(new IrcAdapter(settings(port, { nick: '9lives' })).check()).rejects.toThrow('an IRC nick')
+    await expect(new IrcAdapter({ ...settings(port), server: '' }).check()).rejects.toThrow('server address')
+    const closed = Bun.listen({ hostname: '127.0.0.1', port: 0, socket: { data() {} } })
+    const deadPort = closed.port
+    closed.stop(true)
+    await expect(new IrcAdapter(settings(deadPort)).check()).rejects.toThrow('cannot reach')
+  },
+)
+
+pendingOn('win32', 'bunWindowsSockets')('a dropped connection is retried and comes back', async () => {
   const { port, clients } = ircServer()
   const adapter = new IrcAdapter(settings(port))
   adapters.push(adapter)
@@ -257,37 +275,40 @@ test('a dropped connection is retried and comes back', async () => {
   await until(() => clients.length === 2 && statuses.at(-1)?.state === 'on', 5000)
 })
 
-test('through the hub: a stranger gets a pairing code over PRIVMSG, and approving makes them the owner', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'myr-irc-hub-'))
-  const { port, clients } = ircServer()
-  const chats: ChannelChats = {
-    send: async () => ({ chatId: 'c1', colonyId: 'col-1', started: false }),
-    rename: async () => undefined,
-    stop: async () => {},
-    onEvents: () => () => {},
-    read: async () => [],
-    decideApproval: async () => {},
-    allowAlways: async () => {},
-    artifact: async () => undefined,
-  }
-  const hub = new ChannelHub({ dir, chats, kinds: () => ({ irc: BUILT_IN_CHANNELS.irc as ChannelKind }) })
-  try {
-    await hub.configure('irc', { values: settings(port) })
-    await until(() => hub.list()[0]?.status.state === 'on')
-    const client = clients.at(-1)
-    if (!client) throw new Error('no client')
-    client.send(':alice!~al@host.example PRIVMSG myrbot :hello')
-    await until(() => client.lines.some((l) => l.line.includes('myrmidon channels approve irc')))
-    const code = /approve irc ([A-Z0-9]{8})/.exec(client.lines.map((l) => l.line).join('\n'))?.[1] ?? ''
-    await hub.approve('irc', { code })
-    await until(() =>
-      client.lines.some((l) => l.line.startsWith("PRIVMSG alice :You're set up as the owner")),
-    )
-    expect(hub.list()[0]?.people).toMatchObject([
-      { id: 'alice!~al@host.example', role: 'owner', dm: 'alice' },
-    ])
-  } finally {
-    await hub.stop()
-    rmSync(dir, { recursive: true, force: true })
-  }
-})
+pendingOn('win32', 'bunWindowsSockets')(
+  'through the hub: a stranger gets a pairing code over PRIVMSG, and approving makes them the owner',
+  async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'myr-irc-hub-'))
+    const { port, clients } = ircServer()
+    const chats: ChannelChats = {
+      send: async () => ({ chatId: 'c1', colonyId: 'col-1', started: false }),
+      rename: async () => undefined,
+      stop: async () => {},
+      onEvents: () => () => {},
+      read: async () => [],
+      decideApproval: async () => {},
+      allowAlways: async () => {},
+      artifact: async () => undefined,
+    }
+    const hub = new ChannelHub({ dir, chats, kinds: () => ({ irc: BUILT_IN_CHANNELS.irc as ChannelKind }) })
+    try {
+      await hub.configure('irc', { values: settings(port) })
+      await until(() => hub.list()[0]?.status.state === 'on')
+      const client = clients.at(-1)
+      if (!client) throw new Error('no client')
+      client.send(':alice!~al@host.example PRIVMSG myrbot :hello')
+      await until(() => client.lines.some((l) => l.line.includes('myrmidon channels approve irc')))
+      const code = /approve irc ([A-Z0-9]{8})/.exec(client.lines.map((l) => l.line).join('\n'))?.[1] ?? ''
+      await hub.approve('irc', { code })
+      await until(() =>
+        client.lines.some((l) => l.line.startsWith("PRIVMSG alice :You're set up as the owner")),
+      )
+      expect(hub.list()[0]?.people).toMatchObject([
+        { id: 'alice!~al@host.example', role: 'owner', dm: 'alice' },
+      ])
+    } finally {
+      await hub.stop()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  },
+)

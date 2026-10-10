@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { type ColonyState, type EventPayloads, foldColony, type MyrEvent } from '@myrmidon/protocol'
 import type { Context as LlmContext } from '@oh-my-pi/pi-ai'
 import { createMockModel, type MockContent } from '@oh-my-pi/pi-ai/providers/mock'
+import { removeTempDir } from '../../../tests/platform.ts'
 import {
   bootRuntime,
   ChatService,
@@ -30,7 +31,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await runtime.dispose()
-  rmSync(home, { recursive: true, force: true })
+  removeTempDir(home)
 })
 
 const tool = (name: string, args: Record<string, unknown>): MockContent => ({

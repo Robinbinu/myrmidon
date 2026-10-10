@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, expect, test } from 'bun:test'
+import { fileURLToPath } from 'node:url'
 import { Glob } from 'bun'
 import * as lucide from 'lucide-react'
 import { FEATURE_ICONS } from '../src/client/ui/icons.ts'
@@ -20,10 +21,12 @@ test("screens take a feature's glyph from the registry, so it cannot quietly mea
       .filter(([, value]) => glyphs.has(value))
       .map(([name]) => name),
   )
-  const root = new URL('../src/client/', import.meta.url).pathname
+  const root = fileURLToPath(new URL('../src/client/', import.meta.url))
   const strays: string[] = []
   for await (const file of new Glob('**/*.{ts,tsx}').scan(root)) {
-    if (file === 'ui/icons.ts') continue
+    // Glob gives the platform's separators.
+    const path = file.replaceAll('\\', '/')
+    if (path === 'ui/icons.ts') continue
     const source = await Bun.file(root + file).text()
     for (const block of source.matchAll(/import \{([^}]*)\} from 'lucide-react'/g))
       for (const name of (block[1] ?? '').split(',').map(
@@ -33,7 +36,7 @@ test("screens take a feature's glyph from the registry, so it cannot quietly mea
             .replace(/^type /, '')
             .split(/\s+as\s+/)[0] ?? '',
       ))
-        if (registered.has(name)) strays.push(`${file}: ${name}`)
+        if (registered.has(name)) strays.push(`${path}: ${name}`)
   }
   expect(strays).toEqual([])
 })

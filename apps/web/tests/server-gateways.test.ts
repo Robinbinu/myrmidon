@@ -1,15 +1,16 @@
 import { afterEach, expect, test } from 'bun:test'
-import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
+import { mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { BlobStore, colonyId, SqliteLogStore } from '@myrmidon/core'
+import { expectOwnerOnly, removeTempDir } from '../../../tests/platform.ts'
 import { startServer, type WebServer } from '../src/server.ts'
 
 const homes: string[] = []
 const servers: WebServer[] = []
 afterEach(async () => {
   for (const s of servers.splice(0)) await s.stop().catch(() => {})
-  for (const h of homes.splice(0)) rmSync(h, { recursive: true, force: true })
+  for (const h of homes.splice(0)) removeTempDir(h)
 })
 
 function home() {
@@ -95,7 +96,7 @@ test('a hub pairs with a gateway, keeps its token to itself, and reaches it over
 
   // The token lives only in the hub's own file, readable by this user alone.
   const file = join(h.home, 'gateways.json')
-  expect(statSync(file).mode & 0o777).toBe(0o600)
+  expectOwnerOnly(file)
   expect(readFileSync(file, 'utf8')).toContain('"token"')
   const listed = (await (await h.call('/api/gateways')).json()) as { gateways: Listed[] }
   expect(JSON.stringify(listed)).not.toContain('"token"')
