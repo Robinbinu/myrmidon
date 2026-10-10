@@ -29,6 +29,8 @@ export function toolPhrase(tool: string, args: unknown): string {
   if (tool === 'web_fetch') return t.doing.fetch
   if (tool.startsWith('browser_')) return t.doing.browser
   if (tool === 'publish_artifact') return t.doing.publish(clip(str('name')))
+  if (tool === 'generate_image') return t.doing.picture(clip(str('prompt')))
+  if (tool === 'tts') return t.doing.speech
   if (tool === 'spawn_worker' || tool === 'add_crewmate') return t.doing.crewmate
   if (tool === 'ask_crewmate') return t.doing.askCrewmate(clip(str('to')))
   if (tool === 'create_task' || tool === 'assign_task' || tool === 'update_todo') return t.doing.tasks

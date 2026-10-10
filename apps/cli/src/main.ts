@@ -35,6 +35,7 @@ import {
   McpHub,
   MemoryStore,
   ModelResolver,
+  ompMediaTools,
   ompWebTools,
   ownerOnly,
   PluginHost,
@@ -49,6 +50,7 @@ import {
   SkillProposalStore,
   SpecialistStore,
   ToolLibrary,
+  type VoiceFiles,
 } from '@myrmidon/runtime'
 import { startServer } from '@myrmidon/web'
 import { channels } from './channels.ts'
@@ -252,6 +254,11 @@ async function run(path: string) {
     sandbox,
     resolver: new ModelResolver(omp, contextWindows(settings)),
     web: ompWebTools(omp, () => settings.get().search.provider),
+    media: ompMediaTools({
+      images: omp,
+      imageModel: () => settings.get().images.model,
+      voice: () => undefined,
+    }),
   })
   const delivered = new Set<string>()
   runtime.ctx.on('log/appended', (id, events) => {
@@ -368,12 +375,19 @@ async function main() {
         .catch((err) => console.error(c.yellow(`MCP: ${err instanceof Error ? err.message : err}`)))
       const shelf = new ChatShelf(home)
       const imports = new SessionImports(home, { projects })
+      // The voice engines belong to the server, which starts after the chats: tts finds them once it is up.
+      let voice: VoiceFiles | undefined
       const chats = new ChatService(runtime, {
         resolver,
         shelf,
         imports,
         settings,
         web: ompWebTools(omp, () => settings.get().search.provider),
+        media: ompMediaTools({
+          images: omp,
+          imageModel: () => settings.get().images.model,
+          voice: () => voice,
+        }),
         unsafeNoSandbox: values['unsafe-no-sandbox'],
         mcp,
         browser,
@@ -421,6 +435,7 @@ async function main() {
         // The desktop app stops the server it started this way: Windows has no SIGTERM for it to send.
         onShutdown: () => void shutdown(),
       })
+      voice = server.voice
       console.log(`${c.bold('Myrmidon')} ${server.url}`)
       // Speech engines load in the background now, so the first call does not wait on them.
       void server.warmVoice()

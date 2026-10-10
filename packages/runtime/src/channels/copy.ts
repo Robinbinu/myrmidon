@@ -358,6 +358,8 @@ export const channelCopy = {
     fetch: 'reading a page',
     browser: 'using the browser',
     publish: (name: string) => `publishing ${name}`,
+    picture: (prompt: string) => `drawing “${prompt}”`,
+    speech: 'recording audio',
     crewmate: 'bringing in a crewmate',
     askCrewmate: (name: string) => `asking ${name}`,
     tasks: 'planning tasks',

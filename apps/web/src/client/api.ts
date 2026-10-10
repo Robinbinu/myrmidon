@@ -193,6 +193,18 @@ export async function blobImage(colony: string, hash: string): Promise<string> {
   return URL.createObjectURL(blob)
 }
 
+/**
+ * A sound stored with a chat (speech an agent made) as an object URL for <audio src>, fetched with the auth header.
+ * The server serves it as audio only if its bytes are WAV, MP3, Ogg or FLAC; anything else is refused here.
+ */
+export async function blobAudio(colony: string, hash: string): Promise<string> {
+  const res = await call(`${base}/api/colonies/${colony}/blobs/${hash}?as=audio`, { headers: auth })
+  if (!res.ok) throw failure(res.status)
+  const blob = await res.blob()
+  if (!blob.type.startsWith('audio/')) throw new ApiError(copy.artifactViewer.mediaFailed)
+  return URL.createObjectURL(blob)
+}
+
 /** A plugin's built UI, imported from an object URL so the token stays in the header, never in a URL. */
 export async function importPluginUI(name: string): Promise<unknown> {
   // A plugin's screen runs as part of this page, with this machine's access; one from another gateway opens there.
