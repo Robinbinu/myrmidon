@@ -31,11 +31,28 @@ export function spawnLeashed<
   argv: readonly string[],
   options: Omit<Bun.SpawnOptions.SpawnOptions<'pipe', Out, Err>, 'stdin' | 'stdio'> = {},
 ): Bun.Subprocess<'pipe', Out, Err> {
-  return Bun.spawn(leash(argv), {
-    ...options,
-    env: { ...(options.env ?? process.env), BUN_BE_BUN: '1' },
-    stdin: 'pipe',
-  })
+  return stopsByStdin(
+    Bun.spawn(leash(argv), {
+      windowsHide: true,
+      ...options,
+      env: { ...(options.env ?? process.env), BUN_BE_BUN: '1' },
+      stdin: 'pipe',
+    }),
+  )
+}
+
+/**
+ * On Windows a signal to a process ends it at once, with nothing passed on: killing a leash would orphan its command.
+ * There `kill()` ends the leash's stdin instead, which stops the command's whole tree as when this process dies.
+ */
+export function stopsByStdin<
+  P extends Bun.Subprocess<'pipe', Bun.SpawnOptions.Readable, Bun.SpawnOptions.Readable>,
+>(proc: P, platform: NodeJS.Platform = process.platform): P {
+  if (platform === 'win32')
+    proc.kill = () => {
+      proc.stdin.end()
+    }
+  return proc
 }
 
 /**
@@ -44,10 +61,13 @@ export function spawnLeashed<
  * stops the process's tree as when this process dies.
  */
 export function leashRunning(pid: number): Bun.Subprocess<'pipe', 'ignore', 'ignore'> {
-  return Bun.spawn(leash([`--pid=${pid}`]), {
-    env: { ...process.env, BUN_BE_BUN: '1' },
-    stdin: 'pipe',
-    stdout: 'ignore',
-    stderr: 'ignore',
-  })
+  return stopsByStdin(
+    Bun.spawn(leash([`--pid=${pid}`]), {
+      env: { ...process.env, BUN_BE_BUN: '1' },
+      stdin: 'pipe',
+      stdout: 'ignore',
+      stderr: 'ignore',
+      windowsHide: true,
+    }),
+  )
 }
