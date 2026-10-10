@@ -185,15 +185,17 @@ test.skipIf(detectSandbox().kind === 'none')(
     mkdirSync(hidden)
     mkdirSync(own)
     const sockets = [join(hidden, 'd.sock'), join(tmp, 'd.sock'), join(own, 'd.sock')]
+    // The client speaks first and the server only answers: Bun's client reports ECONNREFUSED for a connection the
+    // server accepted when the server writes and hangs up before the client sees it made (about half the time on
+    // Linux), which would pass for the sandbox refusing it.
     const servers = sockets.map((unix) =>
       Bun.listen({
         unix,
         socket: {
-          open(s) {
+          data(s) {
             s.write('hi')
             s.end()
           },
-          data() {},
         },
       }),
     )
@@ -202,7 +204,7 @@ test.skipIf(detectSandbox().kind === 'none')(
       // The client is bun itself, which every sandbox may run.
       const connect = (path: string) =>
         sandbox.run({
-          command: `"${process.execPath}" -e 'await Bun.connect({ unix: "${path}", socket: { data(_, d) { process.stdout.write(d); process.exit(0) }, close() { process.exit(0) } } })'`,
+          command: `"${process.execPath}" -e 'await Bun.connect({ unix: "${path}", socket: { open(s) { s.write("?") }, data(_, d) { process.stdout.write(d); process.exit(0) }, close() { process.exit(0) } } })'`,
           cwd: own,
           writable: [own],
           hidden: [hidden],
