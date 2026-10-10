@@ -29,7 +29,8 @@ Each job runs, in order (later steps run even when an earlier check fails, so on
 4. `bun run lint` (Biome);
 5. on Linux: installs bubblewrap and allows unprivileged user namespaces
    (`kernel.apparmor_restrict_unprivileged_userns=0`), so the command sandbox runs for real instead of being skipped;
-6. `bun test --timeout 30000`.
+6. `bun test --timeout 30000`, stopped after 25 minutes (a whole run takes about 12) with a list of what was running,
+   so a stuck run says where it is stuck instead of holding the job to its 45.
 
 Windows checks out with LF line endings (`core.autocrlf false`), as the repository is written.
 
