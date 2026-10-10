@@ -37,6 +37,7 @@ export const desktopCopy = {
     addonMissing: (name: string) => `${name} not found under node_modules: run \`bun install\``,
     ortChanged: (path: string) =>
       `${path} no longer requires its addon the way scripts/build-sidecar.ts rewrites: update the rewrite`,
+    commandFailed: (command: string, code: number | null) => `\`${command}\` failed (exit code ${code})`,
     patched: (path: string) => `set the microphone usage description in ${path}`,
     copied: (path: string) => `copied the Myrmidon server into ${path}`,
   },

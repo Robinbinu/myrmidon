@@ -15,7 +15,10 @@ export default {
     mainProcess: 'bun',
     bun: {
       entrypoint: 'main/index.ts',
-      define: { 'process.env.MYRMIDON_DESKTOP_REPO': JSON.stringify(repo) },
+      // Only in a development build: a release build runs its bundled server and would carry this machine's path.
+      ...(process.env.ELECTROBUN_BUILD_ENV === 'dev'
+        ? { define: { 'process.env.MYRMIDON_DESKTOP_REPO': JSON.stringify(repo) } }
+        : {}),
     },
     mac: {
       // Voice calls use the microphone, which a signed app with the hardened runtime may use only with this
