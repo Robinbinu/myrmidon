@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
-import { VOICE_KITTEN_MODELS } from '../config.ts'
+import { VOICE_DOWNLOAD_IDLE_MS, VOICE_KITTEN_MODELS } from '../config.ts'
+import { prompts } from '../prompts.ts'
 import { parseWav } from './audio.ts'
 import { lines } from './stt.ts'
 
@@ -118,6 +119,7 @@ export class KittenTts implements TextToSpeech {
     private readonly log: (line: string) => void = () => {},
     private readonly hub = 'https://huggingface.co',
     readonly pins: Readonly<Record<KittenModel, KittenPin>> = VOICE_KITTEN_MODELS,
+    private readonly idleMs = VOICE_DOWNLOAD_IDLE_MS,
   ) {}
 
   private _dir(model: KittenModel) {
@@ -188,15 +190,34 @@ export class KittenTts implements TextToSpeech {
     const get = async (file: string) => {
       const want = pin.files[file]
       if (!want) throw new Error(`${file} is not one of ${pin.repo}'s pinned files`)
-      const res = await fetch(`${this.hub}/${pin.repo}/resolve/${pin.revision}/${file}`)
-      if (!res.ok || !res.body) throw new Error(`downloading ${file} from ${pin.repo} failed (${res.status})`)
+      const quiet = new AbortController()
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const heard = () => {
+        clearTimeout(timer)
+        timer = setTimeout(() => quiet.abort(), this.idleMs)
+      }
       const hash = createHash('sha256')
       const parts: Uint8Array[] = []
-      for await (const part of res.body) {
-        hash.update(part)
-        parts.push(part)
-        received += part.byteLength
-        progress()
+      try {
+        heard()
+        const res = await fetch(`${this.hub}/${pin.repo}/resolve/${pin.revision}/${file}`, {
+          signal: quiet.signal,
+        })
+        if (!res.ok || !res.body)
+          throw new Error(`downloading ${file} from ${pin.repo} failed (${res.status})`)
+        for await (const part of res.body) {
+          heard()
+          hash.update(part)
+          parts.push(part)
+          received += part.byteLength
+          progress()
+        }
+      } catch (err) {
+        if (quiet.signal.aborted)
+          throw new Error(prompts.voice.downloadStalled(file, pin.repo, Math.ceil(this.idleMs / 1000)))
+        throw err
+      } finally {
+        clearTimeout(timer)
       }
       if (hash.digest('hex') !== want.sha256)
         throw new Error(`${file} from ${pin.repo} did not match its pinned hash`)

@@ -1112,6 +1112,9 @@ It is ${o.now.weekday}, ${o.now.date}, ${o.now.time} in their time zone (${o.now
           ? 'Sorry, I lost my hearing for a moment. I am using the one on this computer now; please say that again.'
           : 'Sorry, my voice service stopped working, so I am switching to the one on this computer.',
     },
+    /** A voice model's download whose connection went quiet; shown where the download is. */
+    downloadStalled: (file: string, from: string, seconds: number) =>
+      `downloading ${file} from ${from} stopped: no data for ${seconds} s. Check the internet connection and try again.`,
     /** Read back once the person's yes or no has decided an approval. */
     decided: (approved: boolean, summary: string) => `${approved ? 'Allowed' : 'Refused'}: ${summary}`,
     /** Spoken by Twilio (TwiML <Say>) to a phone caller the call cannot take. */
