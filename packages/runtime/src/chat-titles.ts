@@ -2,6 +2,7 @@ import { completeSimple } from '@oh-my-pi/pi-ai'
 import { CHAT_TITLE_MIN_WINDOW, CHAT_TITLE_MS, CHAT_TITLE_TIERS } from './config.ts'
 import type { ModelResolver } from './models.ts'
 import { prompts } from './prompts.ts'
+import { hideInContext } from './provider-secrets.ts'
 
 /** How much of the person's messages and the crew's answer the namer reads. */
 const ASKED_CHARS = 2_000
@@ -40,8 +41,8 @@ export async function nameChat(
   }
   const signal = AbortSignal.timeout(CHAT_TITLE_MS)
   const reply = resolved.streamFn
-    ? await (await resolved.streamFn(resolved.model, context, { apiKey, signal })).result()
-    : await completeSimple(resolved.model, context, { apiKey, signal })
+    ? await (await resolved.streamFn(resolved.model, hideInContext(context), { apiKey, signal })).result()
+    : await completeSimple(resolved.model, hideInContext(context), { apiKey, signal })
   if (reply.stopReason === 'error') throw new Error(reply.errorMessage ?? 'the model failed')
   return parseTitle(reply.content.flatMap((c) => (c.type === 'text' ? [c.text] : [])).join(''))
 }

@@ -1159,6 +1159,15 @@ export const SETTINGS = {
     keywords: kw.readFolders,
     keys: ['sandbox.read'],
   },
+  'permissions.hideSecrets': {
+    page: 'permissions',
+    path: [s.tools.secrets.title],
+    control: 'switch',
+    label: s.tools.secrets.hide,
+    help: s.tools.secrets.hideHint,
+    keywords: kw.secrets,
+    keys: ['privacy.hideSecrets'],
+  },
 
   // Instructions
   'instructions.lead': {

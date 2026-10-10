@@ -3354,8 +3354,11 @@ pendingOn('win32', 'fileToolPathsOnWindows')(
       },
     )
     await waitFor(colonyId)
-    // The agent saw the file as it is; what was stored did not keep the key.
-    expect(seen).toContain(key)
+    // The model was sent a placeholder for the key (provider-secrets.ts), the rest of the file as it is; what was
+    // stored did not keep the key either.
+    expect(seen).not.toContain(key)
+    expect(seen).toContain('OPENAI_API_KEY=[[secret:api-key:')
+    expect(seen).toContain('PORT=3000')
     const log = JSON.stringify(await events(colonyId))
     expect(log).not.toContain(key)
     expect(log).toContain('[api key redacted]')
