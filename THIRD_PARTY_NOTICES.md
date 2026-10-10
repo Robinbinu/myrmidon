@@ -70,8 +70,11 @@ of `session/ttsr-coordinator.ts`, and the guidance and rule-drafting prompts of 
 registry client in `skill-registry.ts` (from `skillshare/client.ts`, `skillshare/installer.ts` and
 `pi-wire/src/skillshare.ts`: package specs, routes, version resolution), the resolution of a marketplace plugin's
 source in `marketplaces.ts` (from `extensibility/plugins/marketplace/source-resolver.ts` and `fetcher.ts`), and the npm
-package-name check in `install-sources.ts` (from `extensibility/plugins/installer.ts`). `install-sources.ts` and
-`marketplaces.ts` also call omp's git URL parser, marketplace catalog parser and tar reader as a library:
+package-name check in `install-sources.ts` (from `extensibility/plugins/installer.ts`). So are the encrypted share
+files in `apps/web/src/client/chat/share.ts` (the sealed layout, key and in-browser decryption of omp's
+`export/share.ts` and `export/html/share-loader.js`) and the self-contained HTML export in
+`packages/runtime/src/chat-export.ts` (after omp's `export/html` page). `install-sources.ts` and `marketplaces.ts`
+also call omp's git URL parser, marketplace catalog parser and tar reader as a library:
 
 ```
 MIT License

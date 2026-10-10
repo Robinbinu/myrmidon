@@ -1250,3 +1250,25 @@ export const IMPORT_MAX_TURNS = 400
 export const IMPORT_TURN_CHARS = 4_000
 export const IMPORT_TOOL_ARGS_CHARS = 300
 export const IMPORT_TOOL_RESULT_CHARS = 600
+
+// Exporting a chat as one HTML page (chat-export.ts)
+
+/**
+ * What an HTML export carries inline. The page has to stand alone (sent on, opened offline, without Myrmidon), so
+ * files are embedded rather than linked; past these sizes a file is named but left out, keeping a long chat's page to
+ * a few megabytes that a browser opens at once and a person can still send.
+ */
+export const CHAT_EXPORT = {
+  /** A text file (code, notes, JSON) shown in full under its run. */
+  textBytes: 64 * 1024,
+  /** A picture shown under its run, as a data: URL. */
+  imageBytes: 512 * 1024,
+  /** Everything embedded in one page together; files after this are named only. */
+  totalBytes: 4 * 1024 * 1024,
+  /** A crewmate's message (mail, team chat) in the folded crew section. */
+  crewChars: 4_000,
+  /** One tool step's line: the tool and what it was called on. */
+  stepChars: 140,
+  /** Tool steps listed per run; the count covers all of them. */
+  stepsListed: 200,
+} as const
