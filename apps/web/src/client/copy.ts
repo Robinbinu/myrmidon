@@ -1844,6 +1844,10 @@ export const copy = {
       `${version ? `Version ${version}` : 'Installed'}${own ? ', installed by Myrmidon' : ', your own install'}`,
     install: (size: string) => `Install (${size})`,
     reinstall: 'Reinstall',
+    /** The person's own Cua Driver is older than the one Myrmidon was tried with. */
+    outdated: (yours: string, pinned: string) =>
+      `Your Cua Driver ${yours} is older than ${pinned}, the version Myrmidon is tried with; older ones can fail on some apps. Install ${pinned} into Myrmidon's folder and it is used instead (yours stays as it is).`,
+    installVersion: (version: string, size: string) => `Install ${version} (${size})`,
     installHint: (version: string, size: string) =>
       `Downloads Cua Driver ${version} from GitHub (${size}), checks it, and keeps it in Myrmidon's folder. Nothing runs until an agent first needs your Mac.`,
     progress: (done: string, total: string) => `${done} of ${total}`,
