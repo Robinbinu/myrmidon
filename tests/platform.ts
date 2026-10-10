@@ -28,9 +28,6 @@ export const GAPS = {
   timeoutStopOnWindows:
     'a full-access command past its timeout is not stopped on Windows: run() does not return for the whole sleep ' +
     '(sandbox.ts runLeashed, leash.ts)',
-  windowsRoundsStall:
-    'chat rounds that wait on approval cards, crew messages or a resume never reach their expected state on Windows ' +
-    '(colony did not reach the expected state, 25 s); cause not yet isolated, possibly the file-tool refusals above',
   windowsShellPath:
     "commands run through Git's sh.exe with a PATH that lacks Git's usr\\bin, so mkdir, touch and the rest are " +
     "'command not found'",
