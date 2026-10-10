@@ -52,6 +52,8 @@ interface Target {
   windowId: number
   bounds: { width: number; height: number }
   title: string
+  /** Its window has no accessibility tree to read (Chromium and Electron apps build one only for assistive tools). */
+  noTree?: boolean
 }
 
 interface Element {
@@ -815,7 +817,17 @@ async function screenshot(host: ColonyHost, desk: Desk, model: Model) {
     max_elements: COMPUTER_ELEMENTS_WALKED,
     ...(hub.accepts('get_window_state', 'tree_format') ? { tree_format: 'elements' } : {}),
   }
-  let r = await hub.call('get_window_state', args)
+  let r = await hub.call(
+    'get_window_state',
+    target.noTree && hub.accepts('get_window_state', 'include_accessibility_tree')
+      ? {
+          pid: args.pid,
+          window_id: args.window_id,
+          max_dimension: args.max_dimension,
+          include_accessibility_tree: false,
+        }
+      : args,
+  )
   if (r.isError && /window_id_not_found|window_owner_pid_mismatch/.test(r.text)) {
     // The window closed or changed (a dialog, a new document): look at the app's front window instead.
     const window = frontWindow(windowsOf(await hub.call('list_windows', { pid: target.pid })))
@@ -829,6 +841,17 @@ async function screenshot(host: ColonyHost, desk: Desk, model: Model) {
       max_dimension: screenshotEdge(window.bounds, limits),
     })
   }
+  // No tree to read, but the window is there: look at it by screenshot alone and act by pixel. Remembered for the
+  // app, so later looks do not pay for a failed walk first.
+  const treeless = hub.accepts('get_window_state', 'include_accessibility_tree')
+  if (r.isError && /ax_window_unresolved/.test(r.text) && treeless) target.noTree = true
+  if (target.noTree && treeless && (r.isError || !r.images[0]))
+    r = await hub.call('get_window_state', {
+      pid: target.pid,
+      window_id: target.windowId,
+      max_dimension: args.max_dimension,
+      include_accessibility_tree: false,
+    })
   if (r.isError) throw new Error(r.text.replace(/^Error:\s*/, '').slice(0, 600))
   const s = (r.structured ?? {}) as Record<string, unknown>
   const title = typeof s.window_title === 'string' ? s.window_title : target.title
@@ -849,7 +872,8 @@ async function screenshot(host: ColonyHost, desk: Desk, model: Model) {
       ? { window: { x: bounds.x ?? 0, y: bounds.y ?? 0, width: bounds.width, height: bounds.height } }
       : {}),
   }
-  return { image, text: `${t.shot(target.app, title, width, height)}\n${elementLines(elements, r)}` }
+  const listed = target.noTree ? t.noTree(target.app) : elementLines(elements, r)
+  return { image, text: `${t.shot(target.app, title, width, height)}\n${listed}` }
 }
 
 async function keyframe(

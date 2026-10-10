@@ -35,6 +35,8 @@ const APPS = [
   { name: 'Terminal', bundle_id: 'com.apple.Terminal', pid: 103 },
   { name: 'Messages', bundle_id: 'com.apple.MobileSMS', pid: 104 },
   { name: 'Myrmidon', bundle_id: 'dev.myrmidon.app', pid: 105 },
+  // A Chromium browser: macOS gives its windows no accessibility tree unless an assistive tool asked for one.
+  { name: 'Arc', bundle_id: 'company.thebrowser.Browser', pid: 106 },
 ]
 const window = (pid: number) => ({
   window_id: pid * 10,
@@ -60,6 +62,7 @@ const tools = [
     max_dimension: {},
     max_elements: {},
     include_screenshot: {},
+    include_accessibility_tree: {},
     query: {},
   }),
   tool('click'),
@@ -91,6 +94,18 @@ function answer(name: string, args: Record<string, unknown>) {
     case 'list_windows':
       return ok('windows', { windows: [window(Number(args.pid))] })
     case 'get_window_state': {
+      // As Cua Driver 0.28 answers for a Chromium window whose tree cannot be resolved: an error, unless only the
+      // screenshot is asked for.
+      if (args.pid === 106 && args.include_accessibility_tree !== false)
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `ax_window_unresolved: window_id ${args.window_id} exists and is owned by pid 106, but none of the 0 AXWindow element(s) under that pid reports this CGWindowID.`,
+            },
+          ],
+          isError: true,
+        }
       const edge = Number(args.max_dimension ?? 3200)
       const width = Math.min(edge, 3200)
       const height = Math.round((width * 1000) / 1600)
@@ -110,7 +125,7 @@ function answer(name: string, args: Record<string, unknown>) {
           screenshot_width: width,
           screenshot_height: height,
           snapshot_id: 's0000abcd',
-          elements,
+          elements: args.include_accessibility_tree === false ? [] : elements,
         },
       }
     }
