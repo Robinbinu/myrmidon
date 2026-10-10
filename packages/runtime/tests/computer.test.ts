@@ -142,7 +142,7 @@ pendingOn('win32', 'cuaDriverOnWindows')(
     expect(mcp.internalTool('myrmidon-computer', 'get_window_state')).toBeDefined()
     const r = await hub.call('list_apps', {})
     expect(r.isError).toBe(false)
-    expect((r.structured?.apps as unknown[] | undefined)?.length).toBe(6)
+    expect((r.structured?.apps as unknown[] | undefined)?.length).toBe(8)
     expect(hub.accepts('get_window_state', 'max_dimension')).toBe(true)
     expect(hub.accepts('get_window_state', 'tree_format')).toBe(false)
     await hub.stop()
@@ -719,6 +719,37 @@ pendingOn('win32', 'cuaDriverOnWindows')(
     expect(looked.content.some((c) => c.type === 'image')).toBe(true)
     // It asked for the tree once, then only for the screenshot.
     const looks = asked().filter((c) => c.name === 'get_window_state' && c.args.pid === 106)
+    expect(looks.filter((c) => c.args.include_accessibility_tree !== false)).toHaveLength(1)
     expect(looks.some((c) => c.args.include_accessibility_tree === false)).toBe(true)
+    // Arc is a browser, so view-only; an Electron app without a tree takes input, but the driver refuses it in the
+    // background there, so a click and typing bring the window forward first.
+    await call(opener(host), { app: 'Slack' })
+    expect((await call(generic(host), { action: 'left_click', coordinate: [10, 10] })).isError).toBe(false)
+    expect((await call(generic(host), { action: 'type', text: 'hello' })).isError).toBe(false)
+    const inputs = asked().filter((c) => ['click', 'type_text'].includes(c.name) && c.args.pid === 108)
+    expect(inputs).toHaveLength(2)
+    expect(inputs.every((c) => c.args.delivery_mode === 'foreground')).toBe(true)
+  },
+)
+
+pendingOn('win32', 'cuaDriverOnWindows')(
+  "a window the driver cannot capture says why, instead of blaming the app's accessibility",
+  async () => {
+    const { host } = fakeHost()
+    const opened = await call(opener(host), { app: 'Figma' })
+    expect(opened.isError).toBe(true)
+    expect(textOf(opened)).toContain('no screenshot of Figma')
+    expect(textOf(opened)).toContain('px_capture_unavailable: the window is not on screen')
+  },
+)
+
+pendingOn('win32', 'cuaDriverOnWindows')(
+  'an app with a tree is acted on in the background, never brought forward',
+  async () => {
+    const { host } = fakeHost()
+    await call(opener(host), { app: 'Notes' })
+    await call(generic(host), { action: 'left_click', coordinate: [10, 10] })
+    const click = asked().find((c) => c.name === 'click' && c.args.pid === 101)
+    expect(click?.args.delivery_mode).toBeUndefined()
   },
 )
