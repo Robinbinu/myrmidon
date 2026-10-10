@@ -716,3 +716,53 @@ test('a second final answer while a review is still running waits for that revie
   expect(lead.join('\n')).not.toContain('already running')
   await chats.stopAll()
 }, 20_000)
+
+test('a third failed review stops the round: every turn ends, and nothing is left waiting on it', async () => {
+  const resolver = new ModelResolver()
+  let friend = ''
+  scripted(resolver, 'mock/lead', [
+    (ctx) => {
+      friend = friendIn(ctx)
+      return [
+        tool('create_group', { name: 'pub', members: [friend], text: `@${friend} keep digging` }),
+        tool('reply_user', { text: 'First answer.', final: true }),
+      ]
+    },
+    ...Array.from({ length: 6 }, () => [tool('reply_user', { text: 'Another answer.', final: true })]),
+  ])
+  // Still busy when the round stops.
+  scripted(
+    resolver,
+    'mock/friend',
+    Array.from({ length: 80 }, () => async () => {
+      await Bun.sleep(50)
+      return [tool('read_notes', {})]
+    }),
+  )
+  const failing = createMockModel({
+    handler: () => ({ content: ['{"score": 0.1, "reasons": "incomplete"}'] }),
+  })
+  resolver.register('mock/judge', { model: failing.model, streamFn: failing.stream })
+  const chats = chatService(resolver, 'always')
+  const { colonyId } = await chats.send('Quick one', { ...config, judgeModel: 'mock/judge' })
+  const state = await waitFor(colonyId, (s) => s.status !== 'running' && s.status !== 'created')
+  expect(state.statusReason).toBe('verification failed 3 times; see the last verdict')
+  const log = await events(colonyId)
+  const failed = log.filter(
+    (e) => e.type === 'verifier/verdict' && !(e.payload as EventPayloads['verifier/verdict']).pass,
+  )
+  expect(failed).toHaveLength(3)
+  expect(log.filter((e) => e.type === 'verifier/requested')).toHaveLength(3)
+  // Shutting down finds the round already wound up, so nothing is left to wait for.
+  const t = Date.now()
+  await chats.stopAll()
+  expect(Date.now() - t).toBeLessThan(1000)
+  const after = (await events(colonyId)).slice(log.findIndex((e) => e.type === 'colony/stopped'))
+  expect(after.filter((e) => e.type === 'tool/call')).toEqual([])
+  for (const name of ['lead', friend]) {
+    const turns = after.filter(
+      (e) => e.type === 'agent/turn' && (e.payload as EventPayloads['agent/turn']).agent === name,
+    )
+    expect(turns.every((e) => (e.payload as EventPayloads['agent/turn']).phase === 'end')).toBe(true)
+  }
+}, 20_000)

@@ -114,7 +114,7 @@ export class RoundClosingError extends Error {
 }
 
 /** How long shutting down waits for rounds and agents still winding down before closing the log under them. */
-const SETTLE_MS = 3_000
+export const SETTLE_MS = 3_000
 
 /** Boots the plugin tree: SQLite log store, the event log, and colony event types. */
 export async function bootRuntime(home: string): Promise<Runtime> {
@@ -316,6 +316,9 @@ export class ColonyRun implements ColonyHost {
   }
   /** Its completion is being logged: a message from the person now belongs to the next round. */
   private _closing = false
+  /** Set once the round has begun ending (see `_end`): from then on the log updates its state but wakes nobody. */
+  private _ending = false
+  private _ended?: Promise<void>
   private _nudges = 0
   private _mirrorTimer?: ReturnType<typeof setTimeout>
   private _offLog?: () => void
@@ -1221,28 +1224,35 @@ export class ColonyRun implements ColonyHost {
       this.spec.agents.map((a) => a.name),
     )
     if (this.spec.chat && Object.keys(notices).length) this.spec.chat.accessNotices = notices
-    this._offLog = this.runtime.ctx.on('log/appended', (colonyId, events) => {
-      if (colonyId !== this.id) return
-      for (const e of events) {
-        applyEvent(this._state, e)
-        this._route(e)
-      }
-    })
+    this._listen()
     await this.append({ type: 'round/started', actor: SYSTEM, payload: this._specPayload() })
     await this._seed?.()
     await this._launch(this.spec.budget.wallMs, undefined, {}, true)
   }
 
-  async start(): Promise<void> {
-    await this.preflight()
-    const listener = (colonyId: ColonyId, events: readonly MyrEvent[]) => {
+  /**
+   * Follows the colony's log: each event updates the state and is routed to the agents. Once the round is ending,
+   * events still update the state (its agents' last turns, closed worktrees) but wake nobody, and when a later round
+   * of this colony starts, the log is that round's alone.
+   */
+  private _listen() {
+    this._offLog = this.runtime.ctx.on('log/appended', (colonyId, events) => {
       if (colonyId !== this.id) return
       for (const e of events) {
+        if (this._ending && (e.type === 'round/started' || e.type === 'colony/started')) {
+          this._offLog?.()
+          this._offLog = undefined
+          return
+        }
         applyEvent(this._state, e)
-        this._route(e)
+        if (!this._ending) this._route(e)
       }
-    }
-    this._offLog = this.runtime.ctx.on('log/appended', listener)
+    })
+  }
+
+  async start(): Promise<void> {
+    await this.preflight()
+    this._listen()
     await this.append({ type: 'colony/created', actor: SYSTEM, payload: this._specPayload() })
     await this._seed?.()
     await this._launch(this.spec.budget.wallMs)
@@ -1275,13 +1285,7 @@ export class ColonyRun implements ColonyHost {
       tokens: now.tokens - counted(now.tokens - before.tokens, this.spec.budget.tokens),
     }
     await this.preflight()
-    this._offLog = this.runtime.ctx.on('log/appended', (colonyId, events) => {
-      if (colonyId !== this.id) return
-      for (const e of events) {
-        applyEvent(this._state, e)
-        this._route(e)
-      }
-    })
+    this._listen()
     // Full access is decided afresh on resume (the person may have turned the sandbox back on); the log says so.
     if (!!this._state.fullAccess !== this.fullAccess)
       await this.append({
@@ -2512,7 +2516,16 @@ export class ColonyRun implements ColonyHost {
     this.runtime.track?.(loop)
   }
 
-  private async _end() {
+  /** Ends the round once, however many ways it ended at once; every caller waits for the same ending. */
+  private _end(): Promise<void> {
+    this._ended ??= this._shutDown()
+    return this._ended
+  }
+
+  private async _shutDown() {
+    this._ending = true
+    // Nothing of the round runs once it is logged as over: agents stop first, mid-turn or not.
+    for (const a of this._agents.values()) a.stop()
     // The round's Stop hooks (notify, archive, …) see how it ended; they cannot change it.
     await this._hooks('Stop', undefined, undefined, {
       status: this._state.status,
@@ -2530,12 +2543,12 @@ export class ColonyRun implements ColonyHost {
     this._timers.length = 0
     clearTimeout(this._mirrorTimer)
     this._mirrorTimer = undefined
-    for (const a of this._agents.values()) a.stop()
     await this.options.browser?.closeColony(this.id).catch(() => {})
     this.options.computer?.release(this.id)
     await Bun.sleep(50)
     await this.workspace.writeMirror(this._state, this.blobs).catch(() => {})
     this._offLog?.()
+    this._offLog = undefined
     this._finish(this._state)
   }
 }
