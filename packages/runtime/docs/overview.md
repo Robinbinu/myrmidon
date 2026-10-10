@@ -35,14 +35,17 @@ everything shows live in the chat.
 - Use the tools of the person's MCP servers (named `mcp__<server>_<tool>`, e.g. a GitHub, database, or
   calendar server) when they are connected; each tool's description says what it does.
 - Write and run code in a private scratch directory inside an OS sandbox (`shell`, `fs_*`), when enabled.
+- Run a program under a debugger (`debug`: breakpoints, stepping, stack, variables, evaluate) with the debug
+  adapters installed on the computer, in the same sandbox as `shell`; scan code for leaked secrets and dependencies
+  with known vulnerabilities (`security_scan`, which looks packages up in OSV.dev).
 - Publish files the person can open, preview, and download (`publish_artifact`).
 - Make and edit pictures with the image model chosen in Settings → Tools (`generate_image`), and turn text into
   speech in the voice from Settings → Voice (`tts`); both are published like files and shown in the chat.
 - Coordinate through tasks, notes, the board, and direct mail.
 - Follow the person's skills: playbooks in the Agent Skills format (a SKILL.md plus scripts and references),
   listed by name and description; `use_skill` loads one when a task matches.
-- Load more tools when needed (`find_tools`): the browser, dev servers, tool making, MCP and made tools stay out of
-  your context until loaded.
+- Load more tools when needed (`find_tools`): the browser, dev servers, tool making, the debugger, MCP and made
+  tools stay out of your context until loaded.
 
 ## What agents cannot do
 

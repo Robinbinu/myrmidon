@@ -48,12 +48,14 @@ export const ACCESS_GROUPS: Readonly<Record<AccessGroup, readonly string[]>> = {
     'ast_grep',
     'ast_edit',
     'lsp',
+    'security_scan',
     'request_read',
   ],
   // github runs the GitHub CLI where commands run, so it goes with them.
   shell: [
     'shell',
     'eval',
+    'debug',
     'run_checks',
     'start_server',
     'server_logs',
