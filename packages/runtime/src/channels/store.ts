@@ -1,15 +1,8 @@
 import { Database } from 'bun:sqlite'
 import { createHash, randomBytes, randomInt } from 'node:crypto'
-import {
-  chmodSync,
-  copyFileSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  renameSync,
-  writeFileSync,
-} from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { ownerOnly } from '../owner-only.ts'
 import { channelCopy } from './copy.ts'
 import type { ChannelChat, ChannelSender } from './types.ts'
 
@@ -182,7 +175,7 @@ export class ChannelStore {
   private _save(all: Record<string, unknown>) {
     const tmp = `${this._file}.${process.pid}.tmp`
     writeFileSync(tmp, `${JSON.stringify(all, null, 2)}\n`, { mode: 0o600 })
-    chmodSync(tmp, 0o600)
+    ownerOnly(tmp)
     // Read back before it replaces anything: a write cut short never becomes the file or pushes out a backup.
     JSON.parse(readFileSync(tmp, 'utf8'))
     // The versions before the last few saves stay beside it (newest in .bak), so one bad save, or a hand edit, can
@@ -191,7 +184,7 @@ export class ChannelStore {
       const backup = (n: number) => `${this._file}.bak${n > 1 ? `.${n}` : ''}`
       for (let n = BACKUPS; n > 1; n--) if (existsSync(backup(n - 1))) renameSync(backup(n - 1), backup(n))
       copyFileSync(this._file, backup(1))
-      chmodSync(backup(1), 0o600)
+      ownerOnly(backup(1))
     }
     renameSync(tmp, this._file)
   }

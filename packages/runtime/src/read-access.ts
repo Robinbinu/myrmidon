@@ -1,6 +1,6 @@
 import { existsSync, realpathSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { dirname, join, posix, relative, resolve, sep, win32 } from 'node:path'
 import { SANDBOX_SECRETS, SANDBOX_TOOLCHAINS } from './config.ts'
 
 /**
@@ -11,21 +11,38 @@ import { SANDBOX_SECRETS, SANDBOX_TOOLCHAINS } from './config.ts'
  * (workspace.ts) agree on every path.
  */
 
-/** `~` and `~/…` in the person's home; any other path as given. */
-export function expandHome(path: string, home = homedir()): string {
-  return path === '~' ? home : path.startsWith('~/') ? join(home, path.slice(2)) : path
+/** Node's path functions for `platform`, so the Windows rules can be checked on any computer. */
+export const pathOf = (platform: NodeJS.Platform = process.platform) => (platform === 'win32' ? win32 : posix)
+
+/** APFS and NTFS are case-insensitive by default: there `~/.SSH` is `~/.ssh`, so paths are compared that way too. */
+const foldsCase = (platform: NodeJS.Platform) => platform === 'darwin' || platform === 'win32'
+
+/** `~` and `~/…` (on Windows also `~\…`) in the person's home; any other path as given. */
+export function expandHome(
+  path: string,
+  home = homedir(),
+  platform: NodeJS.Platform = process.platform,
+): string {
+  if (path === '~') return home
+  const tilde = platform === 'win32' ? /^~[\\/]/ : /^~\//
+  return tilde.test(path) ? pathOf(platform).join(home, path.slice(2)) : path
 }
 
 /** The real path of `path`: symlinks resolved in the part that exists, the rest (not created yet) kept. */
 export function realPath(path: string): string {
   const target = resolve(path)
   let probe = target
-  while (!existsSync(probe)) probe = dirname(probe)
+  // A drive that is not there (Z:\ on Windows) is its own parent.
+  while (!existsSync(probe) && dirname(probe) !== probe) probe = dirname(probe)
   return join(realOrNone(probe) ?? probe, relative(probe, target))
 }
 
-export function within(path: string, root: string): boolean {
-  return path === root || path.startsWith(root === sep ? root : root + sep)
+/** Whether `path` is `root` or lies inside it; both absolute, compared as `platform`'s file systems compare names. */
+export function within(path: string, root: string, platform: NodeJS.Platform = process.platform): boolean {
+  const fold = (p: string) => (foldsCase(platform) ? p.toLowerCase() : p)
+  const [p, r] = [fold(path), fold(root)]
+  const { sep } = pathOf(platform)
+  return p === r || p.startsWith(r.endsWith(sep) ? r : r + sep)
 }
 
 const depth = (path: string) => path.split(sep).filter(Boolean).length
@@ -40,10 +57,13 @@ export function reachable(path: string, roots: readonly string[], hidden: readon
   return root >= 0 && root >= deepest(hidden)
 }
 
-/** The real path, or none when the folder is missing or macOS's privacy controls keep even Myrmidon from it. */
+/**
+ * The real path, or none when the folder is missing or macOS's privacy controls keep even Myrmidon from it. The
+ * system's own resolution gives each name's case as it is on disk and follows Windows junctions and substituted drives.
+ */
 export function realOrNone(path: string): string | undefined {
   try {
-    return realpathSync(path)
+    return realpathSync.native(path)
   } catch {
     return undefined
   }
@@ -111,8 +131,16 @@ export function guardedPaths(dataDir: string, home = homedir()): string[] {
 }
 
 /** A folder the person typed (absolute, or starting with `~`), as an absolute path; anything else is refused. */
-export function readFolder(input: string, home = homedir()): string {
-  const path = expandHome(input.trim(), home)
-  if (!isAbsolute(path)) throw new Error(`${input} is not a full path: start it with / or ~`)
-  return resolve(path)
+export function readFolder(
+  input: string,
+  home = homedir(),
+  platform: NodeJS.Platform = process.platform,
+): string {
+  const p = pathOf(platform)
+  const path = expandHome(input.trim(), home, platform)
+  if (!p.isAbsolute(path))
+    throw new Error(
+      `${input} is not a full path: start it with ${platform === 'win32' ? 'a drive (C:\\)' : '/'} or ~`,
+    )
+  return p.resolve(path)
 }

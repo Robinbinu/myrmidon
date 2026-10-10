@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto'
-import type { Socket } from 'bun'
+import type { Socket, SocketHandler } from 'bun'
 
 /** A turn's words as they are heard, for an engine that streams: its audio in as it comes, the words so far out. */
 export interface LiveTranscription {
@@ -13,16 +13,22 @@ export interface LiveTranscription {
   finish?(): Promise<string>
 }
 
+/**
+ * Where Phonon-2's server listens: a Unix socket only this user can reach, or (on Windows, where Myrmidon cannot rely
+ * on one) a loopback port that answers only requests carrying `token`.
+ */
+export type PhononEndpoint = { readonly unix: string } | { readonly port: number; readonly token: string }
+
 const TEXT = 0x1
 const BINARY = 0x2
 const CLOSE = 0x8
 
 /**
- * Phonon-2's `GET /v1/audio/stream` for one turn: a WebSocket on the server's Unix socket (Bun's WebSocket client
- * cannot reach one, so this speaks RFC 6455 itself, only as much as that endpoint uses: unfragmented text and binary
- * frames). It sends `{"sample_rate", "format": "pcm_s16le"}`, then the audio, and calls `heard` with the turn so far
- * whenever Phonon has a new partial (a re-decode of the phrase in flight, about every 0.5 s of speech) or closes a
- * phrase at a pause (`final`; the partials after it are the next phrase's).
+ * Phonon-2's `GET /v1/audio/stream` for one turn: a WebSocket on the server's endpoint (Bun's WebSocket client
+ * cannot reach a Unix socket, so this speaks RFC 6455 itself, only as much as that endpoint uses: unfragmented text
+ * and binary frames). It sends `{"sample_rate", "format": "pcm_s16le"}`, then the audio, and calls `heard` with the
+ * turn so far whenever Phonon has a new partial (a re-decode of the phrase in flight, about every 0.5 s of speech) or
+ * closes a phrase at a pause (`final`; the partials after it are the next phrase's).
  */
 export class PhononStream implements LiveTranscription {
   private _socket?: Socket<undefined>
@@ -36,33 +42,36 @@ export class PhononStream implements LiveTranscription {
   private readonly _finals: string[] = []
 
   constructor(
-    unix: string,
+    endpoint: PhononEndpoint,
     private readonly sampleRate: number,
     private readonly heard: (text: string) => void,
     private readonly log: (line: string) => void = () => {},
   ) {
-    Bun.connect({
-      unix,
-      socket: {
-        open: (socket) => {
-          if (this._closed) return void socket.end()
-          this._socket = socket
-          const key = randomBytes(16).toString('base64')
-          this._write(
-            new TextEncoder().encode(
-              `GET /v1/audio/stream HTTP/1.1\r\nHost: phonon\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n` +
-                `Sec-WebSocket-Key: ${key}\r\nSec-WebSocket-Version: 13\r\n\r\n`,
-            ),
-          )
-        },
-        data: (_socket, chunk) => this._data(chunk),
-        drain: () => this._flush(),
-        close: () => {
-          this._closed = true
-        },
-        error: (_socket, err) => this._fail(err.message),
+    const auth = 'token' in endpoint ? `Authorization: Bearer ${endpoint.token}\r\n` : ''
+    const socket: SocketHandler<undefined> = {
+      open: (socket) => {
+        if (this._closed) return void socket.end()
+        this._socket = socket
+        const key = randomBytes(16).toString('base64')
+        this._write(
+          new TextEncoder().encode(
+            `GET /v1/audio/stream HTTP/1.1\r\nHost: phonon\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n` +
+              `Sec-WebSocket-Key: ${key}\r\nSec-WebSocket-Version: 13\r\n${auth}\r\n`,
+          ),
+        )
       },
-    }).catch((err: Error) => this._fail(err.message))
+      data: (_socket, chunk) => this._data(chunk),
+      drain: () => this._flush(),
+      close: () => {
+        this._closed = true
+      },
+      error: (_socket, err) => this._fail(err.message),
+    }
+    const connected =
+      'unix' in endpoint
+        ? Bun.connect({ unix: endpoint.unix, socket })
+        : Bun.connect({ hostname: '127.0.0.1', port: endpoint.port, socket })
+    connected.catch((err: Error) => this._fail(err.message))
   }
 
   push(pcm: Int16Array) {

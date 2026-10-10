@@ -1,7 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto'
 import {
   appendFileSync,
-  chmodSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -10,6 +9,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { join } from 'node:path'
+import { ownerOnly } from '@myrmidon/runtime'
 
 /**
  * Devices paired with a Myrmidon gateway that is reachable beyond this machine, after Hermes and OpenClaw: each gets
@@ -107,7 +107,7 @@ export class DeviceStore {
 export function writePrivateJson(file: string, data: unknown) {
   const tmp = `${file}.${process.pid}.tmp`
   writeFileSync(tmp, `${JSON.stringify(data, null, 2)}\n`, { mode: 0o600 })
-  chmodSync(tmp, 0o600)
+  ownerOnly(tmp)
   renameSync(tmp, file)
 }
 
@@ -202,7 +202,9 @@ export class AuthAudit {
       if (existsSync(this._file) && statSync(this._file).size > AUDIT_MAX_BYTES)
         renameSync(this._file, `${this._file}.1`)
       const line = { at: new Date().toISOString(), event, ...fields }
+      const fresh = !existsSync(this._file)
       appendFileSync(this._file, `${JSON.stringify(line)}\n`, { mode: 0o600 })
+      if (fresh) ownerOnly(this._file)
     } catch (err) {
       // The log helps the person audit; it must never stop a request.
       console.error(`device-auth log: ${err instanceof Error ? err.message : err}`)

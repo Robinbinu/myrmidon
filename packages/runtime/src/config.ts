@@ -226,124 +226,212 @@ export const SANDBOX_MAX_OUTPUT = 64 * 1024
  * Toolchain folders in the person's home (relative to it) that sandboxed commands may read, never write: where
  * bun, node version managers, rustup, uv, pyenv and the like install the programs on PATH. Commands get a private
  * HOME, so caches and configs (~/.npm, ~/.cache, ~/Library/Caches, ~/.gitconfig) are their own and not listed;
- * ~/.cargo is listed by its bin folder alone because it also holds the crates.io token.
+ * ~/.cargo is listed by its bin folder alone because it also holds the crates.io token. On Windows, per-user
+ * installers, scoop and the node managers put programs under AppData, which is otherwise hidden (sandboxSecrets).
  */
-export const SANDBOX_TOOLCHAINS = [
-  '.bun',
-  '.cargo/bin',
-  '.rustup',
-  '.deno',
-  '.volta',
-  '.nvm',
-  '.fnm',
-  '.local/share/fnm',
-  'Library/Application Support/fnm',
-  '.pyenv',
-  '.rbenv',
-  '.asdf',
-  '.local/share/mise',
-  '.local/bin',
-  '.local/share/uv',
-  '.local/share/pnpm',
-  'Library/pnpm',
-  'go/bin',
-  '.sdkman',
-  '.dotnet',
-  '.ghcup',
-  'miniconda3',
-  'miniforge3',
-  'anaconda3',
-] as const
+export function sandboxToolchains(platform: NodeJS.Platform = process.platform): readonly string[] {
+  const shared = ['.bun', '.cargo/bin', '.rustup', '.deno', '.pyenv', '.local/bin', 'go/bin', '.dotnet']
+  const conda = ['miniconda3', 'miniforge3', 'anaconda3']
+  if (platform === 'win32')
+    return [
+      ...shared,
+      ...conda,
+      'scoop/shims',
+      'scoop/apps',
+      'AppData/Local/Programs',
+      'AppData/Local/Microsoft/WindowsApps',
+      'AppData/Local/Volta',
+      'AppData/Local/pnpm',
+      'AppData/Local/mise',
+      'AppData/Local/fnm_multishells',
+      'AppData/Roaming/npm',
+      'AppData/Roaming/nvm',
+      'AppData/Roaming/fnm',
+      'AppData/Roaming/uv/python',
+      'AppData/Roaming/uv/tools',
+    ]
+  return [
+    ...shared,
+    '.volta',
+    '.nvm',
+    '.fnm',
+    '.local/share/fnm',
+    ...(platform === 'darwin' ? ['Library/Application Support/fnm'] : []),
+    '.rbenv',
+    '.asdf',
+    '.local/share/mise',
+    '.local/share/uv',
+    '.local/share/pnpm',
+    ...(platform === 'darwin' ? ['Library/pnpm'] : []),
+    '.sdkman',
+    '.ghcup',
+    ...conda,
+  ]
+}
+export const SANDBOX_TOOLCHAINS = sandboxToolchains()
 /**
  * Paths in the person's home (relative to it) that hold keys, tokens and sign-ins. They stay hidden from sandboxed
  * agents even inside a folder they may read (a project at ~, or "everything in my home"), and a project can never
  * grant them. Naming one exactly in Settings → Permissions opens it everywhere; in one chat, the person may allow an
  * agent's request_read of one (once or for that chat, with a warning on the card). Myrmidon's own data folder, which
- * holds every chat, stays hidden except for the chat's own folder: no request can open it.
+ * holds every chat, stays hidden except for the chat's own folder: no request can open it. The dotfiles are the same
+ * on every system (Git Bash and the cloud CLIs keep them in the Windows home too); where apps keep their data differs.
  */
-export const SANDBOX_SECRETS = [
-  '.ssh',
-  '.aws',
-  '.azure',
-  '.gnupg',
-  '.kube',
-  '.docker',
-  '.config',
-  '.netrc',
-  '.npmrc',
-  '.pypirc',
-  '.git-credentials',
-  '.cargo/credentials',
-  '.cargo/credentials.toml',
-  '.password-store',
-  '.zsh_history',
-  '.zsh_sessions',
-  '.bash_history',
-  '.python_history',
-  '.psql_history',
-  'Library/Keychains',
-  'Library/Cookies',
-  'Library/Application Support',
-  'Library/Mail',
-  'Library/Messages',
-  'Library/Safari',
-  '.local/share/keyrings',
-  '.mozilla',
-  // Other agents' sign-ins and histories (omp's own and its config, Claude Code, Codex, Gemini CLI).
-  '.omp',
-  '.claude',
-  '.claude.json',
-  '.codex',
-  '.gemini',
-  // Shell startup files, where people export API keys.
-  '.zshrc',
-  '.zshenv',
-  '.zprofile',
-  '.zlogin',
-  '.bashrc',
-  '.bash_profile',
-  '.profile',
-  '.terraform.d',
-  '.terraformrc',
-  '.vault-token',
-  '.pgpass',
-  '.gem/credentials',
-  '.m2/settings.xml',
-  '.yarnrc.yml',
-  '.gradle/gradle.properties',
-  '.composer/auth.json',
-  // .NET's certificate store (private keys), inside a toolchain folder that is otherwise readable.
-  '.dotnet/corefx',
-  // Sandboxed apps' data, and what app groups share (password managers, mail and chat apps).
-  'Library/Containers',
-  'Library/Group Containers',
-] as const
+export function sandboxSecrets(platform: NodeJS.Platform = process.platform): readonly string[] {
+  const dotfiles = [
+    '.ssh',
+    '.aws',
+    '.azure',
+    '.gnupg',
+    '.kube',
+    '.docker',
+    '.config',
+    '.netrc',
+    '.npmrc',
+    '.pypirc',
+    '.git-credentials',
+    '.cargo/credentials',
+    '.cargo/credentials.toml',
+    '.password-store',
+    '.zsh_history',
+    '.zsh_sessions',
+    '.bash_history',
+    '.python_history',
+    '.psql_history',
+    // Other agents' sign-ins and histories (omp's own and its config, Claude Code, Codex, Gemini CLI).
+    '.omp',
+    '.claude',
+    '.claude.json',
+    '.codex',
+    '.gemini',
+    // Shell startup files, where people export API keys.
+    '.zshrc',
+    '.zshenv',
+    '.zprofile',
+    '.zlogin',
+    '.bashrc',
+    '.bash_profile',
+    '.profile',
+    '.terraform.d',
+    '.terraformrc',
+    '.vault-token',
+    '.pgpass',
+    '.gem/credentials',
+    '.m2/settings.xml',
+    '.yarnrc.yml',
+    '.gradle/gradle.properties',
+    '.composer/auth.json',
+  ]
+  if (platform === 'win32')
+    return [
+      ...dotfiles,
+      // curl's and git's netrc on Windows.
+      '_netrc',
+      // Like macOS's Application Support: gh's hosts.yml, VS Code's tokens, Firefox, DPAPI's master keys, credentials,
+      // PowerShell's history. Toolchains inside it (npm, nvm, uv) open again; npm's global npmrc stays hidden.
+      'AppData/Roaming',
+      'AppData/Roaming/npm/etc',
+      // Browsers' profiles (cookies, saved passwords), Windows' credential stores, Store apps' data.
+      'AppData/Local/Google/Chrome/User Data',
+      'AppData/Local/Chromium/User Data',
+      'AppData/Local/Microsoft/Edge/User Data',
+      'AppData/Local/BraveSoftware',
+      'AppData/Local/Microsoft/Credentials',
+      'AppData/Local/Microsoft/Vault',
+      'AppData/Local/Packages',
+      // PowerShell's startup profiles, where people set API keys.
+      'Documents/PowerShell',
+      'Documents/WindowsPowerShell',
+    ]
+  const unix = [
+    ...dotfiles,
+    '.local/share/keyrings',
+    '.mozilla',
+    // .NET's certificate store (private keys), inside a toolchain folder that is otherwise readable.
+    '.dotnet/corefx',
+  ]
+  if (platform === 'darwin')
+    return [
+      ...unix,
+      'Library/Keychains',
+      'Library/Cookies',
+      'Library/Application Support',
+      'Library/Mail',
+      'Library/Messages',
+      'Library/Safari',
+      // Sandboxed apps' data, and what app groups share (password managers, mail and chat apps).
+      'Library/Containers',
+      'Library/Group Containers',
+    ]
+  return [
+    ...unix,
+    // Chrome's and Firefox's certificate and key database, Thunderbird, fish's history.
+    '.pki',
+    '.thunderbird',
+    '.local/share/fish',
+    // Flatpak and snap apps' data, like macOS's containers (a snap Chromium's profile is in ~/snap/chromium).
+    '.var/app',
+    'snap',
+  ]
+}
+export const SANDBOX_SECRETS = sandboxSecrets()
 /**
  * System folders of programs that a sandboxed command's PATH keeps besides the toolchains (SANDBOX_TOOLCHAINS). The
  * person's own PATH names their apps and folders, so only these entries of it pass, in its order; those it lacks
- * and this computer has are added after.
+ * and this computer has are added after. On Windows they follow from where Windows and Program Files are.
  */
-export const SANDBOX_SYSTEM_BINS = [
-  '/opt/homebrew/bin',
-  '/opt/homebrew/sbin',
-  '/usr/local/bin',
-  '/usr/local/sbin',
-  '/opt/local/bin',
-  '/home/linuxbrew/.linuxbrew/bin',
-  '/nix/var/nix/profiles/default/bin',
-  '/run/current-system/sw/bin',
-  '/snap/bin',
-  '/usr/bin',
-  '/bin',
-  '/usr/sbin',
-  '/sbin',
-] as const
+export function sandboxSystemBins(
+  platform: NodeJS.Platform = process.platform,
+  env: Record<string, string | undefined> = process.env,
+): readonly string[] {
+  if (platform === 'win32') {
+    const root = env.SystemRoot ?? env.SYSTEMROOT ?? env.windir ?? 'C:\\Windows'
+    const programs = env.ProgramFiles ?? env.PROGRAMFILES ?? 'C:\\Program Files'
+    return [
+      `${root}\\System32`,
+      root,
+      `${root}\\System32\\Wbem`,
+      `${root}\\System32\\WindowsPowerShell\\v1.0`,
+      `${root}\\System32\\OpenSSH`,
+      `${programs}\\PowerShell\\7`,
+      `${programs}\\Git\\cmd`,
+      `${programs}\\nodejs`,
+    ]
+  }
+  return [
+    '/opt/homebrew/bin',
+    '/opt/homebrew/sbin',
+    '/usr/local/bin',
+    '/usr/local/sbin',
+    '/opt/local/bin',
+    '/home/linuxbrew/.linuxbrew/bin',
+    '/nix/var/nix/profiles/default/bin',
+    '/run/current-system/sw/bin',
+    '/snap/bin',
+    '/usr/bin',
+    '/bin',
+    '/usr/sbin',
+    '/sbin',
+  ]
+}
+export const SANDBOX_SYSTEM_BINS = sandboxSystemBins()
 /**
  * Folders outside the home that sandboxed commands may not read either: other disks, the folder all accounts share,
- * and the per-user temp and cache folders where other apps (and other chats) leave files. Folders a command may
- * read or write inside them (a project in the temp folder) open again.
+ * and the per-user temp and cache folders where other apps (and other chats) leave files; on Linux the person's
+ * runtime folder too, which holds their session's sockets (D-Bus, the keyring's, gpg's and ssh's agents). Folders a
+ * command may read or write inside them (a project in the temp folder, or on a disk in /mnt) open again. Windows has
+ * no confinement of its own for these to apply to: there commands run in WSL, under Linux's rules.
  */
-export const SANDBOX_HIDDEN_ROOTS = ['/Volumes', '/Users/Shared', '/private/var/folders'] as const
+export function sandboxHiddenRoots(
+  platform: NodeJS.Platform = process.platform,
+  uid: number | undefined = process.getuid?.(),
+): readonly string[] {
+  if (platform === 'darwin') return ['/Volumes', '/Users/Shared', '/private/var/folders']
+  if (platform === 'linux')
+    return ['/mnt', '/media', '/run/media', ...(uid === undefined ? [] : [`/run/user/${uid}`])]
+  return []
+}
+export const SANDBOX_HIDDEN_ROOTS = sandboxHiddenRoots()
 /**
  * Files in the macOS per-user temp folder (inside a hidden root) that toolchains read: xcrun's cache, which the
  * /usr/bin shims (python3, git, clang) look up on every run and complain loudly without.

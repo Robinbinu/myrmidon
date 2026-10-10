@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import { join } from 'node:path'
 import type { AgentTool } from '@oh-my-pi/pi-agent-core'
 import { MCP_STARTUP_MS } from './config.ts'
+import { ownerOnly } from './owner-only.ts'
 
 /**
  * MCP servers as colony tools. omp's own MCP client does the work (stdio, streamable HTTP, SSE, OAuth, tool
@@ -125,6 +126,7 @@ export class McpHub {
     const tmp = `${this._file}.${process.pid}.tmp`
     // May hold API keys in env or headers.
     writeFileSync(tmp, `${JSON.stringify(doc, null, 2)}\n`, { mode: 0o600 })
+    ownerOnly(tmp)
     renameSync(tmp, this._file)
   }
 
