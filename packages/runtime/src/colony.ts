@@ -1778,11 +1778,12 @@ export class ColonyRun implements ColonyHost {
 
   async requestReview(by: string, summary: string): Promise<string> {
     if (this._finalRunning) return prompts.colony.reviewRunning
-    const conflicts = await this._mergeWorktrees()
-    if (conflicts) return prompts.colony.notReviewed(conflicts)
+    // Claimed before the merge: a second trigger arriving while it runs must not start its own review.
     this._finalRunning = true
     this._verifying += 1
     try {
+      const conflicts = await this._mergeWorktrees()
+      if (conflicts) return prompts.colony.notReviewed(conflicts)
       await this.append({
         type: 'verifier/requested',
         actor: { kind: 'agent', id: by },
@@ -1800,11 +1801,11 @@ export class ColonyRun implements ColonyHost {
 
   async requestFinalVerification(by: string, summary: string): Promise<string> {
     if (this._finalRunning) return prompts.colony.verificationRunning
-    const conflicts = await this._mergeWorktrees()
-    if (conflicts) return prompts.colony.notVerified(conflicts)
     this._finalRunning = true
     this._verifying += 1
     try {
+      const conflicts = await this._mergeWorktrees()
+      if (conflicts) return prompts.colony.notVerified(conflicts)
       await this.append({
         type: 'verifier/requested',
         actor: { kind: 'agent', id: by },
