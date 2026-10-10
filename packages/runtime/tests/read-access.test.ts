@@ -3,7 +3,6 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSyn
 import { homedir, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { type ColonyState, type EventPayloads, foldColony } from '@myrmidon/protocol'
-import { createMockModel, type MockContent } from '@oh-my-pi/pi-ai/providers/mock'
 import { notOn } from '../../../tests/platform.ts'
 import { SANDBOX_HIDDEN_ROOTS } from '../src/config.ts'
 import {
@@ -23,6 +22,7 @@ import {
   SettingsStore,
   type TeamConfig,
 } from '../src/index.ts'
+import { createMockModel, type MockContent } from '../src/omp/mock.ts'
 
 /** Keys only this system has; cross-platform.test.ts pins each system's whole list. */
 const SYSTEM_SECRETS: readonly string[] =

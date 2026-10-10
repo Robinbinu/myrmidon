@@ -3,7 +3,6 @@ import { existsSync, mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { type ColonyState, type EventPayloads, foldColony } from '@myrmidon/protocol'
-import { createMockModel, type MockContent } from '@oh-my-pi/pi-ai/providers/mock'
 import { pendingOn } from '../../../tests/platform.ts'
 import {
   bootRuntime,
@@ -19,6 +18,7 @@ import {
   SettingsStore,
   type TeamConfig,
 } from '../src/index.ts'
+import { createMockModel, type MockContent } from '../src/omp/mock.ts'
 import type { OmpRuntime } from '../src/omp/runtime.ts'
 
 let home: string

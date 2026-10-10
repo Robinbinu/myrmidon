@@ -12,10 +12,9 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
-import { parseGitUrl } from '@oh-my-pi/pi-coding-agent/extensibility/plugins/git-url'
-import { readTar } from '@oh-my-pi/pi-coding-agent/skillshare/tar'
 import { INSTALL_FETCH_TIMEOUT_MS, INSTALL_MAX_BYTES, INSTALL_REVIEW_MS, NPM_REGISTRY_URL } from './config.ts'
 import { git } from './git.ts'
+import { parseGitUrl, readTar } from './omp/plugins.ts'
 import { expandHome } from './read-access.ts'
 
 /**
@@ -24,8 +23,8 @@ import { expandHome } from './read-access.ts'
  * hand, and dependencies install with lifecycle scripts off. What was fetched is pinned (commit, version, integrity)
  * and recorded, so it can be shown and fetched again for an update.
  *
- * Git URLs are read with omp's parser (`@oh-my-pi/pi-coding-agent/extensibility/plugins/git-url`) and tarballs with
- * its reader (`skillshare/tar`), which refuses links, absolute paths and `..`.
+ * Git URLs are read with omp's parser and tarballs with its reader (both through omp/plugins.ts), which refuses
+ * links, absolute paths and `..`.
  */
 
 /** The `fetch` installs use; tests pass a stub, so nothing reaches the network. */

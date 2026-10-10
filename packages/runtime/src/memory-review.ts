@@ -1,6 +1,4 @@
 import type { EventPayloads, MyrEvent } from '@myrmidon/protocol'
-import { completeSimple } from '@oh-my-pi/pi-ai'
-import { hasSubstantiveContent, stripMemoryTags } from '@oh-my-pi/pi-coding-agent/hindsight/content'
 import {
   MEMORY_EXTRACT_ANSWER_CHARS,
   MEMORY_EXTRACT_MAX,
@@ -19,6 +17,8 @@ import {
   similarity,
 } from './memory.ts'
 import type { ModelResolver } from './models.ts'
+import { completeSimple } from './omp/ai.ts'
+import { hasSubstantiveContent, stripMemoryTags } from './omp/memory.ts'
 import { prompts } from './prompts.ts'
 import { hideInContext } from './provider-secrets.ts'
 

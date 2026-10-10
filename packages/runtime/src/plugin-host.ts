@@ -2,9 +2,9 @@ import { createHash } from 'node:crypto'
 import { type FSWatcher, mkdirSync, readdirSync, rmSync, watch, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { MyrEvent } from '@myrmidon/protocol'
-import type { AgentTool, AgentToolResult } from '@oh-my-pi/pi-agent-core'
 import type { ChannelKind } from './channels/hub.ts'
 import { clockTime } from './clock.ts'
+import type { AgentTool, AgentToolResult } from './omp/agent-core.ts'
 import type { PluginInfo, PluginStore } from './plugins.ts'
 
 /**

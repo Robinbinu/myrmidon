@@ -43,7 +43,6 @@ import {
   toolHidden,
   unreadMailFor,
 } from '@myrmidon/protocol'
-import { formatCurrentTime } from '@oh-my-pi/pi-coding-agent/hindsight/content'
 import { Advisor } from './advisor.ts'
 import { ColonyAgent, type ModelError } from './agent.ts'
 import type { BrowserHub } from './browser.ts'
@@ -87,6 +86,7 @@ import { type MemoryStore, sensitive } from './memory.ts'
 import { ModelResolver } from './models.ts'
 import { pickName } from './names.ts'
 import { FactualObserver } from './observer.ts'
+import { formatCurrentTime } from './omp/memory.ts'
 import { attachedNote, isLead, snapshot, toolsFor } from './patterns.ts'
 import { levelsOf, presetOf, roleOf } from './permissions.ts'
 import type { PluginHost } from './plugin-host.ts'

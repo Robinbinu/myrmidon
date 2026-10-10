@@ -1,23 +1,4 @@
 import type { CompactionMethod } from '@myrmidon/protocol'
-import type { AgentMessage, StreamFn, ToolResultShakeRegion } from '@oh-my-pi/pi-agent-core'
-import {
-  applyShakeRegions,
-  type CompactionSettings,
-  calculateContextTokens,
-  collectShakeRegions,
-  DEFAULT_COMPACTION_SETTINGS,
-  DEFAULT_RESERVE_TOKENS,
-  DEFAULT_SHAKE_CONFIG,
-  generateSummary,
-  resolveBudgetReserveTokens,
-  resolveThresholdTokens,
-  type SessionEntry,
-  shouldCompact,
-  Tokenizer,
-} from '@oh-my-pi/pi-agent-core'
-import { estimateImageContentTokens } from '@oh-my-pi/pi-agent-core/image-tokens'
-import type { ImageContent, Message, Model, TextContent, ToolResultMessage, Usage } from '@oh-my-pi/pi-ai'
-import * as snapcompact from '@oh-my-pi/snapcompact'
 import {
   COMPACTION_ORDER,
   COMPACTION_SETTLED,
@@ -27,6 +8,25 @@ import {
   SHAKE_MIN_SHARE,
   SHAKE_MIN_TOKENS,
 } from './config.ts'
+import type { AgentMessage, StreamFn, ToolResultShakeRegion } from './omp/agent-core.ts'
+import {
+  applyShakeRegions,
+  type CompactionSettings,
+  calculateContextTokens,
+  collectShakeRegions,
+  DEFAULT_COMPACTION_SETTINGS,
+  DEFAULT_RESERVE_TOKENS,
+  DEFAULT_SHAKE_CONFIG,
+  estimateImageContentTokens,
+  generateSummary,
+  resolveBudgetReserveTokens,
+  resolveThresholdTokens,
+  type SessionEntry,
+  shouldCompact,
+  Tokenizer,
+} from './omp/agent-core.ts'
+import type { ImageContent, Message, Model, TextContent, ToolResultMessage, Usage } from './omp/ai.ts'
+import * as snapcompact from './omp/snapcompact.ts'
 import { prompts } from './prompts.ts'
 import { hideInMessages, hideSecrets } from './provider-secrets.ts'
 

@@ -5,7 +5,7 @@
  * Also the one place screenshots are sized for a model: the driver downscales to the size asked for and maps
  * coordinates back itself (Retina included), so a model's coordinates are always in the screenshot it was shown.
  */
-import type { ComputerAction as OpenAiAction } from '@oh-my-pi/pi-ai'
+
 import {
   ANTHROPIC_COMPUTER_TOOLSET,
   ANTHROPIC_LARGE_IMAGE_MODELS,
@@ -13,6 +13,7 @@ import {
   COMPUTER_IMAGE_LIMITS,
   COMPUTER_MAX_WAIT_S,
 } from '../config.ts'
+import type { ComputerAction as OpenAiAction } from '../omp/ai.ts'
 
 export type MouseButton = 'left' | 'right' | 'middle'
 export type Direction = 'up' | 'down' | 'left' | 'right'

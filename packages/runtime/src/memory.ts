@@ -1,6 +1,5 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { redactMemorySecrets } from '@oh-my-pi/pi-coding-agent/memory-backend/redact'
 import {
   MAX_MEMORIES,
   MEMORY_MAX_TEXT,
@@ -11,6 +10,7 @@ import {
   RECALL_QUERY_CHARS,
   RECALL_RECENCY_WEIGHT,
 } from './config.ts'
+import { redactMemorySecrets } from './omp/memory.ts'
 
 /**
  * What the person wants Myrmidon to keep across chats: preferences, decisions, and lessons learned, each either for

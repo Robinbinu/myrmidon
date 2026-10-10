@@ -1,15 +1,10 @@
 import { ADVICE_KINDS, type AdviceKind, type TaskStatus } from '@myrmidon/protocol'
-import type { AgentMessage } from '@oh-my-pi/pi-agent-core'
-import {
-  type AssistantMessage,
-  completeSimple,
-  type Context as LlmContext,
-  type Model,
-} from '@oh-my-pi/pi-ai'
-import { getModelPricingStatus } from '@oh-my-pi/pi-catalog'
 import { ADVISOR } from './config.ts'
 import type { ColonyHost } from './host.ts'
 import type { ModelResolver } from './models.ts'
+import type { AgentMessage } from './omp/agent-core.ts'
+import { type AssistantMessage, completeSimple, type Context as LlmContext, type Model } from './omp/ai.ts'
+import { getModelPricingStatus } from './omp/catalog.ts'
 import { prompts } from './prompts.ts'
 import type { AgentSpec } from './spec.ts'
 

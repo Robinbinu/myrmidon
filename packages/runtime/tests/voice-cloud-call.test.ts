@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test'
-import { createMockModel } from '@oh-my-pi/pi-ai/providers/mock'
 import { ModelResolver } from '../src/models.ts'
+import { createMockModel } from '../src/omp/mock.ts'
 import { prompts } from '../src/prompts.ts'
 import { type CallChats, type CallOutput, CallSession } from '../src/voice/call.ts'
 import type { LiveTranscription } from '../src/voice/phonon-stream.ts'

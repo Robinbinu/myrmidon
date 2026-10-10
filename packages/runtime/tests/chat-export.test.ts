@@ -3,7 +3,6 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { foldColony, type MyrEvent } from '@myrmidon/protocol'
-import { createMockModel } from '@oh-my-pi/pi-ai/providers/mock'
 import {
   bootRuntime,
   ChatService,
@@ -15,6 +14,7 @@ import {
   renderChatHtml,
   type TeamConfig,
 } from '../src/index.ts'
+import { createMockModel } from '../src/omp/mock.ts'
 
 const TOKEN = 'ghp_abcdefghijklmnopqrstuvwxyz0123456789AB'
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])

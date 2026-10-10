@@ -12,13 +12,6 @@
  */
 
 import type { PermissionCall, PermissionVerdict } from '@myrmidon/protocol'
-import type { AgentTool, AgentToolResult } from '@oh-my-pi/pi-agent-core'
-import { type } from '@oh-my-pi/pi-ai'
-import type {
-  ComputerRunOk,
-  ComputerSessionSnapshot,
-} from '@oh-my-pi/pi-coding-agent/tools/computer/protocol'
-import type { ComputerController } from '@oh-my-pi/pi-coding-agent/tools/computer/supervisor'
 import {
   COMPUTER_OWN_APPS,
   DESKTOP_CAPTURE,
@@ -29,6 +22,14 @@ import {
   DESKTOP_TIMEOUT_S,
 } from '../config.ts'
 import { agentActor, type ColonyHost } from '../host.ts'
+import type { AgentTool, AgentToolResult } from '../omp/agent-core.ts'
+import { type } from '../omp/ai.ts'
+import {
+  type ComputerController,
+  type ComputerRunOk,
+  type ComputerSessionSnapshot,
+  loadComputerSupervisor,
+} from '../omp/computer.ts'
 import { prompts } from '../prompts.ts'
 import { redactSecrets } from '../secrets.ts'
 import { spotlight } from '../tools.ts'
@@ -159,7 +160,7 @@ const POINTER_ACTIONS: readonly Pointer['action'][] = ['move', 'click', 'type', 
 
 /** omp's own supervisor, loaded on first use so Cua Driver users never load it. */
 async function ompController(bridge: DesktopBridge): Promise<ComputerController> {
-  const { ComputerSupervisor } = await import('@oh-my-pi/pi-coding-agent/tools/computer/supervisor')
+  const { ComputerSupervisor } = await loadComputerSupervisor()
   // omp's tool session only reaches the bridge, which needs none of it; the worker and timeouts are omp's defaults.
   return new ComputerSupervisor({} as never, undefined, undefined, (name, args) => bridge(name, args))
 }

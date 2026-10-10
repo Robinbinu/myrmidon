@@ -1,6 +1,6 @@
-import { completeSimple } from '@oh-my-pi/pi-ai'
 import { CHAT_TITLE_MIN_WINDOW, CHAT_TITLE_MS, CHAT_TITLE_TIERS } from './config.ts'
 import type { ModelResolver } from './models.ts'
+import { completeSimple } from './omp/ai.ts'
 import { prompts } from './prompts.ts'
 import { hideInContext } from './provider-secrets.ts'
 

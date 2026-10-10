@@ -3,7 +3,6 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { type EventPayloads, foldColony } from '@myrmidon/protocol'
-import { createMockModel, type MockContent } from '@oh-my-pi/pi-ai/providers/mock'
 import { INSTRUCTIONS_MAX_TEXT, RULE_FILE_MAX_BYTES, RULE_MAX_TEXT } from '../src/config.ts'
 import type { ColonyHost } from '../src/host.ts'
 import {
@@ -17,6 +16,7 @@ import {
   SettingsStore,
   systemPrompt,
 } from '../src/index.ts'
+import { createMockModel, type MockContent } from '../src/omp/mock.ts'
 import { containedIn, readProjectRules, ruleMatches, splitGlobs } from '../src/rule-files.ts'
 import { TOOL_DEFS } from '../src/tools.ts'
 

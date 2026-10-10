@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
-import type { Model } from '@oh-my-pi/pi-ai'
 import { MODELS_DEV_REFRESH_MS, MODELS_DEV_URL, OMP_UNKNOWN, PROVIDER_ALIASES } from './config.ts'
+import type { Model } from './omp/ai.ts'
 
 /**
  * How many tokens each model can take in, layered the way opencode, Goose and Crush do it: the person's own number,

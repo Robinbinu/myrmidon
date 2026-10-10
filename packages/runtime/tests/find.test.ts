@@ -2,9 +2,9 @@ import { afterAll, beforeAll, expect, test } from 'bun:test'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
-import type { Judge, JudgmentRequest, Questions } from '@oh-my-pi/pi-ai'
 import { find } from '../src/find.ts'
 import type { ColonyHost } from '../src/host.ts'
+import type { Judge, JudgmentRequest, Questions } from '../src/omp/ai.ts'
 import { TOOL_DEFS } from '../src/tools.ts'
 
 let dir: string

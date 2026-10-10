@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { Process, PtySession } from '@oh-my-pi/pi-natives'
+import { Process, PtySession } from './omp/natives.ts'
 import { hostProbe, type ShellProbe, terminalShell } from './shell.ts'
 
 /**

@@ -3,9 +3,6 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { type ColonyState, type EventPayloads, emptyColonyState, foldColony } from '@myrmidon/protocol'
-import type { AgentMessage } from '@oh-my-pi/pi-agent-core'
-import type { Context as LlmContext } from '@oh-my-pi/pi-ai'
-import { createMockModel, type MockContent, type MockResponse } from '@oh-my-pi/pi-ai/providers/mock'
 import { Advisor, type AdvisorHost, parseAdvice } from '../src/advisor.ts'
 import { ADVISOR } from '../src/config.ts'
 import {
@@ -16,6 +13,9 @@ import {
   type Runtime,
   type TeamConfig,
 } from '../src/index.ts'
+import type { AgentMessage } from '../src/omp/agent-core.ts'
+import type { Context as LlmContext } from '../src/omp/ai.ts'
+import { createMockModel, type MockContent, type MockResponse } from '../src/omp/mock.ts'
 import type { AgentSpec, ColonySpec } from '../src/spec.ts'
 
 let home: string

@@ -1,13 +1,5 @@
 import { randomBytes } from 'node:crypto'
 import type { MyrEvent } from '@myrmidon/protocol'
-import {
-  type AssistantMessage,
-  type AssistantMessageEventStream,
-  type Message,
-  streamSimple,
-  type Tool,
-  type ToolCall,
-} from '@oh-my-pi/pi-ai'
 import { canonicalZone, clockMinutes, localDate, zoneOffset } from '../clock.ts'
 import {
   VOICE_ANSWER_CHARS,
@@ -22,6 +14,14 @@ import {
   VOICE_STEPS,
 } from '../config.ts'
 import type { ModelResolver } from '../models.ts'
+import {
+  type AssistantMessage,
+  type AssistantMessageEventStream,
+  type Message,
+  streamSimple,
+  type Tool,
+  type ToolCall,
+} from '../omp/ai.ts'
 import { prompts } from '../prompts.ts'
 import { hideInContext } from '../provider-secrets.ts'
 import { trimSilence, trimStart } from './audio.ts'

@@ -1,4 +1,6 @@
 import { relative, resolve, sep } from 'node:path'
+import { FIND } from './config.ts'
+import type { ModelResolver } from './models.ts'
 import {
   type Api,
   completeSimple,
@@ -8,10 +10,9 @@ import {
   type NoulQuestion,
   type TextBackend,
   TextJudge,
-} from '@oh-my-pi/pi-ai'
-import * as natives from '@oh-my-pi/pi-natives'
-import { FIND } from './config.ts'
-import type { ModelResolver } from './models.ts'
+} from './omp/ai.ts'
+import { type Jfind, loadJfind } from './omp/jfind.ts'
+import * as natives from './omp/natives.ts'
 import { prompts } from './prompts.ts'
 import { hideInContext } from './provider-secrets.ts'
 
@@ -43,31 +44,10 @@ export interface FindArgs {
   readonly keywords?: readonly string[]
 }
 
-type Jfind = {
-  keywords: typeof import('@oh-my-pi/pi-coding-agent/tools/jfind/keywords')
-  lexical: typeof import('@oh-my-pi/pi-coding-agent/tools/jfind/lexical')
-  passages: typeof import('@oh-my-pi/pi-coding-agent/tools/jfind/passages')
-  questions: typeof import('@oh-my-pi/pi-coding-agent/tools/jfind/questions')
-  text: typeof import('@oh-my-pi/pi-coding-agent/tools/jfind/text')
-  tree: typeof import('@oh-my-pi/pi-coding-agent/tools/jfind/tree')
-}
 type Passage = ReturnType<Jfind['passages']['windows']>[number]
 type HeatRange = ReturnType<Jfind['passages']['mergeHeat']>[number]
 type Request = ReturnType<Jfind['questions']['nameBatch']>
 type Entry = { path: string; rel: string; size: number }
-
-/** omp's modules, loaded on first use: questions.ts pulls in omp's URL router, a second at startup no round needs. */
-async function jfind(): Promise<Jfind> {
-  const [keywords, lexical, passages, questions, text, tree] = await Promise.all([
-    import('@oh-my-pi/pi-coding-agent/tools/jfind/keywords'),
-    import('@oh-my-pi/pi-coding-agent/tools/jfind/lexical'),
-    import('@oh-my-pi/pi-coding-agent/tools/jfind/passages'),
-    import('@oh-my-pi/pi-coding-agent/tools/jfind/questions'),
-    import('@oh-my-pi/pi-coding-agent/tools/jfind/text'),
-    import('@oh-my-pi/pi-coding-agent/tools/jfind/tree'),
-  ])
-  return { keywords, lexical, passages, questions, text, tree }
-}
 
 /**
  * omp lists, greps and reads through its URL filesystem; for host paths natives reads the disk itself when given
@@ -118,7 +98,7 @@ interface Hit {
 export async function find(scope: FindScope, args: FindArgs): Promise<string> {
   const query = args.query.trim()
   if (!query) throw new Error(say.emptyQuery)
-  const j = await jfind()
+  const j = await loadJfind()
   const words = j.keywords.keywords(query, args.keywords ?? [])
   const started = performance.now()
   const signal = AbortSignal.timeout(FIND.timeoutMs)

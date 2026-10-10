@@ -1,7 +1,7 @@
-import { completeSimple } from '@oh-my-pi/pi-ai'
 import type { ChatSummary } from './chat.ts'
 import { GREETING_AWAY_MS, GREETING_MS } from './config.ts'
 import type { ModelResolver } from './models.ts'
+import { completeSimple } from './omp/ai.ts'
 import { prompts } from './prompts.ts'
 import { hideInContext } from './provider-secrets.ts'
 

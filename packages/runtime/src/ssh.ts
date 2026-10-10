@@ -1,15 +1,16 @@
 import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join } from 'node:path'
-import { validateHostName } from '@oh-my-pi/pi-coding-agent/ssh/config-writer'
+import { SANDBOX_MAX_OUTPUT, SSH } from './config.ts'
 import {
+  assertOwnerPrivateDir,
+  buildSshTarget,
+  quotePosixArgument,
   resolveSshControlDir,
   supportsSshControlMaster,
-} from '@oh-my-pi/pi-coding-agent/ssh/connection-manager'
-import { buildSshTarget, wrapInPosixShell } from '@oh-my-pi/pi-coding-agent/ssh/utils'
-import { assertOwnerPrivateDir } from '@oh-my-pi/pi-coding-agent/utils/owner-private-dir'
-import { quotePosixArgument } from '@oh-my-pi/pi-coding-agent/utils/shell-quote'
-import { SANDBOX_MAX_OUTPUT, SSH } from './config.ts'
+  validateHostName,
+  wrapInPosixShell,
+} from './omp/ssh.ts'
 
 /**
  * The person's remote hosts, reached with their own ssh client: an agent runs a command or reads a file on a host they

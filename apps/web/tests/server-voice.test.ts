@@ -12,7 +12,7 @@ import {
   SmartTurn,
   wav,
 } from '@myrmidon/runtime'
-import { createMockModel } from '@oh-my-pi/pi-ai/providers/mock'
+import { createMockModel } from '../../../packages/runtime/src/omp/mock.ts'
 import { needsFull } from '../src/devices.ts'
 import { startServer, type WebServer } from '../src/server.ts'
 

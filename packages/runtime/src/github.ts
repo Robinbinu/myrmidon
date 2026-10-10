@@ -1,3 +1,4 @@
+import { GITHUB } from './config.ts'
 import type {
   GhActionsJobsResponse,
   GhActionsRunApi,
@@ -9,8 +10,8 @@ import type {
   GhIssueViewData,
   GhPrViewData,
   GhRepoViewData,
-} from '@oh-my-pi/pi-coding-agent/tools/gh-types'
-import { GITHUB } from './config.ts'
+} from './omp/github.ts'
+import { type Github, loadGithub } from './omp/github.ts'
 import { prompts } from './prompts.ts'
 import type { ShellSyntax } from './shell.ts'
 
@@ -177,18 +178,7 @@ export function scrubToken(text: string, token: string | undefined): string {
   return token ? text.replaceAll(token, say.tokenHidden) : text
 }
 
-/** omp's library modules, loaded on first use: they pull in a good part of omp, which most rounds never need. */
-async function omp() {
-  const [common, search, view, watch] = await Promise.all([
-    import('@oh-my-pi/pi-coding-agent/tools/gh-common'),
-    import('@oh-my-pi/pi-coding-agent/tools/gh-search'),
-    import('@oh-my-pi/pi-coding-agent/tools/gh-view'),
-    import('@oh-my-pi/pi-coding-agent/tools/gh-run-watch'),
-  ])
-  return { common, search, view, watch }
-}
-
-type Watch = typeof import('@oh-my-pi/pi-coding-agent/tools/gh-run-watch')
+type Watch = Github['watch']
 type RunSnapshot = ReturnType<Watch['normalizeRunSnapshot']>
 type FailedJobLog = Parameters<Watch['formatRunWatchResult']>[2][number]
 
@@ -336,7 +326,7 @@ async function json<T>(scope: GhScope, args: readonly string[], repoGiven: boole
 
 /** The checkout's own repository as `[host/]owner/repo`, the way omp asks gh for it; undefined outside one. */
 async function currentRepo(scope: GhScope): Promise<string | undefined> {
-  const { common } = await omp()
+  const { common } = await loadGithub()
   try {
     return common.repoFromUrl(await text(scope, ['repo', 'view', '--json', 'url', '-q', '.url'], false))
   } catch {
@@ -392,7 +382,7 @@ const labels = (l: ListedIssue['labels']) => l?.flatMap((x) => (x.name ? [x.name
 
 /** Runs one operation and returns what the agent reads. Writes are approved by the caller before this runs them. */
 export async function runGithub(scope: GhScope, a: GithubArgs): Promise<string> {
-  const { common, search, view } = await omp()
+  const { common, search, view } = await loadGithub()
   const given = !!a.repo?.trim()
   const repo = repoFlag(a.repo)
   switch (a.op) {
@@ -617,7 +607,7 @@ export async function runGithub(scope: GhScope, a: GithubArgs): Promise<string> 
  * checkout's own, and all of GitHub when there is none.
  */
 async function searchScope(scope: GhScope, repo: string | undefined, query: string) {
-  const { search } = await omp()
+  const { search } = await loadGithub()
   const given = optionalWord(repo, 'repo')
   if (given) return given
   if (search.REPO_SCOPE_QUALIFIER_PATTERN.test(query)) return undefined
@@ -626,7 +616,7 @@ async function searchScope(scope: GhScope, repo: string | undefined, query: stri
 
 /** The repository a run belongs to: from its URL, the repo given (which must agree), or the checkout's. */
 async function runRepo(scope: GhScope, given: string | undefined, fromUrl: string | undefined) {
-  const { common } = await omp()
+  const { common } = await loadGithub()
   const repo = optionalWord(given, 'repo')
   if (repo && fromUrl && !common.githubRepoSlugEquals(repo, fromUrl)) throw new Error(say.runRepoMismatch)
   const found = repo ?? fromUrl ?? (await currentRepo(scope))
@@ -636,7 +626,7 @@ async function runRepo(scope: GhScope, given: string | undefined, fromUrl: strin
 
 /** A run and its jobs through the Actions API, as omp's fetchRunSnapshot reads them. */
 async function snapshot(scope: GhScope, repo: string, id: number): Promise<RunSnapshot> {
-  const { common, watch } = await omp()
+  const { common, watch } = await loadGithub()
   const ref = common.parseRepoRef(repo)
   const host = common.ghApiHostArgs(ref)
   const run = await json<GhActionsRunApi>(
@@ -678,7 +668,7 @@ async function failedLogs(
   run: RunSnapshot,
   tail: number,
 ): Promise<FailedJobLog[]> {
-  const { common, watch } = await omp()
+  const { common, watch } = await loadGithub()
   const ref = common.parseRepoRef(repo)
   return Promise.all(
     run.jobs.filter(watch.isFailedJob).map(async (job) => {
@@ -702,7 +692,7 @@ async function failedLogs(
  * no run named it watches the newest run (of `branch`, when given).
  */
 async function runReport(scope: GhScope, a: GithubArgs): Promise<string> {
-  const { watch } = await omp()
+  const { watch } = await loadGithub()
   const tail = watch.resolveTailLimit(a.tail)
   let ref = watch.parseRunReference(a.run)
   if (ref.runId === undefined) {

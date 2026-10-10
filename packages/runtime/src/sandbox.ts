@@ -1,7 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, realpathSync, statSync } from 'node:fs'
 import { constants, homedir } from 'node:os'
 import { dirname, join, sep } from 'node:path'
-import { Process } from '@oh-my-pi/pi-natives'
 import {
   SANDBOX_HIDDEN_ROOTS,
   SANDBOX_HIDDEN_TMP,
@@ -11,6 +10,7 @@ import {
   sandboxSystemBins,
 } from './config.ts'
 import { spawnLeashed } from './leashed.ts'
+import { Process } from './omp/natives.ts'
 import { presetOf } from './permissions.ts'
 import { pathOf, realOrNone, realPath, toolchainPaths, within } from './read-access.ts'
 import { hostShell, shellEnv } from './shell.ts'

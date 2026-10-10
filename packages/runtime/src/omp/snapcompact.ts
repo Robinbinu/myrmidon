@@ -1,0 +1,21 @@
+/** omp's snapcompact: compaction that renders the old conversation into image frames the model reads back. */
+export {
+  archiveSourceText,
+  type CompactionPreparation,
+  compact,
+  createFileOps,
+  FRAME_DATA_BYTES_BUDGET,
+  FRAME_TOKEN_ESTIMATE,
+  frameDataBytes,
+  geometry,
+  getPreservedArchive,
+  historyBlocks,
+  MAX_FRAMES_DEFAULT,
+  maxFramesForDataBudget,
+  providerFrameBudget,
+  renderabilityProbeText,
+  resolveShapeForText,
+  type Shape,
+  scanRenderability,
+  serializeConversation,
+} from '@oh-my-pi/snapcompact'
