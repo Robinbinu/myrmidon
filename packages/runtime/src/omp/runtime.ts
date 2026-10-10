@@ -1,17 +1,9 @@
 import { Database } from 'bun:sqlite'
-import {
-  chmodSync,
-  copyFileSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  renameSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, relative } from 'node:path'
 import type { Api, Model } from '@oh-my-pi/pi-ai'
+import { ownerOnly } from '../owner-only.ts'
 import type { VoiceKeys } from '../voice/providers.ts'
 
 /**
@@ -240,7 +232,7 @@ async function start(home: string): Promise<OmpRuntime> {
     const tmp = `${modelsPath}.${process.pid}.tmp`
     // Holds API keys of custom providers.
     writeFileSync(tmp, Bun.YAML.stringify(doc, null, 2), { mode: 0o600 })
-    chmodSync(tmp, 0o600)
+    ownerOnly(tmp)
     renameSync(tmp, modelsPath)
   }
 
@@ -541,7 +533,7 @@ export function importFromOmp(home: string, source = join(homedir(), '.omp', 'ag
       const dest = join(target, db)
       for (const suffix of ['', '-wal', '-shm']) rmSync(dest + suffix, { force: true })
       src.run(`VACUUM INTO '${dest.replaceAll("'", "''")}'`)
-      chmodSync(dest, 0o600)
+      ownerOnly(dest)
       copied.push(db)
     } finally {
       src.close()
@@ -552,7 +544,7 @@ export function importFromOmp(home: string, source = join(homedir(), '.omp', 'ag
     if (existsSync(from)) {
       // models.yml may hold API keys inline.
       copyFileSync(from, join(target, file))
-      chmodSync(join(target, file), 0o600)
+      ownerOnly(join(target, file))
       copied.push(file)
     }
   }

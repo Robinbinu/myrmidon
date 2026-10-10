@@ -1,16 +1,18 @@
 import { existsSync, mkdirSync, readdirSync, realpathSync, statSync } from 'node:fs'
-import { homedir } from 'node:os'
+import { constants, homedir } from 'node:os'
 import { dirname, join, sep } from 'node:path'
+import { Process } from '@oh-my-pi/pi-natives'
 import {
   SANDBOX_HIDDEN_ROOTS,
   SANDBOX_HIDDEN_TMP,
   SANDBOX_MAX_OUTPUT,
-  SANDBOX_SYSTEM_BINS,
   SANDBOX_TEMP_READABLE,
+  sandboxSystemBins,
 } from './config.ts'
 import { spawnLeashed } from './leashed.ts'
 import { presetOf } from './permissions.ts'
-import { realOrNone, realPath, toolchainPaths, within } from './read-access.ts'
+import { pathOf, realOrNone, realPath, toolchainPaths, within } from './read-access.ts'
+import { hostShell } from './shell.ts'
 import type { ColonySpec } from './spec.ts'
 
 export interface SandboxRun {
@@ -236,17 +238,69 @@ export const SANDBOX_DIRS: ReadonlySet<string> = new Set([HOME_DIR, TMP_DIR])
 /**
  * A sandboxed command's PATH: the entries of the person's `path` that are toolchains in their `home` or system
  * folders (SANDBOX_SYSTEM_BINS), in their order, then the system folders it lacks. The rest would name their apps
- * and folders, and the sandbox could not run what is in them anyway.
+ * and folders, and the sandbox could not run what is in them anyway. Entries are split and joined as `platform` does
+ * (`;` on Windows).
  */
-export function sandboxPath(path: string | undefined, home: string): string {
+export function sandboxPath(
+  path: string | undefined,
+  home: string,
+  platform: NodeJS.Platform = process.platform,
+  system: readonly string[] = sandboxSystemBins(platform),
+): string {
+  const { delimiter, isAbsolute } = pathOf(platform)
   const toolchains = toolchainPaths(home)
-  const system: readonly string[] = SANDBOX_SYSTEM_BINS
-  const kept = (path ?? '').split(':').filter((dir) => {
-    if (system.includes(dir)) return true
-    const real = dir.startsWith(sep) ? realOrNone(dir) : undefined
-    return real !== undefined && toolchains.some((t) => within(real, t))
+  const same = (a: string, b: string) => within(a, b, platform) && within(b, a, platform)
+  const kept = (path ?? '').split(delimiter).filter((dir) => {
+    if (system.some((s) => same(dir, s))) return true
+    const real = isAbsolute(dir) ? realOrNone(dir) : undefined
+    return real !== undefined && toolchains.some((t) => within(real, t, platform))
   })
-  return [...new Set([...kept, ...system.filter((dir) => existsSync(dir))])].join(':')
+  const lacked = system.filter((dir) => existsSync(dir) && !kept.some((k) => same(k, dir)))
+  return [...new Set([...kept, ...lacked])].join(delimiter)
+}
+
+/**
+ * Of Myrmidon's own environment, what a confined command keeps on Windows besides PATH: without SystemRoot programs
+ * cannot load system libraries or open sockets, without PATHEXT `npx` is not found as `npx.cmd`, and without ComSpec
+ * nothing can start cmd. Windows' names ignore case, so they are looked up that way.
+ */
+const WINDOWS_KEPT_ENV = [
+  'SystemRoot',
+  'SystemDrive',
+  'windir',
+  'PATHEXT',
+  'ComSpec',
+  'OS',
+  'NUMBER_OF_PROCESSORS',
+]
+const WINDOWS_ARCH_ENV = /^PROCESSOR_/i
+
+/**
+ * The environment of a confined command: the sandboxed PATH and its private HOME and temp folder; on Windows also the
+ * system's own variables and the private home as the profile folder, with AppData inside it, so programs keep their
+ * settings and caches there rather than in the person's.
+ */
+export function confinedEnvFor(
+  base: Record<string, string | undefined>,
+  dirs: { person: string; home: string; tmp: string },
+  platform: NodeJS.Platform = process.platform,
+): Record<string, string> {
+  const path = base.PATH ?? Object.entries(base).find(([k]) => k.toUpperCase() === 'PATH')?.[1]
+  const env: Record<string, string> = { PATH: sandboxPath(path, dirs.person, platform) }
+  if (platform === 'win32') {
+    const wanted = new Set(WINDOWS_KEPT_ENV.map((k) => k.toUpperCase()))
+    for (const [k, v] of Object.entries(base))
+      if (v !== undefined && (wanted.has(k.toUpperCase()) || WINDOWS_ARCH_ENV.test(k))) env[k] = v
+    const { join } = pathOf(platform)
+    Object.assign(env, {
+      USERPROFILE: dirs.home,
+      APPDATA: join(dirs.home, 'AppData', 'Roaming'),
+      LOCALAPPDATA: join(dirs.home, 'AppData', 'Local'),
+      TEMP: dirs.tmp,
+      TMP: dirs.tmp,
+    })
+  }
+  return { ...env, HOME: dirs.home, TMPDIR: dirs.tmp }
 }
 
 function confinedEnv(spec: Omit<SandboxRun, 'timeoutMs'>, person: string) {
@@ -255,7 +309,9 @@ function confinedEnv(spec: Omit<SandboxRun, 'timeoutMs'>, person: string) {
   const tmp = join(own, TMP_DIR)
   mkdirSync(home, { recursive: true })
   mkdirSync(tmp, { recursive: true })
-  return { PATH: sandboxPath(process.env.PATH, person), HOME: home, TMPDIR: tmp, ...spec.env }
+  const env = confinedEnvFor(process.env, { person, home, tmp })
+  for (const dir of [env.APPDATA, env.LOCALAPPDATA]) if (dir) mkdirSync(dir, { recursive: true })
+  return { ...env, ...spec.env }
 }
 
 function startConfined(
@@ -288,19 +344,13 @@ function startConfined(
   }
 }
 
-/** Signals a process and all its descendants: a dev server is usually a shell running npm running the real server. */
+/**
+ * Signals a process and all its descendants, children first: a dev server is usually a shell running npm running the
+ * real server. Windows has no signals, so there the whole tree is ended at once.
+ */
 function killTree(pid: number, signal: 'SIGTERM' | 'SIGKILL') {
-  const children = new TextDecoder()
-    .decode(Bun.spawnSync(['pgrep', '-P', String(pid)]).stdout)
-    .split('\n')
-    .map(Number)
-    .filter((n) => n > 0)
-  for (const child of children) killTree(child, signal)
-  try {
-    process.kill(pid, signal)
-  } catch {
-    // Already gone.
-  }
+  // Null when it has already gone.
+  Process.fromPid(pid)?.killTree(constants.signals[signal])
 }
 
 async function spawnConfined(argv: string[], spec: SandboxRun, home: string): Promise<SandboxResult> {
@@ -311,6 +361,7 @@ async function spawnConfined(argv: string[], spec: SandboxRun, home: string): Pr
     stderr: 'pipe',
     timeout: spec.timeoutMs,
     killSignal: 'SIGKILL',
+    windowsHide: true,
   })
   const [stdout, stderr, code] = await Promise.all([
     new Response(proc.stdout).text(),
@@ -321,7 +372,8 @@ async function spawnConfined(argv: string[], spec: SandboxRun, home: string): Pr
   return { code: timedOut ? null : code, stdout: cap(stdout), stderr: cap(stderr), timedOut }
 }
 
-const plainShell = (spec: Omit<SandboxRun, 'timeoutMs'>) => ['/bin/sh', '-c', spec.command]
+/** No confinement: the command in this OS's shell (Git Bash, else PowerShell, on Windows; see shell.ts). */
+const plainShell = (spec: Omit<SandboxRun, 'timeoutMs'>) => hostShell().argv(spec.command)
 
 /**
  * A command run to completion on a leash: when it times out, the leash stops its whole tree (killing the leash alone

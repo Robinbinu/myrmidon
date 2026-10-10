@@ -140,7 +140,7 @@ test("Phonon's live stream sends the turn's audio as it comes and says the words
     },
   })
   servers.push(server)
-  const stream = new PhononStream(unix, 16_000, (text) => got.texts.push(text))
+  const stream = new PhononStream({ unix }, 16_000, (text) => got.texts.push(text))
   // Audio from before the server answers is kept, then sent in order.
   stream.push(Int16Array.from([1, 2]))
   stream.push(Int16Array.from([3, 4]))
@@ -171,7 +171,7 @@ test('a stream the server refuses ends quietly, and Phonon streams only once it 
   const logged: string[] = []
   const texts: string[] = []
   const stream = new PhononStream(
-    unix,
+    { unix },
     16_000,
     (t) => texts.push(t),
     (l) => logged.push(l),
