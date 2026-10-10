@@ -288,6 +288,53 @@ test('a Kitten model already here is checked against its pins once, and download
   expect(fetched).toBe(3)
 })
 
+test('a Kitten download whose connection goes quiet fails with why, and can be tried again', async () => {
+  const files: Record<string, string> = {
+    'config.json': JSON.stringify({ model_file: 'net.onnx', voices: 'voices.npz' }),
+    'net.onnx': 'network'.repeat(1000),
+    'voices.npz': 'voices',
+  }
+  // A server that takes the connection and then says nothing, then one that stops partway through a file, then a
+  // working one.
+  let mode: 'silent' | 'stalls' | 'ok' = 'silent'
+  const server = Bun.listen({
+    hostname: '127.0.0.1',
+    port: 0,
+    socket: {
+      data(socket, data) {
+        if (mode === 'silent') return
+        const name = /^GET (\S+)/.exec(data.toString())?.[1]?.split('/').pop() ?? ''
+        const body = files[name] ?? ''
+        const head = `HTTP/1.1 200 OK\r\ncontent-length: ${body.length}\r\nconnection: close\r\n\r\n`
+        if (mode === 'stalls' && name === 'net.onnx') return void socket.write(head + body.slice(0, 100))
+        socket.end(head + body)
+      },
+    },
+  })
+  servers.push(server)
+  const settings = { model: 'nano' as const, voice: 'Leo', speed: 1 }
+  const h = home()
+  const kitten = new KittenTts(
+    h,
+    () => settings,
+    undefined,
+    `http://127.0.0.1:${server.port}`,
+    pinsFor(files),
+    200,
+  )
+  for (const m of ['silent', 'stalls'] as const) {
+    mode = m
+    const started = Date.now()
+    await expect(kitten.download()).rejects.toThrow(m === 'silent' ? 'config.json' : 'net.onnx')
+    expect(Date.now() - started).toBeLessThan(5_000)
+    expect(kitten.status()).toMatchObject({ state: 'error', error: expect.stringContaining('no data') })
+    expect(existsSync(join(h, 'voice', 'kitten', 'nano'))).toBe(false)
+  }
+  mode = 'ok'
+  await kitten.download()
+  expect(kitten.status()).toEqual({ state: 'ready' })
+}, 20_000)
+
 test("one Kitten model's failed download says nothing about another", async () => {
   const files: Record<string, string> = {
     'config.json': JSON.stringify({ model_file: 'net.onnx', voices: 'voices.npz' }),
