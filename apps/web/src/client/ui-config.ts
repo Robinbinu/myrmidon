@@ -476,6 +476,8 @@ export const CONFIRM_ARM_DELAY_MS = 400
  * The gateway reuses one read for a minute (PROVIDER_USAGE_CACHE_MS), so asking more often shows nothing newer.
  */
 export const PLAN_LIMITS_POLL_MS = 2 * 60_000
+/** The model chip's battery shows full from this much of the plan left (%), mid from the second, low below it. */
+export const PLAN_LEVEL_LEFT = [60, 25] as const
 
 /** How often the page asks the gateway how it is doing (the indicator, badges, request notifications). */
 export const STATUS_POLL_MS = 10_000

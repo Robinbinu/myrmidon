@@ -12,12 +12,27 @@ import {
 } from 'react'
 import type { ModelOption } from '../api.ts'
 import { copy } from '../copy.ts'
+import type { PlanLevel } from '../plan-limits.tsx'
 import { FEATURE_ICONS } from '../ui/icons.ts'
 import { Popover } from '../ui/Popover.tsx'
 import { ProviderGlyph, ProviderLogo } from '../ui/ProviderGlyph.tsx'
 import { cn, POPUP } from '../ui/primitives.tsx'
 import { AGENT_MIN_WINDOW, MODEL_LIST_MIN_PX } from '../ui-config.ts'
 import { modelName, withoutDatedAliases } from './model-list.ts'
+
+// One battery, the plan-limits glyph's family: how much of the subscription is left, coloured as it runs down.
+const LEVEL_ICON = {
+  full: FEATURE_ICONS.planFull,
+  mid: FEATURE_ICONS.planLimits,
+  low: FEATURE_ICONS.planLow,
+  empty: FEATURE_ICONS.planEmpty,
+} as const
+const LEVEL_INK: Record<PlanLevel, string> = {
+  full: 'text-ok-ink',
+  mid: 'text-fg-2',
+  low: 'text-warn-ink',
+  empty: 'text-bad-ink',
+}
 
 /** The popover a picker sits in, if any: its list then opens above the popover instead of covering it. */
 export const PickerHost = createContext<RefObject<HTMLElement | null> | undefined>(undefined)
@@ -64,6 +79,8 @@ export function ModelPicker(props: {
   minReason?: string
   /** The chosen model's provider is near or at its plan's limit (see plan-limits.tsx): the chip says so. */
   limitNotice?: string
+  /** How much of the chosen model's subscription is left, as a battery on the chip (see plan-limits.tsx planLevel). */
+  plan?: { level: PlanLevel; text: string }
 }) {
   const variant = props.variant ?? 'field'
   const [open, setOpen] = useState(false)
@@ -170,10 +187,16 @@ export function ModelPicker(props: {
             <span className="truncate">
               {current ? modelName(current.name) : props.value || copy.modelPicker.choose}
             </span>
-            {props.limitNotice && (
-              <span title={props.limitNotice} className="shrink-0 text-warn-ink">
-                <FEATURE_ICONS.planLimits aria-hidden className="size-3.5" />
-                <span className="sr-only">{props.limitNotice}</span>
+            {(props.plan || props.limitNotice) && (
+              <span
+                title={props.limitNotice ?? props.plan?.text}
+                className={cn('shrink-0', props.plan ? LEVEL_INK[props.plan.level] : 'text-warn-ink')}
+              >
+                {(() => {
+                  const Icon = props.plan ? LEVEL_ICON[props.plan.level] : FEATURE_ICONS.planLimits
+                  return <Icon aria-hidden className="size-3.5" />
+                })()}
+                <span className="sr-only">{props.limitNotice ?? props.plan?.text}</span>
               </span>
             )}
             <ChevronDown className="size-3.5 shrink-0 text-muted" />

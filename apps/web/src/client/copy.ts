@@ -348,6 +348,9 @@ export const copy = {
     unsupported: 'This provider doesn’t report plan limits',
     status: { warning: 'near limit', exhausted: 'limit reached' },
     /** The composer's model chip, when every account the model's provider could use is near or at a limit. */
+    /** The model chip's battery: what is left of the provider's tightest plan window. */
+    left: (label: string, percent: number, resets?: string) =>
+      `${label}: ${percent}% left${resets ? ` · ${resets}` : ''}`,
     nearLimit: (label: string, percent: number, resets?: string) =>
       `${label} is ${percent}% used${resets ? `, ${resets}` : ''}: agents on this model may slow down or stop`,
     atLimit: (label: string, resets?: string) =>
