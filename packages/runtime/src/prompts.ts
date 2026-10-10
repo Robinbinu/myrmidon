@@ -12,6 +12,7 @@ import {
   MAX_SERVERS,
   PAGE_EXCERPT,
   READ_LOG_RESULT_CHARS,
+  READ_SQL_MAX_ROWS,
   SERVER_START_MS,
   SNAPSHOT_CHARS,
   VOICE_GREETING_WORDS,
@@ -1414,6 +1415,45 @@ Reply with JSON only: {"lines": ["...", "...", "..."]}.`,
       `… lines ${next}-${total} not shown: fs_read with offset: ${next} reads on.`,
     readPastEnd: (offset: number, total: number) =>
       `offset ${offset} is past the end: the file has ${total} line${total === 1 ? '' : 's'}`,
+    /** What fs_read read a file that is not plain text as, above what it shows; `name` is the file or archive member. */
+    readPdf: (name: string, pages: number, scanned: readonly number[]) =>
+      `${name}: PDF, ${pages} page${pages === 1 ? '' : 's'}, as Markdown.${scanned.length ? ` Page${scanned.length === 1 ? '' : 's'} ${scanned.join(', ')} ${scanned.length === 1 ? 'has' : 'have'} no text layer (scanned or drawn), so ${scanned.length === 1 ? 'its' : 'their'} words may be missing here.` : ''}`,
+    readDocument: (name: string, kind: string) => `${name}: ${kind} document, as Markdown.`,
+    readNotebook: (name: string) => `${name}: Jupyter notebook, its cells as text (outputs left out).`,
+    readImage: (name: string, type: string, size: string, sent?: string) =>
+      `${name}: ${type} image, ${size}${sent ? `, sent at ${sent}` : ''}.`,
+    readArchive: (name: string, format: string, files: number) =>
+      `${name}: ${format} archive of ${n(files)} file${files === 1 ? '' : 's'}. fs_read with entry reads one of them.`,
+    readArchiveFolder: (name: string, entry: string) => `${name}: folder ${entry} of the archive.`,
+    readSqlite: (name: string, tables: number) =>
+      `${name}: SQLite database, ${n(tables)} table${tables === 1 ? '' : 's'}. fs_read with sql runs a read-only SELECT on it.`,
+    readSqlRows: (rows: number, capped: boolean) =>
+      capped
+        ? `The first ${n(rows)} rows, one JSON object per line; more rows match: add LIMIT and OFFSET to page through them.`
+        : `${n(rows)} row${rows === 1 ? '' : 's'}, one JSON object per line.`,
+    readEmptyArchive: '(no files)',
+    readNoTables: '(no tables)',
+    /** Office and e-book formats fs_read converts, by extension, as the header names them. */
+    documentKinds: { '.docx': 'Word', '.pptx': 'PowerPoint', '.xlsx': 'Excel', '.epub': 'EPUB' } as Record<
+      string,
+      string
+    >,
+    readBinary: (name: string, bytes: number) =>
+      `${name} is a binary file (${n(bytes)} bytes), not text, and not a format fs_read converts. It reads text, PDF, Word (.docx), PowerPoint (.pptx), Excel (.xlsx), EPUB, Jupyter notebooks, PNG, JPEG, GIF and WebP images, archives (zip, tar, tar.gz, 7z, rar and the like) and SQLite databases; take anything else apart with the shell.`,
+    readTooBig: (name: string, bytes: number, max: number) =>
+      `${name} is ${n(bytes)} bytes, over the ${n(max)} fs_read converts in one go; take it apart with the shell.`,
+    readConvertFailed: (name: string, kind: string, why: string) =>
+      `${name} could not be read as ${kind}: ${why}`,
+    readEntryNotArchive: (name: string) =>
+      `entry names a file inside an archive (zip, tar, 7z…), and ${name} is not one; read it without entry.`,
+    readSqlNotDatabase: (name: string) =>
+      `sql runs on a SQLite database, and ${name} is not one; read it without sql.`,
+    readSqlSelectOnly:
+      'sql runs one read-only query: it must start with SELECT, WITH or VALUES. To change a database, use the shell.',
+    readNoEntry: (entry: string, name: string) =>
+      `no ${entry} in ${name}; fs_read on ${name} without entry lists what it holds.`,
+    readNested: (entry: string) =>
+      `${entry} is itself an archive or a database: extract it with the shell, then read the copy.`,
     logMore: (chars: number, seq: number) => `… (${chars} more chars: read_log(entry: ${seq}) shows it all)`,
     logPending: 'no result yet: the call is still running',
     toolCreated: (name: string, output: string) =>
@@ -1928,15 +1968,21 @@ Reply with JSON only: {"lines": ["...", "...", "..."]}.`,
     // After Qwen Code's read_file (offset/limit paging, truncation stated) and Claude Code's Read.
     fs_read: {
       description: (p: Place) =>
-        `Read a text file in ${place(p)}${p.where === 'scratch' ? '' : ', your scratch directory'}, or a folder the person opened for reading; a page ` +
+        `Read a file in ${place(p)}${p.where === 'scratch' ? '' : ', your scratch directory'}, or a folder the person opened for reading; a page ` +
         'web_fetch saved is read the same way, by the path it gave. Use it instead of cat, head, tail or sed -n in ' +
         `the shell. A file up to ${n(MAX_READ_CHARS)} characters comes back whole. A longer one, or a range you ask for with offset ` +
         'and limit, comes back as whole lines under a header naming the lines shown, ending with the offset that ' +
-        'reads on. To find which lines you need, grep first: it gives line numbers.',
+        'reads on. To find which lines you need, grep first: it gives line numbers. Besides text it reads PDF, Word, ' +
+        'PowerPoint, Excel and EPUB files and Jupyter notebooks as text, images as pictures, an archive (zip, tar, 7z…) ' +
+        'as the list of its files (entry reads one), and a SQLite database as its tables (sql queries it); other ' +
+        'binary files it names but does not show.',
       params: {
         path: 'File path, relative to your working directory, or absolute (~ allowed)',
         offset: 'First line to read, 1-based (default 1)',
         limit: `How many lines to read from offset (default: to the end of the file, up to ${n(MAX_READ_CHARS)} characters)`,
+        entry:
+          'A file inside the archive at path, as its listing names it (src/main.ts); read it instead of the list',
+        sql: `One read-only SELECT to run on the SQLite database at path (up to ${n(READ_SQL_MAX_ROWS)} rows)`,
       },
     },
     request_read: {
