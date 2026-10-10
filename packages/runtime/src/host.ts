@@ -15,6 +15,7 @@ import type { Advisor } from './advisor.ts'
 import type { ModelError } from './agent.ts'
 import type { BrowserHub } from './browser.ts'
 import type { ComputerHub } from './computer/driver.ts'
+import type { MediaTools } from './media.ts'
 import type { PluginHost } from './plugin-host.ts'
 import type { ProjectContext } from './project-context.ts'
 import type { Sandbox } from './sandbox.ts'
@@ -81,6 +82,8 @@ export interface ColonyHost {
    * pick one. Absent (tests, bare hosts), find ranks by words alone.
    */
   judge?(agent: string): Judge | undefined
+  /** Pictures and speech for agents (generate_image, tts); absent in runs without the model runtime. */
+  readonly media?: MediaTools
   /** Tools of the connected MCP servers, offered to agents allowed `mcp`. */
   mcpTools(): AgentTool[]
   /** The MCP server marks this tool read-only (it changes nothing), so by default it runs without asking. */

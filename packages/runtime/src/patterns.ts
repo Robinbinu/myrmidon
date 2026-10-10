@@ -64,6 +64,10 @@ const USER = ['reply_user', 'check_in', 'ask_user', 'remember']
 const CODE_INTEL = ['ast_grep', 'ast_edit', 'lsp']
 /** Code cells whose state lasts the round: loaded on demand, as omp marks its eval discoverable. */
 const CELLS = ['eval']
+/** Pictures and speech, published like files: loaded on demand, as omp marks generate_image and tts discoverable. */
+const MEDIA = ['generate_image', 'tts']
+/** Delivering files to the person: written ones, and pictures and speech made for them. */
+const PUBLISH = ['publish_artifact', ...MEDIA]
 /** For the agent that speaks: features of Myrmidon itself are built as plugins the person switches on. */
 const PLUGIN = ['create_plugin', 'test_plugin', 'propose_plugin']
 
@@ -105,6 +109,8 @@ function baseRoleTools(spec: ColonySpec, agent: AgentSpec): string[] {
           : []),
         'list_artifacts',
         'read_artifact',
+        // "Draw me…", "read this aloud": the picture or the sound is the answer.
+        ...MEDIA,
         'read_docs',
         'use_skill',
         'mcp',
@@ -115,14 +121,14 @@ function baseRoleTools(spec: ColonySpec, agent: AgentSpec): string[] {
     const plugin = speaksForColony(spec, agent) ? PLUGIN : []
     // A crewmate the lead asked for a piece of work: it works and answers the lead, never the person.
     if (spec.tier === 'solo' && agent.role === 'worker')
-      return [...READ, 'message', 'append_note', 'publish_artifact', ...BUILD]
+      return [...READ, 'message', 'append_note', ...PUBLISH, ...BUILD]
     const crewmates =
       spec.tier === 'solo' && isLead(spec, agent) && spec.team?.crewmates?.length ? ['ask_crewmate'] : []
     if (spec.tier !== 'team' || spec.agents.length === 1)
       return [
         ...READ,
         'append_note',
-        'publish_artifact',
+        ...PUBLISH,
         ...BUILD,
         ...USER,
         ...crewmates,
@@ -137,7 +143,7 @@ function baseRoleTools(spec: ColonySpec, agent: AgentSpec): string[] {
         'create_task',
         'reject_task',
         ...HOLD,
-        'publish_artifact',
+        ...PUBLISH,
         ...BUILD,
         ...USER,
         'reply_person',
@@ -160,7 +166,7 @@ function baseRoleTools(spec: ColonySpec, agent: AgentSpec): string[] {
         'assign_task',
         'reject_task',
         // It assigns tasks and never holds one, so it has no claim, release or submit.
-        'publish_artifact',
+        ...PUBLISH,
         ...USER,
         ...review,
         ...plugin,
@@ -169,9 +175,9 @@ function baseRoleTools(spec: ColonySpec, agent: AgentSpec): string[] {
       ]
     }
     // A worker speaks to the person only when they wrote to it directly (@name).
-    return [...READ, ...TALK, ...HOLD, 'publish_artifact', ...BUILD, 'reply_person']
+    return [...READ, ...TALK, ...HOLD, ...PUBLISH, ...BUILD, 'reply_person']
   }
-  const work = ['publish_artifact', ...BUILD]
+  const work = [...PUBLISH, ...BUILD]
   if (isLead(spec, agent))
     return [...READ, ...TALK, 'create_task', 'reject_task', ...HOLD, ...work, 'request_final_verification']
   if (spec.pattern === 'lead-workers') return [...READ, ...TALK, ...HOLD, ...work]
@@ -194,6 +200,7 @@ const ON_DEMAND = new Set([
   'read_docs',
   ...CODE_INTEL,
   ...CELLS,
+  ...MEDIA,
   ...ACCESS_GROUPS.computer,
   ...PLUGIN,
 ])
@@ -229,6 +236,14 @@ export function preloaded(request: string, names: readonly string[]): string[] {
     /\bgithub\b|\bpull requests?\b|\bPRs?\b|\bPR ?#?\d+|\bissue ?#\d+|\bCI\b|\bworkflow runs?\b|\bactions? runs?\b/i.test(
       request,
     )
+  const picture =
+    /\b(draw|paint|sketch|illustrat\w*|logos?|pictures?|photos?|posters?|wallpapers?|avatars?|(generate|make|create|design|edit)\b[^.]{0,30}\b(images?|icons?|banners?|art(work)?))\b/i.test(
+      request,
+    )
+  const speech =
+    /\b(aloud|read (it|this|that) out|narrat\w*|voice-?overs?|text[ -]to[ -]speech|tts|audio (file|version|clip)|pronounc\w*)\b/i.test(
+      request,
+    )
   const computer =
     /\b(my (mac|screen|desktop|computer)|on (my|the) screen|desktop app|native app|the app\b|open (the )?\w+ app|finder|system settings|simulator|xcode|computer use)\b/i.test(
       request,
@@ -241,6 +256,8 @@ export function preloaded(request: string, names: readonly string[]): string[] {
       (code && CODE_INTEL.includes(n)) ||
       (cells && CELLS.includes(n)) ||
       (github && n === 'github') ||
+      (picture && n === 'generate_image') ||
+      (speech && n === 'tts') ||
       (computer && ACCESS_GROUPS.computer.includes(n)),
   )
 }

@@ -503,6 +503,8 @@ export const copy = {
       planningTasks: 'planning tasks',
       writingReply: 'writing a reply',
       usingMac: 'using your Mac',
+      drawing: 'making a picture',
+      recording: 'recording audio',
       using: (tool: string) => `using ${tool}`,
     },
   },
@@ -1245,6 +1247,8 @@ export const copy = {
     previewOf: (name: string) => `Preview of ${name}`,
     noPreview:
       'This Myrmidon has no preview address for this device yet, so here is the code. docs/remote.md explains how to add one.',
+    /** A picture or sound that could not be loaded (gone, or not what its name says). */
+    mediaFailed: 'This file could not be shown here; download it to open it.',
   },
 
   /** The workspace's Explorer: the project folder as a tree, like an editor's. */
@@ -1759,6 +1763,8 @@ export const copy = {
         submit_task: 'Hand in a task',
         update_todo: 'Update the to-do list',
         publish_artifact: 'Publish a file',
+        generate_image: 'Make a picture',
+        tts: 'Read text aloud',
         read_artifact: 'Read a published file',
         list_artifacts: 'List published files',
         observe: 'Look in on the crew',
@@ -3060,6 +3066,18 @@ export const copy = {
         skills: ['skill', 'playbook', 'playbooks', 'skill.md', 'agent skills'],
         mcp: ['mcp', 'model context protocol', 'tool server', 'connectors', 'integrations'],
         webSearch: ['search engine', 'brave', 'exa', 'duckduckgo', 'google', 'internet'],
+        imageGeneration: [
+          'image model',
+          'generate image',
+          'pictures',
+          'drawing',
+          'dall-e',
+          'gpt-image',
+          'imagen',
+          'nano banana',
+          'grok imagine',
+          'art',
+        ],
         plugins: ['plugin', 'extension', 'extensions', 'add-on', 'claude code plugin'],
         hooks: ['hook', 'pre tool use', 'post tool use', 'script', 'lint on save', 'automation'],
         schedules: ['cron', 'recurring', 'every day', 'daily', 'weekly', 'timer', 'automation', 'routine'],
@@ -3338,6 +3356,15 @@ export const copy = {
       searchProviderHint:
         'Auto tries the search providers you have keys for first, then keyless ones like DuckDuckGo.',
       searchAuto: 'Auto',
+      imageGeneration: 'Image generation',
+      imageModel: 'Image model',
+      imageModelHint:
+        'The model agents make and edit pictures with. Automatic uses the first one your providers can run. Each picture is billed by its provider and counts toward a chat’s spending limit.',
+      imageModelNone:
+        'None of your providers can make pictures yet. Add an OpenAI, Google Gemini, OpenRouter or xAI key, or sign in with ChatGPT, in Models & providers.',
+      imageAuto: 'Automatic',
+      /** A chosen model its provider can no longer run (its key was removed). */
+      imageGone: (ref: string) => `${ref} (not available)`,
     },
     mcp: {
       added: (name: string) => `Added ${name}`,

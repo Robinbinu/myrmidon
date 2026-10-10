@@ -103,6 +103,7 @@ import {
   type SpecialistInput,
   type SpecialistStore,
   setupHave,
+  sniffAudio,
   sniffImage,
   startScheduler,
   TerminalUnavailable,
@@ -110,6 +111,7 @@ import {
   type ToolLibrary,
   TWILIO_API,
   VOICE_ENDPOINT_ID,
+  type VoiceFiles,
   VoiceHub,
   voiceProvider,
   wav,
@@ -229,6 +231,8 @@ export interface WebServer {
   pairingLink(scope: DeviceScope): { code: string; link: string }
   /** Loads and warms the speech engines voice calls use, so the first call does not wait on them. */
   warmVoice(): Promise<void>
+  /** Speech in the voice chosen in Settings → Voice, for agents' tts tool; absent without the chat runtime. */
+  readonly voice?: VoiceFiles
   stop(): Promise<void>
 }
 
@@ -1565,6 +1569,8 @@ export function startServer(options: ServeOptions): WebServer {
             settings: options.settings.get(),
             providers: options.omp?.providers() ?? [],
             searchProviders: options.omp?.searchProviders() ?? [],
+            // For Settings → Tools → Image generation: the models generate_image can use now, best first.
+            imageModels: options.omp?.imageModels() ?? [],
             customApis: CUSTOM_APIS,
             sandbox: options.sandboxKind ?? 'unknown',
             home: options.home,
@@ -3075,13 +3081,21 @@ export function startServer(options: ServeOptions): WebServer {
         if (!(await store.exists(id))) return json({ error: 'no such colony' }, 404)
         const blobs = new BlobStore(join(store.colonyDir(id), 'blobs'))
         // Browser keyframes are JPEGs; `as=image` (a picture in a chat) is served as an image only when its bytes
-        // are one (PNG, JPEG, GIF, WebP: never SVG, which can carry script); everything else as inert text.
+        // are one (PNG, JPEG, GIF, WebP: never SVG, which can carry script), and `as=audio` (speech an agent made) as
+        // sound only when they are WAV, MP3, Ogg or FLAC; everything else as inert text.
         const as = new URL(req.url).searchParams.get('as')
         const bytes = await blobs.get(req.params.hash ?? '')
-        const image = as === 'jpeg' ? 'image/jpeg' : as === 'image' ? sniffImage(bytes) : undefined
+        const media =
+          as === 'jpeg'
+            ? 'image/jpeg'
+            : as === 'image'
+              ? sniffImage(bytes)
+              : as === 'audio'
+                ? sniffAudio(bytes)
+                : undefined
         return new Response(Buffer.from(bytes), {
           headers: {
-            'content-type': image ?? 'text/plain; charset=utf-8',
+            'content-type': media ?? 'text/plain; charset=utf-8',
             'x-content-type-options': 'nosniff',
             'cache-control': 'private, max-age=31536000, immutable',
           },
@@ -3598,6 +3612,7 @@ export function startServer(options: ServeOptions): WebServer {
     pairingLink,
     token,
     warmVoice: () => voice?.warm() ?? Promise.resolve(),
+    ...(voice ? { voice } : {}),
     async stop() {
       await personBrowser?.shutdown()
       stopScheduler?.()

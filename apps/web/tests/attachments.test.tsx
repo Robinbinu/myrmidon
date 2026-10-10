@@ -45,3 +45,25 @@ test('before sending, pictures are thumbnails and other files cards, each remova
   expect(html).toContain('PDF · 10 B')
   expect(html).toContain('Remove plan.pdf')
 })
+
+test('pictures and sound the crew made are shown in the chat: pictures as tiles, sound as a player', () => {
+  const { MadeMedia, mediaOf } = ui
+  expect(mediaOf('image/png')).toBe('image')
+  expect(mediaOf('audio/wav')).toBe('audio')
+  // SVG can carry script, so it stays a file to read, never a picture drawn in the page.
+  expect(mediaOf('image/svg+xml')).toBeUndefined()
+  expect(mediaOf('text/markdown')).toBeUndefined()
+  const html = renderToStaticMarkup(
+    <MadeMedia
+      colonyId="col-1"
+      files={[
+        { name: 'images/fox.png', mediaType: 'image/png', blob: 'a'.repeat(64), size: 2048 },
+        { name: 'audio/summary.wav', mediaType: 'audio/wav', blob: 'b'.repeat(64), size: 96_000 },
+      ]}
+      onOpen={() => {}}
+    />,
+  )
+  // Each opens in the file viewer; the picture and the sound load once the page fetches them.
+  expect(html).toContain('View images/fox.png full size')
+  expect(html).toContain('Open audio/summary.wav')
+})

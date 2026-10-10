@@ -52,7 +52,7 @@ import type { ColonyView, LiveReply } from '../use-colony.ts'
 import { AgentSheet } from './AgentSheet.tsx'
 import { Approval, LoginCards, MemoryCards, SkillCards } from './ApprovalCards.tsx'
 import { ArtifactViewer } from './ArtifactViewer.tsx'
-import { type SentFile, SentFiles } from './Attachments.tsx'
+import { MadeMedia, mediaOf, type SentFile, SentFiles } from './Attachments.tsx'
 import { awaitingApproval, type Pending, roundApprovals } from './approvals.ts'
 import { Markdown, plainText } from './Markdown.tsx'
 import { ModelPicker, windowLabel } from './ModelPicker.tsx'
@@ -335,6 +335,13 @@ export function RoundView(props: {
   const files = Object.entries(state.artifacts).filter(([, v]) =>
     v.some((x) => x.seq >= from && x.seq <= to && x.author !== 'previous-round' && x.author !== 'user'),
   )
+  // Pictures and sound the crew made are shown in the chat itself, not only named among the files.
+  const made = files.flatMap(([name, versions]): SentFile[] => {
+    const latest = versions.at(-1)
+    return latest && mediaOf(latest.mediaType)
+      ? [{ name, mediaType: latest.mediaType, blob: latest.blob, size: latest.size }]
+      : []
+  })
 
   return (
     <section className="flex flex-col gap-4">
@@ -438,6 +445,11 @@ export function RoundView(props: {
             onResume={props.onResume}
             models={props.models}
           />
+        )}
+        {made.length > 0 && (
+          <div className="px-4 py-3">
+            <MadeMedia colonyId={props.colonyId} files={made} onOpen={setFile} />
+          </div>
         )}
         {files.length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5 px-4 py-2.5">

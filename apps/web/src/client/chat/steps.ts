@@ -560,6 +560,8 @@ export function currentStep(events: readonly MyrEvent[]): string | undefined {
         web_search: copy.steps.now.searching(cut(String(args.query ?? ''), 50)),
         web_fetch: copy.steps.now.reading(hostPath(String(args.url ?? ''))),
         publish_artifact: copy.steps.now.writing(args.name),
+        generate_image: copy.steps.now.drawing,
+        tts: copy.steps.now.recording,
         fs_write: copy.steps.now.drafting(args.path),
         fs_edit: copy.steps.now.editing(args.path),
         shell: copy.steps.now.runningCommand,

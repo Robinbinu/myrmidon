@@ -530,7 +530,18 @@ export interface EventPayloads {
   }
   /** `readOnly`: an MCP tool its server marks read-only, so the call changes nothing. */
   'tool/call': { agent: string; callId: string; tool: string; args: unknown; readOnly?: boolean }
-  'tool/result': { agent: string; callId: string; tool: string; ok: boolean; output: string }
+  /**
+   * `usage`: what a tool that calls a paid model itself (generate_image) spent, counted with the agent's model calls
+   * against the round's budget.
+   */
+  'tool/result': {
+    agent: string
+    callId: string
+    tool: string
+    ok: boolean
+    output: string
+    usage?: UsageInfo
+  }
   /** A message in the team chat, which everyone on the crew is in; `replyTo` is the number (seq) it answers. */
   'board/posted': { agent: string; text: string; mentions: string[]; replyTo?: number }
   'note/appended': { agent: string; text: string; corrects?: EventId; section?: NoteSection }
