@@ -16,6 +16,17 @@ const SOURCE = existsSync(SCRIPT)
  */
 const OUTSIDE_JOB = process.platform === 'win32'
 
+/** How `env` differs from this process's environment, as the leash reads it (MYR_LEASH_ENV, see leash.ts). */
+function envChanges(env: Record<string, string | undefined>): string {
+  const set = Object.fromEntries(
+    Object.entries(env).filter(
+      (e): e is [string, string] => e[1] !== undefined && process.env[e[0]] !== e[1],
+    ),
+  )
+  const unset = Object.keys(process.env).filter((name) => env[name] === undefined)
+  return JSON.stringify({ set, unset })
+}
+
 function leash(args: readonly string[]): string[] {
   return [
     process.execPath,
@@ -43,7 +54,13 @@ export function spawnLeashed<
       windowsHide: true,
       detached: OUTSIDE_JOB,
       ...options,
-      env: { ...(options.env ?? process.env), BUN_BE_BUN: '1' },
+      // The leash runs in Myrmidon's environment and gives the command its own, sent as the changes (an environment
+      // twice over could pass Windows' limit on its size).
+      env: {
+        ...process.env,
+        BUN_BE_BUN: '1',
+        ...(options.env ? { MYR_LEASH_ENV: envChanges(options.env) } : {}),
+      },
       stdin: 'pipe',
     }),
   )
