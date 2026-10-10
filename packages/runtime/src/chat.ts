@@ -54,6 +54,7 @@ import type { PluginHost } from './plugin-host.ts'
 import type { ProjectStore } from './projects.ts'
 import { prompts } from './prompts.ts'
 import { chatsAt, grantCovers, keysAt, readFolder, realPath, secretAt } from './read-access.ts'
+import { importedConversation, type SessionImports } from './session-import.ts'
 import type { SettingsStore } from './settings.ts'
 import {
   reviewRound,
@@ -169,6 +170,8 @@ export interface SendOptions {
   readonly answers?: QuestionAnswers
   /** A new chat forked from this one: its first round starts from that chat's conversation and project. */
   readonly forkOf?: string
+  /** A new chat continuing an imported Claude Code or Codex session: its first round starts from that conversation. */
+  readonly importOf?: string
 }
 
 /** Accepts the current team config or the older `{ mode: 'auto' | 'manual', workers, workerModel }` shape. */
@@ -260,6 +263,8 @@ export interface ChatSummary {
   readonly archivedAt?: string
   readonly group?: string
   readonly forkOf?: string
+  /** The imported Claude Code or Codex session it continues (see SessionImports). */
+  readonly importOf?: string
 }
 
 /** The earlier rounds of a chat as `User:` / `Colony:` pairs, for agents that were not in them. */
@@ -338,6 +343,8 @@ export class ChatService {
       quietMs?: number
       /** Where the person filed each chat (pins, archive, groups, forks). */
       shelf?: ChatShelf
+      /** Claude Code and Codex sessions imported to start new chats from. */
+      imports?: SessionImports
     },
   ) {}
 
@@ -677,7 +684,17 @@ export class ChatService {
     const source = !previous.length && options.forkOf ? await this.rounds(options.forkOf) : []
     if (options.forkOf && !previous.length && !source.length) throw new Error('the chat to fork is gone')
     if (source.length && options.forkOf) this.options.shelf?.fork(id, options.forkOf)
-    const history = conversation(previous.length ? previous : source)
+    // An imported session's first round starts from its conversation (the composer picks the project holding its folder).
+    const imported =
+      !previous.length && !source.length && options.importOf
+        ? this.options.imports?.get(options.importOf)
+        : undefined
+    if (options.importOf && !previous.length && !source.length && !imported)
+      throw new Error('the imported session is gone')
+    if (imported) this.options.shelf?.imported(id, imported.id)
+    const history = imported
+      ? importedConversation(imported)
+      : conversation(previous.length ? previous : source)
     // Written to crew members directly (@name): the round starts with them, and they answer.
     const latestState = previous.at(-1)?.state
     const to = latestState ? addressedIn(message, latestState) : []
@@ -1495,6 +1512,9 @@ export class ChatService {
         this.store.deleteColony(id as never)
         this.index.forget(id)
       }
+      // The imported conversation it started from goes with it: it is a copy of another tool's transcript.
+      const importOf = this.options.shelf?.place(chatId).importOf
+      if (importOf) this.options.imports?.remove(importOf)
       this.options.shelf?.forget([chatId])
       return ids
     } finally {

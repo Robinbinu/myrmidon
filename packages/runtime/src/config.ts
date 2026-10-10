@@ -1119,3 +1119,30 @@ export const KNOWN_SECRETS_FRESH_MS = 2_000
 export const SECRET_TAG_CHARS = 12
 /** Texts kept already hidden for the next model call (each step resends the conversation); past it they start over. */
 export const HIDDEN_TEXTS_KEPT = 4_000
+
+// Importing Claude Code and Codex sessions (session-import.ts)
+
+/** The newest sessions the import list shows: two tools' whole histories would be a list nobody scrolls. */
+export const IMPORT_LIST_MAX = 300
+/**
+ * How much of each transcript's start and end listing reads for its title and first message: Claude Code writes them
+ * the first prompt near the start and appends titles later; reading every transcript whole would read gigabytes.
+ */
+export const IMPORT_SCAN_BYTES = 64 * 1024
+/** The longest first message a listed session shows. */
+export const IMPORT_PREVIEW_CHARS = 200
+/**
+ * The largest transcript that is imported: converting one holds all of it in memory (a 177 MB transcript took about
+ * 850 MB), and past this it is mostly screenshots and tool output that would be clipped anyway.
+ */
+export const IMPORT_MAX_BYTES = 256 * 1024 * 1024
+/**
+ * What an imported conversation keeps, newest first: it goes into the new chat's first round as its context (every
+ * agent of that round reads it), so it is held to about 15k tokens, and to this many messages for the chat view.
+ */
+export const IMPORT_HISTORY_CHARS = 60_000
+export const IMPORT_MAX_TURNS = 400
+/** One message's text, a tool call's arguments and a tool's result, each clipped to this in an import. */
+export const IMPORT_TURN_CHARS = 4_000
+export const IMPORT_TOOL_ARGS_CHARS = 300
+export const IMPORT_TOOL_RESULT_CHARS = 600

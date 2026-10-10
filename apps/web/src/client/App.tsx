@@ -37,6 +37,7 @@ import {
   type ChatSummary,
   CONNECTION_CHANGED,
   type ColonySummary,
+  type ImportedSession,
   type ModelOption,
   normalizeConfig,
   type Project,
@@ -62,6 +63,7 @@ import { canLead } from './chat/model-list.ts'
 import { ProjectFiles } from './chat/ProjectFiles.tsx'
 import { FullAccessBadge, ProjectPermissions } from './chat/ProjectPermissions.tsx'
 import { isRunning, JumpToLatest, PendingRound, RoundView } from './chat/RoundView.tsx'
+import { ImportedChatBlock, ImportNote, ImportSessions } from './chat/SessionImport.tsx'
 import { Sidebar, type View } from './chat/Sidebar.tsx'
 import { Workspace } from './chat/Workspace.tsx'
 import { copy } from './copy.ts'
@@ -408,6 +410,9 @@ export function App() {
   const [newProject, setNewProject] = useState<string>()
   /** The chat a new chat continues (Fork), until its first message is sent. */
   const [forkOf, setForkOf] = useState<string>()
+  /** A Claude Code or Codex session the new chat continues, until its first message (Import a session). */
+  const [imported, setImported] = useState<ImportedSession>()
+  const [importOpen, setImportOpen] = useState(false)
   /** The person's own groups in the chat list. */
   const [chatGroups, setChatGroups] = useState<ChatGroup[]>([])
   const loadGroups = useCallback(
@@ -781,11 +786,12 @@ export function App() {
   }, [chats, pending])
 
   const newTask = useCallback(
-    (project?: string, fork?: string) =>
+    (project?: string, fork?: string, session?: ImportedSession) =>
       leaveSettings(() => {
         placement.away()
         setNewProject(project)
         setForkOf(fork)
+        setImported(session)
         setActiveChat(undefined)
         setView('chat')
         setSettingsOpen(false)
@@ -880,6 +886,7 @@ export function App() {
           ...(how.goal ? { goal: true } : {}),
           ...(!chatId && newProject ? { project: newProject } : {}),
           ...(!chatId && forkOf ? { forkOf } : {}),
+          ...(!chatId && imported ? { importOf: imported.id } : {}),
           ...(!chatId && newPermissions ? { permissions: newPermissions } : {}),
           ...(answers ? { answers } : {}),
           ...(files.length ? { attachments: await Promise.all(files.map(encodeFile)) } : {}),
@@ -889,6 +896,7 @@ export function App() {
       if (!chatId) {
         setNewPermissions(undefined)
         setForkOf(undefined)
+        setImported(undefined)
       }
       setView('chat')
       if (r.started)
@@ -1203,6 +1211,15 @@ export function App() {
         icon: <PanelRight className={icon} />,
         combo: 'mod+j',
         run: () => pressShortcut('mod+j', isMac),
+      },
+      // Reading other tools' sessions needs full access, as the server checks.
+      fullAccess && {
+        id: 'import-session',
+        group: 'actions',
+        label: a.importSession,
+        keywords: copy.palette.importKeywords,
+        icon: <FEATURE_ICONS.sessionImport className={icon} />,
+        run: () => setImportOpen(true),
       },
       fullAccess && {
         id: 'settings',
@@ -1698,7 +1715,26 @@ export function App() {
                               onCancel={() => setForkOf(undefined)}
                             />
                           )}
+                          {imported && (
+                            <ImportNote
+                              session={imported}
+                              onCancel={() => {
+                                setImported(undefined)
+                                setNewProject(undefined)
+                              }}
+                            />
+                          )}
                           {box}
+                          {fullAccess && !forkOf && !imported && (
+                            <button
+                              type="button"
+                              onClick={() => setImportOpen(true)}
+                              className="mx-auto mt-2 flex items-center gap-1.5 text-small text-muted hover:text-fg"
+                            >
+                              <FEATURE_ICONS.sessionImport aria-hidden className="size-3.5" />
+                              {copy.importSessions.open}
+                            </button>
+                          )}
                         </Hero>
                       )
                     })()}
@@ -1723,6 +1759,19 @@ export function App() {
               )}
             </AnimatePresence>
           </div>
+
+          <AnimatePresence>
+            {importOpen && (
+              <Sheet key="import" title={copy.importSessions.title} onClose={() => setImportOpen(false)}>
+                <ImportSessions
+                  onImported={(session) => {
+                    setImportOpen(false)
+                    newTask(session.project?.id, undefined, session)
+                  }}
+                />
+              </Sheet>
+            )}
+          </AnimatePresence>
 
           <AnimatePresence>
             {deleting && deleting.length > 0 && (
@@ -1914,6 +1963,7 @@ function Transcript(props: {
     <div ref={pane.ref} className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
       <ProjectFiles project={props.chat?.project}>
         <div className="mx-auto flex max-w-[820px] flex-col gap-8 p-6">
+          {props.chat?.importOf && <ImportedChatBlock importId={props.chat.importOf} />}
           {colonies(rounds).map((group, g) => (
             <ColonyRounds
               key={group.colonyId}
