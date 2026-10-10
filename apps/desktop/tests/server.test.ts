@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve, sep } from 'node:path'
+import { pendingOn } from '../../../tests/platform.ts'
 import { freePort, myrmidonHome, pageUrl, runningServer, startServer } from '../src/server.ts'
 
 const FAKE = [process.execPath, join(import.meta.dir, 'fake-cli.ts')]
@@ -86,29 +87,32 @@ function serverPids(home: string): { pid: number; ppid: number } {
   return JSON.parse(readFileSync(join(home, 'server.json'), 'utf8'))
 }
 
-test('the server the app started stops when the app is killed, and removes server.json', async () => {
-  const app = Bun.spawn([process.execPath, join(import.meta.dir, 'server-parent.ts'), home], {
-    stdout: 'pipe',
-  })
-  let children: number[] = []
-  try {
-    const reader = app.stdout.getReader()
-    expect(new TextDecoder().decode((await reader.read()).value)).toContain('started')
-    const { pid, ppid } = serverPids(home)
-    children = [ppid, pid]
-    expect(children.every(alive)).toBe(true)
-    app.kill('SIGKILL')
-    expect(await gone(children)).toEqual([])
-    expect(existsSync(join(home, 'server.json'))).toBe(false)
-  } finally {
-    for (const pid of [app.pid, ...children])
-      try {
-        process.kill(pid, 'SIGKILL')
-      } catch {
-        // Already gone.
-      }
-  }
-})
+pendingOn('win32', 'serverJsonAfterKill')(
+  'the server the app started stops when the app is killed, and removes server.json',
+  async () => {
+    const app = Bun.spawn([process.execPath, join(import.meta.dir, 'server-parent.ts'), home], {
+      stdout: 'pipe',
+    })
+    let children: number[] = []
+    try {
+      const reader = app.stdout.getReader()
+      expect(new TextDecoder().decode((await reader.read()).value)).toContain('started')
+      const { pid, ppid } = serverPids(home)
+      children = [ppid, pid]
+      expect(children.every(alive)).toBe(true)
+      app.kill('SIGKILL')
+      expect(await gone(children)).toEqual([])
+      expect(existsSync(join(home, 'server.json'))).toBe(false)
+    } finally {
+      for (const pid of [app.pid, ...children])
+        try {
+          process.kill(pid, 'SIGKILL')
+        } catch {
+          // Already gone.
+        }
+    }
+  },
+)
 
 for (const platform of ['darwin', 'linux', 'win32'] as const)
   test(`on ${platform} quitting asks the server to stop over its API, and it removes server.json`, async () => {
@@ -127,8 +131,10 @@ for (const platform of ['darwin', 'linux', 'win32'] as const)
     const { pid, ppid } = serverPids(home)
     await server.stop()
     expect(await gone([pid, ppid])).toEqual([])
-    // Where there are signals, SIGTERM lets it stop its chats; Windows goes straight to the leash's firm stop.
-    if (platform !== 'win32') expect(readFileSync(join(home, 'stopped-by'), 'utf8')).toBe('SIGTERM')
+    // Where there are signals, SIGTERM lets it stop its chats; Windows goes straight to the leash's firm stop. A
+    // Windows host cannot deliver a SIGTERM the server could catch, whichever system's path it takes.
+    if (platform !== 'win32' && process.platform !== 'win32')
+      expect(readFileSync(join(home, 'stopped-by'), 'utf8')).toBe('SIGTERM')
   })
 
 test('another server writing server.json for the same home is not taken for the one the app started', async () => {

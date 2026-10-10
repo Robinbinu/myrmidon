@@ -6,6 +6,7 @@ import { newColonyId } from '@myrmidon/core'
 import { emptyColonyState, foldColony, projectLevelFrom } from '@myrmidon/protocol'
 import type { Context as LlmContext } from '@oh-my-pi/pi-ai'
 import { createMockModel, type MockContent } from '@oh-my-pi/pi-ai/providers/mock'
+import { removeTempDir } from '../../../tests/platform.ts'
 import { canonicalZone } from '../src/clock.ts'
 import { COMPUTER_TOOL_NAMES } from '../src/computer/names.ts'
 import { bootRuntime, ChatService, ModelResolver, type Runtime } from '../src/index.ts'
@@ -319,7 +320,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await runtime.dispose()
-  rmSync(home, { recursive: true, force: true })
+  removeTempDir(home)
 })
 
 const tool = (name: string, args: Record<string, unknown>): MockContent => ({
@@ -393,8 +394,13 @@ test('on Windows an agent with a shell is told which shell runs its commands, an
     expect(found).toEqual([])
     expect(told).toBeGreaterThan(0)
   }
-  // macOS and Linux prompts say nothing of it: sh is what agents assume.
-  for (const { view } of views) expect(view.system.join('\n')).not.toContain('Commands run in')
+  // macOS and Linux prompts say nothing of it: sh is what agents assume. (The views are this host's, which may be
+  // Windows, so each is drawn again for the other two.)
+  for (const platform of ['darwin', 'linux'])
+    for (const { view } of views) {
+      const facts = { ...view.facts, env: { ...view.facts.env, platform, shell: undefined } }
+      expect(viewOf(facts).system.join('\n')).not.toContain('Commands run in')
+    }
 })
 
 test('every prompt stays within its word budgets', () => {

@@ -1,8 +1,9 @@
 import { afterEach, expect, test } from 'bun:test'
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { MyrEvent } from '@myrmidon/protocol'
+import { expectOwnerOnly } from '../../../tests/platform.ts'
 import {
   type AdapterIO,
   BUILT_IN_CHANNELS,
@@ -282,7 +283,7 @@ test('a stranger gets a code and nothing they say is acted on; the first approve
   expect(adapter.to('100')).toHaveLength(1)
   // The code is kept only as a hash, in a file only this user can read.
   expect(JSON.stringify(hub.store.get('telegram'))).not.toContain(code)
-  expect(statSync(join(dir, 'channels.json')).mode & 0o777).toBe(0o600)
+  expectOwnerOnly(join(dir, 'channels.json'))
 
   const approved = await hub.approve('telegram', { code: code.toLowerCase() })
   expect(approved?.person).toMatchObject({ role: 'owner', dm: '100' })
@@ -332,7 +333,7 @@ test('a damaged channels.json is refused loudly and never overwritten; each save
   expect(readFileSync(`${file}.bak`, 'utf8')).toBe(versions[2] ?? '')
   expect(readFileSync(`${file}.bak.2`, 'utf8')).toBe(versions[1] ?? '')
   expect(readFileSync(`${file}.bak.3`, 'utf8')).toBe(versions[0] ?? '')
-  expect(statSync(`${file}.bak`).mode & 0o777).toBe(0o600)
+  expectOwnerOnly(`${file}.bak`)
 
   writeFileSync(file, '{"telegram": {"values": {"token": "tok"}, "peop')
   expect(() => hub.list()).toThrow("Can't read channels.json")

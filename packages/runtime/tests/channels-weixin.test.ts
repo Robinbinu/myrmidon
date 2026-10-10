@@ -1,8 +1,9 @@
 import { afterEach, expect, test } from 'bun:test'
 import { createCipheriv } from 'node:crypto'
-import { mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { expectOwnerOnly } from '../../../tests/platform.ts'
 import { type AdapterIO, type AdapterStatus, type Inbound, WeixinAdapter } from '../src/channels/index.ts'
 
 type Call = { path: string; body: Record<string, unknown>; headers: Headers }
@@ -127,7 +128,7 @@ test('linking by QR code: the code shown, then the account saved privately and m
   expect(statuses).toContainEqual({ state: 'on', account: 'bot@im.bot' })
   const file = join(dir, 'account.json')
   expect(JSON.parse(readFileSync(file, 'utf8'))).toMatchObject({ accountId: 'bot@im.bot', token: 'tok' })
-  expect(statSync(file).mode & 0o777).toBe(0o600)
+  expectOwnerOnly(file)
   expect(received[0]).toMatchObject({
     messageId: '11',
     chat: { id: 'alice@im.wechat', kind: 'dm' },

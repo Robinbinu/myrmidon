@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { HookStore, hookToolInput, matches, runHooks } from '../src/hooks.ts'
 
 let dir: string
@@ -104,6 +104,6 @@ test('the store keeps only well-formed hooks, and file tools get a file_path', (
   expect(hookToolInput({ path: 'src/a.ts', old: 'x' }, '/proj')).toEqual({
     path: 'src/a.ts',
     old: 'x',
-    file_path: '/proj/src/a.ts',
+    file_path: resolve('/proj', 'src/a.ts'),
   })
 })

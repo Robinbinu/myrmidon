@@ -1,10 +1,11 @@
 import { Database } from 'bun:sqlite'
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import type { ActorRef, EventId } from '@myrmidon/protocol'
+import { removeTempDir } from '../../../tests/platform.ts'
 import { BlobStore, colonyId, EventLog, MyrError, REDACTED, Schema, sqliteLogStore } from '../src/index.ts'
 
 const agent: ActorRef = { kind: 'agent', id: 'a1' }
@@ -34,7 +35,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await root.fiber.dispose()
-  rmSync(home, { recursive: true, force: true })
+  removeTempDir(home)
 })
 
 describe('EventLog', () => {

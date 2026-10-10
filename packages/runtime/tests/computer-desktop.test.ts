@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { BlobStore } from '@myrmidon/core'
@@ -19,6 +19,7 @@ import {
   ComputerSupervisor,
   type ComputerWorkerHandle,
 } from '@oh-my-pi/pi-coding-agent/tools/computer/supervisor'
+import { removeTempDir } from '../../../tests/platform.ts'
 import {
   bootRuntime,
   ChatService,
@@ -102,7 +103,7 @@ beforeEach(() => {
   })
 })
 
-afterEach(() => rmSync(home, { recursive: true, force: true }))
+afterEach(() => removeTempDir(home))
 
 const textOf = (r: AgentToolResult) =>
   r.content.flatMap((c) => (c.type === 'text' ? [c.text] : [])).join('\n')
