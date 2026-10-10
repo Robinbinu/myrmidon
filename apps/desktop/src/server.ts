@@ -7,14 +7,17 @@ import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { spawnLeashed } from '../../../packages/runtime/src/leashed.ts'
-import { SERVER_POLL_MS, SERVER_START_TIMEOUT_MS, SERVER_STOP_TIMEOUT_MS } from './config.ts'
+import { LAUNCH_ID_ENV, SERVER_POLL_MS, SERVER_START_TIMEOUT_MS, SERVER_STOP_TIMEOUT_MS } from './config.ts'
 import { desktopCopy } from './copy.ts'
+import type { Platform } from './platform.ts'
 
 /** What `myrmidon serve` writes to `<home>/server.json` (only this user can read it). */
 export interface ServerFile {
   url: string
   token: string
   pid: number
+  /** The name the desktop app gave the server it started (LAUNCH_ID_ENV); absent for any other server. */
+  launch?: string
 }
 
 export interface Server {
@@ -43,9 +46,9 @@ function readServerFile(home: string): ServerFile | undefined {
   try {
     const raw: unknown = JSON.parse(readFileSync(join(home, 'server.json'), 'utf8'))
     if (!raw || typeof raw !== 'object') return undefined
-    const { url, token, pid } = raw as Record<string, unknown>
+    const { url, token, pid, launch } = raw as Record<string, unknown>
     if (typeof url !== 'string' || typeof token !== 'string' || typeof pid !== 'number') return undefined
-    return { url, token, pid }
+    return { url, token, pid, ...(typeof launch === 'string' ? { launch } : {}) }
   } catch {
     return undefined
   }
@@ -92,29 +95,40 @@ export async function startServer(options: {
   signal?: AbortSignal
   timeoutMs?: number
   pollMs?: number
+  platform?: Platform
 }): Promise<Server> {
+  const platform = options.platform ?? (process.platform as Platform)
+  // Its server.json carries this back, so another server starting for the same home is never taken for it.
+  const launch = crypto.randomUUID()
   // Leashed, so the server stops with the app even when the app crashes or is killed.
   const child = spawnLeashed(
     [...options.command, 'serve', '--port', String(options.port), '--home', options.home],
     {
       ...(options.cwd ? { cwd: options.cwd } : {}),
+      env: { ...process.env, [LAUNCH_ID_ENV]: launch },
       stdout: 'inherit',
       stderr: 'inherit',
     },
   )
+  let started: ServerFile | undefined
+  const exited = () => child.exitCode !== null || child.signalCode !== null
+  const exitsWithin = (ms: number) =>
+    Promise.race([child.exited.then(() => true), Bun.sleep(ms).then(() => false)])
   const stop = async () => {
-    if (child.exitCode !== null || child.signalCode !== null) return
-    // SIGTERM lets the server stop its running chats and remove server.json (apps/cli/src/main.ts).
-    child.kill('SIGTERM')
-    const stopped = await Promise.race([
-      child.exited.then(() => true),
-      Bun.sleep(SERVER_STOP_TIMEOUT_MS).then(() => false),
-    ])
-    if (!stopped) {
-      // Not SIGKILL, which would kill only the leash: ending its stdin kills the server and all it started.
-      child.stdin.end()
-      await child.exited
+    if (exited()) return
+    const deadline = Date.now() + SERVER_STOP_TIMEOUT_MS
+    // The server stops its running chats and removes server.json (apps/cli/src/main.ts) when asked over its API,
+    // which works the same everywhere; SIGTERM does the same where there are signals. On Windows a kill is
+    // TerminateProcess, which would end only the leash, so there it is left to the firm stop below.
+    let asked = started !== undefined && (await askToStop(started))
+    if (!asked && platform !== 'win32') {
+      child.kill('SIGTERM')
+      asked = true
     }
+    if (asked && (await exitsWithin(Math.max(0, deadline - Date.now())))) return
+    // Not SIGKILL, which would kill only the leash: ending its stdin stops the server and all it started.
+    child.stdin.end()
+    await child.exited
   }
 
   const timeoutMs = options.timeoutMs ?? SERVER_START_TIMEOUT_MS
@@ -124,19 +138,28 @@ export async function startServer(options: {
       await stop()
       throw options.signal.reason
     }
-    if (child.exitCode !== null || child.signalCode !== null)
-      throw new Error(desktopCopy.errors.exited(child.exitCode))
+    if (exited()) throw new Error(desktopCopy.errors.exited(child.exitCode))
     const written = readServerFile(options.home)
-    if (written && parentPid(written.pid) === child.pid && (await answers(written)))
+    if (written?.launch === launch && (await answers(written))) {
+      started = written
       return { pageUrl: pageUrl(written), owned: true, stop }
+    }
     await Bun.sleep(options.pollMs ?? SERVER_POLL_MS)
   }
   await stop()
   throw new Error(desktopCopy.errors.timeout(Math.round(timeoutMs / 1000)))
 }
 
-/** A process's parent: the server's is its leash. */
-function parentPid(pid: number): number | undefined {
-  const ps = Bun.spawnSync(['ps', '-o', 'ppid=', '-p', String(pid)], { stdout: 'pipe', stderr: 'ignore' })
-  return Number(new TextDecoder().decode(ps.stdout).trim()) || undefined
+/** Asks a server to stop itself, with the token it wrote to server.json; whether it took the request. */
+async function askToStop(server: ServerFile): Promise<boolean> {
+  try {
+    const res = await fetch(new URL('/api/shutdown', server.url), {
+      method: 'POST',
+      headers: { authorization: `Bearer ${server.token}` },
+      signal: AbortSignal.timeout(2000),
+    })
+    return res.ok
+  } catch {
+    return false
+  }
 }
