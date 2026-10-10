@@ -879,6 +879,13 @@ ${roster}`,
       observed: string
     }) =>
       `MISSION:\n${p.mission}\n\nRUBRIC:\n${p.rubric}\n\nARTIFACTS:${p.artifacts}${p.checks ? `\n\nPROJECT CHECKS:\n${p.checks}` : ''}${p.sources ? `\n\nCITED SOURCES:${p.sources}` : ''}${p.observed ? `\n\nOBSERVED (latest tool results, clipped):${p.observed}` : ''}`,
+    /**
+     * A task that names no files is done in its doer's notes and messages: those are its work, shown in place of
+     * artifacts. `notes` and `messages` are one entry per line, latest last.
+     */
+    taskNotes: (owner: string, notes: string, messages: string) =>
+      `\n===== ${owner}'s notes (the task names no files) =====\n${notes || '(none)'}\n` +
+      `\n===== ${owner}'s messages =====\n${messages || '(none)'}\n`,
     /** `done`: the task's own "Done when" checks, which the lead wrote as its acceptance test. */
     task: (subject: string, description: string, done?: string) =>
       `Task: ${subject}\n${description}\n\n${done ? `Its "Done when" is your checklist: check each point against the files and name any that fails.\n${done}\n\n` : ''}Does the submitted work fully and correctly complete this task?`,
@@ -1223,6 +1230,9 @@ It is ${o.now.weekday}, ${o.now.date}, ${o.now.time} in their time zone (${o.now
     readOnly: (project: string, where: string) =>
       `${project} is read-only for agents: you can read it but not change ${where}. Put drafts in your scratch directory and describe the change instead.`,
     crewmateAnswer: (name: string, answer: string) => `${name} answered:\n${answer}`,
+    /** submit_task for a task that names outputs, with none of them submitted. */
+    outputsMissing: (id: string, outputs: readonly string[]) =>
+      `${id} names outputs (${outputs.join(', ')}) and none were submitted, so review would reject it. Publish them with publish_artifact and submit them in artifacts, or release_task and tell the lead why you cannot`,
     crewmateSilent: (name: string) =>
       `${name} stopped without answering. Read the shared files and notes for what it did, or ask it again with a clearer job.`,
     declined: (what: string, note?: string) =>
@@ -1612,7 +1622,8 @@ It is ${o.now.weekday}, ${o.now.date}, ${o.now.time} in their time zone (${o.now
         assignee:
           'The crewmate to do it, who is woken with the task (default: nobody, so anyone may claim it)',
         outputs:
-          'Artifact names the task will publish, e.g. ["index.html"]; nobody else may publish them meanwhile',
+          'Artifact names the task will publish, e.g. ["index.html"]; nobody else may publish them meanwhile, and ' +
+          'it is submitted with them. Leave it out when the deliverable is a note or a message: review then reads those',
         blockedBy: 'Ids of tasks that must be verified before this one can start (default: none)',
       },
     },
@@ -1666,7 +1677,9 @@ It is ${o.now.weekday}, ${o.now.date}, ${o.now.time} in their time zone (${o.now
       params: {
         id: 'Task id, e.g. "task-3"',
         revision: 'The revision you hold (r2 → 2)',
-        artifacts: 'Names of the published artifacts that complete it, e.g. ["report.md"]; each must exist',
+        artifacts:
+          'Names of the published artifacts that complete it, e.g. ["report.md"]; each must exist, and every task ' +
+          'that names outputs needs them. [] for a task that names none, done in its notes and messages',
       },
     },
     publish_artifact: {

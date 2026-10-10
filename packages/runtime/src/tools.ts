@@ -1257,6 +1257,8 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       const held = host.state().tasks[args.id]
       if (held?.owner !== agent || held.status !== 'in_progress')
         throw new Error(`you do not hold ${args.id}`)
+      if (held.outputs?.length && args.artifacts.length === 0)
+        throw new Error(prompts.toolResults.outputsMissing(args.id, held.outputs))
       // A worker in its own worktree hands its changes to the project folder first, so the reviewer sees them.
       const merged = await host.mergeWork(agent)
       await host.appendAtomic((s) => {
