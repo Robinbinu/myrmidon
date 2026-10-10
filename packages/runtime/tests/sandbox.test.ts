@@ -33,11 +33,13 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true })
 })
 
-/** The processes below `pid`, with their parents and command lines. */
+/** The processes below `pid`, and any shell or sleep however orphaned, with their parents and command lines. */
 function below(pid: number) {
   const rows = processTable() ?? []
   const tree = treeOf(rows, pid)
-  return rows.filter((r) => r.pid !== pid && tree.has(r.pid)).map((r) => [r.pid, r.ppid, r.command])
+  return rows
+    .filter((r) => r.pid !== pid && (tree.has(r.pid) || /\b(sh|bash|sleep|leash)\b/i.test(r.command)))
+    .map((r) => [r.pid, r.ppid, r.command])
 }
 
 test('a command run in the project keeps HOME and TMPDIR in the agent scratch, not the project', async () => {

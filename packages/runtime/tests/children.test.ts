@@ -112,7 +112,10 @@ async function orphansAfterKill(kind: string, env?: Record<string, string>) {
   expect(children.length).toBeGreaterThan(0)
   parent.kill('SIGKILL')
   await parent.exited
-  return { children, left: await waitGone(children.filter((p) => !words.includes(p))), words }
+  const left = await waitGone(children.filter((p) => !words.includes(p)))
+  // With their command lines, so a failure says what outlived the parent.
+  const rows = processes()
+  return { children, left: left.map((p) => `${p} ${rows.get(p)?.command ?? ''}`), words }
 }
 
 test('a leashed command and all it started stop when the parent is SIGKILLed, one ignoring SIGTERM too', async () => {
