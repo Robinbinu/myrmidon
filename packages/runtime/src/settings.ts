@@ -55,6 +55,11 @@ export interface MyrSettings {
     workerModel?: string
     judgeModel?: string
     /**
+     * The advisor: a second model that reads each agent's latest steps as it works and steers it with a short note
+     * when it sees a concrete problem (the wrong file, an ignored error, a loop). Unset: no advisor, the default.
+     */
+    advisorModel?: string
+    /**
      * Models to go on with, in order, when the lead's model fails in a way another model could get past (an outage,
      * a rate limit retries did not clear, an expired sign-in, a model taken down); `workerFallbacks` the same for
      * crewmates and swarm peers. Empty: the round pauses on the error for the person, as before.
@@ -236,6 +241,7 @@ export const settingsSchema = Schema.object({
     leadModel: Schema.string(),
     workerModel: Schema.string(),
     judgeModel: Schema.string(),
+    advisorModel: Schema.string().max(200),
     leadFallbacks: Schema.array(Schema.string().max(200)).max(MAX_FALLBACKS).default([]),
     workerFallbacks: Schema.array(Schema.string().max(200)).max(MAX_FALLBACKS).default([]),
     wallMinutes: Schema.number().min(1).max(240).default(30),
@@ -638,6 +644,8 @@ export function withoutModel(
       cleared.push(role)
     }
   // A fallback is not a default the person is told about: the chain just goes on without it.
+  // Nor is the advisor, which is optional help: the crew just works unadvised.
+  if (next.team.advisorModel === ref) delete next.team.advisorModel
   next.team.leadFallbacks = next.team.leadFallbacks.filter((r) => r !== ref)
   next.team.workerFallbacks = next.team.workerFallbacks.filter((r) => r !== ref)
   if (next.voice.callModel === ref) {

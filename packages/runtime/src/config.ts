@@ -291,6 +291,37 @@ export const MAX_DIFF_CHARS = 40_000
 export const OBSERVED_CALLS = 12
 export const OBSERVED_CHARS = 1_500
 
+// Advisor (advisor.ts)
+
+/**
+ * The advisor: a second model that reads an agent's latest steps and steers it with a short note when it sees a
+ * concrete problem. Every number here bounds what it costs, since it runs beside every agent of the round.
+ */
+export const ADVISOR = {
+  /** Review every Nth step that called tools, per agent (omp's review interval); 1 is every such step. */
+  every: 1,
+  /** Model calls per round across all agents; past it the round goes on unadvised. */
+  callsPerRound: 20,
+  /**
+   * The share of the round's spend or token limit past which the advisor stops: what is left belongs to the agents
+   * finishing the work, not to commentary on it.
+   */
+  budgetShare: 0.8,
+  /** The latest assistant steps the advisor reads (with their tool calls and results). */
+  steps: 4,
+  /** How much of each piece it reads: the agent's text, one tool call's arguments, one tool result, the goal. */
+  textChars: 1_200,
+  argsChars: 400,
+  resultChars: 800,
+  goalChars: 2_000,
+  /** The longest note it may send; a note is meant to be read in a glance. */
+  noteChars: 400,
+  /** Output tokens for its reply: a JSON line with one short note. */
+  maxTokens: 400,
+  /** A review slower than this is dropped: by then the agent has moved past what it saw. */
+  timeoutMs: 60_000,
+} as const
+
 // Sandbox and hooks (sandbox.ts, hooks.ts)
 
 /** The most output a sandboxed command returns, so a noisy build cannot flood the agent. */

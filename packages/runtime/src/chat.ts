@@ -120,6 +120,8 @@ export interface TeamConfig {
   /** Orchestrated only: how many more specialists the lead may add. */
   readonly extraWorkers?: number
   readonly judgeModel: string
+  /** The advisor's model (see advisor.ts); absent, the one in Settings → Crew & budget, if any. */
+  readonly advisorModel?: string
   readonly wallMinutes?: number
   /** Overrides how hard reasoning models think in work rounds (direct answers stay quick). */
   readonly thinking?: Thinking
@@ -172,6 +174,7 @@ export function normalizeTeamConfig(raw: Record<string, unknown>): TeamConfig {
     ...(typeof raw.wallMinutes === 'number' ? { wallMinutes: raw.wallMinutes } : {}),
     ...(thinking ? { thinking } : {}),
     ...(raw.helpers === 'always' ? { helpers: 'always' as const } : {}),
+    ...(str(raw.advisorModel) ? { advisorModel: str(raw.advisorModel) } : {}),
   }
   if (raw.mode === 'orchestrated' || raw.mode === 'swarm') {
     const roster = (Array.isArray(raw.roster) ? raw.roster : [])
@@ -1309,6 +1312,8 @@ export class ChatService {
     if (this._computerUse(spec.askAll)) spec.computerUse = true
     const fallbacks = this._fallbacks()
     if (fallbacks) spec.fallbacks = fallbacks
+    const advisor = this.options.settings?.get().team.advisorModel
+    if (advisor) spec.advisor = advisor
     const models: Record<string, string> = {}
     if (model) {
       this.options.resolver.resolve(model)
@@ -1659,6 +1664,8 @@ export class ChatService {
       ...(s?.team.tokens ? { tokens: s.team.tokens } : {}),
     }
     const models = [...new Set([...roster.map((r) => r.model), config.leadModel])]
+    // Every tier gets it: a direct answer that calls tools is watched as closely as a team's work.
+    const advisor = config.advisorModel ?? s?.team.advisorModel
     return {
       name: title(request),
       mission: history ? prompts.chat.mission(request, history) : request,
@@ -1692,6 +1699,7 @@ export class ChatService {
       },
       tier,
       ...(config.thinking ? { thinking: config.thinking } : {}),
+      ...(advisor ? { advisor } : {}),
       team: {
         mode: config.mode,
         maxWorkers: tier === 'team' && !swarm ? (kept.length || roster.length) + extra : 0,

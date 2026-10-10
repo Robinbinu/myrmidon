@@ -17,6 +17,19 @@ export type TaskStatus = 'pending' | 'in_progress' | 'submitted' | 'verified' | 
  */
 export type CompactionMethod = 'shake' | 'snapcompact' | 'summary'
 /**
+ * What the advisor saw go wrong in an agent's steps: it worked on the wrong thing, went on past a failed call, repeated
+ * itself, left its task, was about to do something destructive nobody asked for, or called work done unchecked.
+ */
+export const ADVICE_KINDS = [
+  'wrong-target',
+  'ignored-error',
+  'looping',
+  'off-task',
+  'unsafe',
+  'unverified',
+] as const
+export type AdviceKind = (typeof ADVICE_KINDS)[number]
+/**
  * A project's permissions: its level of the permission model (a preset, or "use global" when absent, its rules and
  * who may use what), and the folders beyond the project that sandboxed agents may read in its chats (never write;
  * `~` or absolute). See permissions.ts.
@@ -411,6 +424,11 @@ export interface EventPayloads {
     kind: 'refusal' | 'error'
     message: string
   }
+  /**
+   * The advisor (Settings → Crew & budget) read an agent's latest steps, saw a concrete problem, and steered the agent
+   * with `note`, which it reads at its next step. Silent reviews are not logged.
+   */
+  'agent/advised': { agent: string; model: string; note: string; kind?: AdviceKind }
   /**
    * An agent made a tool the colony can call: a script that reads its inputs as JSON from `MYR_INPUT` and prints
    * its result. `library` marks one loaded from the person's tool library rather than made in this colony.
