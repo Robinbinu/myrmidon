@@ -54,6 +54,7 @@ import {
   PhoneIncoming,
   Plug,
   Puzzle,
+  RadioTower,
   RectangleEllipsis,
   Rocket,
   ScreenShare,
@@ -187,6 +188,8 @@ export const FEATURE_ICONS = {
   mcp: Plug,
   /** Remote hosts agents reach over SSH: Settings → Tools, their rules and who may use them. */
   sshHosts: Cable,
+  /** Sending finished runs to the person's own OTLP collector (Settings → General). */
+  telemetry: RadioTower,
   /** Specialists the person keeps. */
   specialists: UserCog,
   /** What agents remember across chats. */

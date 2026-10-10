@@ -222,6 +222,8 @@ export interface ServerSettings {
   computerUse?: { enabled: boolean; engine?: 'cua' | 'omp' }
   /** Remote hosts agents reach over SSH; absent from older servers. */
   ssh?: { hosts: SshHostSetting[] }
+  /** Telemetry export over OTLP; absent from older servers. */
+  telemetry?: { enabled: boolean; endpoint: string }
   /** Secrets reach model providers as placeholders; absent from older servers, which do not hide them. */
   privacy?: { hideSecrets: boolean }
   verification: { threshold: number; rubric?: string; reviewer: 'off' | 'auto' | 'always' }
@@ -1067,7 +1069,126 @@ function General(props: {
           </SettingField>
         )}
       </Card>
+      {props.data && <TelemetrySettings data={props.data} update={props.update} />}
     </>
+  )
+}
+
+/** Telemetry export over OTLP: the switch, the collector's address, its headers (kept in the vault) and a test. */
+function TelemetrySettings(props: {
+  data: SettingsResponse
+  update(p: (s: ServerSettings) => ServerSettings, immediate?: boolean): void
+}) {
+  const t = copy.settings.telemetry
+  const toast = useToast()
+  const telemetry = props.data.settings.telemetry ?? { enabled: false, endpoint: '' }
+  const [endpoint, setEndpoint] = useState(telemetry.endpoint)
+  const [headers, setHeaders] = useState('')
+  const [status, setStatus] = useState<{
+    headersSet?: boolean
+    last?: { at: string; ok: boolean; error?: string }
+  }>({})
+  const [busy, setBusy] = useState(false)
+  useEffect(() => {
+    api<typeof status>('/api/telemetry')
+      .then(setStatus)
+      .catch(() => setStatus({}))
+  }, [])
+  const valid = !endpoint.trim() || /^https?:\/\/\S+$/.test(endpoint.trim())
+  const saveHeaders = async (text: string) => {
+    setBusy(true)
+    try {
+      const r = text
+        ? await send<{ headersSet: boolean }>('PUT', '/api/telemetry/headers', { headers: text })
+        : await send<{ headersSet: boolean }>('DELETE', '/api/telemetry/headers')
+      setStatus((s) => ({ ...s, headersSet: r.headersSet }))
+      setHeaders('')
+      toast(text ? t.headersStored : t.headersRemoved, 'success')
+    } catch (err) {
+      toast(String((err as Error).message), 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+  const test = async () => {
+    setBusy(true)
+    try {
+      const r = await send<{ at: string; ok: boolean; error?: string }>('POST', '/api/telemetry/test')
+      setStatus((s) => ({ ...s, last: r }))
+      toast(r.ok ? t.testOk : t.testFailed(r.error ?? ''), r.ok ? 'success' : 'error')
+    } catch (err) {
+      toast(t.testFailed(String((err as Error).message)), 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div>
+      <SectionHeader
+        className="mb-2"
+        icon={<FEATURE_ICONS.telemetry className="size-4 text-muted" />}
+        title={t.title}
+        note={t.subtitle}
+      />
+      <Card>
+        <SettingField id="general.telemetry" inline>
+          <Switch
+            checked={telemetry.enabled}
+            label={t.enabled}
+            onChange={(v) => props.update((s) => ({ ...s, telemetry: { ...telemetry, enabled: v } }), true)}
+          />
+        </SettingField>
+        <SettingField id="general.telemetryEndpoint" {...(valid ? {} : { error: t.endpointInvalid })}>
+          <div className="flex items-center gap-2">
+            <TextInput
+              value={endpoint}
+              placeholder={t.endpointPlaceholder}
+              aria-label={t.endpoint}
+              onChange={(e) => {
+                const next = e.target.value
+                setEndpoint(next)
+                if (!next.trim() || /^https?:\/\/\S+$/.test(next.trim()))
+                  props.update((s) => ({ ...s, telemetry: { ...telemetry, endpoint: next.trim() } }))
+              }}
+              className="min-w-0 flex-1 font-mono"
+            />
+            <Button size="sm" disabled={busy || !telemetry.endpoint} onClick={() => void test()}>
+              {t.test}
+            </Button>
+          </div>
+          {status.last && (
+            <p className={cn('mt-1 text-small', status.last.ok ? 'text-muted' : 'text-bad-ink')}>
+              {t.last(new Date(status.last.at).toLocaleString(), status.last.ok, status.last.error)}
+            </p>
+          )}
+        </SettingField>
+        <SettingField id="general.telemetryHeaders" {...(status.headersSet ? { hint: t.headersSaved } : {})}>
+          <div className="flex items-center gap-2">
+            <TextInput
+              type="password"
+              value={headers}
+              placeholder={t.headersPlaceholder}
+              aria-label={t.headers}
+              autoComplete="off"
+              onChange={(e) => setHeaders(e.target.value)}
+              className="min-w-0 flex-1 font-mono"
+            />
+            <Button
+              size="sm"
+              disabled={busy || !headers.trim()}
+              onClick={() => void saveHeaders(headers.trim())}
+            >
+              {t.saveHeaders}
+            </Button>
+            {status.headersSet && (
+              <Button size="sm" variant="borderless" disabled={busy} onClick={() => void saveHeaders('')}>
+                {t.removeHeaders}
+              </Button>
+            )}
+          </div>
+        </SettingField>
+      </Card>
+    </div>
   )
 }
 

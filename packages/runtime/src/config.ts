@@ -1312,3 +1312,16 @@ export const AUTORESEARCH = {
   /** What a measure run's output shows the agent, from its end, where results are printed. */
   outputChars: 4_000,
 } as const
+
+// Telemetry export over OTLP (telemetry.ts)
+
+export const TELEMETRY = {
+  /** What collectors see as the sender (OTel's service.name). */
+  serviceName: 'myrmidon',
+  /** The vault entry (with the model providers' keys) that holds the person's OTLP headers, e.g. an API key. */
+  headersId: 'otlp-headers',
+  /** One request to the collector gives up after this. */
+  timeoutMs: 10_000,
+  /** Spans one round sends at most; a longer round sends its first ones and says how many it left out. */
+  maxSpans: 5_000,
+} as const
