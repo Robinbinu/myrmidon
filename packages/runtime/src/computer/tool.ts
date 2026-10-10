@@ -502,6 +502,14 @@ async function act(
   if (!allows(tier, action))
     throw new Error(t.tier(target.app, tier, describe(action).action.replace(/_/g, ' ')))
   const at = { pid: target.pid, window_id: target.windowId }
+  // Cua refuses background input to a window whose accessibility surface it cannot resolve (the events could reach
+  // another window of the same app): there each action brings the window forward, one agent at a time.
+  const input = (tool: string, args: Record<string, unknown>) =>
+    target.noTree && hub.accepts(tool, 'delivery_mode')
+      ? hub.inForeground({ colonyId: host.id, agent }, target.app, () =>
+          call(tool, { ...args, delivery_mode: 'foreground' }),
+        )
+      : call(tool, args)
   switch (action.kind) {
     case 'screenshot':
       return undefined
@@ -550,7 +558,7 @@ async function act(
       // Modified clicks must bring the window forward, so macOS sees the keys held: one agent at a time.
       if (action.modifiers.length)
         await hub.inForeground({ colonyId: host.id, agent }, target.app, () => call('click', args))
-      else await call('click', args)
+      else await input('click', args)
       desk.cursor = point
       return undefined
     }
@@ -566,15 +574,15 @@ async function act(
         element_index: action.element,
         ...(shot.snapshot ? { snapshot_id: shot.snapshot } : {}),
       }
-      if (action.count === 2) await call('double_click', ref)
-      else await call(action.button === 'right' ? 'right_click' : 'click', ref)
+      if (action.count === 2) await input('double_click', ref)
+      else await input(action.button === 'right' ? 'right_click' : 'click', ref)
       return undefined
     }
     case 'move': {
       const shot = needShot(desk)
       if (!inside(action.at, shot))
         throw new Error(t.outside(action.at[0], action.at[1], shot.width, shot.height))
-      await call('move_cursor', { ...at, x: action.at[0], y: action.at[1] })
+      await input('move_cursor', { ...at, x: action.at[0], y: action.at[1] })
       desk.cursor = action.at
       return undefined
     }
@@ -582,7 +590,7 @@ async function act(
       const shot = needShot(desk)
       for (const p of [action.from, action.to])
         if (!inside(p, shot)) throw new Error(t.outside(p[0], p[1], shot.width, shot.height))
-      await call('drag', {
+      await input('drag', {
         ...at,
         from_x: action.from[0],
         from_y: action.from[1],
@@ -596,7 +604,7 @@ async function act(
       const shot = needShot(desk)
       if (action.at && !inside(action.at, shot))
         throw new Error(t.outside(action.at[0], action.at[1], shot.width, shot.height))
-      await call('scroll', {
+      await input('scroll', {
         ...at,
         direction: action.direction,
         amount: action.amount,
@@ -611,7 +619,7 @@ async function act(
       if (redactSecrets(action.text) !== action.text) throw new Error(t.secret)
       if (sendsOrRuns(action, target.bundleId)) await approveStep(host, agent, [action], t.review.sensitive)
       const shot = desk.shot
-      await call('type_text', {
+      await input('type_text', {
         ...at,
         text: action.text,
         ...(action.element !== undefined
@@ -625,8 +633,8 @@ async function act(
       if (sendsOrRuns(action, target.bundleId)) await approveStep(host, agent, [action], t.review.sensitive)
       const modifiers = action.keys.slice(0, -1)
       for (let i = 0; i < action.repeat; i++)
-        if (modifiers.length) await call('hotkey', { ...at, keys: [...action.keys] })
-        else await call('press_key', { ...at, key })
+        if (modifiers.length) await input('hotkey', { ...at, keys: [...action.keys] })
+        else await input('press_key', { ...at, key })
       return undefined
     }
   }
@@ -854,7 +862,7 @@ async function screenshot(host: ColonyHost, desk: Desk, model: Model) {
   // No tree to read, but the window is there: look at it by screenshot alone and act by pixel. Remembered for the
   // app, so later looks do not pay for a failed walk first.
   const treeless = hub.accepts('get_window_state', 'include_accessibility_tree')
-  if (r.isError && /ax_window_unresolved/.test(r.text) && treeless) target.noTree = true
+  if (treeless && unresolved(r)) target.noTree = true
   if (target.noTree && treeless && (r.isError || !r.images[0]))
     r = await driverCall(hub, desk, 'get_window_state', {
       pid: target.pid,
@@ -868,7 +876,7 @@ async function screenshot(host: ColonyHost, desk: Desk, model: Model) {
   target.title = title
   if (COMPUTER_OWN_WINDOW_TITLE.test(title)) throw new Error(t.ownWindow(target.app))
   const image = r.images[0]
-  if (!image) throw new Error(String(s.degraded_reason ?? 'the driver returned no screenshot of this window'))
+  if (!image) throw new Error(t.noCapture(target.app, captureProblem(s)))
   const width = Number(s.screenshot_width) || target.bounds.width
   const height = Number(s.screenshot_height) || target.bounds.height
   const bounds = s.window_bounds as { x?: number; y?: number; width?: number; height?: number } | undefined
@@ -884,6 +892,26 @@ async function screenshot(host: ColonyHost, desk: Desk, model: Model) {
   }
   const listed = target.noTree ? t.noTree(target.app) : elementLines(elements, r)
   return { image, text: `${t.shot(target.app, title, width, height)}\n${listed}` }
+}
+
+/**
+ * The driver could not resolve the window's accessibility surface: Cua 0.28 and later answer with an empty tree and
+ * `degraded_reason: ax_window_unresolved` beside the screenshot; some builds refuse with that text as an error.
+ */
+function unresolved(r: DriverResult): boolean {
+  const reason = (r.structured as { degraded_reason?: unknown } | undefined)?.degraded_reason
+  return (
+    /ax_window_unresolved/.test(r.text) ||
+    (typeof reason === 'string' && reason.startsWith('ax_window_unresolved'))
+  )
+}
+
+/** Why the driver gave no screenshot, from its `screenshot_error` (px_capture_unavailable, px_frame_mismatch…). */
+function captureProblem(s: Record<string, unknown>): string {
+  const e = s.screenshot_error as { code?: unknown; reason?: unknown } | undefined
+  const code = typeof e?.code === 'string' ? e.code : undefined
+  const reason = typeof e?.reason === 'string' ? e.reason : undefined
+  return [code, reason].filter(Boolean).join(': ') || 'the driver returned no screenshot'
 }
 
 async function keyframe(
