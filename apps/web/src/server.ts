@@ -556,6 +556,18 @@ export function startServer(options: ServeOptions): WebServer {
   }
   const account = accountName()
   const greetings = options.resolver ? new GreetingWriter(options.resolver) : undefined
+  /**
+   * The model that writes greetings (the entry page's line, a call's opening): the cheap one that names chats, not the
+   * lead's, whose reasoning can outlast a greeting's time limit; none when the person chose the rules' lines.
+   */
+  const greetingModel = (): string | undefined => {
+    try {
+      const lead = options.settings?.get().profile?.greeting === 'rules' ? undefined : defaultTeam().leadModel
+      return lead && options.omp ? namingModel(options.omp, options.settings, lead) : lead
+    } catch {
+      return undefined
+    }
+  }
   const logins = options.omp ? new Logins(options.omp) : undefined
   // Channels and voice calls reach the same chats, with the person's default team.
   const chatsPort: ChannelChats | undefined = chats
@@ -976,15 +988,7 @@ export function startServer(options: ServeOptions): WebServer {
           ...(seen && !Number.isNaN(seen.getTime()) ? { lastSeen: seen } : {}),
           chats: options.chats ? await options.chats.list() : [],
         }
-        let model: string | undefined
-        try {
-          // One line of text: the cheap model that names chats writes it, not the lead's, whose reasoning can
-          // outlast the greeting's time limit.
-          const lead = profile?.greeting === 'rules' ? undefined : defaultTeam().leadModel
-          model = lead && options.omp ? namingModel(options.omp, options.settings, lead) : lead
-        } catch {
-          model = undefined
-        }
+        const model = greetingModel()
         const written = model ? greetings?.written(facts, model) : undefined
         return json({
           name,
@@ -3255,8 +3259,11 @@ export function startServer(options: ServeOptions): WebServer {
             await voice.warm()
             // Each wait is a chance for the person to have gone: no call is made for a closed socket.
             if (data.closed) return
-            const summary = data.chat ? (await chats.list()).find((c) => c.chatId === data.chat) : undefined
+            // The chat list is read anyway; the greeting is drawn from it too, so it costs the call no wait.
+            const list = await chats.list()
+            const summary = data.chat ? list.find((c) => c.chatId === data.chat) : undefined
             if (data.closed) return
+            const writer = greetingModel()
             const session = voice.call(
               chatsPort,
               {
@@ -3272,6 +3279,7 @@ export function startServer(options: ServeOptions): WebServer {
                   : {}),
                 name: options.settings?.get().profile.name ?? account,
                 sampleRate: data.rate,
+                greeting: { chats: list, ...(writer ? { model: writer } : {}) },
               },
               (out) => {
                 if (out.type === 'audio') {

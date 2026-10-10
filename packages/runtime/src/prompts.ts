@@ -14,6 +14,7 @@ import {
   READ_LOG_RESULT_CHARS,
   SERVER_START_MS,
   SNAPSHOT_CHARS,
+  VOICE_GREETING_WORDS,
 } from './config.ts'
 import type { ShellSyntax } from './shell.ts'
 import type { WorkKind } from './verifier.ts'
@@ -1050,8 +1051,104 @@ It is ${o.now.weekday}, ${o.now.date}, ${o.now.time} in their time zone (${o.now
     /** Given to the crew with the next message after voice calls in the chat, so they know what was said. */
     transcripts: (calls: readonly string[]) =>
       `Since the last message, the person talked with the call assistant on ${calls.length === 1 ? 'a voice call' : `${calls.length} voice calls`} in this chat (a fast model that answers by voice and hands work to you). What was said:\n\n${calls.join('\n\n---\n\n')}`,
-    /** Said when the call connects, before the person speaks. */
+    /** Said when the call connects, before the person speaks, when no greeting is drawn from the moment (a member's call). */
     hello: (name: string) => `Hi ${name}, I'm listening.`,
+    /**
+     * A call's greeting (voice/greeting.ts): an opening on the moment, the news that matters most, an invitation to
+     * talk. Each list holds phrasings to rotate through, so calls in a row do not open the same way.
+     */
+    greeting: {
+      system: `You write the first thing the person hears when a voice call with their AI crew in Myrmidon connects. A speech engine says it aloud, so write speech: plain words, no markdown, emoji, symbols, ids or file names.
+
+Use only the facts given; never invent work, names or numbers. Fold in what matters most: an approval or a question waiting on them, in the chat the call is in first; then how that chat's last run went; then, elsewhere, a failure, what finished, what is still running. With no news, play on the time of day, the weekday, or how long since you last talked.
+
+Each line is one or two short sentences of at most ${VOICE_GREETING_WORDS} words, uses their name, says who they are talking to when "answering" is given, and ends by inviting them to talk. Name a chat only by its "say" name; otherwise say "this chat" or "your last chat". Write three lines that open differently.
+
+Reply with JSON only: {"lines": ["...", "...", "..."]}.`,
+      open: {
+        again: (n: string) => [`Hi again, ${n}.`, `Back so soon, ${n}?`, `Hello again, ${n}.`],
+        away: (n: string, days: number) => [
+          `Hi ${n}, it's been ${days} days since we talked.`,
+          `Good to hear you, ${n}. It's been ${days} days.`,
+          `There you are, ${n}. ${days} days already.`,
+        ],
+        night: (n: string) => [
+          `Hi ${n}, it's a late one.`,
+          `Still up, ${n}?`,
+          `Hey ${n}, burning the midnight oil?`,
+        ],
+        monday: (n: string) => [
+          `Happy Monday, ${n}.`,
+          `Hi ${n}, a fresh week.`,
+          `Good morning, ${n}. Monday again.`,
+        ],
+        friday: (n: string) => [
+          `Happy Friday, ${n}.`,
+          `Hey ${n}, nearly the weekend.`,
+          `Hi ${n}, Friday afternoon at last.`,
+        ],
+        weekend: (n: string) => [
+          `Hi ${n}, a weekend call.`,
+          `Hey ${n}, working on the weekend?`,
+          `Hello ${n}, happy weekend.`,
+        ],
+        morning: (n: string) => [`Good morning, ${n}.`, `Morning, ${n}.`, `Hi ${n}, good morning.`],
+        afternoon: (n: string) => [`Good afternoon, ${n}.`, `Afternoon, ${n}.`, `Hi ${n}, good afternoon.`],
+        evening: (n: string) => [`Good evening, ${n}.`, `Evening, ${n}.`, `Hi ${n}, good evening.`],
+      },
+      /** On a direct call: who answers. */
+      who: (who: string) =>
+        who === 'lead'
+          ? ["You've got the lead.", "It's the lead here.", 'The lead here.']
+          : [`You've got ${who}.`, `It's ${who} here.`, `${who} here.`],
+      /** The chat the call is in. */
+      here: {
+        approval: ['The crew here is waiting on your okay.', 'This chat needs a yes or no from you.'],
+        question: ['The crew here has a question for you.', "There's a question waiting in this chat."],
+        failed: ['The last run here hit a snag.', "The last run in this chat didn't make it."],
+        running: ['The crew here is still at it.', "This chat's crew is still working."],
+        done: ['The last run here is done.', "This chat's last run has finished."],
+      },
+      /** The other chats. `chat`: a short title to say aloud, when there is one. */
+      news: {
+        waitingMany: (n: number) => [
+          `${n} chats are waiting on you.`,
+          `You have ${n} chats waiting for an answer.`,
+        ],
+        waitingOne: (chat?: string) =>
+          chat
+            ? [`Your ${chat} chat is waiting on you.`, `The ${chat} chat has a question for you.`]
+            : ['One of your chats is waiting on you.', 'A chat needs your answer.'],
+        failedMany: (n: number) => [`${n} runs hit a snag.`, `${n} chats ran into trouble.`],
+        failedOne: (chat?: string) =>
+          chat
+            ? [`Your ${chat} run hit a snag.`, `The ${chat} chat ran into trouble.`]
+            : ['Your last run hit a snag.', 'A run ran into trouble.'],
+        finishedMany: (n: number) => [
+          `${n} runs finished since we last talked.`,
+          `Since your last call, ${n} things got done.`,
+        ],
+        finishedOne: (chat?: string) =>
+          chat
+            ? [`Your ${chat} run is done.`, `The ${chat} chat has finished.`]
+            : ['Your last run is done.', 'One run finished since we last talked.'],
+        runningMany: (n: number) => [`${n} crews are at work.`, `${n} chats are still running.`],
+        runningOne: (chat?: string) =>
+          chat
+            ? [`The ${chat} crew is still at it.`, `Your ${chat} chat is still running.`]
+            : ['The crew is still at it.', 'One chat is still running.'],
+      },
+      invite: [
+        "I'm listening.",
+        "What's on your mind?",
+        'Go ahead.',
+        'What can I do for you?',
+        'What do you need?',
+        'How can I help?',
+      ],
+      /** Words that make a bare chat title (a greeting or a test) too slight to say aloud. */
+      slight: ['hi', 'hello', 'hey', 'yo', 'test', 'testing', 'thanks', 'thank you', 'ok', 'okay'],
+    },
     /**
      * What the call agent is told when the crew's work changes (as the result of crew_updates, never as the person's
      * words); it speaks them at the next pause.
