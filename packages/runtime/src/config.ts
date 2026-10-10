@@ -359,6 +359,49 @@ export const CELL_LINE_MAX = 16 * 1024 * 1024
 /** How long a runtime's last output may still arrive after it exits, for the message saying why it stopped. */
 export const CELL_EXIT_DRAIN_MS = 500
 
+// Debugger (debugger.ts): debug
+
+/** How long one request to a debug adapter may take (starting, a breakpoint, a stack, an evaluation). */
+export const DEBUG_REQUEST_MS = 30_000
+/**
+ * How long launch, continue and the steps wait for the program to stop or end when the agent names no limit, and the
+ * most it may name. Past it the program keeps running and the call says so; pause or output reach it later.
+ */
+export const DEBUG_WAIT_S = 30
+export const DEBUG_MAX_WAIT_S = 300
+/** How long ending a session waits for the adapter to stop its program before both are killed. */
+export const DEBUG_END_MS = 2_000
+/** The program's output kept per session (its tail), and the most of what is new that one call shows. */
+export const DEBUG_OUTPUT_CHARS = 64_000
+export const DEBUG_OUTPUT_SHOWN = 4_000
+/** Stack frames listed by default and at most, and variables listed per scope or expanded value. */
+export const DEBUG_FRAMES = 20
+export const DEBUG_MAX_FRAMES = 100
+export const DEBUG_VARIABLES = 100
+/** The longest value shown for one variable or evaluation; the rest is cut. */
+export const DEBUG_VALUE_CHARS = 400
+
+// Security scan (security-scan.ts): security_scan
+
+/** Most files one scan reads for secrets, and the largest it reads; past either the rest is counted, not read. */
+export const SCAN_MAX_FILES = 20_000
+export const SCAN_MAX_FILE_BYTES = 1024 * 1024
+/** Findings listed per check; the rest are counted. */
+export const SCAN_FINDINGS = 100
+/**
+ * OSV.dev, the open vulnerability database (Google's, which npm, PyPI, crates.io and Go advisories feed): packages
+ * are looked up in batches, then the details of each vulnerability listed (at most `perPackage` per package), up to a
+ * limit per scan.
+ */
+export const OSV = {
+  batchUrl: 'https://api.osv.dev/v1/querybatch',
+  vulnUrl: 'https://api.osv.dev/v1/vulns/',
+  batch: 1000,
+  perPackage: 10,
+  details: 40,
+  timeoutMs: 30_000,
+} as const
+
 // Browser (browser.ts)
 
 /** The longest page snapshot an agent gets; past it, the agent scrolls or evaluates the part it needs. */

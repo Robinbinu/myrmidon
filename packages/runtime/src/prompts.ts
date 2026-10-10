@@ -9,6 +9,8 @@ import {
   CELL_MAX_TIMEOUT_S,
   CELL_OUTPUT_CHARS,
   CELL_TIMEOUT_S,
+  DEBUG_MAX_WAIT_S,
+  DEBUG_WAIT_S,
   FETCH_SHOWN_CHARS,
   FIND,
   FIND_TOOLS_LIMIT,
@@ -1981,6 +1983,99 @@ Reply with JSON only: {"lines": ["...", "...", "..."]}.`,
       `${name} is not available in eval cells here; call Myrmidon's tools directly instead`,
   },
 
+  /** What the debug tool tells the agent (debugger.ts). Where the program stopped leads, then its new output. */
+  debugger: {
+    needsSandbox: 'the debugger needs the OS sandbox, which this computer does not have',
+    needsProgram: 'launch needs program: the file to debug, relative to your working directory',
+    needsPort: "attach needs port (the local port the program's debugger listens on) or pid",
+    needsFileLine: 'this needs file and line: the source file and the 1-based line',
+    needsExpression: 'evaluate needs expression',
+    badNumber: (name: string, min: number, max: number) =>
+      `${name} must be a whole number from ${min} to ${max}`,
+    notFound: (path: string) => `${path} does not exist`,
+    directory: (adapter: string) => `${adapter} cannot debug a folder; give the program's file`,
+    adapterMissing: (adapter: string, command: string) =>
+      `This program needs the ${adapter} debug adapter, and \`${command}\` is not installed here (Myrmidon installs none). Debug with prints and shell instead, or ask the person to install it.`,
+    noAdapter: (program: string, installed: readonly string[]) =>
+      `No debug adapter here handles ${program}. ${installed.length ? `Installed: ${installed.join(', ')}; name one with adapter.` : 'None is installed on this computer (Myrmidon installs none).'}`,
+    noAttachAdapter: (adapter: string | undefined, installed: readonly string[]) =>
+      `${adapter ? `The ${adapter} debug adapter is not installed here.` : 'No debug adapter is installed here.'}${installed.length ? ` Installed: ${installed.join(', ')}.` : ''}`,
+    noDebugpy:
+      'debugpy is not installed for this Python. Install it where the program runs (pip install debugpy in its virtual environment), or debug with prints instead.',
+    socketConfined: (adapter: string) =>
+      `${adapter} reaches its client by a socket the sandbox cannot pass; it works only with full access`,
+    startFailed: (adapter: string, why: string) => `${adapter} could not start the program: ${why}`,
+    noTerminal: 'Myrmidon does not start programs for the adapter; launch it with console "internalConsole"',
+    noChildSessions: 'this adapter cannot open child sessions here',
+    alreadyRunning: 'You already have a debug session; terminate it before you launch or attach another.',
+    noSession: 'No debug session: launch a program (or attach to one) first.',
+    noSessionYet: (installed: readonly string[]) =>
+      `No debug session. ${installed.length ? `Debug adapters installed here: ${installed.join(', ')}.` : 'No debug adapter is installed on this computer (Myrmidon installs none).'}`,
+    notRunning: 'The debug session is over; launch the program again to go on.',
+    notStopped: 'The program is not stopped: pause it, or wait for a breakpoint with continue.',
+    alreadyStopped: 'The program was already stopped.',
+    noThreads: 'the debugger reported no threads',
+    noFrame: (index: number, frames: number) =>
+      `there is no frame ${index}; the stack has ${frames} (0 is the innermost)`,
+    noBreakpoint: (file: string, line: number) => `there is no breakpoint at ${file}:${line}`,
+    launched: (adapter: string, program: string, breakpoints: readonly string[]) =>
+      `Launched ${program} under ${adapter}.${breakpoints.length ? `\n${breakpoints.join('\n')}` : ''}`,
+    attached: (adapter: string, to: string) => `Attached to ${to} with ${adapter}.`,
+    status: (adapter: string, state: string) => `Debug session (${adapter}): ${state}.`,
+    breakpoint: (file: string, line: number, condition?: string, verified?: boolean, message?: string) =>
+      `Breakpoint ${file}:${line}${condition ? ` when ${condition}` : ''}${verified === undefined ? '' : verified ? '' : ` (not bound yet${message ? `: ${message}` : ''})`}`,
+    breakpointSet: 'Breakpoint set.',
+    breakpointRemoved: (file: string, line: number) => `Removed the breakpoint at ${file}:${line}.`,
+    stopped: (reason: string, where: string | undefined, text: string | undefined) =>
+      `Stopped (${reason})${where ? ` in ${where}` : ''}${text ? `: ${text}` : ''}.`,
+    running: 'Still running: it has not stopped or ended yet. Wait with output, or stop it with pause.',
+    ended: (code: number | undefined) =>
+      `The program ended${code === undefined ? '' : ` with exit code ${code}`}; the session is over.`,
+    terminated: 'Debug session ended.',
+    roundEnded: 'The debug session was ended: the round ended or you were dismissed.',
+    looser: 'The debug session was ended: it ran with access this round no longer has.',
+    stackOf: (thread: string, threads: number) =>
+      `Stack of thread ${thread}${threads > 1 ? ` (${threads} threads)` : ''}, innermost first:`,
+    moreFrames: (n: number) => `… ${n} more frames`,
+    frame: (name: string) => `Frame ${name}:`,
+    expensiveScope: (name: string, ref: number) =>
+      `${name}: not listed (slow to read); call variables with ref ${ref}`,
+    noVariables: '(nothing inside)',
+    moreVariables: (n: number) => `… ${n} more not listed`,
+    newOutput: 'Program output:',
+    noOutput: '(no output yet)',
+    outputCut: (chars: number) => `…[${n(chars)} earlier characters left out]\n`,
+  },
+
+  /** What security_scan tells the agent (security-scan.ts). Secrets are always shown masked. */
+  securityScan: {
+    assignedKind: (key: string) => `possible secret in ${key || 'a secret-named key'}`,
+    secretsFound: (n: number, files: number) =>
+      `Secrets: ${n} possible secret${n === 1 ? '' : 's'} in ${files} file${files === 1 ? '' : 's'} read (values masked; check each before acting, and never copy one anywhere):`,
+    noSecrets: (files: number) => `Secrets: none found in ${files} file${files === 1 ? '' : 's'} read.`,
+    hiddenFiles: (n: number) => `(${n} file${n === 1 ? '' : 's'} you may not read left out)`,
+    largeFiles: (n: number, bytes: number) =>
+      `(${n} file${n === 1 ? '' : 's'} over ${Math.round(bytes / 1024)} KB not read)`,
+    capped: (max: number) => `(stopped listing at ${n(max)} files; scan a narrower path for the rest)`,
+    more: (count: number) => `… ${count} more not listed`,
+    noLockfiles:
+      'Dependencies: no lockfile here (package-lock.json, bun.lock, pnpm-lock.yaml, yarn.lock, requirements*.txt, poetry.lock, uv.lock, Cargo.lock, go.sum).',
+    noDependencies: (files: readonly string[]) =>
+      `Dependencies: no pinned versions found in ${files.join(', ')}.`,
+    dependenciesOffline: (count: number, files: readonly string[]) =>
+      `Dependencies: ${count} pinned in ${files.join(', ')}, not looked up: checking them needs web access, which you do not have.`,
+    noWeb: 'checking dependencies needs web access',
+    osvFailed: (why: string) => `Dependencies: OSV.dev could not be reached (${why}); try again later.`,
+    noVulnerabilities: (count: number, files: readonly string[]) =>
+      `Dependencies: no known vulnerabilities in ${count} package version${count === 1 ? '' : 's'} (${files.join(', ')}), per OSV.dev.`,
+    vulnerable: (hit: number, count: number, files: readonly string[]) =>
+      `Dependencies: ${hit} of ${count} package version${count === 1 ? '' : 's'} (${files.join(', ')}) have known vulnerabilities, per OSV.dev:`,
+    noSummary: 'no summary',
+    fixedIn: (versions: readonly string[]) => `fixed in ${versions.join(', ')}`,
+    detailsCut: (n: number) => `(details shown for the first ${n} vulnerabilities; the rest by id only)`,
+    unreadLockfiles: (files: readonly string[]) => `(could not read ${files.join(', ')})`,
+  },
+
   /** What agents read in find's results (find.ts), in omp's report shape: hits strongest first, then the cost. */
   find: {
     emptyQuery: 'query must describe what you are looking for',
@@ -3318,6 +3413,71 @@ Reply with JSON only: {"lines": ["...", "...", "..."]}.`,
         timeoutSeconds: `How long the cell may run, 1-${CELL_MAX_TIMEOUT_S} seconds (default ${CELL_TIMEOUT_S}); past it the runtime is stopped and its state lost`,
         reset:
           "true starts this language's runtime afresh before the cell, dropping everything defined so far (default false)",
+      },
+    },
+    // After omp's debug (a program path, not a shell command; one session at a time; breakpoints, stepping, stack,
+    // scopes, variables, evaluate, output) and VS Code's launch flow (breakpoints set before the program runs).
+    debug: {
+      /** `fullAccess`: the round runs without the sandbox. */
+      description: (fullAccess: boolean) =>
+        'Run a program under a debugger to see what it really does: stop at breakpoints, step line by line, read ' +
+        'the stack and variables, and evaluate expressions in a paused frame. Use it when the cause of a bug is not ' +
+        'clear from the code, a failing test or a print; to just run a program use shell. It uses the debug ' +
+        'adapters installed on this computer (debugpy for Python, vscode-js-debug for JavaScript and TypeScript, ' +
+        "lldb-dap or gdb for C, C++, Rust and Swift, and others), chosen from the program's extension; status " +
+        'lists them. launch starts program with args: with breakpoints it runs to the first, without it stops at ' +
+        'its start. attach joins a program already waiting for a debugger on a local port (or a pid). Then: ' +
+        'set_breakpoint and remove_breakpoint (file, line, condition), continue, step_over, step_in, step_out, ' +
+        'pause, stack, variables (frame, or ref to open a value), evaluate (expression in frame), output, ' +
+        'terminate. Calls that run the program wait up to timeoutSeconds for it to stop or end, then say where it ' +
+        `stopped and what it printed. ${
+          fullAccess
+            ? "The program runs on the person's computer with full access, like shell."
+            : 'The program runs in the same OS sandbox as shell.'
+        } Starting a program and evaluating an expression are decided like shell commands. You have one session ` +
+        'at a time; it ends with terminate or with the round.',
+      params: {
+        action:
+          'launch, attach, set_breakpoint, remove_breakpoint, continue, step_over, step_in, step_out, pause, stack, variables, evaluate, output, terminate or status',
+        program:
+          'For launch: the file to debug (a script or a built binary), relative to your working directory',
+        args: "For launch: the program's arguments, one per item (default none)",
+        adapter:
+          'The debug adapter to use, e.g. "debugpy", "js-debug-adapter", "lldb-dap" or "gdb" (default: chosen from the program\'s extension)',
+        breakpoints:
+          'For launch: breakpoints set before the program starts, so it runs to the first (default none: it stops at its start)',
+        breakpointFile: 'The source file, relative to your working directory',
+        breakpointLine: 'The line, 1-based as fs_read shows it',
+        breakpointCondition:
+          "Only stop when this expression, in the program's language, is true (default: always)",
+        file: 'For set_breakpoint and remove_breakpoint: the source file, relative to your working directory',
+        line: 'For set_breakpoint and remove_breakpoint: the line, 1-based as fs_read shows it',
+        condition:
+          "For set_breakpoint: only stop when this expression, in the program's language, is true (default: always)",
+        port: "For attach: the local port the program's debugger listens on, e.g. 5678 for python -m debugpy --listen 5678",
+        pid: 'For attach with lldb-dap or gdb: the process id',
+        frame: 'For variables and evaluate: the stack frame, 0 the innermost as stack lists them (default 0)',
+        ref: 'For variables: a value\'s ref from an earlier result ("[ref 12]"), to list what it holds',
+        expression: "For evaluate: an expression in the program's language, run in the paused frame",
+        timeoutSeconds: `For launch, continue, the steps and pause: how long to wait for the program to stop or end, 1-${DEBUG_MAX_WAIT_S} seconds (default ${DEBUG_WAIT_S}); it keeps running past that`,
+      },
+    },
+    // After gitleaks' and omp's vendor-prefixed credential shapes (no entropy guesses) and osv-scanner's lockfile
+    // lookup against OSV.dev.
+    security_scan: {
+      description:
+        'Scan code for leaked secrets and for dependencies with known vulnerabilities. Secrets: every text file in ' +
+        'path that git would keep (ignored files are skipped) is checked for credential shapes (cloud, GitHub, ' +
+        'GitLab, Slack, Stripe, npm, Hugging Face and model provider keys, private keys, JWTs, bearer tokens) and ' +
+        'for long quoted values given to a secret-named key; each finding gives file, line and kind, with the ' +
+        'value masked. Dependencies: the lockfiles in path (package-lock.json, bun.lock, pnpm-lock.yaml, ' +
+        'yarn.lock, requirements*.txt, poetry.lock, uv.lock, Cargo.lock, go.sum) are looked up in OSV.dev, the ' +
+        "open vulnerability database, which receives the packages' names and versions and nothing else; this needs " +
+        'web access. Findings are leads, not proof: check one before acting on it, and never copy a secret it ' +
+        'found into a file, message or command.',
+      params: {
+        checks: '"secrets", "dependencies" or "all" (default "all")',
+        path: 'Folder or file to scan, relative to your working directory (default: all of it); your scratch folder by its full path',
       },
     },
   },

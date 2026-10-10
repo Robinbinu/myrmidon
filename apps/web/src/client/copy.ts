@@ -1741,6 +1741,7 @@ export const copy = {
       names: {
         shell: 'Run a command',
         eval: 'Run a code cell',
+        debug: 'Debug a program',
         run_checks: 'Run checks',
         start_server: 'Start a dev server',
         server_logs: 'Read server logs',
@@ -1757,6 +1758,7 @@ export const copy = {
         ast_grep: 'Search code by structure',
         ast_edit: 'Rewrite code by structure',
         lsp: 'Ask the language server',
+        security_scan: 'Scan for secrets and vulnerable packages',
         request_read: 'Ask to read a folder',
         propose: 'Propose changes',
         web_search: 'Search the web',
