@@ -124,6 +124,11 @@ export interface MyrSettings {
   /** `name`: what the mascot calls the person (their computer account's name when unset); `greeting`: who writes the entry page's line. */
   /** `titles`: name chats from what they are about (`model`), or keep their first message as the name. */
   profile: { name?: string; greeting: 'model' | 'rules'; titles: 'model' | 'first-message' }
+  /**
+   * `suggest`: after a round, a cheap model suggests memories from what the person said, and now and then merges of
+   * kept memories that repeat or went stale; each waits for the person to keep or discard it (memory-review.ts).
+   */
+  memory: { suggest: boolean }
   /** How the entry page's mascot looks, and what its screen shows beside its mood. */
   mascot: {
     eyes: 'round' | 'happy' | 'tall' | 'sleepy' | 'lashes'
@@ -311,6 +316,7 @@ export const settingsSchema = Schema.object({
     greeting: Schema.union(['model', 'rules']).default('model'),
     titles: Schema.union(['model', 'first-message']).default('model'),
   }).default({}),
+  memory: Schema.object({ suggest: Schema.boolean().default(true) }).default({}),
   mascot: Schema.object({
     eyes: Schema.union(['round', 'happy', 'tall', 'sleepy', 'lashes']).default('round'),
     look: Schema.union(['neutral', 'flower', 'bow']).default('neutral'),
@@ -556,6 +562,7 @@ function parse(input: unknown): MyrSettings {
       greeting: s.profile.greeting,
       titles: s.profile.titles,
     },
+    memory: { suggest: s.memory.suggest },
     mascot: {
       ...s.mascot,
       crew: {

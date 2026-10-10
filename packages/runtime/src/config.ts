@@ -96,7 +96,8 @@ export const GOAL = {
  * (docs/research/2026-10-09-harness-prompts.md §4.3) are you ~150, finish ~80, safety ~200, method ~300, others
  * ~200, person ~200; these sit above them where a heading stacks parts some agents need: the delivery contract under
  * "How you finish", full access or an ask-first project under "Safety", and project rules (or, for a lead with
- * hands-on tools, the lead's method too) under "How to work".
+ * hands-on tools, the lead's method too) under "How to work", and the count of memories left for recall under the
+ * person's instructions.
  */
 export const PROMPT_HEADING_WORDS = {
   you: 210,
@@ -105,7 +106,7 @@ export const PROMPT_HEADING_WORDS = {
   method: 710,
   others: 230,
   person: 210,
-  instructions: 90,
+  instructions: 100,
   environment: 260,
 } as const
 /**
@@ -778,9 +779,38 @@ export const MAX_FIND_SCAN = 50_000
 /** The longest memory, and the most memories kept, so memory stays a short list of facts. */
 export const MEMORY_MAX_TEXT = 400
 export const MAX_MEMORIES = 300
-/** How much memory a round's prompt carries at most. */
-export const RECALL_COUNT = 40
+/**
+ * How much memory a round's prompt carries at most: every kept memory while they fit, past that the newest
+ * `MEMORY_PROMPT_PREFERENCES` preferences and the memories most relevant to the request; agents `recall` the rest.
+ */
+export const MEMORY_PROMPT_COUNT = 15
+export const MEMORY_PROMPT_PREFERENCES = 6
 export const RECALL_CHARS = 6_000
+/** The most memories one `recall` call returns, and how much of a query it matches on. */
+export const RECALL_TOOL_COUNT = 10
+export const RECALL_QUERY_CHARS = 2_000
+/** Relevance ranking: how much freshness weighs against matching words, and MMR's relevance-over-diversity balance. */
+export const RECALL_RECENCY_WEIGHT = 0.2
+export const RECALL_MMR_LAMBDA = 0.7
+/** Word overlap (0-1) at which two memories say the same thing, so a suggestion of it is not new. */
+export const MEMORY_SAME_SIMILARITY = 0.8
+/**
+ * The memory reviewer (memory-review.ts): suggestions per round at most, how little the person must have said in a
+ * round to be read at all, how much of what they said and of the answer it reads, and how long one call may take.
+ */
+export const MEMORY_EXTRACT_MAX = 3
+export const MEMORY_EXTRACT_MIN_CHARS = 15
+export const MEMORY_EXTRACT_PERSON_CHARS = 4_000
+export const MEMORY_EXTRACT_ANSWER_CHARS = 1_500
+export const MEMORY_REVIEW_MS = 60_000
+/**
+ * Tidying memories up (reflect): the most kept memories it reads and merges it suggests per pass; after a round, it
+ * runs at most this often, and only when two kept memories of one scope overlap at least this much.
+ */
+export const MEMORY_REFLECT_INPUT = 120
+export const MEMORY_REFLECT_MAX = 8
+export const MEMORY_REFLECT_EVERY_MS = 24 * 60 * 60_000
+export const MEMORY_REFLECT_OVERLAP = 0.4
 /** The most of a skill file an agent reads at once. */
 export const SKILL_MAX_FILE_CHARS = 40_000
 /** Bundled files listed per skill, so a big skill does not flood the agent. */

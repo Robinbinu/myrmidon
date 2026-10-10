@@ -2469,6 +2469,19 @@ export function startServer(options: ServeOptions): WebServer {
           }
         }),
       },
+      // Tidy up: the memory reviewer suggests merging kept memories that repeat or went stale; each waits for the person.
+      '/api/memory/tidy': {
+        POST: guard(async () => {
+          if (!options.chats || !options.memory)
+            return json({ error: 'this server was started without the chat runtime' }, 503)
+          try {
+            const suggested = await options.chats.tidyMemories()
+            return json({ suggested, memories: options.memory.list() })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 502)
+          }
+        }),
+      },
       '/api/memory/:id/decide': {
         POST: guard(async (req) => {
           if (!options.chats) return json({ error: 'this server was started without the chat runtime' }, 503)

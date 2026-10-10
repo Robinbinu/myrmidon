@@ -73,8 +73,13 @@ source in `marketplaces.ts` (from `extensibility/plugins/marketplace/source-reso
 package-name check in `install-sources.ts` (from `extensibility/plugins/installer.ts`). So are the encrypted share
 files in `apps/web/src/client/chat/share.ts` (the sealed layout, key and in-browser decryption of omp's
 `export/share.ts` and `export/html/share-loader.js`) and the self-contained HTML export in
-`packages/runtime/src/chat-export.ts` (after omp's `export/html` page). `install-sources.ts` and `marketplaces.ts`
-also call omp's git URL parser, marketplace catalog parser and tar reader as a library:
+`packages/runtime/src/chat-export.ts` (after omp's `export/html` page). So is the memory engine in
+`packages/runtime/src/memory.ts` and `memory-review.ts`: relevance ranking after pi-mnemopi's `core/mmr.ts` and
+`core/weibull.ts`, the extraction and tidy-up prompts after `prompts/memories/sharpshooter-*.md` (with their evidence
+rule), and the recall and remember tools after `tools/memory-recall.ts` and `tools/memory-retain.ts`; it also calls
+omp's memory redaction (`memory-backend/redact.ts`) and recall content helpers (`hindsight/content.ts`) as a library.
+`install-sources.ts` and `marketplaces.ts` also call omp's git URL parser, marketplace catalog parser and tar reader
+as a library:
 
 ```
 MIT License
