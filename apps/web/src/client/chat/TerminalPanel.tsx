@@ -13,6 +13,7 @@ import { MAX_TERMINAL_TABS, TERMINAL_COMBOS, TERMINAL_SCROLLBACK_CHOICES } from 
 import {
   addTerminal,
   CURSOR_STYLES,
+  closeAllTerminals,
   closeTerminal,
   setTerminalPrefs,
   showTerminal,
@@ -41,6 +42,7 @@ export function TerminalPanel(props: { project?: { id: string; name: string } })
   // picks (not arrowing along the tabs).
   const focusNext = useRef(active)
   const [closing, setClosing] = useState<number>()
+  const [closingAll, setClosingAll] = useState(false)
   const [maximized, setMaximized] = useState(false)
   const ids = useId()
   const tabId = (id: number) => `${ids}-tab-${id}`
@@ -72,6 +74,19 @@ export function TerminalPanel(props: { project?: { id: string; name: string } })
     guard.arm()
     setClosing(id)
   }
+  const running = tabs.flatMap((tab) => (tab.process ? [tab.process] : []))
+  const removeAll = () => {
+    setClosingAll(false)
+    setClosing(undefined)
+    closeAllTerminals(project)
+  }
+  // As one tab's ×: while any command runs it asks first, naming them.
+  const closeAll = () => {
+    if (running.length === 0) return removeAll()
+    guard.arm()
+    setClosing(undefined)
+    setClosingAll(true)
+  }
   const step = (by: number) => {
     const at = tabs.findIndex((tab) => tab.id === active)
     const next = tabs[(at + by + tabs.length) % tabs.length]
@@ -91,6 +106,15 @@ export function TerminalPanel(props: { project?: { id: string; name: string } })
   useEffect(() => {
     if (closing !== undefined && asking?.process == null) setClosing(undefined)
   }, [closing, asking?.process])
+  const anyRunning = running.length > 0
+  useEffect(() => {
+    if (closingAll && !anyRunning) setClosingAll(false)
+  }, [closingAll, anyRunning])
+  // Asked from the ⋯ menu, whose closing gives focus back to where it was: this runs after that, so the answer has it.
+  const confirmAll = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    if (closingAll) confirmAll.current?.focus()
+  }, [closingAll])
 
   // Along the tabs: arrows, Home and End pick a tab (focus stays on the tabs), Delete closes the focused one.
   const tabKeys = (e: KeyboardEvent<HTMLElement>) => {
@@ -221,7 +245,11 @@ export function TerminalPanel(props: { project?: { id: string; name: string } })
           <Plus className="size-3.5" />
         </IconButton>
         <span className="flex-1" />
-        <TerminalOptions prefs={terminalPrefs()} onChange={setTerminalPrefs} />
+        <TerminalOptions
+          prefs={terminalPrefs()}
+          onChange={setTerminalPrefs}
+          {...(tabs.length ? { onCloseAll: closeAll } : {})}
+        />
         <IconButton
           size="sm"
           label={maximized ? t.restore : t.maximize}
@@ -253,6 +281,30 @@ export function TerminalPanel(props: { project?: { id: string; name: string } })
             {t.confirmClose}
           </Button>
           <Button size="sm" variant="borderless" onClick={() => setClosing(undefined)}>
+            {t.cancel}
+          </Button>
+        </div>
+      )}
+      {closingAll && anyRunning && (
+        <div role="alert" className="flex flex-wrap items-center gap-2 border-b border-line px-3 py-1.5">
+          <span className="min-w-0 flex-1 text-small text-fg-2">{t.stillRunningAll(running)}</span>
+          <Button
+            ref={confirmAll}
+            size="sm"
+            variant="danger"
+            onKeyDown={(e) => {
+              if (guard.repeat(e) || e.key !== 'Escape') return
+              // Escape here only takes the question back; it must not also restore a maximized view.
+              e.stopPropagation()
+              setClosingAll(false)
+            }}
+            onClick={() => {
+              if (!guard.tooSoon()) removeAll()
+            }}
+          >
+            {t.confirmCloseAll}
+          </Button>
+          <Button size="sm" variant="borderless" onClick={() => setClosingAll(false)}>
             {t.cancel}
           </Button>
         </div>
@@ -314,8 +366,15 @@ function TerminalSlot(props: { session: TerminalSession }) {
   )
 }
 
-/** The ⋯ menu: cursor style, blink, copy on select and scrollback, for every terminal at once. */
-function TerminalOptions(props: { prefs: TerminalPrefs; onChange(change: Partial<TerminalPrefs>): void }) {
+/**
+ * The ⋯ menu: cursor style, blink, copy on select and scrollback, for every terminal at once, and closing them all
+ * (`onCloseAll`, while any is open).
+ */
+function TerminalOptions(props: {
+  prefs: TerminalPrefs
+  onChange(change: Partial<TerminalPrefs>): void
+  onCloseAll?(): void
+}) {
   const [open, setOpen] = useState(false)
   const box = useRef<HTMLDivElement>(null)
   const { prefs, onChange } = props
@@ -376,6 +435,18 @@ function TerminalOptions(props: { prefs: TerminalPrefs; onChange(change: Partial
                 />
               ))}
             </MenuGroup>
+            {props.onCloseAll && (
+              <>
+                <MenuSeparator />
+                <MenuItem
+                  title={t.closeAll}
+                  onSelect={() => {
+                    setOpen(false)
+                    props.onCloseAll?.()
+                  }}
+                />
+              </>
+            )}
           </Popover>
         )}
       </AnimatePresence>

@@ -1383,4 +1383,5 @@ export const itemKey = <I extends DynamicId>(id: I, item: ItemOf<I>): string =>
 export const NOT_SHOWN: Readonly<Record<string, string>> = {
   version: "The file format's version: Myrmidon sets it, nobody chooses it.",
   setup: "The setup assistant's own progress; General → Run setup again starts it over.",
+  composer: "The message box's last crew, picked in the box itself; every browser starts with it.",
 }

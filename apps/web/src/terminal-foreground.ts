@@ -4,6 +4,54 @@ const MAX_LABEL = 60
 const RUNNER_VERBS = new Set(['run', 'exec', 'x', 'dlx'])
 /** Programs that run a script named by its path: the tab names the script, as it was typed (`npm`, not `node`). */
 const INTERPRETERS = /^(node|python[\d.]*|ruby|perl|php|bash|sh|zsh)$/
+/** Programs that share their options under one name: the vim family, ssh's, mysql's, docker's and so on. */
+const FAMILIES: [RegExp, string][] = [
+  [/^(n?vim?|view|gvim|mvim)$/, 'vim'],
+  [/^(ssh|scp|sftp|autossh)$/, 'ssh'],
+  [/^(mysql|mariadb)$/, 'mysql'],
+  [/^(docker|podman)$/, 'docker'],
+  [/^python[\d.]*$/, 'python'],
+  [/^(bash|sh|zsh)$/, 'shell'],
+]
+/**
+ * Options whose value is the next word, by family: that word is not the argument a tab names (`vim -u NONE x` is vim
+ * on x). A short one counts last in a cluster too (`ssh -Ap 22`), as getopt reads it.
+ */
+const VALUE_OPTIONS: Record<string, readonly string[]> = Object.fromEntries(
+  Object.entries({
+    vim: '-c -i -S -s -T -t -U -u -W -w --cmd --listen --startuptime',
+    ssh: '-b -c -D -E -e -F -I -i -J -L -l -m -O -o -P -p -R -S -W -w',
+    mysql: '-D -h -P -S -u --database --host --port --socket --user',
+    psql: '-c -d -f -h -p -U --command --dbname --file --host --port --username',
+    docker:
+      '-e -f -p -v -w --entrypoint --env --file --name --network --platform --publish --volume --workdir',
+    curl: '-A -b -c -d -e -F -H -o -T -u -X -x --cookie --data --header --proxy --request --user --user-agent',
+    git: '-c',
+    python: '-W -X',
+    node: '-r --require --import',
+    ruby: '-I -r',
+    perl: '-I -M',
+  }).map(([family, options]) => [family, options.split(' ')]),
+)
+/**
+ * Options most programs give a value to (`git -C dir`, `gcc -o out`), whatever the program. Only these: most single
+ * letters mean different things to different programs (`tail -f log` keeps its log).
+ */
+const COMMON_VALUE_OPTIONS = new Set([
+  ...'-C -o --config --cwd --directory --env-file --filter --host'.split(' '),
+  ...'--log-level --name --output --port --prefix --profile --user'.split(' '),
+])
+/** Interpreters' options whose value is code to run, not a script: the tab names the interpreter alone. */
+const INLINE_CODE: Record<string, readonly string[]> = {
+  python: ['-c'],
+  node: ['-e', '-p', '--eval', '--print'],
+  ruby: ['-e'],
+  perl: ['-e', '-E'],
+  php: ['-r'],
+  shell: ['-c'],
+}
+/** An option named for a secret (`--password`, `--api-key`): its value is never shown, nor anything after it. */
+const SECRET_OPTION = /^--?[\w-]*(pass(word|wd)?|token|secret|key|auth|credential)[\w-]*$/i
 /** How long one `ps` may take before the look-up gives up until the next one. */
 const PS_TIMEOUT_MS = 2_000
 
@@ -30,26 +78,55 @@ function secretLike(word: string): boolean {
 }
 
 /**
- * A command line as a tab shows it: the program's name and its first argument that is not an option, the script's
- * name too after a runner's verb (`bun run dev`, `python3 app.py`, `sleep 30`). `ps` shows arguments as the shell
- * expanded them, so `mysql -p$DB_PASS` arrives with the password itself: options are never shown, and neither is an
- * argument that looks like a secret or anything after one; a URL loses its `user:password@`.
+ * A command line as a tab shows it: the program's name and its first argument that is not an option or an option's
+ * value, the script's name too after a runner's verb (`bun run dev`, `python3 app.py`, `vim notes.md`). `ps` shows
+ * arguments as the shell expanded them, so `mysql -p$DB_PASS` arrives with the password itself: options are never
+ * shown, and neither is an argument that looks like a secret or anything after one; a URL loses its `user:password@`.
  */
 export function commandLabel(args: string): string {
   const [first = '', ...words] = args.trim().split(/\s+/)
   let program = fileName(first)
-  let plain = words.filter((w) => !w.startsWith('-'))
-  if (INTERPRETERS.test(program) && plain[0]?.includes('/')) {
-    program = fileName(plain[0])
-    plain = plain.slice(1)
+  let found = argumentsOf(program, words)
+  const script = found.plain[0]
+  if (INTERPRETERS.test(program) && !found.inline && script?.word.includes('/')) {
+    program = fileName(script.word)
+    found = argumentsOf(program, words.slice(script.at + 1))
   }
   const shown = [program]
-  for (const word of plain.slice(0, 2)) {
+  for (const { word } of found.plain.slice(0, 2)) {
     if (secretLike(word)) break
     shown.push(word.replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/@]*@/i, '$1'))
     if (!RUNNER_VERBS.has(word)) break
   }
   return shown.join(' ').slice(0, MAX_LABEL)
+}
+
+/**
+ * A command's words that are not options or an option's value, with where each is. `inline` when an interpreter was
+ * given code to run (`python3 -c …`), whose words name no script; the words stop at an option named for a secret.
+ */
+function argumentsOf(
+  program: string,
+  words: string[],
+): { plain: { word: string; at: number }[]; inline: boolean } {
+  const family = FAMILIES.find(([name]) => name.test(program))?.[1] ?? program
+  const takes = new Set(VALUE_OPTIONS[family])
+  const code = new Set(INLINE_CODE[family])
+  const plain: { word: string; at: number }[] = []
+  for (let at = 0; at < words.length; at++) {
+    const word = words[at] ?? ''
+    if (!word.startsWith('-')) {
+      plain.push({ word, at })
+      continue
+    }
+    // `--opt=value` carries its value with it.
+    if (word.includes('=')) continue
+    if (SECRET_OPTION.test(word)) break
+    const last = /^-[A-Za-z]{2,}$/.test(word) ? `-${word.at(-1)}` : word
+    if (code.has(word) || code.has(last)) return { plain, inline: true }
+    if (takes.has(word) || takes.has(last) || COMMON_VALUE_OPTIONS.has(word)) at++
+  }
+  return { plain, inline: false }
 }
 
 /**
