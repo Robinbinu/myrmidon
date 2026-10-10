@@ -415,6 +415,8 @@ export const MASCOT_SOUNDS = {
 export const THEME_IMPORT = { maxBytes: 512_000, maxName: 60 } as const
 /** Imported themes kept at once; the gateway keeps as many (MAX_IMPORTED_THEMES in packages/runtime). */
 export const MAX_IMPORTED_THEMES = 12
+/** Fallback models the lead, and the crew, may each have; the gateway keeps as many (MAX_FALLBACKS in packages/runtime). */
+export const MAX_FALLBACKS = 5
 
 /* ------------------------------------------------------------------ connection */
 

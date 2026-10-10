@@ -9,6 +9,13 @@
 export const TURN_TIMEOUT_MS = 15 * 60_000
 /** Retries for a transient model failure (rate limit, overload, timeout) before the person is asked. */
 export const MODEL_RETRIES = 2
+/** The most fallback models the person may line up after the lead's model, and after the crew's. */
+export const MAX_FALLBACKS = 5
+/**
+ * How long a model that failed stays out of an agent's fallbacks: past it, the model (the configured one first) is
+ * tried again when the one the agent fell back to fails too.
+ */
+export const FALLBACK_COOLDOWN_MS = 5 * 60_000
 /** HTTP statuses that make a model failure transient (worth a retry): timeouts, conflicts, rate limits, overloads. */
 export const TRANSIENT_STATUS = new Set([408, 409, 425, 429, 500, 502, 503, 504, 529])
 /** Turns kept word for word when a new round of the chat starts; older tool output is elided. */

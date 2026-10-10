@@ -14,6 +14,7 @@ import {
 import {
   DEFAULT_COST_USD,
   MAX_CREW_NAMES,
+  MAX_FALLBACKS,
   MAX_IMPORTED_THEMES,
   MAX_READ_FOLDERS,
   MAX_THEME_COLORS,
@@ -53,6 +54,13 @@ export interface MyrSettings {
     leadModel?: string
     workerModel?: string
     judgeModel?: string
+    /**
+     * Models to go on with, in order, when the lead's model fails in a way another model could get past (an outage,
+     * a rate limit retries did not clear, an expired sign-in, a model taken down); `workerFallbacks` the same for
+     * crewmates and swarm peers. Empty: the round pauses on the error for the person, as before.
+     */
+    leadFallbacks: string[]
+    workerFallbacks: string[]
     wallMinutes: number
     maxTurns: number
     /** Per-round limits; 0 means no limit. */
@@ -228,6 +236,8 @@ export const settingsSchema = Schema.object({
     leadModel: Schema.string(),
     workerModel: Schema.string(),
     judgeModel: Schema.string(),
+    leadFallbacks: Schema.array(Schema.string().max(200)).max(MAX_FALLBACKS).default([]),
+    workerFallbacks: Schema.array(Schema.string().max(200)).max(MAX_FALLBACKS).default([]),
     wallMinutes: Schema.number().min(1).max(240).default(30),
     maxTurns: Schema.natural().min(1).max(200).default(40),
     costUsd: Schema.number().min(0).max(1000).default(DEFAULT_COST_USD),
@@ -491,7 +501,11 @@ function parse(input: unknown): MyrSettings {
   const composer = s.composer
   return {
     version: 1,
-    team: s.team,
+    team: {
+      ...s.team,
+      leadFallbacks: [...new Set(s.team.leadFallbacks.filter(Boolean))],
+      workerFallbacks: [...new Set(s.team.workerFallbacks.filter(Boolean))],
+    },
     sandbox: {
       ...(s.sandbox.read?.length ? { read: [...new Set(s.sandbox.read.map((f) => f.trim()))] } : {}),
       ...(s.sandbox.readHome ? { readHome: true } : {}),
@@ -623,6 +637,9 @@ export function withoutModel(
       delete next.team[key]
       cleared.push(role)
     }
+  // A fallback is not a default the person is told about: the chain just goes on without it.
+  next.team.leadFallbacks = next.team.leadFallbacks.filter((r) => r !== ref)
+  next.team.workerFallbacks = next.team.workerFallbacks.filter((r) => r !== ref)
   if (next.voice.callModel === ref) {
     delete next.voice.callModel
     cleared.push('call')

@@ -375,6 +375,19 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
         })
         break
       }
+      case 'agent/fallback': {
+        const p = e.payload as EventPayloads['agent/fallback']
+        out.push({
+          ...base,
+          kind: 'error',
+          agent: p.agent,
+          lead: copy.steps.fellBackTo,
+          strong: p.model.split('/').pop() ?? p.model,
+          tail: copy.steps.fellBackFrom(p.previous.split('/').pop()),
+          detail: p.message,
+        })
+        break
+      }
       case 'verifier/requested': {
         const p = e.payload as EventPayloads['verifier/requested']
         out.push({ ...base, kind: 'verdict', agent: p.by, lead: copy.steps.askedJudge })
