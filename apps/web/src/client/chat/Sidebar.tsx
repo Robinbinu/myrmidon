@@ -599,7 +599,9 @@ export function Sidebar(props: {
             role="option"
             aria-selected={isSelected}
             className={cn(
-              'relative flex w-full items-center gap-2 rounded-md pl-2 pr-14 text-left text-body transition-colors',
+              // Room for rename and delete only while they show (hover or keyboard focus): otherwise the title
+              // and its round count use the whole row instead of stopping short of an empty gap.
+              'relative flex w-full items-center gap-2 rounded-md pl-2 pr-2 text-left text-body transition-colors group-focus-within:pr-14 group-hover:pr-14',
               line ? 'flex-wrap gap-y-0 py-1' : 'h-7',
               isSelected && 'bg-row-selected',
               on || isSelected ? 'text-fg' : 'text-fg-2 hover:bg-fill/70 hover:text-fg',
