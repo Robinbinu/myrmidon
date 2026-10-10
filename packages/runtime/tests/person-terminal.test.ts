@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Process } from '@oh-my-pi/pi-natives'
+import { pendingOn } from '../../../tests/platform.ts'
 import {
   childCommands,
   openPersonTerminal,
@@ -44,12 +45,15 @@ async function typeInto(probe: ShellProbe, line: string, until: string) {
   }
 }
 
-test("the person's terminal runs their shell in a PTY here", async () => {
-  // PowerShell on Windows; the echoed input itself never shows the answer.
-  const sum = process.platform === 'win32' ? '40 + 2' : 'echo $((40 + 2))'
-  const { out } = await typeInto(hostProbe(), sum, '42')
-  expect(out).toContain('42')
-})
+pendingOn('win32', 'ptyTerminalOnWindows')(
+  "the person's terminal runs their shell in a PTY here",
+  async () => {
+    // PowerShell on Windows; the echoed input itself never shows the answer.
+    const sum = process.platform === 'win32' ? '40 + 2' : 'echo $((40 + 2))'
+    const { out } = await typeInto(hostProbe(), sum, '42')
+    expect(out).toContain('42')
+  },
+)
 
 test.skipIf(process.platform === 'win32')(
   "Windows' terminal runs in pi-natives' PTY session (ConPTY there), checked here with sh as its shell",

@@ -65,6 +65,8 @@ which are not gaps. `expectOwnerOnly` checks a private file the way each system 
 | --- | --- | --- |
 | `cuaDriverOnWindows` | computer: 14; server-computer: 1 | no Cua Driver on Windows: its manifest and daemon never answer, so computer tools fail |
 | `bunWindowsSockets` | channels-irc: 7 | Bun's Windows sockets corrupt its heap when a TCP connection ends or drops (a segfault in usockets' socket close, or a later malloc), in Bun 1.3.14 and 1.4.3 alike, ending the run; a Bun bug to report upstream, then a Bun upgrade |
+| `walSidecarOnWindows` | file-read: 1 | a WAL database copied without its sidecars must read without SQLite creating `-wal`/`-shm` beside it; the immutable-first open is untested on Windows |
+| `ptyTerminalOnWindows` | person-terminal: 1 | the PowerShell answer never comes back through the ConPTY session on the runner |
 
 ### Not on Windows (by design)
 
