@@ -558,6 +558,18 @@ export interface ChatSummary {
   reads?: string[]
   /** The latest round runs with full access (no sandbox). */
   fullAccess?: boolean
+  /** Where the person filed it in the list (see ChatShelf on the server). */
+  pinnedAt?: string
+  archivedAt?: string
+  group?: string
+  /** The chat it was forked from. */
+  forkOf?: string
+}
+
+/** A section of the chat list the person named. */
+export interface ChatGroup {
+  id: string
+  name: string
 }
 
 export interface CrewMember {
