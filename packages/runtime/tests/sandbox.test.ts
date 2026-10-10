@@ -12,6 +12,7 @@ import {
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { notOn, pendingOn } from '../../../tests/platform.ts'
+import { processTable, treeOf } from '../src/leash.ts'
 import { RUNTIMES } from '../src/patterns.ts'
 import { detectSandbox, fullAccessIn, sandboxPath, unconfinedSandbox } from '../src/sandbox.ts'
 import { hostShell } from '../src/shell.ts'
@@ -26,28 +27,38 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true })
 })
 
-pendingOn('win32', 'windowsShellPath')(
-  'a command run in the project keeps HOME and TMPDIR in the agent scratch, not the project',
-  async () => {
-    const project = join(root, 'project')
-    const scratch = join(root, 'scratch')
-    mkdirSync(project)
-    mkdirSync(scratch)
-    const caches = '$HOME/Library/Caches/com.apple.python'
-    const r = await detectSandbox().run({
-      command: `mkdir -p "${caches}" && touch "${caches}/x.pyc" "$TMPDIR/t" && echo "$HOME"`,
-      cwd: project,
-      writable: [project, scratch],
-      timeoutMs: 10_000,
-    })
-    expect(r.stderr).toBe('')
-    expect(r.code).toBe(0)
-    expect(readdirSync(project)).toEqual([])
-    expect(r.stdout.trim()).toBe(join(scratch, '.home'))
-    expect(existsSync(join(scratch, '.home/Library/Caches/com.apple.python/x.pyc'))).toBe(true)
-    expect(existsSync(join(scratch, '.tmp/t'))).toBe(true)
-  },
-)
+/** The processes below `pid`, with their parents and command lines. */
+function below(pid: number) {
+  const rows = processTable() ?? []
+  const tree = treeOf(rows, pid)
+  return rows.filter((r) => r.pid !== pid && tree.has(r.pid)).map((r) => [r.pid, r.ppid, r.command])
+}
+
+test('a command run in the project keeps HOME and TMPDIR in the agent scratch, not the project', async () => {
+  const project = join(root, 'project')
+  const scratch = join(root, 'scratch')
+  mkdirSync(project)
+  mkdirSync(scratch)
+  const caches = '$HOME/Library/Caches/com.apple.python'
+  const r = await detectSandbox().run({
+    command: `mkdir -p "${caches}" && touch "${caches}/x.pyc" "$TMPDIR/t" && echo "$HOME"`,
+    cwd: project,
+    writable: [project, scratch],
+    timeoutMs: 10_000,
+  })
+  expect(r.stderr).toBe('')
+  expect(r.code).toBe(0)
+  expect(readdirSync(project)).toEqual([])
+  // Git Bash shows a Windows path the POSIX way (C:\a\b as /c/a/b); a program it runs is given the path itself.
+  const home = join(scratch, '.home')
+  expect(r.stdout.trim()).toBe(
+    process.platform === 'win32'
+      ? home.replace(/^([A-Za-z]):/, (_, drive: string) => `/${drive.toLowerCase()}`).replaceAll('\\', '/')
+      : home,
+  )
+  expect(existsSync(join(scratch, '.home/Library/Caches/com.apple.python/x.pyc'))).toBe(true)
+  expect(existsSync(join(scratch, '.tmp/t'))).toBe(true)
+})
 
 notOn('win32', 'posixPath')(
   "a sandboxed PATH keeps the person's toolchains and system folders, never their apps or other folders",
@@ -133,12 +144,15 @@ pendingOn('win32', 'timeoutStopOnWindows')(
   async () => {
     const marker = join(root, 'late')
     const started = Date.now()
-    const r = await unconfinedSandbox().run({
+    const running = unconfinedSandbox().run({
       command: `(sleep 3 && touch "${marker}") & sleep 30`,
       cwd: root,
       writable: [root],
       timeoutMs: 500,
     })
+    const r = await Promise.race([running, Bun.sleep(10_000)])
+    // Says what is still running below this process when the command was not stopped.
+    if (!r) throw new Error(`not stopped: ${JSON.stringify(below(process.pid))}`)
     expect(r.timedOut).toBe(true)
     expect(r.code).toBeNull()
     expect(Date.now() - started).toBeLessThan(10_000)
