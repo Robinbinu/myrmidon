@@ -70,3 +70,28 @@ test('nothing that looks like a secret reaches the tab, however the command was 
 test('a shell that is gone tells nothing, rather than an empty name', async () => {
   expect(await foregroundCommand(2 ** 22 + 12_345)).toBeUndefined()
 })
+
+test('Windows command lines name their program without its folder or .exe, paths with spaces kept whole', () => {
+  expect(commandLabel(['C:\\Program Files\\nodejs\\node.exe', 'C:\\Users\\Ana Lima\\app\\server.js'])).toBe(
+    'server.js',
+  )
+  expect(commandLabel(['C:\\Program Files\\nodejs\\npm.cmd', 'run', 'dev'])).toBe('npm run dev')
+  expect(commandLabel(['C:\\Python312\\python.exe', '-m', 'http.server'])).toBe('python http.server')
+})
+
+test("on Windows, what runs is the shell's last child, and none means the prompt", async () => {
+  const children = (lists: string[][]) => () => lists
+  const win = (lists: string[][]) => foregroundCommand(42, { platform: 'win32', children: children(lists) })
+  expect(await win([])).toBeNull()
+  // ConPTY's console host serves the terminal, not a command typed in it.
+  expect(await win([['C:\\WINDOWS\\system32\\conhost.exe', '0xffffffff', '-ForceV1']])).toBeNull()
+  expect(await win([['C:\\Program Files\\nodejs\\npm.cmd', 'run', 'dev']])).toBe('npm run dev')
+  expect(
+    await win([
+      ['git.exe', 'fetch'],
+      ['C:\\Program Files\\Vim\\vim91\\vim.exe', 'notes.md'],
+    ]),
+  ).toBe('vim notes.md')
+  // Without a way to list children it cannot tell.
+  expect(await foregroundCommand(42, { platform: 'win32' })).toBeUndefined()
+})
