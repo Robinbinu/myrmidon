@@ -332,6 +332,28 @@ export const copy = {
     key: 'key',
   },
 
+  /** How close each signed-in account is to its plan's limits: Settings → Models & providers, the composer's model. */
+  planLimits: {
+    title: 'Plan limits',
+    note: 'how much of each subscription is used, window by window',
+    refresh: 'Check again',
+    refreshing: 'Checking…',
+    checked: (when: string) => `Checked ${when}`,
+    failed: (error: string) => `Couldn’t read plan limits: ${error}`,
+    used: (percent: number) => `${percent}%`,
+    usedLong: (label: string, percent: number) => `${label}: ${percent}% used`,
+    noAmount: 'no amount given',
+    resetsIn: (when: string) => `resets in ${when}`,
+    unreachable: 'Couldn’t reach it: the sign-in may have expired, or the provider is busy',
+    unsupported: 'This provider doesn’t report plan limits',
+    status: { warning: 'near limit', exhausted: 'limit reached' },
+    /** The composer's model chip, when every account the model's provider could use is near or at a limit. */
+    nearLimit: (label: string, percent: number, resets?: string) =>
+      `${label} is ${percent}% used${resets ? `, ${resets}` : ''}: agents on this model may slow down or stop`,
+    atLimit: (label: string, resets?: string) =>
+      `${label} limit reached${resets ? `, ${resets}` : ''}: agents on this model will wait or fail until then`,
+  },
+
   composer: {
     modes: {
       orchestrated: {

@@ -1478,6 +1478,21 @@ export function startServer(options: ServeOptions): WebServer {
           composer,
         })
       }),
+      // How close each signed-in account is to its plan's limits: Settings → Models & providers, the composer's warning.
+      // Any paired device may read it, since it picks models too; a chats-only device gets the limits without whose
+      // accounts they are, and cannot make the gateway ask every provider again (`refresh`).
+      '/api/usage': guard(async (_req, url, access) => {
+        if (!options.omp) return json({ fetchedAt: Date.now(), accounts: [] })
+        const full = access.scope === 'full'
+        const snapshot = await options.omp.quota.read({
+          force: full && url.searchParams.get('refresh') === '1',
+        })
+        if (full) return json(snapshot)
+        return json({
+          ...snapshot,
+          accounts: snapshot.accounts.map(({ account: _account, ...rest }) => rest),
+        })
+      }),
       '/api/models/test': {
         POST: guard(async (req) => {
           if (!options.resolver) return json({ error: 'model testing needs the chat runtime' }, 503)

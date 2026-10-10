@@ -5,6 +5,7 @@ import { join, relative } from 'node:path'
 import type { Api, Model } from '@oh-my-pi/pi-ai'
 import { ownerOnly } from '../owner-only.ts'
 import type { VoiceKeys } from '../voice/providers.ts'
+import { createQuotaReader, type QuotaReader } from './usage.ts'
 
 /**
  * Myrmidon embeds omp's (oh-my-pi) agent libraries in-process: its settings, credential vault, model
@@ -153,6 +154,8 @@ export interface OmpRuntime {
   search(query: string, options?: SearchOptions): Promise<string>
   read(url: string, signal?: AbortSignal): Promise<ReadResult>
   searchProviders(): { id: string; label: string }[]
+  /** How close each signed-in account is to its plan's limits, cached briefly (see omp/usage.ts). */
+  readonly quota: QuotaReader
   /** omp's `modelRoles.default` from `config.yml`, as `provider/model-id`. */
   defaultModel(): string | undefined
   /** Reopens the credential vault and settings, e.g. after importing an omp setup. */
@@ -200,6 +203,9 @@ async function start(home: string): Promise<OmpRuntime> {
   const { discoverAuthStorage } = await import('@oh-my-pi/pi-coding-agent/sdk')
   const { ModelRegistry } = await import('@oh-my-pi/pi-coding-agent/config/model-registry')
   const { getOAuthProviders } = await import('@oh-my-pi/pi-ai/registry/oauth/index')
+  const { collectStoredAccounts } = await import(
+    '@oh-my-pi/pi-coding-agent/slash-commands/helpers/usage-accounts'
+  )
   const search = await import('@oh-my-pi/pi-coding-agent/web/search/index')
   const searchTypes = await import('@oh-my-pi/pi-coding-agent/web/search/types')
   const fetchTool = await import('@oh-my-pi/pi-coding-agent/tools/fetch')
@@ -503,6 +509,17 @@ async function start(home: string): Promise<OmpRuntime> {
         id,
         label,
       })),
+    // Through `core` on each call, so a reload's new vault is the one read.
+    quota: createQuotaReader({
+      reports: (signal) =>
+        core.auth.usage.reports({
+          baseUrlResolver: (provider) => core.registry.getProviderBaseUrl(provider),
+          signal,
+        }),
+      accounts: () => collectStoredAccounts(core.auth),
+      supported: (provider) => core.auth.usage.providerFor(provider as never) !== undefined,
+      invalidate: () => core.auth.usage.invalidate(),
+    }),
     defaultModel: () => core.settings.getModelRole('default'),
     secretValues() {
       const values = core.credentials
