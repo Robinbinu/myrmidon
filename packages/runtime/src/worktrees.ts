@@ -219,6 +219,24 @@ export class ProjectWorktrees {
     }
   }
 
+  /** Commits the worktree's changes as one kept trial of an experiment (autoresearch) and returns the commit. */
+  async keep(agent: string, message: string): Promise<string> {
+    const tree = this._trees.get(agent)
+    if (!tree) throw new Error(`${agent} has no worktree`)
+    return this.commitWork(tree, message)
+  }
+
+  /**
+   * Drops the worktree's changes since its last commit (an experiment's trial that did not improve), new files
+   * included; the linked dependency folders stay.
+   */
+  async revert(agent: string): Promise<void> {
+    const tree = this._trees.get(agent)
+    if (!tree) throw new Error(`${agent} has no worktree`)
+    await git(tree.path, ['reset', '-q', '--hard', 'HEAD'])
+    await git(tree.path, ['clean', '-fdq', '--', '.', ...tree.links.map((l) => `:(exclude)${l}`)])
+  }
+
   /**
    * Removes worktrees whose changes are all in the project folder; one holding unmerged changes stays, with its
    * branch, so nothing is lost.

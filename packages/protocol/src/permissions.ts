@@ -72,6 +72,7 @@ export const ACCESS_GROUPS: Readonly<Record<AccessGroup, readonly string[]>> = {
     'shell',
     'eval',
     'run_checks',
+    'autoresearch',
     'start_server',
     'server_logs',
     'stop_server',

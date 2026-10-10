@@ -1,5 +1,5 @@
 import { ACCESS_GROUPS, type ColonyState, groupsOff, LEAD_WORK_GROUPS, toolHidden } from '@myrmidon/protocol'
-import { levelsOf } from './permissions.ts'
+import { levelsOf, presetOf } from './permissions.ts'
 import type { ProjectContext } from './project-context.ts'
 import { prompts } from './prompts.ts'
 import type { AgentSpec, ColonySpec } from './spec.ts'
@@ -50,6 +50,7 @@ const BUILD = [
   'shell',
   'eval',
   'run_checks',
+  'autoresearch',
   'start_server',
   'server_logs',
   'stop_server',
@@ -192,6 +193,7 @@ function baseRoleTools(spec: ColonySpec, agent: AgentSpec): string[] {
  */
 const ON_DEMAND = new Set([
   'github',
+  'autoresearch',
   'request_login',
   'start_server',
   'server_logs',
@@ -250,6 +252,10 @@ export function preloaded(request: string, names: readonly string[]): string[] {
     /\b(my (mac|screen|desktop|computer)|on (my|the) screen|desktop app|native app|the app\b|open (the )?\w+ app|finder|system settings|simulator|xcode|computer use)\b/i.test(
       request,
     )
+  const experiment =
+    /\b(autoresearch|experiment loop|experiments?\b[^.]{0,40}\b(metric|benchmark)|optimi[sz]e\b[^.]{0,40}\bbenchmark)/i.test(
+      request,
+    )
   const remote = /\bssh\b|\bremote (host|server|machine|box)s?\b|\bon (the|my|our) (server|vps|box)\b/i.test(
     request,
   )
@@ -264,7 +270,8 @@ export function preloaded(request: string, names: readonly string[]): string[] {
       (picture && n === 'generate_image') ||
       (speech && n === 'tts') ||
       (computer && ACCESS_GROUPS.computer.includes(n)) ||
-      (remote && ACCESS_GROUPS.remote.includes(n)),
+      (remote && ACCESS_GROUPS.remote.includes(n)) ||
+      (experiment && n === 'autoresearch'),
   )
 }
 
@@ -305,7 +312,15 @@ export function toolsFor(spec: ColonySpec, agent: AgentSpec): string[] {
   const tools = withRoleAccess(spec, agent, agent.tools ?? roleTools(spec, agent), agent.tools !== undefined)
   // Remote hosts are the person's: only a round of theirs with hosts set up reaches them.
   const remote = spec.remotes?.length && !spec.askAll ? [] : ACCESS_GROUPS.remote
-  const disabled = new Set([...(spec.disabledTools ?? []), ...(agent.withoutTools ?? []), ...remote])
+  // An experiment keeps and reverts changes on a branch of the project, unasked: only where changes need no approval.
+  const preset = presetOf(spec)
+  const experiment = spec.chat?.project && (preset === 'auto' || preset === 'full') ? [] : ['autoresearch']
+  const disabled = new Set([
+    ...(spec.disabledTools ?? []),
+    ...(agent.withoutTools ?? []),
+    ...remote,
+    ...experiment,
+  ])
   const allowed = disabled.size ? tools.filter((t) => !disabled.has(t)) : tools
   // Whoever has tools that load on demand gets the tool that loads them; MCP and made tools are among them.
   return allowed.some((t) => t === 'mcp' || t === 'shell' || onDemand(t))

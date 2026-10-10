@@ -387,6 +387,42 @@ export interface EventPayloads {
   'worktree/conflict': { agent: string; files: string[] }
   /** The round ended: the worktree is removed, or `kept` (with its branch) because it holds unmerged changes. */
   'worktree/closed': { agent: string; kept: boolean }
+  /**
+   * An agent began an experiment loop (autoresearch) on its own branch: `measure` prints `METRIC <metric>=<n>`, and
+   * `direction` says which way is better; at most `trials` trials, until `until` (ISO).
+   */
+  'experiment/started': {
+    agent: string
+    measure: string
+    metric: string
+    direction: 'lower' | 'higher'
+    trials: number
+    until: string
+    branch: string
+  }
+  /**
+   * One run of the measure: the baseline (trial 0), or a trial whose change was kept (committed on the branch),
+   * reverted (no better), or failed (the measure failed or printed no metric). `best`: the best kept value after it.
+   */
+  'experiment/trial': {
+    agent: string
+    trial: number
+    description: string
+    outcome: 'baseline' | 'kept' | 'reverted' | 'failed'
+    metric?: number
+    best?: number
+    commit?: string
+    ms: number
+  }
+  /** The loop ended: its kept changes merged into the project folder (`files`). */
+  'experiment/finished': {
+    agent: string
+    trials: number
+    kept: number
+    baseline?: number
+    best?: number
+    files: string[]
+  }
   /** `edits`: review fields the person rewrote before approving, by key; `note`: what they said with their answer. */
   'approval/decided': {
     id: string

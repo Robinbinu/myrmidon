@@ -70,7 +70,13 @@ import {
 import { registerColonyEvents } from './events.ts'
 import { chatJudge } from './find.ts'
 import { type HookEvent, type HookOutcome, type HookStore, hookToolInput, runHooks } from './hooks.ts'
-import { agentActor, type ColonyHost, type ReviewDecision, type TodoItem } from './host.ts'
+import {
+  agentActor,
+  type ColonyHost,
+  type ExperimentTree,
+  type ReviewDecision,
+  type TodoItem,
+} from './host.ts'
 import type { ToolLibrary } from './made-tools.ts'
 import type { McpHub } from './mcp.ts'
 import type { MediaTools } from './media.ts'
@@ -330,6 +336,8 @@ export class ColonyRun implements ColonyHost {
   private readonly _readOnce = new Set<string>()
   /** Opened on the first worker that needs a worktree; null once known not to be a git project. */
   private _worktrees?: ProjectWorktrees | null
+  /** Agents given a worktree for an experiment (autoresearch), who go back to the folder when it finishes. */
+  private readonly _experimenting = new Set<string>()
 
   constructor(
     private readonly runtime: Runtime,
@@ -1757,6 +1765,41 @@ export class ColonyRun implements ColonyHost {
     } catch (err) {
       // Without a worktree the worker still works, in the shared folder as before.
       console.error(`worktree for ${name} failed:`, err)
+    }
+  }
+
+  async experimentTree(agent: string): Promise<ExperimentTree> {
+    const project = this.spec.chat?.project
+    if (!project) throw new Error(prompts.autoresearch.noProject)
+    const preset = presetOf(this.spec)
+    if (preset !== 'auto' && preset !== 'full') throw new Error(prompts.autoresearch.preset(preset))
+    if (this._worktrees === undefined)
+      this._worktrees =
+        (await ProjectWorktrees.open(project.path, join(this.workspace.colonyDir, 'worktrees'), this.id)) ??
+        null
+    const trees = this._worktrees
+    if (!trees) throw new Error(prompts.autoresearch.notGit(project.name))
+    const tree = await trees.create(agent)
+    if (!this.workspace.isolation(agent)) {
+      this.workspace.isolate(agent, tree)
+      this._experimenting.add(agent)
+    }
+    if (!this._state.worktrees[agent])
+      await this.append({
+        type: 'worktree/created',
+        actor: SYSTEM,
+        payload: { agent, branch: tree.branch, path: tree.path },
+      })
+    return {
+      workdir: tree.workdir,
+      branch: tree.branch,
+      keep: (message) => trees.keep(agent, message),
+      revert: () => trees.revert(agent),
+      finish: async () => {
+        const files = await this.mergeWork(agent)
+        if (this._experimenting.delete(agent)) this.workspace.release(agent)
+        return files
+      },
     }
   }
 

@@ -3,6 +3,7 @@ import {
   AST_EDIT_MAX_FILES,
   AST_EDIT_MAX_REPLACEMENTS,
   AST_GREP_LIMIT,
+  AUTORESEARCH,
   BROWSER_LOG_LIMIT,
   BROWSER_VIEWPORT,
   CELL_LINE_MAX,
@@ -493,6 +494,7 @@ ${roster}`,
     mcpBrowser: ', though your own browser_* tools come first for browsing',
     computer: "see and control the apps on the person's Mac (computer), each app once they approve it",
     desktop: "see and control the person's Mac by script (desktop), once they approve it",
+    autoresearch: 'run a measured experiment loop on your own branch of the project (autoresearch)',
     ssh: (hosts: readonly string[]) =>
       `run commands and read files on the person's remote hosts (ssh): ${hosts.join(', ')}`,
     makeTools: 'make reusable tools for repeated work (create_tool, then tool_<name>)',
@@ -1902,6 +1904,73 @@ Reply with JSON only: {"lines": ["...", "...", "..."]}.`,
       `${name} is not available in eval cells here; call Myrmidon's tools directly instead`,
   },
 
+  /** The autoresearch tool's refusals and reports (autoresearch.ts, tools.ts). */
+  autoresearch: {
+    noProject: 'autoresearch works on a branch of a project: this chat has no project folder',
+    notGit: (project: string) =>
+      `${project} is not a git repository, so there is no branch to experiment on; work in it with shell instead`,
+    preset: (preset: string) =>
+      `this chat's preset (${preset}) has the person approve each change, so an experiment loop cannot run here; ask them to switch to Auto for it`,
+    needsSandbox: 'autoresearch runs its measure in the OS sandbox, which this computer does not have',
+    needsMeasure: 'start needs measure: the command that prints METRIC <name>=<number>',
+    needsDescription: 'trial needs description: what this trial changed, in a few words',
+    running: (trials: number) =>
+      `an experiment is already running on your branch (${trials} trials so far): call trial, or finish it first`,
+    none: 'no experiment is running: call autoresearch with action "start" first',
+    noTime: 'the round has too little time left for an experiment loop',
+    outOfTrials: (trials: number) => `all ${trials} trials are used: call finish to bring in what was kept`,
+    outOfTime: 'the experiment is out of time: call finish to bring in what was kept',
+    noMetric: (name: string | undefined, output: string) =>
+      `the measure printed ${name ? `no METRIC ${name}=<number> line` : 'no single METRIC <name>=<number> line'} or failed. Make it print one and exit 0. Its output ended:\n${output}`,
+    started: (p: {
+      workdir: string
+      branch: string
+      metric: string
+      value: number
+      direction: string
+      trials: number
+      minutes: number
+    }) =>
+      `Baseline ${p.metric} = ${p.value} (${p.direction} is better). You now work in your own worktree at ${p.workdir} ` +
+      `(branch ${p.branch}): the file tools and shell use it. For each trial make one change, then call trial with a ` +
+      `description: it is kept if ${p.metric} improves, else your files go back. Up to ${p.trials} trials in about ` +
+      `${p.minutes} minutes; finish brings what was kept into the project. Never game the measure.`,
+    trial: (p: {
+      trial: number
+      outcome: string
+      metric?: number
+      best?: number
+      name: string
+      left: number
+      minutes: number
+      output: string
+    }) =>
+      `Trial ${p.trial}: ${p.outcome}${p.metric === undefined ? '' : ` (${p.name} = ${p.metric})`}; best ${p.best ?? 'none'}. ` +
+      `${p.left} trial${p.left === 1 ? '' : 's'} and about ${p.minutes} minute${p.minutes === 1 ? '' : 's'} left.` +
+      (p.output ? `\n--- measure output (end)\n${p.output}` : ''),
+    outcomes: {
+      kept: 'kept (committed on your branch)',
+      reverted: 'not better, your files went back',
+      failed: 'the measure failed, your files went back',
+    },
+    finished: (p: {
+      trials: number
+      kept: number
+      baseline?: number
+      best?: number
+      name: string
+      files: readonly string[]
+    }) =>
+      `Experiment done: ${p.trials} trial${p.trials === 1 ? '' : 's'}, ${p.kept} kept; ${p.name} ${p.baseline ?? '?'} → ${p.best ?? '?'}. ` +
+      (p.files.length
+        ? `Brought into the project: ${p.files.join(', ')}.`
+        : 'Nothing was kept, so the project is unchanged.') +
+      ' You work in the project folder again.',
+    status: (lines: readonly string[]) => lines.join('\n'),
+    line: (t: { trial: number; outcome: string; metric?: number; description: string }) =>
+      `#${t.trial} ${t.outcome}${t.metric === undefined ? '' : ` ${t.metric}`}${t.description ? ` · ${t.description}` : ''}`,
+  },
+
   /** The ssh tool's refusals and results (ssh.ts, tools.ts). */
   remote: {
     noHosts:
@@ -3241,6 +3310,30 @@ Reply with JSON only: {"lines": ["...", "...", "..."]}.`,
         timeoutSeconds: `How long the cell may run, 1-${CELL_MAX_TIMEOUT_S} seconds (default ${CELL_TIMEOUT_S}); past it the runtime is stopped and its state lost`,
         reset:
           "true starts this language's runtime afresh before the cell, dropping everything defined so far (default false)",
+      },
+    },
+    // After omp's autoresearch tools (init_experiment, run_experiment, log_experiment), folded into one tool whose
+    // keep-or-revert the harness decides from the number.
+    autoresearch: {
+      description:
+        'Improve one measured number on your own branch of the project, a trial at a time. start runs the measure ' +
+        'command for the baseline; it must print a line METRIC <name>=<number>. Then for each trial make one coherent ' +
+        'change and call trial: the measure runs again and your change is kept (committed on your branch) only if the ' +
+        'number improved, otherwise your files go back. Every trial is logged. finish brings the kept changes into the ' +
+        `project. At most ${AUTORESEARCH.maxTrials} trials, and never past the round's time. Do not edit the measure ` +
+        'or game it; correctness comes first.',
+      params: {
+        action:
+          '"start" (measure the baseline), "trial" (measure your change: kept if better, else reverted), "finish" ' +
+          '(bring the kept changes into the project) or "status" (the trials so far)',
+        measure:
+          'start only: the command that measures, run in your worktree like shell; it must print METRIC <name>=<number>',
+        metric: 'start only: which METRIC name decides (default: the only one the measure prints)',
+        direction:
+          'start only: "lower" (default: times, sizes, errors) or "higher" (scores, throughput) is better',
+        trials: `start only: how many trials after the baseline, 1-${AUTORESEARCH.maxTrials} (default ${AUTORESEARCH.trials})`,
+        minutes: `start only: how long the loop may run, in minutes (default ${AUTORESEARCH.minutes}); never past the round's time`,
+        description: 'trial only: what this trial changed, in a few words, for the log',
       },
     },
     // After omp's ssh tool (one command per call on a named host, through the host's own shell) and its ssh:// read.

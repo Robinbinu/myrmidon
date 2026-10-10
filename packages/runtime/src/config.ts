@@ -1292,3 +1292,23 @@ export const SSH = {
   /** How long output is still read once ssh has exited, before a pipe something else holds is let go. */
   drainMs: 500,
 } as const
+
+// Autoresearch (autoresearch.ts)
+
+/**
+ * The experiment loop on an agent's own branch (after omp's autoresearch): bounded by trials and by time, which never
+ * runs past the round's own wall.
+ */
+export const AUTORESEARCH = {
+  /** Trials when the agent names no number, and the most it may name. */
+  trials: 10,
+  maxTrials: 50,
+  /** How long the loop may run when the agent names no time, in minutes. */
+  minutes: 30,
+  /** The longest one run of the measure command may take. */
+  measureMs: 10 * 60_000,
+  /** Kept back from the round's deadline, so the agent can still finish and answer after the last trial. */
+  reserveMs: 2 * 60_000,
+  /** What a measure run's output shows the agent, from its end, where results are printed. */
+  outputChars: 4_000,
+} as const

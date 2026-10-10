@@ -69,6 +69,11 @@ export class ColonyWorkspace {
     this._isolated.set(agent, tree)
   }
 
+  /** Points an agent back at the shared folder, once what it did in its worktree is merged. */
+  release(agent: string) {
+    this._isolated.delete(agent)
+  }
+
   /** The agent's worktree, if it has one. */
   isolation(agent: string): { workdir: string; branch: string } | undefined {
     return this._isolated.get(agent)

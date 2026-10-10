@@ -554,7 +554,8 @@ Open work, in the order it will be done:
       1. Long-term memory engine: extraction from chats, recall / reflect / edit (omp hindsight, mnemopi).
       2. Debugger for agents over the Debug Adapter Protocol (omp dap).
       3. Live session sharing: another person joins a chat live (omp collab).
-      4. Autoresearch: an experiment loop on its own branch, measured and kept or dropped (omp autoresearch).
+      4. Autoresearch: an experiment loop on its own branch, measured and kept or dropped (omp autoresearch). Done:
+         the `autoresearch` tool (start, trial, finish, status) with `experiment/*` events in the log.
       5. SSH remote hosts agents can work on (omp ssh). Done: Settings → Tools → Remote hosts, the `ssh` tool,
          `ssh-host` rules and the Remote hosts group.
       6. Telemetry export over OTLP (omp telemetry-export-otlp); plus a security-scan tool (omp security-scan).

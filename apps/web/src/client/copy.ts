@@ -565,6 +565,9 @@ export const copy = {
       'worktree/updated': 'worktree updated',
       'worktree/conflict': 'worktree conflict',
       'worktree/closed': 'worktree closed',
+      'experiment/started': 'experiment started',
+      'experiment/trial': 'experiment trial',
+      'experiment/finished': 'experiment finished',
       'approval/decided': 'approval answered',
       'review/done': 'approved step ran',
       'checkpoint/created': 'checkpoint saved',
@@ -1745,6 +1748,7 @@ export const copy = {
       names: {
         shell: 'Run a command',
         ssh: 'Run on a remote host',
+        autoresearch: 'Run an experiment loop',
         eval: 'Run a code cell',
         run_checks: 'Run checks',
         start_server: 'Start a dev server',
