@@ -108,6 +108,7 @@ function abilities(f: PromptFacts): string[] {
     has(f, 'computer') && access.computer && `${can.computer}${load('computer', 'computer')}`,
     has(f, 'desktop') && access.computer && `${can.desktop}${load('desktop', 'desktop')}`,
     has(f, 'ssh') && access.remotes.length > 0 && `${can.ssh(access.remotes)}${load('ssh', 'ssh')}`,
+    has(f, 'autoresearch') && `${can.autoresearch}${load('autoresearch', 'autoresearch')}`,
     has(f, 'create_tool') &&
       access.sandbox !== 'none' &&
       `${can.makeTools}${load('create_tool', 'create_tool')}`,

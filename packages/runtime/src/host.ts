@@ -25,6 +25,15 @@ import type { StreamRule } from './stream-rules.ts'
 import type { WebTools } from './web.ts'
 import type { ColonyWorkspace } from './workspace.ts'
 
+/** An agent's branch for an experiment (ColonyHost.experimentTree). */
+export interface ExperimentTree {
+  readonly workdir: string
+  readonly branch: string
+  keep(message: string): Promise<string>
+  revert(): Promise<void>
+  finish(): Promise<string[]>
+}
+
 /** Everything a tool or service needs from the running colony, without depending on the runner. */
 export interface ColonyHost {
   readonly id: ColonyId
@@ -192,6 +201,13 @@ export interface ColonyHost {
    * worktree). Throws, with what to do, when they conflict.
    */
   mergeWork(agent: string): Promise<string[]>
+  /**
+   * Autoresearch: the agent's own branch of the project to experiment on, a worktree made now if it has none (any
+   * round of a git project whose preset lets agents change it without asking). `keep` commits a trial, `revert` drops
+   * it, and `finish` merges what was kept into the project folder and, for a worktree made for the experiment, puts
+   * the agent back in the folder. Throws, with why, where there is no such branch to be had.
+   */
+  experimentTree(agent: string): Promise<ExperimentTree>
   /** Runs the person's PreToolUse hooks; throws, with the hook's reason, when one blocks the call. */
   beforeTool(agent: string, tool: string, input: unknown): Promise<void>
   /** Runs the person's PostToolUse hooks; returns what they want the agent to know ('' for nothing). */
