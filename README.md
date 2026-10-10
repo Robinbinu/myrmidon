@@ -3,7 +3,7 @@
 <img src="docs/assets/banner.svg" alt="Myrmidon: one chat, a whole crew of AI agents behind it" width="100%">
 
 Myrmidon is a local-first, open-source agent harness. You talk to one lead; it answers, codes, browses, or brings
-in a crew of specialists when the job is big. Use it in the browser or the macOS app, from 30 messaging channels,
+in a crew of specialists when the job is big. Use it in the browser or the desktop app, from 30 messaging channels,
 or by voice and phone call.
 Every step is logged, sandboxed by default, and reviewable.
 
@@ -79,8 +79,9 @@ have. Then type what you want done.
 
 <img src="docs/assets/setup-dark.png" alt="The first-run setup assistant: nine steps in a sidebar, the mascot greeting you, and a note on what stays on this computer" width="100%">
 
-On a Mac you can run it as a desktop app instead. The app starts its own server and has native menus, a dock badge,
-and a folder picker:
+You can run it as a desktop app instead. The app starts its own server and has native menus, a folder picker and,
+on macOS, a Dock badge. It is built and tried on macOS; the Linux and Windows builds are not tested yet (see
+[docs/desktop.md](docs/desktop.md)):
 
 ```bash
 bun run desktop
@@ -210,7 +211,8 @@ A lead plans a snake game, a coder and a tester build it in parallel, and the re
 ### The app
 
 - **Setup assistant** on first run, resumable, with **Run setup again** in Settings.
-- **macOS desktop app** on Electrobun; its server stops with the app, and no agent process outlives Myrmidon.
+- **Desktop app** on Electrobun (tried on macOS; Linux and Windows builds untested); its server stops with the app,
+  and no agent process outlives Myrmidon.
 - A **⌘K command menu**, a ⌘/ shortcuts sheet, context menus everywhere, and Settings laid out like System Settings.
 - **Search** across every chat's messages (SQLite FTS5).
 - The project folder as a file tree, with the files agents edit shown and opened.
@@ -289,7 +291,7 @@ follow the browser UI without the runtime changing.
 | [`packages/runtime`](packages/runtime) | Agents, tools, team patterns, observer, reviewer, sandbox, browser, MCP, skills, hooks, plugins, channels, voice, worktrees, recovery |
 | [`apps/web`](apps/web) | API server (local or remote gateway with paired devices) and the React UI |
 | [`apps/cli`](apps/cli) | The `myrmidon` command |
-| [`apps/desktop`](apps/desktop) | The macOS app (Electrobun) that runs the server as a sidecar |
+| [`apps/desktop`](apps/desktop) | The desktop app (Electrobun) that runs the server as a sidecar |
 | [`apps/eval`](apps/eval) | Eval harness with fixed coding, browsing, research, and crew cases |
 
 Models and the agent loop come from [`@oh-my-pi/pi-ai`](https://github.com/can1357/oh-my-pi) and
@@ -322,7 +324,8 @@ Runs the eval suite against real models and writes a JSON report you can diff be
 ## Status
 
 Myrmidon is alpha. It works end to end, but APIs, the event schema, and storage formats will
-still change. The clients today are the browser UI and a macOS app; other desktop platforms come later. See the
+still change. The clients today are the browser UI and a desktop app, tried on macOS only so far (its Linux and
+Windows builds are not tested yet). See the
 [roadmap](ROADMAP.md) for
 what is done and what is next.
 

@@ -197,6 +197,11 @@ export interface ServeOptions {
   readonly suggestModel?: NextWordModel
   /** Where the setup assistant looks for model servers on this computer; Ollama's and LM Studio's ports unless given. */
   readonly setupServers?: readonly LocalServer[]
+  /**
+   * Stops the whole server, for `POST /api/shutdown` with this server's own token on this machine: how the desktop
+   * app stops the server it started, since on Windows a signal cannot let it stop its chats first.
+   */
+  readonly onShutdown?: () => void
 }
 
 export interface WebServer {
@@ -1031,6 +1036,26 @@ export function startServer(options: ServeOptions): WebServer {
           remote,
           ...(access.device ? { device: { id: access.device.id, name: access.device.name } } : {}),
         })
+      },
+      '/api/shutdown': {
+        POST: (req: Request) => {
+          // Only the token this server wrote to server.json, from this machine: not a paired device, not dev mode.
+          const stop = options.onShutdown
+          const header = req.headers.get('authorization')
+          const given = header?.startsWith('Bearer ') ? header.slice(7) : undefined
+          if (
+            !stop ||
+            !token ||
+            !given ||
+            !sameOrigin(req) ||
+            !isLoopback(req.headers.get('host') ?? '') ||
+            !tokenEquals(given, token)
+          )
+            return json({ error: 'unauthorized' }, 401)
+          // After this response has gone out: the shutdown closes the listener.
+          setTimeout(stop, 0)
+          return json({ stopping: true }, 202)
+        },
       },
       '/api/devices': {
         GET: guard((req) => {
