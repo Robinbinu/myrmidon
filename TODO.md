@@ -885,6 +885,10 @@ stay small so they merge cleanly into either.
       Branch fx-l-browser.
 
 ### Left after the fixes (2026-10-10)
+- [ ] Flaky under full-suite load (passes alone 3/3): person-browser "a page that opens a local address itself…".
+- [ ] On develop itself: apps/web/tests/mascot-settings.test.tsx "the screen is drawn as set…" fails (eyes not in the
+      theme accent) — not from these fixes.
+- [ ] A rare double review: requestFinalVerification sets _finalRunning only after awaiting the worktree merge.
 - [ ] An independent, adversarial probe of the command parser after its second round of fixes (I2): the reviewer was
       stopped before probing; the fix agent re-ran the earlier probes (all now ask or are denied). Run
       scratchpad review-i/p1–p4 style probes again before relying on Ask for untrusted repos.
