@@ -31,9 +31,18 @@ export interface ProcessRow {
 /** Runs a program to completion and returns its stdout, or undefined when it could not run or failed. */
 export type Runner = (argv: readonly string[]) => string | undefined
 
+/** How long one listing of the processes may take. */
+const LIST_MS = 15_000
+
 const runSync: Runner = (argv) => {
   try {
-    const out = Bun.spawnSync([...argv], { stdout: 'pipe', stderr: 'ignore', windowsHide: true })
+    // Bounded: a listing that hangs (PowerShell can) must not keep a sweep from ever ending.
+    const out = Bun.spawnSync([...argv], {
+      stdout: 'pipe',
+      stderr: 'ignore',
+      windowsHide: true,
+      timeout: LIST_MS,
+    })
     return out.exitCode === 0 ? new TextDecoder().decode(out.stdout) : undefined
   } catch {
     return undefined
@@ -137,8 +146,10 @@ function signal(pid: number, sig: NodeJS.Signals): string | undefined {
  * MYR_LEASH_LOG names a file each sweep is written to, a JSON line per look at the tree: what was in it and how
  * signalling each went. For finding why a tree was not stopped on a given system.
  */
+let logTo: string | undefined
+
 function sweepLog(entry: object) {
-  const file = process.env.MYR_LEASH_LOG
+  const file = process.env.MYR_LEASH_LOG ?? logTo
   if (file) appendFileSync(file, `${JSON.stringify({ leash: process.pid, at: Date.now(), ...entry })}\n`)
 }
 
@@ -162,9 +173,20 @@ async function main() {
       else pending = sig
     })
 
+  // The command's own environment, when it was given one, is Myrmidon's (the leash's) with the changes in
+  // MYR_LEASH_ENV (see leashed.ts): the leash keeps Myrmidon's, as a confined command's (a trimmed PATH, a private
+  // home) can keep PowerShell from listing processes.
+  const env: Record<string, string | undefined> = { ...process.env }
+  const given = process.env.MYR_LEASH_ENV
+  if (given) {
+    const { set, unset } = JSON.parse(given) as { set: Record<string, string>; unset: string[] }
+    for (const name of unset) delete env[name]
+    Object.assign(env, set)
+  }
   // A compiled Myrmidon runs this as Bun only with BUN_BE_BUN set; the command (maybe that same binary) must not see it.
-  const env = { ...process.env }
   delete env.BUN_BE_BUN
+  delete env.MYR_LEASH_ENV
+  logTo = env.MYR_LEASH_LOG
   // Its own session and process group, so what it starts is still found once orphaned out of the tree. Not on
   // Windows, which has no groups to gain and where a detached child gets no console, so its own children open
   // console windows.
