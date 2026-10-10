@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
@@ -59,6 +59,7 @@ import {
   MAX_WORKERS,
   MISSED_CHARS,
   MISSED_SHOWN,
+  PORT_LISTING_MS,
   QUIET_NUDGES,
   SERVER_START_MS,
   SETTLE_QUIET_MS,
@@ -104,8 +105,16 @@ export interface Runtime {
   dispose(): Promise<void>
 }
 
+/** Raised for a message that reaches a round as its completion is being logged: it belongs to the next round. */
+export class RoundClosingError extends Error {
+  constructor() {
+    super('this round is closing')
+    this.name = 'RoundClosingError'
+  }
+}
+
 /** How long shutting down waits for rounds and agents still winding down before closing the log under them. */
-const SETTLE_MS = 3_000
+export const SETTLE_MS = 3_000
 
 /** Boots the plugin tree: SQLite log store, the event log, and colony event types. */
 export async function bootRuntime(home: string): Promise<Runtime> {
@@ -206,14 +215,24 @@ function listeningPorts(): Set<number> | undefined {
       return ports
     }
     if (process.platform === 'darwin') {
-      const out = Bun.spawnSync(['netstat', '-an', '-p', 'tcp'])
-      if (out.exitCode !== 0) return undefined
+      // netstat sees every user's listeners, but the kernel can hand a process an empty socket table (seen under
+      // `bun test` on macOS 27), and netstat then exits 0 listing none. lsof reads this user's processes directly, so
+      // the dashboard and the person's own apps are seen either way.
+      const netstat = portListing('netstat', ['-an', '-p', 'tcp'])
+      // lsof exits 1, silently, when nothing listens.
+      const lsof = portListing('lsof', ['-nP', '-iTCP', '-sTCP:LISTEN', '-Fn'], true)
+      if (netstat === undefined && lsof === undefined) return undefined
       const ports = new Set<number>()
-      for (const line of new TextDecoder().decode(out.stdout).split('\n')) {
+      for (const line of netstat?.split('\n') ?? []) {
         // "tcp4  0  0  127.0.0.1.4318  *.*  LISTEN": the port is the last dotted part of the local address.
         const columns = line.trim().split(/\s+/)
         const port = /\.(\d+)$/.exec(columns[3] ?? '')?.[1]
         if (columns.at(-1) === 'LISTEN' && port) ports.add(Number(port))
+      }
+      for (const line of lsof?.split('\n') ?? []) {
+        // "n*:5173", "n127.0.0.1:4318", "n[::1]:3000": a name field, the port after its last colon.
+        const port = /^n.*:(\d+)$/.exec(line)?.[1]
+        if (port) ports.add(Number(port))
       }
       return ports
     }
@@ -221,6 +240,21 @@ function listeningPorts(): Set<number> | undefined {
     return undefined
   }
   return undefined
+}
+
+/**
+ * A macOS system tool's output for `listeningPorts`, or undefined when it is missing, fails, or overruns its time (it
+ * runs synchronously, and lsof can hang on a network mount). `quietOne`: exit 1 with nothing on stderr is a result.
+ */
+function portListing(tool: string, args: string[], quietOne = false): string | undefined {
+  try {
+    const system = `/usr/sbin/${tool}`
+    const out = Bun.spawnSync([existsSync(system) ? system : tool, ...args], { timeout: PORT_LISTING_MS })
+    const ok = out.exitCode === 0 || (quietOne && out.exitCode === 1 && out.stderr.length === 0)
+    return ok ? new TextDecoder().decode(out.stdout) : undefined
+  } catch {
+    return undefined
+  }
 }
 
 /** A file the person attached to a chat message. */
@@ -277,7 +311,14 @@ export class ColonyRun implements ColonyHost {
     quietSince?: number
     /** Messages each agent has sent since the wind-down began. */
     said: Map<string, number>
+    /** Agents told the conversation is winding down. */
+    told: string[]
   }
+  /** Its completion is being logged: a message from the person now belongs to the next round. */
+  private _closing = false
+  /** Set once the round has begun ending (see `_end`): from then on the log updates its state but wakes nobody. */
+  private _ending = false
+  private _ended?: Promise<void>
   private _nudges = 0
   private _mirrorTimer?: ReturnType<typeof setTimeout>
   private _offLog?: () => void
@@ -304,6 +345,11 @@ export class ColonyRun implements ColonyHost {
   private readonly _servers = new Map<string, SandboxProcess>()
   /** The localhost port each running server opened (see `localPorts`). */
   private readonly _serverPorts = new WeakMap<SandboxProcess, number>()
+  /** Who started each running server, under which rules, and whether it is up yet (see `_stopLooserServers`). */
+  private readonly _serverRules = new WeakMap<
+    SandboxProcess,
+    { agent: string; fullAccess: boolean; readOnly: boolean; up: boolean }
+  >()
   private readonly _untrusted = new Map<string, { source: string; text: string }[]>()
   private readonly _logins = new Map<string, (outcome: 'handed-back' | 'timeout' | 'stopped') => void>()
   readonly boundary = crypto.randomUUID().replaceAll('-', '').slice(0, 10)
@@ -625,10 +671,12 @@ export class ColonyRun implements ColonyHost {
 
   /**
    * What an approval card shows about the permission model: why it asked, and what it may remember from the answer
-   * (nothing when it asked because someone else started the round: no rule lifts that).
+   * (nothing when it asked because someone else started the round, or because the project is read-only: no rule
+   * lifts either).
    */
   private _permissionCard(agent: string, p: { call: PermissionCall; verdict: PermissionVerdict }) {
-    const offer = p.verdict.source.by === 'askAll' ? [] : offersFor(p.call)
+    const by = p.verdict.source.by
+    const offer = by === 'askAll' || by === 'read-only' ? [] : offersFor(p.call)
     return {
       why: p.verdict.source,
       call: p.call,
@@ -685,11 +733,12 @@ export class ColonyRun implements ColonyHost {
     if (this._servers.size >= MAX_SERVERS) throw new Error(`at most ${MAX_SERVERS} servers may run at once`)
     const cwd = this.workspace.workdir(agent)
     const scratch = this.workspace.scratch(agent)
-    const readOnly = presetOf(this.spec) === 'read-only'
     // A port already in use is someone else's (the dashboard's, another app's): claiming it would open it to agents.
     const before = listeningPorts()
     if (port && (before?.has(port) || (await listening(port))))
       throw new Error(prompts.toolResults.portInUse(port))
+    // Read with the sandbox below, after the await, so the rules it starts under are the ones in force then.
+    const readOnly = presetOf(this.spec) === 'read-only'
     const proc = this.sandbox.start({
       command,
       cwd,
@@ -698,6 +747,8 @@ export class ColonyRun implements ColonyHost {
       ...(port ? { env: { PORT: String(port) } } : {}),
     })
     this._servers.set(name, proc)
+    const rules = { agent, fullAccess: this.fullAccess, readOnly, up: false }
+    this._serverRules.set(proc, rules)
     let ended = false
     void proc.exited.then(() => {
       ended = true
@@ -714,7 +765,7 @@ export class ColonyRun implements ColonyHost {
     const deadline = Date.now() + SERVER_START_MS
     let url: string | undefined
     let opened = port
-    while (!url && !ended && Date.now() < deadline) {
+    while (!url && !ended && this._servers.get(name) === proc && Date.now() < deadline) {
       await Bun.sleep(300)
       if (port) url = (await listening(port)) ? `http://localhost:${port}` : undefined
       else {
@@ -725,6 +776,8 @@ export class ColonyRun implements ColonyHost {
         }
       }
     }
+    // Stopped by `_stopLooserServers` while it was starting.
+    if (this._servers.get(name) !== proc) throw new Error(prompts.toolResults.serverRulesChanged(name))
     if (url && opened && !port && before?.has(opened)) {
       proc.stop()
       this._servers.delete(name)
@@ -740,6 +793,7 @@ export class ColonyRun implements ColonyHost {
     }
     // Without a record of the ports in use before, a printed port cannot be told from someone else's.
     if (opened && (port || before)) this._serverPorts.set(proc, opened)
+    rules.up = true
     await this.append({
       type: 'server/started',
       actor: agentActor(agent),
@@ -770,6 +824,35 @@ export class ColonyRun implements ColonyHost {
     this._servers.delete(name)
     proc.stop()
     await this.append({ type: 'server/stopped', actor: SYSTEM, payload: { name, reason } })
+  }
+
+  /**
+   * Stops the servers started under looser rules than the round has now (full access since taken back, a project
+   * since made read-only): a running process keeps the sandbox it started in. All are stopped and their agents told
+   * before anything is awaited, so a second tightening finds nothing left to stop and an agent just interrupted hears
+   * of it in the turn that follows. A server still starting fails its start_server call instead.
+   */
+  private async _stopLooserServers() {
+    const readOnly = presetOf(this.spec) === 'read-only'
+    const stopped: string[] = []
+    const byAgent = new Map<string, string[]>()
+    for (const [name, proc] of [...this._servers]) {
+      const rules = this._serverRules.get(proc)
+      if (!rules || !((rules.fullAccess && !this.fullAccess) || (!rules.readOnly && readOnly))) continue
+      this._servers.delete(name)
+      proc.stop()
+      if (!rules.up) continue
+      stopped.push(name)
+      byAgent.set(rules.agent, [...(byAgent.get(rules.agent) ?? []), name])
+    }
+    for (const [agent, names] of byAgent)
+      this._wake(agent, prompts.colony.serversStopped(names), 'permissions', { quiet: true })
+    for (const name of stopped)
+      await this.append({
+        type: 'server/stopped',
+        actor: SYSTEM,
+        payload: { name, reason: 'it ran with access this round no longer has' },
+      })
   }
 
   projectDiff(): Promise<string | undefined> {
@@ -901,6 +984,7 @@ export class ColonyRun implements ColonyHost {
       actor: { kind: 'user', id: 'user' },
       payload: { off: [], ask: [], allow: [], askAll: true, interrupted: [] },
     })
+    await this._stopLooserServers()
   }
 
   /**
@@ -971,6 +1055,8 @@ export class ColonyRun implements ColonyHost {
     for (const [name, text] of Object.entries(notices))
       this._wake(name, text, 'permissions', this._agents.get(name)?.working ? {} : { quiet: true })
     await this.redecideApprovals()
+    // Servers started under looser rules than these stop; the rest keep running.
+    await this._stopLooserServers()
   }
 
   /** Wakes one agent with a note from outside the colony (e.g. the person handing back its browser). */
@@ -1138,28 +1224,35 @@ export class ColonyRun implements ColonyHost {
       this.spec.agents.map((a) => a.name),
     )
     if (this.spec.chat && Object.keys(notices).length) this.spec.chat.accessNotices = notices
-    this._offLog = this.runtime.ctx.on('log/appended', (colonyId, events) => {
-      if (colonyId !== this.id) return
-      for (const e of events) {
-        applyEvent(this._state, e)
-        this._route(e)
-      }
-    })
+    this._listen()
     await this.append({ type: 'round/started', actor: SYSTEM, payload: this._specPayload() })
     await this._seed?.()
     await this._launch(this.spec.budget.wallMs, undefined, {}, true)
   }
 
-  async start(): Promise<void> {
-    await this.preflight()
-    const listener = (colonyId: ColonyId, events: readonly MyrEvent[]) => {
+  /**
+   * Follows the colony's log: each event updates the state and is routed to the agents. Once the round is ending,
+   * events still update the state (its agents' last turns, closed worktrees) but wake nobody, and when a later round
+   * of this colony starts, the log is that round's alone.
+   */
+  private _listen() {
+    this._offLog = this.runtime.ctx.on('log/appended', (colonyId, events) => {
       if (colonyId !== this.id) return
       for (const e of events) {
+        if (this._ending && (e.type === 'round/started' || e.type === 'colony/started')) {
+          this._offLog?.()
+          this._offLog = undefined
+          return
+        }
         applyEvent(this._state, e)
-        this._route(e)
+        if (!this._ending) this._route(e)
       }
-    }
-    this._offLog = this.runtime.ctx.on('log/appended', listener)
+    })
+  }
+
+  async start(): Promise<void> {
+    await this.preflight()
+    this._listen()
     await this.append({ type: 'colony/created', actor: SYSTEM, payload: this._specPayload() })
     await this._seed?.()
     await this._launch(this.spec.budget.wallMs)
@@ -1192,13 +1285,7 @@ export class ColonyRun implements ColonyHost {
       tokens: now.tokens - counted(now.tokens - before.tokens, this.spec.budget.tokens),
     }
     await this.preflight()
-    this._offLog = this.runtime.ctx.on('log/appended', (colonyId, events) => {
-      if (colonyId !== this.id) return
-      for (const e of events) {
-        applyEvent(this._state, e)
-        this._route(e)
-      }
-    })
+    this._listen()
     // Full access is decided afresh on resume (the person may have turned the sandbox back on); the log says so.
     if (!!this._state.fullAccess !== this.fullAccess)
       await this.append({
@@ -1390,8 +1477,13 @@ export class ColonyRun implements ColonyHost {
     return prompts.colony.escalated(to)
   }
 
-  async stop(reason: string): Promise<void> {
-    if (this._state.status !== 'running') return
+  /**
+   * `finish`: the person's Stop or shutting down. A round winding down already has its answer, so that completes it;
+   * anything else (a limit, a failure) stops it with its reason.
+   */
+  async stop(reason: string, finish = false): Promise<void> {
+    if (this._state.status !== 'running' || this._closing) return
+    if (finish && this._settling) return this._closeSettled()
     await this.append({ type: 'colony/stopped', actor: SYSTEM, payload: { reason } })
     await this._end()
   }
@@ -1409,6 +1501,7 @@ export class ColonyRun implements ColonyHost {
     extra: { voice?: boolean; context?: string; answers?: QuestionAnswers } = {},
   ): Promise<void> {
     if (this._state.status !== 'running') throw new Error('this colony is not running')
+    if (this._closing) throw new RoundClosingError()
     const names = await this.attach(attachments)
     await this.append({
       type: 'chat/user',
@@ -1743,15 +1836,46 @@ export class ColonyRun implements ColonyHost {
   private async _complete(verdicts: MyrEvent['id'][], by: string) {
     if (this.spec.chat && this._agents.size > 1) {
       if (this._settling) return
-      this._settling = { verdicts, until: Date.now() + CHAT_SETTLE_MS, said: new Map() }
+      const told = [...this._agents.keys()].filter((name) => name !== by)
+      this._settling = { verdicts, until: Date.now() + CHAT_SETTLE_MS, said: new Map(), told }
       // The rest hear the conversation is ending: mid-reply, at once; otherwise with whatever wakes them next.
-      for (const a of this._agents.values())
-        if (a.name !== by)
-          this._wake(a.name, prompts.colony.windDown(by), 'wind-down', a.idle ? { quiet: true } : {})
+      for (const name of told)
+        this._wake(
+          name,
+          prompts.colony.windDown(by),
+          'wind-down',
+          this._agents.get(name)?.idle ? { quiet: true } : {},
+        )
       return
     }
+    this._closing = true
     await this.append({ type: 'colony/completed', actor: SYSTEM, payload: { verdicts } })
     void this._end()
+  }
+
+  /** Ends the wind-down: the round completes with the verdicts its answer earned. */
+  private async _closeSettled() {
+    const settle = this._settling
+    if (!settle) return
+    this._closing = true
+    this._settling = undefined
+    await this.append({ type: 'colony/completed', actor: SYSTEM, payload: { verdicts: settle.verdicts } })
+    await this._end()
+  }
+
+  /**
+   * The conversation picked up again before the round closed (the person wrote, or the latest answer was rejected):
+   * it runs as before the answer, and winds down again after the next one.
+   */
+  private _reopen() {
+    const settle = this._settling
+    if (!settle) return
+    this._settling = undefined
+    // A wind-down note an agent has seen, or that is already on its way into its current step, is answered with one
+    // saying the conversation goes on; an unseen one is simply dropped.
+    for (const a of this._agents.values())
+      if (!a.reopen('wind-down') && settle.told.includes(a.name))
+        this._wake(a.name, prompts.colony.reopened, 'reopened', a.idle ? { quiet: true } : {})
   }
 
   closing(agent: string): string | undefined {
@@ -1770,6 +1894,8 @@ export class ColonyRun implements ColonyHost {
   /** A chat round's final answer verifies itself: no judge completes it outright, otherwise the judge runs. */
   private async _verifyFinalAnswer(by: string) {
     if (this.spec.acceptance.length === 0 || this.spec.review === 'off' || this.spec.review === 'auto') {
+      // Winding down, the round has its delivered verdict already, and nobody reviews this answer either.
+      if (this._settling) return
       // Completion always cites a passing verdict; an unjudged direct answer records that it was delivered.
       const verdict = await this.append({
         type: 'verifier/verdict',
@@ -1786,8 +1912,15 @@ export class ColonyRun implements ColonyHost {
       })
       return void (await this._complete([verdict.id], by))
     }
+    // A review already reading the work gives the verdict for this answer too; asking again would count as a failure.
+    if (this._finalRunning) return
+    const before = this._state.verdicts.length
     const report = await this.requestFinalVerification(by, 'final answer sent to the person')
     if (this._state.status !== 'running') return
+    // Passed with a crew: the round winds down on this answer instead of completing, so it is still running.
+    const judged = this._state.verdicts.slice(before).filter((v) => v.target === 'colony')
+    if (judged.length > 0 && judged.every((v) => v.pass)) return
+    this._reopen()
     this._failedVerifications += 1
     if (this._failedVerifications >= MAX_VERIFY_ROUNDS)
       return void this.stop(`verification failed ${MAX_VERIFY_ROUNDS} times; see the last verdict`)
@@ -1844,6 +1977,7 @@ export class ColonyRun implements ColonyHost {
       case 'chat/user': {
         const p = e.payload as EventPayloads['chat/user']
         this._awaiting = false
+        this._reopen()
         const held = this._held.splice(0)
         // The event id doubles as a mail id, so the agent's mail/delivered marks the message read.
         const delivery: Delivery = { mail: e.id, ...(p.mode === 'queue' ? { queue: true } : {}) }
@@ -1874,7 +2008,7 @@ export class ColonyRun implements ColonyHost {
         else if (p.final && this.spec.chat) {
           // Whoever gave the final answer has signed off; it still hears anything written to it afterwards.
           this._agents.get(p.agent)?.endTurnAfterStep()
-          if (!this._settling) void this._verifyFinalAnswer(p.agent)
+          void this._verifyFinalAnswer(p.agent)
         }
         break
       }
@@ -2202,11 +2336,8 @@ export class ColonyRun implements ColonyHost {
       if (still) settle.quietSince ??= now
       else settle.quietSince = undefined
       const quietFor = Math.min(this.options.quietMs ?? SETTLE_QUIET_MS, SETTLE_QUIET_MS)
-      if ((settle.quietSince !== undefined && now - settle.quietSince >= quietFor) || now >= settle.until) {
-        this._settling = undefined
-        await this.append({ type: 'colony/completed', actor: SYSTEM, payload: { verdicts: settle.verdicts } })
-        return void this._end()
-      }
+      if ((settle.quietSince !== undefined && now - settle.quietSince >= quietFor) || now >= settle.until)
+        await this._closeSettled()
       return
     }
     if (!this._awaiting) {
@@ -2385,7 +2516,16 @@ export class ColonyRun implements ColonyHost {
     this.runtime.track?.(loop)
   }
 
-  private async _end() {
+  /** Ends the round once, however many ways it ended at once; every caller waits for the same ending. */
+  private _end(): Promise<void> {
+    this._ended ??= this._shutDown()
+    return this._ended
+  }
+
+  private async _shutDown() {
+    this._ending = true
+    // Nothing of the round runs once it is logged as over: agents stop first, mid-turn or not.
+    for (const a of this._agents.values()) a.stop()
     // The round's Stop hooks (notify, archive, …) see how it ended; they cannot change it.
     await this._hooks('Stop', undefined, undefined, {
       status: this._state.status,
@@ -2403,12 +2543,12 @@ export class ColonyRun implements ColonyHost {
     this._timers.length = 0
     clearTimeout(this._mirrorTimer)
     this._mirrorTimer = undefined
-    for (const a of this._agents.values()) a.stop()
     await this.options.browser?.closeColony(this.id).catch(() => {})
     this.options.computer?.release(this.id)
     await Bun.sleep(50)
     await this.workspace.writeMirror(this._state, this.blobs).catch(() => {})
     this._offLog?.()
+    this._offLog = undefined
     this._finish(this._state)
   }
 }

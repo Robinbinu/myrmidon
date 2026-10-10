@@ -20,8 +20,11 @@ interface Listing {
   truncated: boolean
 }
 
-/** A row of the tree as shown: an entry at its depth, or a folder's "loading" line. */
-type Row = { entry: Entry; depth: number; ignored: boolean } | { loading: string; depth: number }
+/** A row of the tree as shown: an entry at its depth, or a folder's "loading" line, or why it could not be listed. */
+type Row =
+  | { entry: Entry; depth: number; ignored: boolean }
+  | { loading: string; depth: number }
+  | { failed: string; error: string; depth: number }
 
 /** How long typing pauses before the name search runs. */
 const FIND_DELAY_MS = 200
@@ -52,6 +55,15 @@ export function ProjectExplorer(props: {
         .catch((err) => setDirs((d) => new Map(d).set(path, { error: String((err as Error).message) }))),
     [base],
   )
+  // Shows the folder as loading again while it is asked for once more.
+  const retry = (path: string) => {
+    setDirs((d) => {
+      const next = new Map(d)
+      next.delete(path)
+      return next
+    })
+    void load(path)
+  }
 
   // The open folders read again: after a rewind or commit elsewhere in the app, and when the crew changes a file.
   const shown = useRef<string[]>([''])
@@ -99,7 +111,10 @@ export function ProjectExplorer(props: {
         out.push({ loading: path, depth })
         return
       }
-      if ('error' in listing) return
+      if ('error' in listing) {
+        if (path) out.push({ failed: path, error: listing.error, depth })
+        return
+      }
       for (const entry of listing.entries) {
         const dim = ignored || !!entry.ignored
         out.push({ entry, depth, ignored: dim })
@@ -119,20 +134,22 @@ export function ProjectExplorer(props: {
     : rows
   const at = Math.min(focus, Math.max(0, items.length - 1))
 
+  // The load stays out of the state updater, which React may run twice.
   const toggle = (path: string) => {
+    const opening = !open.has(path)
     setOpen((s) => {
       const next = new Set(s)
-      if (next.has(path)) next.delete(path)
-      else {
-        next.add(path)
-        if (!dirs.has(path)) void load(path)
-      }
+      if (opening) next.add(path)
+      else next.delete(path)
       return next
     })
+    const listing = dirs.get(path)
+    if (opening && (!listing || 'error' in listing)) void load(path)
   }
   const activate = (row: Row | undefined) => {
     if (!row || 'loading' in row) return
-    if (row.entry.dir) toggle(row.entry.path)
+    if ('failed' in row) retry(row.failed)
+    else if (row.entry.dir) toggle(row.entry.path)
     else openFile?.(row.entry.path)
   }
   const moveTo = (i: number) => {
@@ -143,7 +160,7 @@ export function ProjectExplorer(props: {
   // The tree's keys, as in an editor: arrows move, → opens a folder or steps in, ← closes it or steps out.
   const onKey = (e: KeyboardEvent) => {
     const row = items[at]
-    const entry = row && !('loading' in row) ? row.entry : undefined
+    const entry = row && 'entry' in row ? row.entry : undefined
     if (e.key === 'ArrowDown') moveTo(at + 1)
     else if (e.key === 'ArrowUp') moveTo(at - 1)
     else if (e.key === 'Home') moveTo(0)
@@ -155,7 +172,7 @@ export function ProjectExplorer(props: {
       if (entry.dir && open.has(entry.path)) toggle(entry.path)
       else {
         const parent = entry.path.split('/').slice(0, -1).join('/')
-        const i = items.findIndex((r) => !('loading' in r) && r.entry.path === parent)
+        const i = items.findIndex((r) => 'entry' in r && r.entry.path === parent)
         if (i >= 0) moveTo(i)
       }
     } else if (e.key === 'Enter' || e.key === ' ') activate(row)
@@ -218,9 +235,18 @@ export function ProjectExplorer(props: {
             <Skeleton className="h-3.5 w-1/2" />
           </div>
         ) : 'error' in top ? (
-          <p className="px-2 py-2 text-callout text-bad-ink" role="alert">
-            {top.error}
-          </p>
+          <div className="flex flex-wrap items-center gap-x-2 px-2 py-2 text-callout">
+            <span className="text-bad-ink" role="alert">
+              {top.error}
+            </span>
+            <button
+              type="button"
+              onClick={() => retry('')}
+              className="font-medium text-accent-fg hover:underline"
+            >
+              {copy.explorer.tryAgain}
+            </button>
+          </div>
         ) : found && found.paths.length === 0 ? (
           <p className="px-2 py-2 text-callout text-muted">{copy.explorer.noMatches(found.q)}</p>
         ) : !found && top.entries.length === 0 ? (
@@ -246,6 +272,30 @@ export function ProjectExplorer(props: {
                   style={{ paddingLeft: `${row.depth * 12 + 28}px` }}
                 >
                   {copy.explorer.loading}
+                </div>
+              ) : 'failed' in row ? (
+                // The keyboard reaches it like any row, and Enter tries again (see `activate`).
+                <div
+                  key={`failed:${row.failed}`}
+                  role="treeitem"
+                  aria-level={row.depth + 1}
+                  data-row={i}
+                  tabIndex={i === at ? 0 : -1}
+                  onFocus={() => setFocus(i)}
+                  className="flex items-center gap-2 rounded-md py-1 pr-2 font-sans text-footnote outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  style={{ paddingLeft: `${row.depth * 12 + 28}px` }}
+                >
+                  <span className="min-w-0 truncate text-bad-ink" title={row.error}>
+                    {row.error}
+                  </span>
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    onClick={() => retry(row.failed)}
+                    className="shrink-0 font-medium text-accent-fg hover:underline"
+                  >
+                    {copy.explorer.tryAgain}
+                  </button>
                 </div>
               ) : (
                 <TreeRow

@@ -3,7 +3,6 @@ import {
   animate,
   type MotionValue,
   motion,
-  useAnimationFrame,
   useMotionValue,
   useReducedMotionConfig,
   useSpring,
@@ -84,17 +83,27 @@ export function CrewCursor(props: { name: string; color: string; x: number; y: n
     return () => trip.stop()
   }, [props.x, props.y, px, py, reduce])
 
-  useAnimationFrame(() => {
+  // Steered as the arrow moves, not on every frame: once it has stopped, nothing runs.
+  useEffect(() => {
     if (reduce) return
-    const vx = ax.getVelocity()
-    const vy = ay.getVelocity()
-    const weight = clamp(Math.hypot(vx, vy) / CURSOR.fullTurnSpeed, 0, 1)
-    const pointing = (Math.atan2(vy, vx) * 180) / Math.PI - TIP_HEADING
-    // Aim relative to where the arrow is now, so it never spins the long way round; at rest it holds still.
-    const current = rotate.get()
-    aim.set(current + turn(current, pointing) * weight)
-    lastAngle.set(props.name, current)
-  })
+    const steer = () => {
+      const vx = ax.getVelocity()
+      const vy = ay.getVelocity()
+      const weight = clamp(Math.hypot(vx, vy) / CURSOR.fullTurnSpeed, 0, 1)
+      const pointing = (Math.atan2(vy, vx) * 180) / Math.PI - TIP_HEADING
+      // Aim relative to where the arrow is now, so it never spins the long way round; at rest it holds still.
+      const current = rotate.get()
+      aim.set(current + turn(current, pointing) * weight)
+    }
+    const offs = [
+      ax.on('change', steer),
+      ay.on('change', steer),
+      rotate.on('change', (angle) => lastAngle.set(props.name, angle)),
+    ]
+    return () => {
+      for (const off of offs) off()
+    }
+  }, [reduce, ax, ay, aim, rotate, props.name])
 
   return (
     <CursorBody
@@ -129,18 +138,16 @@ export function CursorBody(props: {
   const ly = useSpring(props.y, CURSOR.labelSpring)
   const labelX = useTransform(lx, (v) => v + LABEL_OFFSET.x)
   const labelY = useTransform(ly, (v) => v + LABEL_OFFSET.y)
-  const swing = useMotionValue(0)
-
-  useAnimationFrame(() => {
-    if (reduce) return
-    swing.set(
-      clamp(
-        -(lx.get() - props.arrowX.get()) * CURSOR.labelTiltPerPx,
-        -CURSOR.labelTiltMax,
-        CURSOR.labelTiltMax,
-      ),
-    )
-  })
+  // Worked out as the tag or the arrow moves, not on every frame: once both have stopped, nothing runs.
+  const swing = useTransform([lx, props.arrowX], ([label, arrow]: number[]) =>
+    reduce
+      ? 0
+      : clamp(
+          -((label ?? 0) - (arrow ?? 0)) * CURSOR.labelTiltPerPx,
+          -CURSOR.labelTiltMax,
+          CURSOR.labelTiltMax,
+        ),
+  )
 
   return (
     <>

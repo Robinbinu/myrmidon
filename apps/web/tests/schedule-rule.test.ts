@@ -1,5 +1,12 @@
 import { describe, expect, test } from 'bun:test'
-import { cronToRule, describeCron, ruleToCron, type ScheduleRule } from '../src/client/schedule-rule.ts'
+import {
+  cronToRule,
+  describeCron,
+  hourText,
+  minuteText,
+  ruleToCron,
+  type ScheduleRule,
+} from '../src/client/schedule-rule.ts'
 import { cronError } from '../src/client/settings-forms.ts'
 
 const base: ScheduleRule = { repeat: 'daily', hour: 9, minute: 0, days: [1], dayOfMonth: 1, cron: '' }
@@ -89,6 +96,14 @@ describe('describeCron', () => {
     expect(say('0 8 3 * *')).toBe('Monthly on the 3rd at 8:00 AM')
     expect(say('0 8 11 * *')).toBe('Monthly on the 11th at 8:00 AM')
     expect(say('0 8 22 * *')).toBe('Monthly on the 22nd at 8:00 AM')
+  })
+
+  test('the picker writes hours and minutes with the same formatter, digits and separator included', () => {
+    expect(minuteText(5, 'en-US')).toBe(':05')
+    expect(minuteText(5, 'fi')).toBe('.05')
+    expect(minuteText(5, 'ar-EG')).toBe(':٠٥')
+    expect(hourText(9, 'ar-EG').startsWith('٩')).toBe(true)
+    expect(say('5 * * * *', 'fi')).toBe('Every hour at .05')
   })
 
   test('writes the time as the locale does', () => {

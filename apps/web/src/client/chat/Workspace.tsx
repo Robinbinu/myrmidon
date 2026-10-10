@@ -49,15 +49,17 @@ import SpringCheck from '../vendor/react-bits/SpringCheck'
 import { AgentSheet } from './AgentSheet.tsx'
 import { ArtifactViewer } from './ArtifactViewer.tsx'
 import { AuditView } from './AuditView.tsx'
+import { BrowserView } from './BrowserView.tsx'
+import { useBrowserLinks } from './browser-links.ts'
 import { Computer } from './Computer.tsx'
 import { FoldAll, FoldChevron, useFolds } from './Folds.tsx'
 import { GitView } from './GitView.tsx'
 import { ColonyTools } from './MadeTools.tsx'
 import { ProjectExplorer } from './ProjectExplorer.tsx'
 import { ProjectFiles, useOpenProjectFile } from './ProjectFiles.tsx'
-import { ShellTerminal } from './ShellTerminal.tsx'
 import { deriveSteps, editedFiles } from './steps.ts'
 import { TaskBoard } from './TaskBoard.tsx'
+import { TerminalPanel } from './TerminalPanel.tsx'
 
 type Tab =
   | `plugin:${string}`
@@ -66,6 +68,7 @@ type Tab =
   | 'git'
   | 'shell'
   | 'computer'
+  | 'browser'
   | 'tasks'
   | 'team'
   | 'mail'
@@ -82,7 +85,7 @@ interface ViewDef {
   /** The digit of its shortcut (see VIEW_COMBO). */
   key?: string
   projectOnly?: boolean
-  /** The person's own login shell: the server opens it only for full-access devices. */
+  /** Only for full-access devices, as the server allows: the person's own login shell, browsing the project. */
   fullOnly?: boolean
 }
 
@@ -98,6 +101,7 @@ export const VIEWS: ViewDef[] = [
     icon: FEATURE_ICONS.explorer,
     group: 0,
     projectOnly: true,
+    fullOnly: true,
   },
   {
     value: 'git',
@@ -122,6 +126,14 @@ export const VIEWS: ViewDef[] = [
     icon: FEATURE_ICONS.computer,
     group: 1,
     key: '5',
+  },
+  // No shortcut digit is left; it opens from the rail, the view picker, and links (Open links in built-in browser).
+  {
+    value: 'browser',
+    label: copy.workspace.views.browser,
+    icon: FEATURE_ICONS.browser,
+    group: 1,
+    fullOnly: true,
   },
   {
     value: 'terminal',
@@ -273,13 +285,14 @@ function WorkspaceBody({
       group: PLUGIN_GROUP,
     })),
   ]
-  // The shell keeps running while you look at other views; it starts the first time you open it.
+  // The Terminal view mounts the first time it is opened; its shells live on in terminal-sessions.ts, past this chat.
   const [shellOpened, setShellOpened] = useState(false)
   const [inspect, setInspect] = useState<string>()
   const plan = state.notes.filter((n) => n.section === 'plan').at(-1)
   const [tab, setTabState] = useState<Tab>(() => {
     const t = savedTab()
-    return ((t === 'git' || t === 'explorer') && !project) || (t === 'shell' && !fullAccess) ? 'files' : t
+    const full = VIEWS.find((v) => v.value === t)?.fullOnly
+    return ((t === 'git' || t === 'explorer') && !project) || (full && !fullAccess) ? 'files' : t
   })
   const setTab = (t: Tab) => {
     setTabState(t)
@@ -303,6 +316,13 @@ function WorkspaceBody({
     window.addEventListener('myr:open-view', open)
     return () => window.removeEventListener('myr:open-view', open)
   }, [])
+  // Links in chats open here when the person asked for that (⋯ › Open links in built-in browser).
+  const [link, setLink] = useState<{ url: string; at: number }>()
+  useBrowserLinks(fullAccess, (url) => {
+    setLink({ url, at: Date.now() })
+    setTab('browser')
+    show(true)
+  })
   const [file, setFile] = useState<string>()
   const [hint, setHint] = useState<{ label: string; combo?: string; top: number; right: number }>()
   const steps = useMemo(() => deriveSteps(events), [events])
@@ -441,10 +461,7 @@ function WorkspaceBody({
               </div>
               {shellOpened && (
                 <div className={tab === 'shell' ? 'flex min-h-0 flex-1 flex-col' : 'hidden'}>
-                  <ShellTerminal
-                    {...(project ? { project: project.id } : {})}
-                    cwdLabel={project ? copy.workspace.shellCwd(project.name) : copy.workspace.shellCwd('~')}
-                  />
+                  <TerminalPanel {...(project ? { project } : {})} />
                 </div>
               )}
               <div className={tab === 'shell' ? 'hidden' : 'min-h-0 flex-1 overflow-auto'}>
@@ -456,8 +473,11 @@ function WorkspaceBody({
                     exit={{ opacity: 0 }}
                     transition={{ duration: 0.15 }}
                     // An open conversation fills the panel and scrolls on its own, opening at its newest message.
-                    className={tab === 'mail' || tab === 'explorer' ? 'h-full' : undefined}
+                    className={
+                      tab === 'mail' || tab === 'explorer' || tab === 'browser' ? 'h-full' : undefined
+                    }
                   >
+                    {tab === 'browser' && <BrowserView {...(link ? { open: link } : {})} />}
                     {tab === 'git' && project && <GitView project={project.id} />}
                     {tab === 'explorer' && project && <ProjectExplorer project={project} edited={changed} />}
                     {tab === 'files' && <ColonyTools colonyId={colonyId} tools={state.madeTools} />}

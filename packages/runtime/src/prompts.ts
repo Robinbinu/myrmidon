@@ -434,9 +434,10 @@ ${roster}`,
     round: (mode: string) => `This round: ${mode}.`,
     modes: {
       answer: 'answer (one agent, direct reply)',
-      solo: 'solo (one agent, all tools)',
+      /** Agents echo this line to the person, so it says what they can use, never internal words like "solo". */
+      solo: 'you alone, with every tool. No crewmates unless the person adds some with Crewmates in the message box',
       soloCrew: (n: number) =>
-        `solo (you work alone with every tool; ${n} crewmate${n === 1 ? '' : 's'} on call, asked with ask_crewmate)`,
+        `you, with every tool, and ${n} crewmate${n === 1 ? '' : 's'} on call, asked with ask_crewmate`,
       crewmate: (lead: string) => `one job for ${lead}, who works on the request alone and asked you for it`,
       swarm: (peers: number) => `swarm of ${peers} crewmates`,
       orchestrated: (specialists: number) => `orchestrated team (lead + ${specialists} crewmates)`,
@@ -622,16 +623,19 @@ ${roster}`,
       `If it is for you, answer in the group with message(to: "${p.group}", reply_to: ${p.seq}).`,
     /** Delivered tagged [team]. */
     teamMessage: (seq: number, from: string, text: string) => `#${seq} ${from}: ${text}`,
+    /** To the rest of the crew once the speaker has given the person the final answer. */
+    windDown: (speaker: string) =>
+      `${speaker} has given the person the final answer, so this conversation is winding down. Finish a thought you are in the middle of, but do not reply to wrap-ups, thanks or goodbyes and do not start anything new: it can wait for the next round.`,
+    /** To those told the conversation was winding down, once the person writes again before it closes. */
+    reopened:
+      'The person wrote again, so the conversation is open again: carry on as before it was winding down.',
+    /** The message tool's answer once an agent has had its last word in a chat that is winding down. */
+    chatClosing:
+      'Not sent: this conversation is closing and you have had your last word. Keep it for the next round.',
     /**
      * Messages an agent never got to read before its last round ended, shown when it next wakes and before anything
      * newer, so it catches up instead of answering stale news.
      */
-    /** To the rest of the crew once the speaker has given the person the final answer. */
-    windDown: (speaker: string) =>
-      `${speaker} has given the person the final answer, so this conversation is winding down. Finish a thought you are in the middle of, but do not reply to wrap-ups, thanks or goodbyes and do not start anything new: it can wait for the next round.`,
-    /** The message tool's answer once an agent has had its last word in a chat that is winding down. */
-    chatClosing:
-      'Not sent: this conversation is closing and you have had your last word. Keep it for the next round.',
     missed: (lines: readonly string[], older: number) =>
       `Messages you had not read yet, from before now (older than anything below; reply only where one still needs it):\n${lines.join('\n')}${older ? `\n(${older} older unread; read_messages shows them.)` : ''}`,
     /** The person wrote to this agent directly (@name) while the round runs. */
@@ -703,10 +707,14 @@ ${roster}`,
           ? 'Since your last answer the person changed what you may do'
           : 'The person just changed what you may do'
       const tail = accessLoosened(c)
-        ? 'Anything you declined or could not do earlier because of the old permissions may work now: try it.'
+        ? 'What the old permissions stopped, or what you turned down because of them, may work now: try it. Do not retry a step the person declined: that was their answer, not a permission.'
         : 'Work within the new rules, and tell the person if they stop you doing something the task needs.'
       return `${head}: ${parts.join('; ')}. ${tail}`
     },
+    serversStopped: (names: readonly string[]) =>
+      names.length === 1
+        ? `Your server ${names[0]} was stopped: it ran with access this round no longer has. Start it again with start_server if you still need it; it runs within the round's rules now.`
+        : `Your servers ${names.join(', ')} were stopped: they ran with access this round no longer has. Start them again with start_server if you still need them; they run within the round's rules now.`,
     taskVerdict: (id: string, pass: boolean, evidence: string) =>
       `${id} ${pass ? 'VERIFIED' : 'REJECTED'}: ${evidence}`,
     leadVerdict: (p: {
@@ -1263,6 +1271,8 @@ It is ${o.now.weekday}, ${o.now.date}, ${o.now.time} in their time zone (${o.now
       `localhost:${port} is not a server you started in this round. Agents can reach only the localhost ports of their own servers (start one with start_server and open the URL it returns), plus the public internet`,
     portInUse: (port: number) =>
       `port ${port} is already in use by something other than this server; start it on a free port`,
+    serverRulesChanged: (name: string) =>
+      `${name} was stopped while it was starting: the round's rules changed and it would have run with access the round no longer has. Start it again with start_server; it will run within the rules now.`,
     portWasInUse: (port: number) =>
       `the server printed a URL on port ${port}, but that port was already in use before it started; start it on a free port and pass port`,
     readerProgram:

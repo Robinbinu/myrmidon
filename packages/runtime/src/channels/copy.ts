@@ -235,6 +235,9 @@ export const channelCopy = {
   },
   approval: {
     ask: (agent: string, summary: string) => `🔐 **${agent}** wants to ${summary}`,
+    /** On a request to read a folder of keys or sign-ins (~/.ssh, ~/.aws…), as the app's card warns. */
+    sensitive:
+      '⚠️ This folder holds keys or sign-ins. Agents can read anything in it, and what they read can end up in a reply or leave over the network. Allow it only if the task needs it.',
     member: (name: string) =>
       `${name} (a member, not the owner) asked for this run, so every step that changes something or reads your project asks you, even tools you always allow.`,
     expires: (minutes: number) => `Unanswered after ${minutes} minutes, it is denied.`,
@@ -244,13 +247,33 @@ export const channelCopy = {
     closed: 'This request is no longer open.',
     gone: 'That run has already ended.',
     once: 'Allow once',
-    always: (tool: string) => `Always allow ${tool}`,
+    always: (what: string) => `Always allow ${what}`,
+    /** Under an "always" that would remember a test runner, build tool or script, which agents can rewrite. */
+    projectCode:
+      '"Always" here also lets agents run anything they write into the project\'s scripts, tests or build files, in every chat.',
+    /** What an "always" saves, by its rules: a command's prefixes, an MCP tool or server, file changes, a tool. */
+    what: (rules: readonly { kind: string; target: string }[]) =>
+      rules
+        .map((r) =>
+          r.kind === 'command'
+            ? r.target === '*'
+              ? 'every command'
+              : `\`${r.target}\``
+            : r.kind === 'edit'
+              ? 'file changes'
+              : r.kind === 'mcp-server'
+                ? r.target === '*'
+                  ? 'every MCP tool'
+                  : `every ${r.target} tool`
+                : r.target,
+        )
+        .join(' and '),
     deny: 'Deny',
     typed: (key: string, p: string) =>
       `Reply ${p}approve ${key}, ${p}approve ${key} always, or ${p}deny ${key}.`,
     typedOnce: (key: string, p: string) => `Reply ${p}approve ${key} or ${p}deny ${key}.`,
     allowed: (who: string) => `✅ Allowed by ${who}`,
-    allowedAlways: (who: string, tool: string) => `✅ Allowed by ${who}; ${tool} is now always allowed`,
+    allowedAlways: (who: string, what: string) => `✅ Allowed by ${who}; ${what} is now always allowed`,
     denied: (who: string) => `❌ Denied by ${who}`,
     decidedElsewhere: (approved: boolean, by: string) =>
       approved ? '✅ Allowed in the app' : by === 'timeout' ? '❌ Denied: no answer in time' : '❌ Denied',

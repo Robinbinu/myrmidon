@@ -10,6 +10,7 @@ import {
   BookMarked,
   Brain,
   CalendarClock,
+  Compass,
   Container,
   Cpu,
   EyeOff,
@@ -123,6 +124,8 @@ export const FEATURE_ICONS = {
   devices: MonitorSmartphone,
   /** An agent's computer: the browser and desktop it drives. */
   computer: ScreenShare,
+  /** The person's own browser in the workspace, with tabs, kept apart from the agents' browsers. */
+  browser: Compass,
   /** Computer use: agents controlling the person's own Mac (Settings → Computer use, its banner and steps). */
   computerUse: MousePointerClick,
   /** Messaging channels (Telegram and the rest). */

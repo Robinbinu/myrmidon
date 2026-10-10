@@ -63,6 +63,9 @@ function judge(resolver: ModelResolver, score = 0.9) {
   resolver.register('mock/judge', { model: m.model, streamFn: m.stream })
 }
 
+/** How long a crew's round stays open once everyone is quiet after the answer; the real wait would outlast a test. */
+const QUIET_MS = 500
+
 const fixed =
   (tier: 'answer' | 'solo' | 'team'): Classify =>
   async () =>
@@ -108,7 +111,7 @@ test('orchestrated: workers sleep until assigned, the final answer verifies itse
     ['done'],
   ])
   judge(resolver)
-  const chats = new ChatService(runtime, { resolver, classify: fixed('team') })
+  const chats = new ChatService(runtime, { resolver, classify: fixed('team'), quietMs: QUIET_MS })
   const config: TeamConfig = {
     mode: 'orchestrated',
     leadModel: 'mock/lead',
@@ -184,7 +187,7 @@ test('crew messages are a conversation: a question left unanswered gets a remind
     ['done'],
   ])
   judge(resolver)
-  const chats = new ChatService(runtime, { resolver, classify: fixed('team') })
+  const chats = new ChatService(runtime, { resolver, classify: fixed('team'), quietMs: QUIET_MS })
   const { colonyId } = await chats.send('Write a short poem about ants', {
     mode: 'orchestrated',
     leadModel: 'mock/lead',
@@ -253,7 +256,7 @@ test('group chats wake their members, the team chat wakes only @mentions, and on
   ])
   scripted(resolver, 'mock/researcher', [['should not run']])
   judge(resolver)
-  const chats = new ChatService(runtime, { resolver, classify: fixed('team') })
+  const chats = new ChatService(runtime, { resolver, classify: fixed('team'), quietMs: QUIET_MS })
   const { colonyId } = await chats.send('Write a short poem about ants', {
     mode: 'orchestrated',
     leadModel: 'mock/lead',
@@ -316,7 +319,7 @@ test('@name writes to a crew member directly: it answers the person; an idle cre
     ['done'],
   ])
   judge(resolver)
-  const chats = new ChatService(runtime, { resolver, classify: fixed('team') })
+  const chats = new ChatService(runtime, { resolver, classify: fixed('team'), quietMs: QUIET_MS })
   const config = {
     mode: 'orchestrated' as const,
     leadModel: 'mock/lead',
@@ -369,7 +372,7 @@ test('a crew member written to directly that answers in plain text still reaches
   resolver.register('mock/lead', { model: lead.model, streamFn: lead.stream })
   scripted(resolver, 'mock/writer', [['The rhyme for "ant" was the hardest to land.']])
   judge(resolver)
-  const chats = new ChatService(runtime, { resolver, classify: fixed('team') })
+  const chats = new ChatService(runtime, { resolver, classify: fixed('team'), quietMs: QUIET_MS })
   const config = {
     mode: 'orchestrated' as const,
     leadModel: 'mock/lead',
@@ -414,7 +417,7 @@ test('a crew member written to directly that asks the lead first answers once th
     ['The chorus is now four lines, as the lead asked.'],
   ])
   judge(resolver)
-  const chats = new ChatService(runtime, { resolver, classify: fixed('team') })
+  const chats = new ChatService(runtime, { resolver, classify: fixed('team'), quietMs: QUIET_MS })
   const config = {
     mode: 'orchestrated' as const,
     leadModel: 'mock/lead',
@@ -468,7 +471,12 @@ test('saved specialists: kept by name, joined from the team picker or by the lea
   ])
   scripted(resolver, 'mock/ada', [(ctx) => (look('ada')(ctx), ['ok'])])
   judge(resolver)
-  const chats = new ChatService(runtime, { resolver, classify: fixed('team'), specialists })
+  const chats = new ChatService(runtime, {
+    resolver,
+    classify: fixed('team'),
+    specialists,
+    quietMs: QUIET_MS,
+  })
   const { colonyId } = await chats.send('Analyse ant colonies', {
     mode: 'orchestrated',
     leadModel: 'mock/lead',
@@ -527,7 +535,7 @@ test('crewmates on call: a lead working alone asks them for work and gets their 
   ])
   scripted(resolver, 'mock/writer', [['Thinking about titles.']])
   judge(resolver)
-  const chats = new ChatService(runtime, { resolver, classify: fixed('solo') })
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), quietMs: QUIET_MS })
   const { colonyId } = await chats.send('How many ants are in a colony?', {
     mode: 'orchestrated',
     leadModel: 'mock/lead',
@@ -631,7 +639,7 @@ test('orchestrated: an assigned task wakes only its assignee', async () => {
   scripted(resolver, 'mock/researcher', [['on it'], ['ok']])
   scripted(resolver, 'mock/coder', [['should not run']])
   judge(resolver)
-  const chats = new ChatService(runtime, { resolver, classify: fixed('team') })
+  const chats = new ChatService(runtime, { resolver, classify: fixed('team'), quietMs: QUIET_MS })
   const { colonyId } = await chats.send('Research and build', {
     mode: 'orchestrated',
     leadModel: 'mock/lead',
@@ -670,7 +678,7 @@ test('orchestrated: a worker assigned a blocked task sleeps until its blockers a
   scripted(resolver, 'mock/researcher', [['on it'], ['ok']])
   scripted(resolver, 'mock/coder', [['should not run yet']])
   judge(resolver)
-  const chats = new ChatService(runtime, { resolver, classify: fixed('team') })
+  const chats = new ChatService(runtime, { resolver, classify: fixed('team'), quietMs: QUIET_MS })
   const { colonyId } = await chats.send('Research and build', {
     mode: 'orchestrated',
     leadModel: 'mock/lead',
@@ -712,7 +720,7 @@ test('tasks created together in one message can depend on each other', async () 
   ])
   scripted(resolver, 'mock/researcher', [['on it'], ['ok']])
   judge(resolver)
-  const chats = new ChatService(runtime, { resolver, classify: fixed('team') })
+  const chats = new ChatService(runtime, { resolver, classify: fixed('team'), quietMs: QUIET_MS })
   const { colonyId } = await chats.send('Research it', {
     mode: 'orchestrated',
     leadModel: 'mock/lead',
@@ -796,7 +804,7 @@ test('swarm: peers huddle before working, the first proposer plans, and a speake
     resolver.register(ref, { model: m.model, streamFn: m.stream })
   }
   judge(resolver)
-  const chats = new ChatService(runtime, { resolver, classify: fixed('team') })
+  const chats = new ChatService(runtime, { resolver, classify: fixed('team'), quietMs: QUIET_MS })
   const { colonyId } = await chats.send('Write a haiku with a title', {
     mode: 'swarm',
     leadModel: 'mock/p1',
@@ -1210,7 +1218,7 @@ test('a chat keeps its workers and their memory across rounds; the lead can dism
   resolver.register('mock/researcher', { model: researcher.model, streamFn: researcher.stream })
   scripted(resolver, 'mock/coder', [['should not run']])
   judge(resolver)
-  const chats = new ChatService(runtime, { resolver, classify: fixed('team') })
+  const chats = new ChatService(runtime, { resolver, classify: fixed('team'), quietMs: QUIET_MS })
   const config: TeamConfig = {
     mode: 'orchestrated',
     leadModel: 'mock/lead',
@@ -1275,7 +1283,7 @@ test('a worker that stops while holding its task is reminded to finish it', asyn
   })
   resolver.register('mock/researcher', { model: worker.model, streamFn: worker.stream })
   judge(resolver)
-  const chats = new ChatService(runtime, { resolver, classify: fixed('team') })
+  const chats = new ChatService(runtime, { resolver, classify: fixed('team'), quietMs: QUIET_MS })
   const { colonyId } = await chats.send('Take notes', {
     mode: 'orchestrated',
     leadModel: 'mock/lead',
@@ -2142,6 +2150,45 @@ test.skipIf(detectSandbox().kind === 'none')(
 )
 
 test.skipIf(detectSandbox().kind === 'none')(
+  'run_checks runs commands, so it asks under Ask like shell, and runs nothing the person declines',
+  async () => {
+    const { ProjectStore } = await import('../src/projects.ts')
+    const folder = mkdtempSync(join(tmpdir(), 'myr-checks-ask-'))
+    await Bun.write(
+      join(folder, 'package.json'),
+      JSON.stringify({ scripts: { test: 'touch ran.txt', lint: 'echo lint ok' } }),
+    )
+    await Bun.write(join(folder, 'bun.lock'), '')
+    const projects = new ProjectStore(home)
+    const project = projects.setPermissions(projects.add(folder).id, { preset: 'ask', rules: [] })
+    const resolver = new ModelResolver()
+    scripted(resolver, 'mock/checker', [
+      [tool('run_checks', {})],
+      [tool('reply_user', { text: 'Not run.', final: true })],
+    ])
+    judge(resolver)
+    const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), projects })
+    const { colonyId } = await chats.send(
+      'Check the project',
+      { ...solo('mock/checker'), judgeModel: 'mock/judge' },
+      undefined,
+      { project: project.id },
+    )
+    const waiting = await waitFor(colonyId, (x) => Object.values(x.approvals).some((a) => !a.decided))
+    const card = Object.values(waiting.approvals).find((a) => !a.decided)
+    expect(card).toMatchObject({ tool: 'run_checks', summary: 'bun run lint && bun run test' })
+    await chats.decideApproval(colonyId, card?.id ?? '', false)
+    await waitFor(colonyId)
+    const result = (await events(colonyId))
+      .filter((e) => e.type === 'tool/result')
+      .map((e) => e.payload as EventPayloads['tool/result'])[0]
+    expect(result?.ok).toBe(false)
+    expect(existsSync(join(folder, 'ran.txt'))).toBe(false)
+    rmSync(folder, { recursive: true, force: true })
+  },
+)
+
+test.skipIf(detectSandbox().kind === 'none')(
   'in a project the judge reads the diff, runs the checks, and returns graded findings',
   async () => {
     const { ProjectStore } = await import('../src/projects.ts')
@@ -2499,7 +2546,7 @@ test('team workers in a git project each get a worktree, and their changes merge
   scripted(resolver, 'mock/backend', coder('api.ts'))
   scripted(resolver, 'mock/frontend', coder('page.ts'))
   judge(resolver)
-  const chats = new ChatService(runtime, { resolver, classify: fixed('team'), projects })
+  const chats = new ChatService(runtime, { resolver, classify: fixed('team'), projects, quietMs: QUIET_MS })
   const { colonyId } = await chats.send(
     'Build the API and the page',
     {
@@ -2695,7 +2742,7 @@ test('the lead sends verified work back with a reason, and its owner redoes it',
   })
   resolver.register('mock/writer', { model: writer.model, streamFn: writer.stream })
   judge(resolver)
-  const chats = new ChatService(runtime, { resolver, classify: fixed('team') })
+  const chats = new ChatService(runtime, { resolver, classify: fixed('team'), quietMs: QUIET_MS })
   const { colonyId } = await chats.send('Write a haiku', {
     mode: 'orchestrated',
     leadModel: 'mock/lead',
@@ -2850,6 +2897,51 @@ test('a follow-up continues the same colony, and its agent remembers the earlier
     [first.colonyId, 2, 'What number did you pick?'],
   ])
   await chats.stopAll()
+})
+
+test('a follow-up sent as the last round stops waits for it to end: one answer gets one review, and both rounds end', async () => {
+  const resolver = new ModelResolver()
+  scripted(
+    resolver,
+    'mock/lead',
+    Array.from({ length: 12 }, () => [tool('reply_user', { text: 'Done.', final: true })]),
+  )
+  judge(resolver, 0.1)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo') })
+  const config = { ...solo('mock/lead'), judgeModel: 'mock/judge' }
+  const first = await chats.send('Write notes', config)
+  // Sent the moment round 1 is logged as stopped, while that round is still shutting down.
+  const second = new Promise<{ chatId: string; colonyId: string }>((resolve, reject) => {
+    const off = runtime.ctx.on('log/appended', (colonyId, appended) => {
+      if (colonyId !== first.colonyId || !appended.some((e) => e.type === 'colony/stopped')) return
+      off()
+      chats.send('And a summary', config, first.chatId).then(resolve, reject)
+    })
+  })
+  const { colonyId } = await second
+  const s = await waitFor(colonyId, (x) => x.rounds.length === 2 && x.status === 'stopped')
+  expect(s.statusReason).toBe('verification failed 3 times; see the last verdict')
+  const log = await events(colonyId)
+  const round2 = log.slice(log.findIndex((e) => e.type === 'round/started'))
+  const answers = round2.filter((e) => e.type === 'chat/reply' && (e.payload as { final?: boolean }).final)
+  expect(answers).toHaveLength(3)
+  expect(round2.filter((e) => e.type === 'verifier/requested')).toHaveLength(3)
+  expect(round2.filter((e) => e.type === 'colony/stopped')).toHaveLength(1)
+  const stopped = round2.findIndex((e) => e.type === 'colony/stopped')
+  expect(round2.slice(stopped).filter((e) => e.type === 'llm/response' || e.type === 'tool/call')).toEqual([])
+  // Both rounds have wound up, so shutting down does not wait on either.
+  const t = Date.now()
+  await chats.stopAll()
+  expect(Date.now() - t).toBeLessThan(1000)
+})
+
+test('shutting down waits a few seconds at most for a round that cannot finish wrapping up', async () => {
+  const chats = new ChatService(runtime, { resolver: new ModelResolver(), classify: fixed('answer') })
+  // A wrap-up that never settles (an end checkpoint stuck on git, say).
+  ;(chats as unknown as { _wrapUps: Set<Promise<unknown>> })._wrapUps.add(new Promise(() => {}))
+  const t = Date.now()
+  await chats.stopAll()
+  expect(Date.now() - t).toBeLessThan(5000)
 })
 
 test('on-demand tools stay out of model calls until find_tools loads them', async () => {
@@ -3375,6 +3467,58 @@ test('tightening permissions mid-turn stops the agent at once and tells it what 
   const note = seen.find((m) => m.includes('The person changed what you may do'))
   expect(note).toContain('web_search')
   expect(s.chatMessages.at(-1)?.text).toBe('Carried on without the web.')
+  await chats.stopAll()
+  await plugins.stop()
+})
+
+test('a note that reached an agent mid-turn and was cut off with the turn opens its next turn as it was sent', async () => {
+  const { PluginStore } = await import('../src/plugins.ts')
+  const { PluginHost } = await import('../src/plugin-host.ts')
+  const { SettingsStore } = await import('../src/settings.ts')
+  const at = join(home, 'plugins', 'slow')
+  mkdirSync(join(at, 'server'), { recursive: true })
+  await Bun.write(
+    join(at, 'server', 'index.ts'),
+    `export function activate(ctx) {
+      ctx.tools.add({ name: 'wait', description: 'Takes a while', run: () => new Promise((r) => setTimeout(() => r('done waiting'), 4000)) })
+    }`,
+  )
+  const plugins = new PluginHost(new PluginStore(home))
+  await plugins.start()
+  const settings = new SettingsStore(home)
+  const resolver = new ModelResolver()
+  const seen: string[] = []
+  const after = (ctx: LlmContext) => {
+    const last = JSON.stringify(ctx.messages.at(-1))
+    seen.push(last)
+    return last.includes('The person changed what you may do')
+      ? [tool('reply_user', { text: 'Carried on.', final: true })]
+      : ['thinking']
+  }
+  scripted(resolver, 'mock/lead', [[tool('slow_wait', {})], after, after, after])
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), plugins, settings })
+  const { colonyId } = await chats.send('Do it', { ...solo('mock/lead'), judgeModel: 'mock/judge' })
+  for (let i = 0; i < 100; i++) {
+    if ((await events(colonyId)).some((e) => e.type === 'tool/call')) break
+    await Bun.sleep(20)
+  }
+  // A note from outside arrives while the slow tool runs, then the turn is cut short before the agent reads it.
+  chats.wakeAgent(colonyId, 'lead', 'Your browser was handed back.')
+  settings.set({ ...settings.get(), permissions: { web_search: 'off', web_fetch: 'off' } })
+  await chats.permissionsChanged()
+  const s = await waitFor(colonyId)
+  expect(s.status).toBe('completed')
+  const next = turnsOf(await events(colonyId), 'lead').find(
+    (e) =>
+      (e.payload as EventPayloads['agent/turn']).phase === 'start' &&
+      (e.payload as EventPayloads['agent/turn']).turn === 2,
+  )
+  // It keeps its own trigger, not a stand-in, and reads as sent.
+  expect((next?.payload as EventPayloads['agent/turn'] | undefined)?.trigger).toBe('permissions,person')
+  const note = seen.find((m) => m.includes('Your browser was handed back.')) ?? ''
+  expect(note).toContain('[person] Your browser was handed back.')
+  expect(note).not.toContain('[mail]')
   await chats.stopAll()
   await plugins.stop()
 })

@@ -5,6 +5,7 @@ import {
   appTier,
   appWarning,
   canRaise,
+  computerCombo,
   computerProtocol,
   fromGeneric,
   fromOpenAi,
@@ -13,6 +14,8 @@ import {
   labelAt,
   parseCombo,
   screenshotEdge,
+  sendsOrRuns,
+  sensitiveLabel,
   UnsupportedAction,
 } from '../src/index.ts'
 
@@ -244,4 +247,45 @@ test('apps have tiers, warnings, and Myrmidon is never one of them', () => {
   expect(allows('click', shiftClick)).toBe(false)
   expect(allows('click', typing)).toBe(false)
   expect(allows('full', typing)).toBe(true)
+})
+
+test('script apps are shell-like and Tor Browser view-only; their run and send keys ask first', () => {
+  for (const app of ['com.apple.ScriptEditor2', 'com.apple.Automator', 'com.apple.shortcuts']) {
+    expect(appTier(app)).toBe('click')
+    expect(appWarning(app)).toBe('shell')
+    expect(canRaise(app)).toBe(true)
+  }
+  expect(appTier('org.torproject.torbrowser')).toBe('view')
+  const key = (text: string) => fromGeneric('key', { text })
+  expect(sendsOrRuns(key('cmd+r'), 'com.apple.ScriptEditor2')).toBe(true)
+  expect(sendsOrRuns(key('cmd+r'), 'com.apple.Notes')).toBe(false)
+  expect(sensitiveLabel('Run', 'com.apple.Automator')).toBe(true)
+  expect(sensitiveLabel('Run', 'com.apple.Notes')).toBe(false)
+  // Mail sends with shift+cmd+D, however the modifiers are ordered; Finder's empty trash likewise.
+  expect(sendsOrRuns(key('shift+cmd+d'), 'com.apple.mail')).toBe(true)
+  expect(sendsOrRuns(key('cmd+shift+d'), 'com.apple.mail')).toBe(true)
+  expect(sendsOrRuns(key('cmd+shift+delete'), 'com.apple.finder')).toBe(true)
+  // Typed text with a newline presses Return.
+  expect(sendsOrRuns(fromGeneric('type', { text: 'hi\n' }), 'com.apple.MobileSMS')).toBe(true)
+  expect(sendsOrRuns(fromGeneric('type', { text: 'hi\r' }), 'com.apple.MobileSMS')).toBe(true)
+  expect(sendsOrRuns(fromGeneric('type', { text: 'hi' }), 'com.apple.MobileSMS')).toBe(false)
+  expect(sendsOrRuns(fromGeneric('type', { text: 'a\nb' }), 'com.apple.Notes')).toBe(false)
+  expect(sendsOrRuns(key('Return'), 'com.apple.MobileSMS')).toBe(true)
+})
+
+test('key combos match whatever order their modifiers come in; Return runs in a launcher', () => {
+  const key = (text: string) => fromGeneric('key', { text })
+  expect(computerCombo(['shift', 'option', 'cmd', 'delete'])).toBe('cmd+option+shift+delete')
+  expect(sendsOrRuns(key('option+shift+cmd+delete'), 'com.apple.finder')).toBe(true)
+  expect(sendsOrRuns(key('shift+option+cmd+d'), 'com.apple.mail')).toBe(true)
+  expect(sendsOrRuns(key('shift+ctrl+enter'), 'com.apple.Notes')).toBe(true)
+  expect(sendsOrRuns(key('shift+cmd+r'), 'com.apple.ScriptEditor2')).toBe(true)
+  expect(sendsOrRuns(key('option+cmd+r'), 'com.apple.ScriptEditor2')).toBe(true)
+  expect(sendsOrRuns(key('Return'), 'com.raycast.macos')).toBe(true)
+  expect(sendsOrRuns(fromGeneric('type', { text: 'rm -rf ~\n' }), 'com.raycast.macos')).toBe(true)
+  // Ordinary keys stay free.
+  expect(sendsOrRuns(key('shift+return'), 'com.apple.MobileSMS')).toBe(false)
+  expect(sendsOrRuns(key('cmd+shift+r'), 'com.apple.Notes')).toBe(false)
+  expect(sendsOrRuns(key('Return'), 'com.apple.Notes')).toBe(false)
+  expect(sendsOrRuns(key('option+delete'), 'com.apple.finder')).toBe(false)
 })

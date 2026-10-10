@@ -16,7 +16,10 @@ import { join } from 'node:path'
  * its own token, which the person can revoke, and a scope. Only a hash of each token is stored.
  */
 
-/** `full`: everything. `chat`: chats, files and approvals, but not the terminal, keys, Settings, plugins or devices. */
+/**
+ * `full`: everything. `chat`: chats, the changes their crews made, and approvals, but not the terminal, the person's
+ * own browser, keys, Settings, plugins, devices or browsing a project's files.
+ */
 export type DeviceScope = 'full' | 'chat'
 
 export interface Device {
@@ -140,25 +143,29 @@ export class PairingCodes {
 }
 
 /**
- * Requests a `chat` device may not make: the terminal, keys and providers, Settings and permission changes, plugins,
- * MCP servers, hooks, browsing the server's folders, git actions on projects, managing devices, other gateways, and channels.
+ * Requests a `chat` device may not make: the terminal, the person's own browser, keys and providers, Settings and permission changes, plugins,
+ * MCP servers, hooks, browsing the server's folders or a project's files, git actions on projects, managing devices,
+ * other gateways, and channels.
  */
 export function needsFull(method: string, path: string): boolean {
   const write = method !== 'GET' && method !== 'HEAD'
   // Other gateways, reached through this one: a chats-only device must not borrow this hub's access to them.
   if (path.startsWith('/gw/')) return true
   if (
-    /^\/api\/(terminal|credentials|providers|logins|devices|gateways|channels|import-omp|folders|mcp-reload|setup)(\/|$)/.test(
+    /^\/api\/(terminal|browser|credentials|providers|logins|devices|gateways|channels|import-omp|folders|mcp-reload|setup)(\/|$)/.test(
       path,
     )
   )
     return true
   if (/^\/api\/projects\/[^/]+\/(permissions|git\/(?!changes|diff|commits)[^/]+)$/.test(path)) return true
+  // Browsing a project's files reaches every file in it (`.env` and other keys included), not just what a chat changed.
+  if (/^\/api\/projects\/[^/]+\/(file|tree|find)$/.test(path)) return true
   // Skills and schedules are managed in Settings; a schedule can also deliver to a channel.
   if (write && /^\/api\/(settings|plugins|mcp|hooks|skills|schedules)(\/|$)/.test(path)) return true
-  // Taking back apps a chat may control on the person's Mac is a permission change, as is a chat's preset or rules
-  // (approving a step, and remembering it for that chat, stays open: see the approvals route).
-  if (write && /^\/api\/chats\/[^/]+\/(computer-apps|permissions)$/.test(path)) return true
+  // Taking back apps a chat may control on the person's Mac is a permission change, as are a chat's preset or rules
+  // and the folders it may read (approving a step, and remembering it for that chat, stays open: see the approvals
+  // route).
+  if (write && /^\/api\/chats\/[^/]+\/(computer-apps|permissions|readable)$/.test(path)) return true
   // Installing the computer-use driver and asking for its grants; Stop stays open to every device, as a safety stop.
   if (write && /^\/api\/computer\/(install|grants|restart)(\/|$)/.test(path)) return true
   // Installing speech engines, keys and samples, and phoning someone; calling (a GET that upgrades) stays open.
