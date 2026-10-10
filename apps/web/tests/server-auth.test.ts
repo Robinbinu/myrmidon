@@ -177,6 +177,13 @@ test('pairing codes expire after enough wrong guesses, and chat devices are kept
   expect(needsFull('PUT', '/api/skills/tidy-notes')).toBe(true)
   expect(needsFull('POST', '/api/skills/tidy-notes/restore')).toBe(true)
   expect(needsFull('GET', '/api/skills')).toBe(false)
+  // Installing plugins and skills, and browsing where they come from, is the person's on a full device.
+  expect(needsFull('POST', '/api/plugins')).toBe(true)
+  expect(needsFull('POST', '/api/plugin-installs/0f0e')).toBe(true)
+  expect(needsFull('GET', '/api/plugin-marketplaces')).toBe(true)
+  expect(needsFull('POST', '/api/skill-installs')).toBe(true)
+  expect(needsFull('GET', '/api/skill-registry')).toBe(true)
+  expect(needsFull('DELETE', '/api/skills/pdf-tools')).toBe(true)
   expect(needsFull('POST', '/api/schedules')).toBe(true)
   expect(needsFull('PATCH', '/api/schedules/s1')).toBe(true)
   expect(needsFull('DELETE', '/api/schedules/s1')).toBe(true)

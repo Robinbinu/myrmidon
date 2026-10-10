@@ -66,7 +66,12 @@ omp's `tools/gh*.ts`), the find tool's search cascade in `packages/runtime/src/f
 and `packages/runtime/src/rule-draft.ts` (the rule-building step of `discovery/helpers.ts`, the stream check and retry
 of `session/ttsr-coordinator.ts`, and the guidance and rule-drafting prompts of `prompts/system/ttsr-interrupt.md` and
 `prompts/system/omfg-user.md`, adapted in `packages/runtime/src/prompts.ts`) are ported from oh-my-pi 18.8.7
-(https://github.com/can1357/oh-my-pi), MIT License:
+(https://github.com/can1357/oh-my-pi), MIT License. So are, in `packages/runtime/src/`: the skills
+registry client in `skill-registry.ts` (from `skillshare/client.ts`, `skillshare/installer.ts` and
+`pi-wire/src/skillshare.ts`: package specs, routes, version resolution), the resolution of a marketplace plugin's
+source in `marketplaces.ts` (from `extensibility/plugins/marketplace/source-resolver.ts` and `fetcher.ts`), and the npm
+package-name check in `install-sources.ts` (from `extensibility/plugins/installer.ts`). `install-sources.ts` and
+`marketplaces.ts` also call omp's git URL parser, marketplace catalog parser and tar reader as a library:
 
 ```
 MIT License

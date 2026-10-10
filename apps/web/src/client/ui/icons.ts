@@ -44,6 +44,7 @@ import {
   MonitorSmartphone,
   MousePointerClick,
   OctagonPause,
+  PackageSearch,
   Palette,
   PhoneIncoming,
   Plug,
@@ -62,6 +63,7 @@ import {
   SlidersHorizontal,
   Smile,
   SquareTerminal,
+  Store,
   Terminal,
   TextSearch,
   User,
@@ -183,6 +185,10 @@ export const FEATURE_ICONS = {
   tools: Wrench,
   /** Plugins and the views they add. */
   plugins: Puzzle,
+  /** Claude Code plugin marketplaces: catalogs to browse and install plugins from (Settings → Plugins). */
+  marketplaces: Store,
+  /** omp's skills registry: searching it and installing a skill (Settings → Skills). */
+  skillRegistry: PackageSearch,
   /** Hooks: commands around every tool call. */
   hooks: FishingHook,
   /** Requests that run on a schedule. */

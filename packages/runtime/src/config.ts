@@ -788,6 +788,22 @@ export const SKILL_STALE_DAYS = 30
 export const SKILL_ARCHIVE_DAYS = 90
 /** How often the server looks for learned skills to retire. */
 export const SKILL_CURATE_EVERY_MS = 6 * 60 * 60_000
+
+// Installing plugins and skills (install-sources.ts, marketplaces.ts, skill-installs.ts)
+
+/**
+ * How long a fetched plugin or skill waits for the person to confirm it after they saw what it holds; then its staged
+ * copy is deleted and they review it again.
+ */
+export const INSTALL_REVIEW_MS = 15 * 60_000
+/** Where npm packages are looked up, unless a marketplace entry names its own registry. */
+export const NPM_REGISTRY_URL = 'https://registry.npmjs.org'
+/** omp's skills registry (skills.omp.sh): search it and install a skill from Settings → Skills. */
+export const SKILLS_REGISTRY_URL = 'https://skills.omp.sh'
+/** One registry or catalog request; a download that hangs fails instead of holding the review open. */
+export const INSTALL_FETCH_TIMEOUT_MS = 60_000
+/** The largest package tarball fetched: skills registry packages are capped at 5 MB, plugins get more room. */
+export const INSTALL_MAX_BYTES = 50 * 1024 * 1024
 /** The largest script a made tool may have, to keep tools small. */
 export const MADE_TOOL_MAX_SOURCE = 64 * 1024
 

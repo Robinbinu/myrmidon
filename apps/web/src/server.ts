@@ -1943,14 +1943,89 @@ export function startServer(options: ServeOptions): WebServer {
       },
       '/api/plugins': {
         GET: guard(() => json({ plugins: pluginList(), dir: options.plugins?.dir })),
+        // Fetches a plugin and says what it holds; nothing installs until the person confirms that review
+        // (/api/plugin-installs/:id). Agents have no tool that reaches here: installing is the person's action.
+        POST: guard(async (req) => {
+          if (!options.plugins) return json({ error: 'plugins need the chat runtime' }, 503)
+          const body = (await req.json().catch(() => ({}))) as {
+            source?: unknown
+            marketplace?: unknown
+            plugin?: unknown
+          }
+          const from =
+            typeof body.marketplace === 'string' && typeof body.plugin === 'string'
+              ? { marketplace: body.marketplace, plugin: body.plugin }
+              : typeof body.source === 'string'
+                ? body.source
+                : undefined
+          if (!from) return json({ error: 'give a folder, a git URL or npm:<package>' }, 400)
+          try {
+            return json({ preview: await options.plugins.prepare(from) })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 422)
+          }
+        }),
+      },
+      '/api/plugins/:name/update': {
+        POST: guard(async (req) => {
+          if (!options.plugins) return json({ error: 'plugins need the chat runtime' }, 503)
+          try {
+            return json({ preview: await options.plugins.prepareUpdate(req.params.name ?? '') })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 422)
+          }
+        }),
+      },
+      '/api/plugin-installs/:id': {
+        POST: guard(async (req) => {
+          if (!options.plugins) return json({ error: 'plugins need the chat runtime' }, 503)
+          const plugins = options.plugins
+          try {
+            // An update replaces the folder its code runs from: stop that code first, start the new one after.
+            const updating = plugins.reviewed(req.params.id ?? '')
+            if (updating?.replaces) await options.pluginHost?.unload(updating.name)
+            const plugin = await plugins
+              .confirm(req.params.id ?? '')
+              .finally(() => Promise.all([options.mcp?.start(), options.pluginHost?.sync()]))
+            return json({ plugin, plugins: pluginList() })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 422)
+          }
+        }),
+        DELETE: guard((req) => {
+          options.plugins?.cancel(req.params.id ?? '')
+          return json({ ok: true })
+        }),
+      },
+      '/api/plugin-marketplaces': {
+        GET: guard(() => json({ marketplaces: options.plugins?.marketplaces.list() ?? [] })),
         POST: guard(async (req) => {
           if (!options.plugins) return json({ error: 'plugins need the chat runtime' }, 503)
           const { source } = (await req.json().catch(() => ({}))) as { source?: unknown }
-          if (typeof source !== 'string') return json({ error: 'give a folder or a git URL' }, 400)
+          if (typeof source !== 'string') return json({ error: 'give a GitHub owner/repo or a git URL' }, 400)
           try {
-            const plugin = await options.plugins.install(source)
-            await Promise.all([options.mcp?.start(), options.pluginHost?.sync()])
-            return json({ plugin, plugins: pluginList() })
+            const marketplace = await options.plugins.marketplaces.add(source)
+            return json({ marketplace, marketplaces: options.plugins.marketplaces.list() })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 422)
+          }
+        }),
+      },
+      '/api/plugin-marketplaces/:name': {
+        POST: guard(async (req) => {
+          if (!options.plugins) return json({ error: 'plugins need the chat runtime' }, 503)
+          try {
+            await options.plugins.marketplaces.update(req.params.name ?? '')
+            return json({ marketplaces: options.plugins.marketplaces.list() })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 422)
+          }
+        }),
+        DELETE: guard((req) => {
+          if (!options.plugins) return json({ error: 'plugins need the chat runtime' }, 503)
+          try {
+            options.plugins.marketplaces.remove(req.params.name ?? '')
+            return json({ marketplaces: options.plugins.marketplaces.list() })
           } catch (err) {
             return json({ error: err instanceof Error ? err.message : String(err) }, 422)
           }
@@ -2026,6 +2101,65 @@ export function startServer(options: ServeOptions): WebServer {
           if (typeof enabled === 'boolean') options.skills.setEnabled(req.params.name ?? '', enabled)
           if (typeof kept === 'boolean') options.skills.setKept(req.params.name ?? '', kept)
           return json({ skills: options.skills.list() })
+        }),
+        DELETE: guard((req) => {
+          if (!options.skills) return json({ error: 'skills need the chat runtime' }, 503)
+          try {
+            options.skills.installs.remove(req.params.name ?? '')
+            return json({ skills: options.skills.list() })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 422)
+          }
+        }),
+      },
+      // Searching omp's skills registry; an empty search lists its popular skills.
+      '/api/skill-registry': guard(async (_req, url) => {
+        if (!options.skills) return json({ error: 'skills need the chat runtime' }, 503)
+        const q = url.searchParams.get('q')?.trim() ?? ''
+        const client = options.skills.installs.registry
+        try {
+          const hits = q ? (await client.search(q)).hits : (await client.home()).popular
+          return json({ hits, registry: client.url })
+        } catch (err) {
+          return json({ error: err instanceof Error ? err.message : String(err) }, 502)
+        }
+      }),
+      // As with plugins: fetch and review first, install on the person's confirmation.
+      '/api/skill-installs': {
+        POST: guard(async (req) => {
+          if (!options.skills) return json({ error: 'skills need the chat runtime' }, 503)
+          const { source } = (await req.json().catch(() => ({}))) as { source?: unknown }
+          if (typeof source !== 'string') return json({ error: 'give @scope/name or a git URL' }, 400)
+          try {
+            return json({ preview: await options.skills.installs.prepare(source) })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 422)
+          }
+        }),
+      },
+      '/api/skill-installs/:id': {
+        POST: guard((req) => {
+          if (!options.skills) return json({ error: 'skills need the chat runtime' }, 503)
+          try {
+            const names = options.skills.installs.confirm(req.params.id ?? '')
+            return json({ names, skills: options.skills.list() })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 422)
+          }
+        }),
+        DELETE: guard((req) => {
+          options.skills?.installs.cancel(req.params.id ?? '')
+          return json({ ok: true })
+        }),
+      },
+      '/api/skills/:name/update': {
+        POST: guard(async (req) => {
+          if (!options.skills) return json({ error: 'skills need the chat runtime' }, 503)
+          try {
+            return json({ preview: await options.skills.installs.prepareUpdate(req.params.name ?? '') })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 422)
+          }
         }),
       },
       '/api/skills/:name/restore': {

@@ -51,6 +51,16 @@ import { ModelPicker, windowLabel } from './chat/ModelPicker.tsx'
 import { modelName, usersOf, withoutModel } from './chat/model-list.ts'
 import { SpecialistEditor } from './chat/SpecialistEditor.tsx'
 import { copy } from './copy.ts'
+import {
+  AddSkills,
+  type InstalledFromView,
+  InstalledLine,
+  InstallReview,
+  Marketplaces,
+  type PluginPreviewView,
+  type Review,
+  type SkillPreviewView,
+} from './installs.tsx'
 import { type MascotPatch, SETTINGS_SAVED, withMascotDefaults } from './mascot.ts'
 import { MascotBehaviour, MascotPreview, MiniMascot } from './mascot-settings.tsx'
 import type { CatalogTool } from './permissions/describe.ts'
@@ -5240,6 +5250,8 @@ export interface SkillEntry {
   source: 'myrmidon' | 'claude' | 'plugin' | 'project'
   enabled: boolean
   curation?: { uses: number; lastUsed?: string; stale: boolean; kept: boolean }
+  /** Installed from the skills registry, a repository or a folder. */
+  installed?: InstalledFromView
 }
 
 interface SkillsResponse {
@@ -5273,6 +5285,8 @@ export interface PluginEntry {
   settings: Record<string, { type: 'string' | 'number' | 'boolean'; description?: string; secret?: boolean }>
   values: Record<string, string | number | boolean>
   status?: { loaded: boolean; error?: string; tools: string[]; log: string[] }
+  /** Where it was installed from, pinned to a version or commit. */
+  installed?: InstalledFromView
 }
 
 /** A plugin's settings, saved one field at a time when it loses focus (or a switch flips). */
@@ -5331,17 +5345,29 @@ function PluginsSection() {
   useEffect(() => {
     void load()
   }, [])
+  const [review, setReview] = useState<Review>()
+  const [updating, setUpdating] = useState<string>()
   const add = async () => {
     setAdding(true)
     try {
-      const r = await send<{ plugin: PluginEntry }>('POST', '/api/plugins', { source })
-      toast(copy.settings.plugins.added(r.plugin.name), 'success')
+      const r = await post<{ preview: PluginPreviewView }>('/api/plugins', { source })
+      setReview({ kind: 'plugin', preview: r.preview })
       setSource('')
-      await load()
     } catch (err) {
       toast((err as Error).message, 'error')
     } finally {
       setAdding(false)
+    }
+  }
+  const update = async (name: string) => {
+    setUpdating(name)
+    try {
+      const r = await post<{ preview: PluginPreviewView }>(`/api/plugins/${name}/update`, {})
+      setReview({ kind: 'plugin', preview: r.preview })
+    } catch (err) {
+      toast((err as Error).message, 'error')
+    } finally {
+      setUpdating(undefined)
     }
   }
   const [logOpen, setLogOpen] = useState<string>()
@@ -5467,11 +5493,26 @@ function PluginsSection() {
                         )}
                       </div>
                     ) : null}
-                    <p className="mt-1 truncate font-mono text-footnote text-muted" title={p.dir}>
-                      {p.dir}
-                    </p>
+                    {p.installed ? (
+                      <InstalledLine from={p.installed} label={copy.settings.plugins.from} />
+                    ) : (
+                      <p className="mt-1 truncate font-mono text-footnote text-muted" title={p.dir}>
+                        {p.dir}
+                      </p>
+                    )}
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
+                    {p.installed && (
+                      <Button
+                        size="sm"
+                        variant="borderless"
+                        loading={updating === p.name}
+                        disabled={!!updating}
+                        onClick={() => void update(p.name)}
+                      >
+                        {updating === p.name ? copy.settings.plugins.updating : copy.settings.plugins.update}
+                      </Button>
+                    )}
                     <ConfirmButton
                       label={copy.settings.plugins.remove}
                       confirm={copy.settings.plugins.confirmRemove}
@@ -5499,6 +5540,19 @@ function PluginsSection() {
           <p className="mt-2 text-small text-muted">{copy.settings.plugins.applies}</p>
         </>
       )}
+      <Marketplaces installed={data?.plugins.map((p) => p.name) ?? []} onReview={setReview} />
+      <AnimatePresence>
+        {review && (
+          <InstallReview
+            review={review}
+            onClose={() => setReview(undefined)}
+            onInstalled={() => {
+              setReview(undefined)
+              void load()
+            }}
+          />
+        )}
+      </AnimatePresence>
     </>
   )
 }
@@ -5545,6 +5599,19 @@ function SkillsSection() {
   const toast = useToast()
   const [data, setData] = useState<SkillsResponse>()
   const [proposed, setProposed] = useState<SkillProposalView[]>([])
+  const [review, setReview] = useState<Review>()
+  const [updating, setUpdating] = useState<string>()
+  const update = async (name: string) => {
+    setUpdating(name)
+    try {
+      const r = await post<{ preview: SkillPreviewView }>(`/api/skills/${name}/update`, {})
+      setReview({ kind: 'skill', preview: r.preview })
+    } catch (err) {
+      toast((err as Error).message, 'error')
+    } finally {
+      setUpdating(undefined)
+    }
+  }
   const load = () => {
     api<{ proposals: SkillProposalView[] }>('/api/skill-proposals')
       .then((r) => setProposed(r.proposals))
@@ -5570,6 +5637,7 @@ function SkillsSection() {
         {data?.retire &&
           ` ${copy.settings.skills.retireIntro(data.retire.staleDays, data.retire.archiveDays)}`}
       </PageHeader>
+      <AddSkills installed={data?.skills.map((s) => s.name) ?? []} onReview={setReview} />
       {proposed.length > 0 && (
         <div {...settingRow('skills.proposed')} className="mb-6 flex flex-col gap-3">
           <SectionHeader title={copy.settings.skills.proposed(proposed.length)} />
@@ -5609,6 +5677,7 @@ function SkillsSection() {
                     )}
                   </div>
                   <SkillDescription text={s.description} dir={s.dir} />
+                  {s.installed && <InstalledLine from={s.installed} label={copy.settings.skills.from} />}
                   {s.curation && (
                     <div className="mt-1 text-footnote text-muted">
                       {copy.settings.skills.uses(
@@ -5618,6 +5687,29 @@ function SkillsSection() {
                     </div>
                   )}
                 </div>
+                {s.installed && (
+                  <>
+                    <Button
+                      size="sm"
+                      variant="borderless"
+                      loading={updating === s.name}
+                      disabled={!!updating}
+                      onClick={() => void update(s.name)}
+                    >
+                      {copy.settings.skills.update}
+                    </Button>
+                    <ConfirmButton
+                      label={copy.settings.skills.remove}
+                      confirm={copy.settings.skills.confirmRemove}
+                      onConfirm={() =>
+                        void send('DELETE', `/api/skills/${s.name}`)
+                          .then(() => toast(copy.settings.skills.removed(s.name), 'success'))
+                          .then(load)
+                          .catch((err: Error) => toast(err.message, 'error'))
+                      }
+                    />
+                  </>
+                )}
                 {s.curation && (
                   <Button
                     size="sm"
@@ -5681,6 +5773,18 @@ function SkillsSection() {
           </Card>
         </div>
       )}
+      <AnimatePresence>
+        {review && (
+          <InstallReview
+            review={review}
+            onClose={() => setReview(undefined)}
+            onInstalled={() => {
+              setReview(undefined)
+              void load()
+            }}
+          />
+        )}
+      </AnimatePresence>
     </>
   )
 }
