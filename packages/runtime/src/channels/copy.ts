@@ -353,6 +353,8 @@ export const channelCopy = {
     read: (path: string) => `reading ${path}`,
     edit: (path: string) => `editing ${path}`,
     search: (query: string) => `searching “${query}”`,
+    find: (query: string) => `looking for “${query}” in the code`,
+    github: (op: string) => `on GitHub (${op})`,
     fetch: 'reading a page',
     browser: 'using the browser',
     publish: (name: string) => `publishing ${name}`,

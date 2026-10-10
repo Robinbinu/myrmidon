@@ -256,6 +256,58 @@ export const LSP_PROJECT_CHECK_MS = 300_000
 /** Most references and workspace symbols lsp lists; the rest are counted. */
 export const LSP_LIST_LIMIT = 100
 
+/**
+ * find (find.ts): omp's cascade, which ranks files by their words, then has a model judge their names, sketches of
+ * their passages and finally the passages whole. omp sizes it for a native judge that is cheap per question; here the
+ * judge is a prompted chat model (the cheapest the person has), so every budget is smaller than omp's (128
+ * candidates, 20 files, 40 passages) to keep one call to a few requests.
+ */
+export const FIND = {
+  /** Files ranked by their words that the judge then ranks by name. */
+  candidates: 64,
+  /** Files per name-ranking request. */
+  nameBatch: 64,
+  /** Files read and cut into passages. */
+  files: 12,
+  /** Passages kept per file read, its best by words. */
+  windows: 12,
+  /** Bytes per passage, as omp cuts them. */
+  windowBytes: 8_192,
+  /** Bytes of each passage's sketch, and of sketches sent in one request. */
+  sketchBytes: 384,
+  sketchStateBytes: 18_000,
+  /** Passages verified whole, across all files, and their bytes per request. */
+  verified: 16,
+  verifyStateBytes: 24 * 1024,
+  /** Sketch score under which a passage is not verified, and passage score from which a file is a hit (omp's). */
+  cutoff: 0.45,
+  threshold: 0.2,
+  /** Judge requests in flight at once. */
+  parallel: 6,
+  /** Hits listed, and line ranges shown per hit. */
+  hits: 10,
+  ranges: 3,
+  /** Most bytes of one file read; the rest of a bigger file is not searched. */
+  readBytes: 4 * 1024 * 1024,
+  /** Wall-clock budget for one call; a stalled judge fails the call instead of holding the turn. */
+  timeoutMs: 60_000,
+} as const
+
+/**
+ * The github tool (github.ts), which runs the GitHub CLI where the agent's commands run. Bounds on how long one `gh`
+ * call and one run_watch may take, and how often run_watch asks: GitHub's API allows 5,000 calls an hour per person.
+ */
+export const GITHUB = {
+  commandMs: 60_000,
+  watchMs: 10 * 60_000,
+  pollMs: 10_000,
+  /** How long the person's GitHub token is kept in memory before gh is asked for it again. */
+  tokenMs: 60_000,
+  /** Items an issue, pull request or run list shows, by default and at most. */
+  listLimit: 20,
+  listMax: 100,
+} as const
+
 // Code cells (cells.ts): eval
 
 /**
