@@ -38,6 +38,15 @@ let log: string
 let path: string | undefined
 const undo: (() => void)[] = []
 
+const SIGN_IN_ENV = [
+  'GH_TOKEN',
+  'GITHUB_TOKEN',
+  'GH_ENTERPRISE_TOKEN',
+  'GITHUB_ENTERPRISE_TOKEN',
+  'GH_CONFIG_DIR',
+]
+let saved: Record<string, string | undefined> = {}
+
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'myr-gh-'))
   mkdirSync(join(dir, 'bin'))
@@ -52,11 +61,17 @@ beforeEach(() => {
     ...(path ?? '').split(delimiter).filter((p) => !Bun.which('gh', { PATH: p })),
   ].join(delimiter)
   process.env.FAKE_GH_LOG = log
+  // A second wall: were the real gh reached after all, it would find no sign-in, so nothing reaches GitHub.
+  saved = Object.fromEntries(SIGN_IN_ENV.map((k) => [k, process.env[k]]))
+  for (const k of SIGN_IN_ENV) delete process.env[k]
+  process.env.GH_CONFIG_DIR = join(dir, 'gh-config')
   forgetGhToken()
 })
 
 afterEach(() => {
   process.env.PATH = path
+  delete process.env.GH_CONFIG_DIR
+  for (const [k, v] of Object.entries(saved)) if (v !== undefined) process.env[k] = v
   delete process.env.FAKE_GH_LOG
   delete process.env.FAKE_GH_SIGNED_OUT
   for (const u of undo.splice(0)) u()
