@@ -563,7 +563,12 @@ Open work, in the order it will be done:
           Bash hands off through an exited parent (e.g. `sleep 30`) are not linked by parent PID and outlive the
           stop. Needs a Job Object per command.
 12y. - [ ] **omp features Myrmidon lacks** (asked 2026-10-10; reuse omp's modules where they fit):
-      1. Long-term memory engine: extraction from chats, recall / reflect / edit (omp hindsight, mnemopi).
+      1. Long-term memory engine: extraction from chats, recall / reflect / edit (omp hindsight, mnemopi). Done
+         2026-10-10 (memory.ts, memory-review.ts): prompts carry every kept memory while they fit, then the newest
+         preferences and the most relevant (BM25, freshness, MMR) with `recall` for the rest; a cheap model suggests
+         memories from what the person said after a round (quoting them, never secrets) and merges for repeats or
+         stale ones (Tidy up, or daily when two overlap); agents correct one with remember's `replaces`; all wait for
+         the person. Left: embeddings (lexical recall misses synonyms); memory for channel members' rounds.
       2. Debugger for agents over the Debug Adapter Protocol (omp dap).
       3. Live session sharing: another person joins a chat live (omp collab). Done: Share live… in a chat's menu
          makes a one-time invite (watch, or watch and write); guests see only that chat's conversation, write

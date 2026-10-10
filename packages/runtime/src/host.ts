@@ -200,11 +200,19 @@ export interface ColonyHost {
   loadTools(agent: string, query: string): string
   /** Brings the project folder's current state into an agent's worktree; the files it changed there. */
   refreshWork(agent: string): Promise<string[]>
-  /** Proposes a memory for the person to keep across chats. */
+  /** Proposes a memory for the person to keep across chats, maybe in place of kept ones (`replaces`). */
   proposeMemory(
     agent: string,
-    input: { text: string; kind: string; scope: 'everywhere' | 'project'; why: string },
+    input: {
+      text: string
+      kind: string
+      scope: 'everywhere' | 'project'
+      why: string
+      replaces?: readonly string[]
+    },
   ): Promise<string>
+  /** The person's kept memories best matching `query`, for this chat's scope (recall). */
+  recallMemory(query: string): string
   /** Ends this round and has the chat rerun its request at a bigger tier, keeping the work so far. */
   escalate(by: string, to: 'solo' | 'team', reason: string): Promise<string>
 }

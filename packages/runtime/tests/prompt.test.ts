@@ -148,7 +148,11 @@ const matrix: [string, ColonySpec, AgentSpec, Partial<Environment>?][] = [
   ],
   ['solo in a read-only project', chat({ agents: [lead] }, inProject('read-only')), lead],
   ['solo in an ask-first project', chat({ agents: [lead] }, inProject('ask')), lead],
-  ['solo in a project', chat({ agents: [lead] }, { ...inProject('auto'), memory: ['- Likes tea.'] }), lead],
+  [
+    'solo in a project',
+    chat({ agents: [lead] }, { ...inProject('auto'), memory: ['- Likes tea.'], memoryMore: 3 }),
+    lead,
+  ],
   [
     'solo with full access',
     chat({ agents: [lead], fullAccess: true }, inProject('auto')),
@@ -568,6 +572,20 @@ test('a team lead assigns tasks and holds none, so it has no claim, release or s
   expect(toolsFor(teamRound, lead)).toEqual(
     expect.arrayContaining(['create_task', 'assign_task', 'reject_task']),
   )
+})
+
+test('memory left out for room is searched with recall, told only to agents that have it', () => {
+  const { view } = views.find((v) => v.label === 'solo in a project') ?? {}
+  if (!view) throw new Error('no solo in a project')
+  expect(view.facts.tools.names).toContain('recall')
+  expect(view.system.join('\n')).toContain('3 more are kept; search them with recall.')
+  const worker = views.find((v) => !v.view.facts.tools.names.includes('recall'))?.view
+  if (!worker) throw new Error('every agent has recall')
+  const facts = {
+    ...worker.facts,
+    context: { ...worker.facts.context, memory: ['- Likes tea.'], memoryMore: 3 },
+  }
+  expect(viewOf(facts).system.join('\n')).not.toContain('more are kept')
 })
 
 test("a round's first message says the request once, and the board it carries leaves its copy out", () => {

@@ -55,6 +55,8 @@ export interface ColonySpec {
     escalate?: ('solo' | 'team')[]
     /** What the person keeps across chats, as prompt lines. */
     memory?: string[]
+    /** Kept memories left out of `memory` for room, which agents search with recall. */
+    memoryMore?: number
     /** The person started this round by writing to these crew members directly (@name): they start it, not the lead. */
     addressed?: string[]
     /** The opening message was said aloud on a voice call (its answer is read aloud). */
