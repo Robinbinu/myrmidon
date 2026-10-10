@@ -82,11 +82,12 @@ Electrobun.events.on(`host-message-${win.webview.id}`, (event: { data?: { detail
   )
 })
 
-// Links that leave the app (target=_blank, window.open) open in the default browser.
+// Links that leave the app (target=_blank, window.open) open in the default browser, or in VS Code or Cursor for a
+// chat's folder (Open in, in the chat list's menu).
 Electrobun.events.on(`new-window-open-${win.webview.id}`, (event: { data?: { detail?: unknown } }) => {
   const detail = event.data?.detail
   const url = typeof detail === 'string' ? detail : (detail as { url?: unknown } | undefined)?.url
-  if (typeof url === 'string' && /^(https?|mailto):/i.test(url)) Utils.openExternal(url)
+  if (typeof url === 'string' && /^(https?|mailto|vscode|cursor):/i.test(url)) Utils.openExternal(url)
 })
 
 async function answer(request: Request): Promise<unknown> {

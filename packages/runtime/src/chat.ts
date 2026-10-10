@@ -29,6 +29,7 @@ import {
 import type { BrowserHub } from './browser.ts'
 import { namingModel } from './catalog.ts'
 import { ChatIndex, type CrewMember, type IndexedRound, type MessageHit } from './chat-index.ts'
+import type { ChatPlace, ChatShelf } from './chat-shelf.ts'
 import { nameChat } from './chat-titles.ts'
 import type { Checkpoints } from './checkpoints.ts'
 import { type Attachment, ColonyRun, RoundClosingError, type Runtime, SETTLE_MS } from './colony.ts'
@@ -154,6 +155,8 @@ export interface SendOptions {
   readonly permissions?: unknown
   /** The message answers a question card: which one, and what was picked (the card shows it). */
   readonly answers?: QuestionAnswers
+  /** A new chat forked from this one: its first round starts from that chat's conversation and project. */
+  readonly forkOf?: string
 }
 
 /** Accepts the current team config or the older `{ mode: 'auto' | 'manual', workers, workerModel }` shape. */
@@ -236,6 +239,11 @@ export interface ChatSummary {
   readonly fullAccess?: boolean
   /** Apps on the person's Mac they let agents use in this chat (computer use). */
   readonly computerApps?: readonly ComputerApp[]
+  /** Where the person filed it in their list: pinned, archived, in a group, forked from another chat. */
+  readonly pinnedAt?: string
+  readonly archivedAt?: string
+  readonly group?: string
+  readonly forkOf?: string
 }
 
 /** The earlier rounds of a chat as `User:` / `Colony:` pairs, for agents that were not in them. */
@@ -312,6 +320,8 @@ export class ChatService {
       skillProposals?: SkillProposalStore
       /** How long a round's crew sits quiet before it is nudged, or a wound-down round closes (see RunOptions). */
       quietMs?: number
+      /** Where the person filed each chat (pins, archive, groups, forks). */
+      shelf?: ChatShelf
     },
   ) {}
 
@@ -544,6 +554,7 @@ export class ChatService {
         ...(last.reads?.length ? { reads: last.reads } : {}),
         ...(last.fullAccess ? { fullAccess: true } : {}),
         ...(last.computerApps?.length ? { computerApps: last.computerApps } : {}),
+        ...this.options.shelf?.place(chatId),
         rounds: list.map((r) => ({
           colonyId: r.colonyId,
           round: r.round,
@@ -642,7 +653,11 @@ export class ChatService {
     // colony's log; the next round in that colony starts once it is done, so the old one never acts on the new one.
     if (live) await live.done
     const previous = await this.rounds(id)
-    const history = conversation(previous)
+    // A fork's first round starts from the chat it came from: that conversation, in that chat's project.
+    const source = !previous.length && options.forkOf ? await this.rounds(options.forkOf) : []
+    if (options.forkOf && !previous.length && !source.length) throw new Error('the chat to fork is gone')
+    if (source.length && options.forkOf) this.options.shelf?.fork(id, options.forkOf)
+    const history = conversation(previous.length ? previous : source)
     // Written to crew members directly (@name): the round starts with them, and they answer.
     const latestState = previous.at(-1)?.state
     const to = latestState ? addressedIn(message, latestState) : []
@@ -657,7 +672,7 @@ export class ChatService {
     // A chat keeps the project it started in; only a new chat can pick one.
     // A chat keeps its folder, but permissions are re-read each round so a change applies from the next message.
     const latest = previous.at(-1)
-    const earlier = latest?.state.chat?.project
+    const earlier = (latest ?? source.at(-1))?.state.chat?.project
     const project = earlier
       ? (this._project(earlier.id, false) ?? {
           ...earlier,
@@ -858,6 +873,17 @@ export class ChatService {
     const live = [...this._live.values()].find((r) => r.id === colony)
     if (live && live.state().status === 'running') await live.append(draft)
     else await this.runtime.ctx.log.appendOne(colony as never, draft)
+  }
+
+  /** Pins, archives or files a chat in one of the person's groups (`false` and `null` take each back). */
+  async file(
+    chatId: string,
+    patch: { pinned?: boolean; archived?: boolean; group?: string | null },
+  ): Promise<ChatPlace> {
+    const shelf = this.options.shelf
+    if (!shelf) throw new Error('this server keeps no chat list places')
+    if (!(await this.rounds(chatId)).length) throw new Error('no such chat')
+    return shelf.file(chatId, patch)
   }
 
   /** Renames a conversation; recorded in its latest round's log, so the name survives restarts. */
@@ -1417,6 +1443,7 @@ export class ChatService {
         this.store.deleteColony(id as never)
         this.index.forget(id)
       }
+      this.options.shelf?.forget([chatId])
       return ids
     } finally {
       this._deleting.delete(chatId)
