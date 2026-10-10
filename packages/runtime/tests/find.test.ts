@@ -1,9 +1,8 @@
 import { afterAll, beforeAll, expect, test } from 'bun:test'
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
 import type { Judge, JudgmentRequest, Questions } from '@oh-my-pi/pi-ai'
-import { removeTempDir } from '../../../tests/platform.ts'
 import { find } from '../src/find.ts'
 import type { ColonyHost } from '../src/host.ts'
 import { TOOL_DEFS } from '../src/tools.ts'
@@ -47,7 +46,7 @@ beforeAll(() => {
   )
 })
 
-afterAll(() => removeTempDir(dir))
+afterAll(() => rmSync(dir, { recursive: true, force: true }))
 
 const mayRead = (path: string) => !path.startsWith(join(dir, 'private') + sep)
 const scope = () => ({ root: dir, target: dir, isFile: false, mayRead })

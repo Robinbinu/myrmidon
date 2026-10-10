@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { EventPayloads } from '@myrmidon/protocol'
@@ -14,7 +14,6 @@ import type {
 } from '@oh-my-pi/pi-ai'
 import { createMockModel } from '@oh-my-pi/pi-ai/providers/mock'
 import { AssistantMessageEventStream } from '@oh-my-pi/pi-ai/utils/event-stream'
-import { pendingOn, removeTempDir } from '../../../tests/platform.ts'
 import {
   bootRuntime,
   ChatService,
@@ -37,7 +36,7 @@ let home: string
 beforeEach(() => {
   home = mkdtempSync(join(tmpdir(), 'myr-stream-rules-'))
 })
-afterEach(() => removeTempDir(home))
+afterEach(() => rmSync(home, { recursive: true, force: true }))
 
 const ruleFile = (fm: string, body: string) => `---\n${fm}\n---\n\n${body}\n`
 const rule = (name: string, fm: string, body = `Follow ${name}.`): StreamRule => {
@@ -380,78 +379,75 @@ test('a drafted rule is checked against what the round wrote, as the live check 
   ])
 })
 
-pendingOn('win32', 'fileToolPathsOnWindows')(
-  'in a round, a stopped tool call never runs, its rewrite does, and the stop is logged',
-  async () => {
-    const runtime = await bootRuntime(home)
-    try {
-      mkdirSync(join(home, 'rules'), { recursive: true })
-      writeFileSync(
-        join(home, 'rules', 'ts-no-any.md'),
-        ruleFile(
-          'description: No any in TypeScript\ncondition: ": any"\nscope: "tool:fs_write(*.ts)"',
-          'Use `unknown`.',
-        ),
-      )
-      const seen: LlmContext[] = []
-      const mock = createMockModel({
-        handler: (ctx: LlmContext) => {
-          seen.push(ctx)
-          const guided = JSON.stringify(ctx.messages).includes('system-interrupt')
-          const wrote = ctx.messages.some((m) => m.role === 'toolResult')
-          if (wrote) return { content: ['done'] }
-          return {
-            content: [
-              {
-                type: 'toolCall',
-                name: 'fs_write',
-                arguments: {
-                  path: 'a.ts',
-                  content: guided ? 'const x: unknown = 1\n' : 'const x: any = 1\n',
-                },
+test('in a round, a stopped tool call never runs, its rewrite does, and the stop is logged', async () => {
+  const runtime = await bootRuntime(home)
+  try {
+    mkdirSync(join(home, 'rules'), { recursive: true })
+    writeFileSync(
+      join(home, 'rules', 'ts-no-any.md'),
+      ruleFile(
+        'description: No any in TypeScript\ncondition: ": any"\nscope: "tool:fs_write(*.ts)"',
+        'Use `unknown`.',
+      ),
+    )
+    const seen: LlmContext[] = []
+    const mock = createMockModel({
+      handler: (ctx: LlmContext) => {
+        seen.push(ctx)
+        const guided = JSON.stringify(ctx.messages).includes('system-interrupt')
+        const wrote = ctx.messages.some((m) => m.role === 'toolResult')
+        if (wrote) return { content: ['done'] }
+        return {
+          content: [
+            {
+              type: 'toolCall',
+              name: 'fs_write',
+              arguments: {
+                path: 'a.ts',
+                content: guided ? 'const x: unknown = 1\n' : 'const x: any = 1\n',
               },
-            ],
-          }
-        },
-      })
-      const resolver = new ModelResolver()
-      resolver.register('mock/solo', { model: mock.model, streamFn: mock.stream })
-      const spec = parseColonySpec({
-        name: 'Rules',
-        mission: 'Write a.ts.',
-        agents: [{ name: 'solo', model: 'mock/solo', tools: ['fs_write'] }],
-        budget: { wall: '20s' },
-      })
-      const run = new ColonyRun(runtime, spec, { resolver, quietMs: 200, rules: new StreamRuleStore(home) })
-      await run.start()
-      await run.done
-      expect(readFileSync(join(run.workspace.workdir('solo'), 'a.ts'), 'utf8')).toBe('const x: unknown = 1\n')
-      const log = await runtime.ctx.log.read(run.id)
-      const fired = log.filter((e) => e.type === 'rule/fired').map((e) => e.payload)
-      expect(fired).toEqual([
-        {
-          agent: 'solo',
-          rule: 'ts-no-any',
-          description: 'No any in TypeScript',
-          source: 'tool',
-          tool: 'fs_write',
-          path: expect.stringContaining('ts-no-any.md'),
-        },
-      ])
-      // The stopped attempt is not part of the record: one write, from the reply that kept to the rule.
-      const writes = log.filter((e) => e.type === 'tool/call')
-      expect(writes).toHaveLength(1)
-      expect(JSON.stringify(log.filter((e) => e.type === 'llm/response'))).not.toContain(': any')
-      const guidance = seen
-        .flatMap((c) => c.messages)
-        .filter((m) => m.role === 'user' && String(m.content).includes('<system-interrupt'))
-      expect(guidance.length).toBeGreaterThan(0)
-      expect(String(guidance[0]?.content)).toContain('rule="ts-no-any"')
-    } finally {
-      await runtime.dispose()
-    }
-  },
-)
+            },
+          ],
+        }
+      },
+    })
+    const resolver = new ModelResolver()
+    resolver.register('mock/solo', { model: mock.model, streamFn: mock.stream })
+    const spec = parseColonySpec({
+      name: 'Rules',
+      mission: 'Write a.ts.',
+      agents: [{ name: 'solo', model: 'mock/solo', tools: ['fs_write'] }],
+      budget: { wall: '20s' },
+    })
+    const run = new ColonyRun(runtime, spec, { resolver, quietMs: 200, rules: new StreamRuleStore(home) })
+    await run.start()
+    await run.done
+    expect(readFileSync(join(run.workspace.workdir('solo'), 'a.ts'), 'utf8')).toBe('const x: unknown = 1\n')
+    const log = await runtime.ctx.log.read(run.id)
+    const fired = log.filter((e) => e.type === 'rule/fired').map((e) => e.payload)
+    expect(fired).toEqual([
+      {
+        agent: 'solo',
+        rule: 'ts-no-any',
+        description: 'No any in TypeScript',
+        source: 'tool',
+        tool: 'fs_write',
+        path: expect.stringContaining('ts-no-any.md'),
+      },
+    ])
+    // The stopped attempt is not part of the record: one write, from the reply that kept to the rule.
+    const writes = log.filter((e) => e.type === 'tool/call')
+    expect(writes).toHaveLength(1)
+    expect(JSON.stringify(log.filter((e) => e.type === 'llm/response'))).not.toContain(': any')
+    const guidance = seen
+      .flatMap((c) => c.messages)
+      .filter((m) => m.role === 'user' && String(m.content).includes('<system-interrupt'))
+    expect(guidance.length).toBeGreaterThan(0)
+    expect(String(guidance[0]?.content)).toContain('rule="ts-no-any"')
+  } finally {
+    await runtime.dispose()
+  }
+})
 
 test('/rule: the lead model drafts a rule from the complaint, retries until it catches the reply, and it is saved', async () => {
   const runtime = await bootRuntime(home)

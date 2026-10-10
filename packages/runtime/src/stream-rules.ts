@@ -153,7 +153,7 @@ export class StreamRuleStore {
       .flatMap((f) => {
         const path = join(this.dir, f)
         try {
-          const real = realpathSync(path)
+          const real = realpathSync.native(path)
           const stat = statSync(real)
           return stat.isFile() && stat.size <= RULE_FILE_MAX_BYTES
             ? [{ name: f.replace(/\.mdc?$/, ''), path: real }]

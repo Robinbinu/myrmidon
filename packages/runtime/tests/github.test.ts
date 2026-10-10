@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { decide, type PermissionCall, type PermissionLevels } from '@myrmidon/protocol'
-import { bunShim, removeTempDir } from '../../../tests/platform.ts'
+import { bunShim } from '../../../tests/platform.ts'
 import { forgetGhToken, posixLine } from '../src/github.ts'
 import type { ColonyHost, ReviewDecision } from '../src/host.ts'
 import { prompts } from '../src/prompts.ts'
@@ -76,7 +76,7 @@ afterEach(() => {
   delete process.env.FAKE_GH_SIGNED_OUT
   for (const u of undo.splice(0)) u()
   forgetGhToken()
-  removeTempDir(dir)
+  rmSync(dir, { recursive: true, force: true })
 })
 
 const calls = () =>

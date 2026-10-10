@@ -8,7 +8,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { homedir } from 'node:os'
-import { basename, join, parse, relative, resolve, sep } from 'node:path'
+import { basename, join, parse, relative, resolve } from 'node:path'
 import { type LegacyProjectPermissions, type ProjectPermissions, projectLevelFrom } from '@myrmidon/protocol'
 import {
   MAX_FIND_RESULTS,
@@ -18,7 +18,16 @@ import {
   MAX_TREE_ENTRIES,
 } from './config.ts'
 import { git } from './git.ts'
-import { expandHome, pathOf, readFolder, realPath, secretAt, secretPaths, within } from './read-access.ts'
+import {
+  expandHome,
+  pathOf,
+  readFolder,
+  realPath,
+  secretAt,
+  secretPaths,
+  slashed,
+  within,
+} from './read-access.ts'
 
 /**
  * Project folders, like Claude Code's and Codex's: a chat can belong to a directory on this machine. Its agents
@@ -145,8 +154,8 @@ export function isFsRoot(path: string, platform: NodeJS.Platform = process.platf
 function checkedDir(path: string): string {
   const abs = absoluteFolder(path)
   if (!existsSync(abs) || !statSync(abs).isDirectory()) throw new Error(`not a folder: ${abs}`)
-  const real = realpathSync(abs)
-  if (isFsRoot(real) || real === realpathSync(homedir()))
+  const real = realpathSync.native(abs)
+  if (isFsRoot(real) || real === realpathSync.native(homedir()))
     throw new Error(`pick a project folder, not ${parse(real).root} or your home folder`)
   return real
 }
@@ -216,7 +225,7 @@ const secretRefused = (path: string) => `${path} holds keys or sign-ins, which t
  * for other views of the folder, such as its git diffs.
  */
 export function projectSecret(root: string, file: string, guard: SecretGuard = {}): boolean {
-  const base = realpathSync(root)
+  const base = realpathSync.native(root)
   return hiddenBy(resolve(base, file), secretsIn(base, guard))
 }
 
@@ -237,9 +246,9 @@ function projectPath(
   allowRoot: boolean,
   guard: SecretGuard,
 ): { base: string; real: string; secrets: string[] } {
-  const base = realpathSync(root)
+  const base = realpathSync.native(root)
   const abs = resolve(base, path)
-  const real = existsSync(abs) ? realpathSync(abs) : abs
+  const real = existsSync(abs) ? realpathSync.native(abs) : abs
   if ((!path && !allowRoot) || !within(real, base) || (!allowRoot && within(base, real)))
     throw new Error(`${path} is not in this project`)
   const secrets = secretsIn(base, guard)
@@ -249,8 +258,6 @@ function projectPath(
 }
 
 /** A path relative to a project folder as git and the app write it, with `/` on Windows too. */
-const slashed = (path: string) => path.split(sep).join('/')
-
 /** A text file in a project folder, for the person to read in the app: one an agent edited, say. */
 export function readProjectFile(
   root: string,

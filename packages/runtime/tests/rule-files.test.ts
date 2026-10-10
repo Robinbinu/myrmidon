@@ -4,7 +4,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { type EventPayloads, foldColony } from '@myrmidon/protocol'
 import { createMockModel, type MockContent } from '@oh-my-pi/pi-ai/providers/mock'
-import { pendingOn } from '../../../tests/platform.ts'
 import { INSTRUCTIONS_MAX_TEXT, RULE_FILE_MAX_BYTES, RULE_MAX_TEXT } from '../src/config.ts'
 import type { ColonyHost } from '../src/host.ts'
 import {
@@ -252,7 +251,7 @@ test('a file-scoped rule comes with the first matching file an agent reads or ed
   write('src/b.ts', 'export const b = 2\n')
   write('notes.md', 'notes\n')
   write('other.txt', 'plain\n')
-  const base = realpathSync(root)
+  const base = realpathSync.native(root)
   // Enough of a round for the file tools: edits in the project are allowed outright.
   const host = {
     project: readProjectContext(root),
@@ -292,60 +291,57 @@ test('a file-scoped rule comes with the first matching file an agent reads or ed
   )
 })
 
-pendingOn('win32', 'fileToolPathsOnWindows')(
-  "a round in a project gives its agent the project's rules and says which files they came from",
-  async () => {
-    write('.cursorrules', 'Answer in British English.')
-    write('.cursor/rules/ts.mdc', mdc('globs: "**/*.ts"', 'Never use any.'))
-    write('src/a.ts', 'export {}\n')
-    const home = join(dir, 'home')
-    mkdirSync(home)
-    const runtime = await bootRuntime(home)
-    try {
-      const resolver = new ModelResolver()
-      const prompts: string[] = []
-      const script: MockContent[][] = [
-        [{ type: 'toolCall', name: 'fs_read', arguments: { path: 'src/a.ts' } }],
-        [{ type: 'toolCall', name: 'reply_user', arguments: { text: 'Read it.', final: true } }],
-      ]
-      const lead = createMockModel({
-        handler: (ctx) => {
-          prompts.push([ctx.systemPrompt ?? []].flat().join('\n'))
-          return { content: script[prompts.length - 1] ?? ['ok'] }
-        },
-      })
-      resolver.register('mock/lead', { model: lead.model, streamFn: lead.stream })
-      const judge = createMockModel({ handler: () => ({ content: ['{"score": 0.9, "reasons": "ok"}'] }) })
-      resolver.register('mock/judge', { model: judge.model, streamFn: judge.stream })
-      const projects = new ProjectStore(home)
-      const project = projects.add(realpathSync(root))
-      const chats = new ChatService(runtime, { resolver, settings: new SettingsStore(home), projects })
-      const config = {
-        mode: 'orchestrated' as const,
-        leadModel: 'mock/lead',
-        roster: [],
-        judgeModel: 'mock/judge',
-      }
-      const { colonyId } = await chats.send('Read src/a.ts', config, undefined, { project: project.id })
-      const events = () => runtime.ctx.log.read(colonyId as never)
-      for (let i = 0; i < 400; i++) {
-        const st = foldColony(colonyId, await events())
-        if (st.status !== 'running' && st.status !== 'created') break
-        await Bun.sleep(50)
-      }
-      await chats.stopAll()
-      const all = await events()
-      const started = all.find((e) => e.type === 'colony/started')?.payload as EventPayloads['colony/started']
-      expect(started.rules).toEqual(['.cursorrules', '.cursor/rules/ts.mdc'])
-      expect(prompts[0]).toContain('Answer in British English.')
-      expect(prompts[0]).toContain('- ts (**/*.ts) [.cursor/rules/ts.mdc]')
-      const read = all
-        .filter((e) => e.type === 'tool/result')
-        .map((e) => e.payload as EventPayloads['tool/result'])
-        .find((r) => r.tool === 'fs_read')
-      expect(read?.output).toContain('<project_rule name="ts">\nNever use any.\n</project_rule>')
-    } finally {
-      await runtime.dispose()
+test("a round in a project gives its agent the project's rules and says which files they came from", async () => {
+  write('.cursorrules', 'Answer in British English.')
+  write('.cursor/rules/ts.mdc', mdc('globs: "**/*.ts"', 'Never use any.'))
+  write('src/a.ts', 'export {}\n')
+  const home = join(dir, 'home')
+  mkdirSync(home)
+  const runtime = await bootRuntime(home)
+  try {
+    const resolver = new ModelResolver()
+    const prompts: string[] = []
+    const script: MockContent[][] = [
+      [{ type: 'toolCall', name: 'fs_read', arguments: { path: 'src/a.ts' } }],
+      [{ type: 'toolCall', name: 'reply_user', arguments: { text: 'Read it.', final: true } }],
+    ]
+    const lead = createMockModel({
+      handler: (ctx) => {
+        prompts.push([ctx.systemPrompt ?? []].flat().join('\n'))
+        return { content: script[prompts.length - 1] ?? ['ok'] }
+      },
+    })
+    resolver.register('mock/lead', { model: lead.model, streamFn: lead.stream })
+    const judge = createMockModel({ handler: () => ({ content: ['{"score": 0.9, "reasons": "ok"}'] }) })
+    resolver.register('mock/judge', { model: judge.model, streamFn: judge.stream })
+    const projects = new ProjectStore(home)
+    const project = projects.add(realpathSync.native(root))
+    const chats = new ChatService(runtime, { resolver, settings: new SettingsStore(home), projects })
+    const config = {
+      mode: 'orchestrated' as const,
+      leadModel: 'mock/lead',
+      roster: [],
+      judgeModel: 'mock/judge',
     }
-  },
-)
+    const { colonyId } = await chats.send('Read src/a.ts', config, undefined, { project: project.id })
+    const events = () => runtime.ctx.log.read(colonyId as never)
+    for (let i = 0; i < 400; i++) {
+      const st = foldColony(colonyId, await events())
+      if (st.status !== 'running' && st.status !== 'created') break
+      await Bun.sleep(50)
+    }
+    await chats.stopAll()
+    const all = await events()
+    const started = all.find((e) => e.type === 'colony/started')?.payload as EventPayloads['colony/started']
+    expect(started.rules).toEqual(['.cursorrules', '.cursor/rules/ts.mdc'])
+    expect(prompts[0]).toContain('Answer in British English.')
+    expect(prompts[0]).toContain('- ts (**/*.ts) [.cursor/rules/ts.mdc]')
+    const read = all
+      .filter((e) => e.type === 'tool/result')
+      .map((e) => e.payload as EventPayloads['tool/result'])
+      .find((r) => r.tool === 'fs_read')
+    expect(read?.output).toContain('<project_rule name="ts">\nNever use any.\n</project_rule>')
+  } finally {
+    await runtime.dispose()
+  }
+})

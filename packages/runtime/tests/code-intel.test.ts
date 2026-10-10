@@ -21,7 +21,7 @@ import { TOOL_DEFS } from '../src/tools.ts'
 let dir: string
 
 beforeEach(() => {
-  dir = realpathSync(mkdtempSync(join(tmpdir(), 'myr-code-')))
+  dir = realpathSync.native(mkdtempSync(join(tmpdir(), 'myr-code-')))
   mkdirSync(join(dir, 'src'))
   writeFileSync(
     join(dir, 'src', 'a.ts'),
@@ -187,7 +187,7 @@ test('the project type check uses an installed checker, never npx, named so any 
 const repoBin = resolve(import.meta.dir, '../../../node_modules/.bin')
 const tsLsp =
   existsSync(join(repoBin, 'tsc')) &&
-  !existsSync(join(realpathSync(join(repoBin, 'tsc')), '..', '..', 'lib', 'tsserver.js'))
+  !existsSync(join(realpathSync.native(join(repoBin, 'tsc')), '..', '..', 'lib', 'tsserver.js'))
 
 test.skipIf(!tsLsp)(
   'lsp answers from a real language server: diagnostics, references, hover, symbols and a rename',

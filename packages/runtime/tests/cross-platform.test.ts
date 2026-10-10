@@ -30,7 +30,7 @@ afterEach(() => {
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
 })
 const temp = () => {
-  const d = realpathSync(mkdtempSync(join(tmpdir(), 'myr-xp-')))
+  const d = realpathSync.native(mkdtempSync(join(tmpdir(), 'myr-xp-')))
   dirs.push(d)
   return d
 }

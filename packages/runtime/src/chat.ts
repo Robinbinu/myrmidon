@@ -532,7 +532,12 @@ export class ChatService {
 
   private _index?: ChatIndex
   private get index() {
-    this._index ??= new ChatIndex(this.store.home, this.store)
+    if (!this._index) {
+      const index = new ChatIndex(this.store.home, this.store)
+      // Closed with the runtime, as the log is: an open index keeps Windows from removing the data folder.
+      this.runtime.ctx.effect(() => () => index.close())
+      this._index = index
+    }
     return this._index
   }
 
@@ -1244,7 +1249,9 @@ export class ChatService {
     return {
       id: project.id,
       name: project.name,
-      path: project.path,
+      // As the file tools resolve paths (realpathSync.native), so a folder saved in another spelling (an 8.3 short
+      // name on Windows) still matches them.
+      path: realPath(project.path),
       ...(project.permissions ? { permissions: project.permissions } : {}),
     }
   }

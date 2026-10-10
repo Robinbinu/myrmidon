@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { BlobStore } from '@myrmidon/core'
@@ -16,7 +16,7 @@ import type { AgentTool, AgentToolResult } from '@oh-my-pi/pi-agent-core'
 import type { Model } from '@oh-my-pi/pi-ai'
 import { createMockModel, type MockContent } from '@oh-my-pi/pi-ai/providers/mock'
 import { AssistantMessageEventStream } from '@oh-my-pi/pi-ai/utils/event-stream'
-import { bunShim, pendingOn, removeTempDir } from '../../../tests/platform.ts'
+import { bunShim, pendingOn } from '../../../tests/platform.ts'
 import {
   appTool,
   bootRuntime,
@@ -71,7 +71,7 @@ afterEach(async () => {
   await mcp.close()
   await runtime.dispose()
   delete process.env.FAKE_CUA_LOG
-  removeTempDir(home)
+  rmSync(home, { recursive: true, force: true })
 })
 
 /** What the stand-in driver was asked, in order. */

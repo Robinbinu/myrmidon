@@ -1,10 +1,9 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
-import { mkdtempSync, readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Context as LlmContext } from '@oh-my-pi/pi-ai'
 import { createMockModel, type MockContent } from '@oh-my-pi/pi-ai/providers/mock'
-import { pendingOn, removeTempDir } from '../../../tests/platform.ts'
 import {
   addKnownSecrets,
   bootRuntime,
@@ -36,7 +35,7 @@ beforeEach(async () => {
 afterEach(async () => {
   for (const u of undo.splice(0).reverse()) u()
   await runtime.dispose()
-  removeTempDir(home)
+  rmSync(home, { recursive: true, force: true })
 })
 
 const tool = (name: string, args: Record<string, unknown>): MockContent => ({
@@ -87,53 +86,50 @@ async function roundTrip() {
   return { seen, run, final }
 }
 
-pendingOn('win32', 'fileToolPathsOnWindows')(
-  'tool output with a key reaches the model as a placeholder, and files in the folder get the key back',
-  async () => {
-    undo.push(
-      guardSecrets({ enabled: () => true }),
-      addKnownSecrets(() => [VAULT]),
-    )
-    const { seen, run, final } = await roundTrip()
-    // From the call after the first write on, the key was in the conversation (the write's arguments, then the read).
-    const later = seen.slice(1)
-    expect(later.length).toBeGreaterThanOrEqual(2)
-    for (const ctx of later) {
-      expect(everything(ctx)).not.toContain(KEY)
-      expect(everything(ctx)).not.toContain(VAULT)
-    }
-    const read = JSON.stringify(seen[2]?.messages.filter((m) => m.role === 'toolResult'))
-    const tags = read.match(PLACEHOLDER) ?? []
-    expect(tags.some((t) => t.startsWith('[[secret:api-key:'))).toBe(true)
-    // Known by value only, no pattern: still hidden.
-    expect(tags.some((t) => t.startsWith('[[secret:credential:'))).toBe(true)
+test('tool output with a key reaches the model as a placeholder, and files in the folder get the key back', async () => {
+  undo.push(
+    guardSecrets({ enabled: () => true }),
+    addKnownSecrets(() => [VAULT]),
+  )
+  const { seen, run, final } = await roundTrip()
+  // From the call after the first write on, the key was in the conversation (the write's arguments, then the read).
+  const later = seen.slice(1)
+  expect(later.length).toBeGreaterThanOrEqual(2)
+  for (const ctx of later) {
+    expect(everything(ctx)).not.toContain(KEY)
+    expect(everything(ctx)).not.toContain(VAULT)
+  }
+  const read = JSON.stringify(seen[2]?.messages.filter((m) => m.role === 'toolResult'))
+  const tags = read.match(PLACEHOLDER) ?? []
+  expect(tags.some((t) => t.startsWith('[[secret:api-key:'))).toBe(true)
+  // Known by value only, no pattern: still hidden.
+  expect(tags.some((t) => t.startsWith('[[secret:credential:'))).toBe(true)
 
-    // The same key gets the same placeholder in the write's arguments and in the read's output.
-    const args = JSON.stringify(seen[2]?.messages.filter((m) => m.role === 'assistant'))
-    for (const tag of tags) expect(args).toContain(tag)
+  // The same key gets the same placeholder in the write's arguments and in the read's output.
+  const args = JSON.stringify(seen[2]?.messages.filter((m) => m.role === 'assistant'))
+  for (const tag of tags) expect(args).toContain(tag)
 
-    // Written into the agent's own folder: the real values, not the placeholders the model wrote.
-    const copy = readFileSync(join(run.workspace.workdir('solo'), 'copy.txt'), 'utf8')
-    expect(copy).toContain(KEY)
-    expect(copy).toContain(VAULT)
-    // Published for others: the placeholders stay.
-    const shared = readFileSync(join(run.workspace.mirrorRoot, 'artifacts', 'shared.txt'), 'utf8')
-    expect(shared).not.toContain(KEY)
-    expect(shared).not.toContain(VAULT)
-    expect(shared).toMatch(PLACEHOLDER)
-    expect(final.artifacts['shared.txt']).toBeDefined()
+  // Written into the agent's own folder: the real values, not the placeholders the model wrote.
+  const copy = readFileSync(join(run.workspace.workdir('solo'), 'copy.txt'), 'utf8')
+  expect(copy).toContain(KEY)
+  expect(copy).toContain(VAULT)
+  // Published for others: the placeholders stay.
+  const shared = readFileSync(join(run.workspace.mirrorRoot, 'artifacts', 'shared.txt'), 'utf8')
+  expect(shared).not.toContain(KEY)
+  expect(shared).not.toContain(VAULT)
+  expect(shared).toMatch(PLACEHOLDER)
+  expect(final.artifacts['shared.txt']).toBeDefined()
 
-    // The colony log keeps its own redaction: marks, never placeholders or the key.
-    const log = JSON.stringify(
-      (await runtime.ctx.log.read(run.id)).filter((e) => e.type === 'tool/result').map((e) => e.payload),
-    )
-    expect(log).toContain('[api key redacted]')
-    expect(log).not.toContain(KEY)
-    expect(log).not.toContain('[[secret:')
-  },
-)
+  // The colony log keeps its own redaction: marks, never placeholders or the key.
+  const log = JSON.stringify(
+    (await runtime.ctx.log.read(run.id)).filter((e) => e.type === 'tool/result').map((e) => e.payload),
+  )
+  expect(log).toContain('[api key redacted]')
+  expect(log).not.toContain(KEY)
+  expect(log).not.toContain('[[secret:')
+})
 
-pendingOn('win32', 'fileToolPathsOnWindows')('turned off, the model is sent the key as it is', async () => {
+test('turned off, the model is sent the key as it is', async () => {
   undo.push(
     guardSecrets({ enabled: () => false }),
     addKnownSecrets(() => [VAULT]),

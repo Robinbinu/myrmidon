@@ -1,15 +1,19 @@
 import { afterEach, expect, test } from 'bun:test'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
-import { bunShim, pendingOn, removeTempDir } from '../../../tests/platform.ts'
+import { bunShim } from '../../../tests/platform.ts'
 import { BrowserHub, findChrome } from '../src/browser.ts'
 import { LEASH_GRACE_MS } from '../src/config.ts'
+import type { ProcessRow } from '../src/leash.ts'
 import { leashRunning, spawnLeashed } from '../src/leashed.ts'
 import { detectSandbox } from '../src/sandbox.ts'
+import { runningProcesses } from './fixtures/processes.ts'
+import { sleeper, twoSleeps } from './fixtures/sleeper.ts'
 
 // No child of Myrmidon may outlive it, however it dies: each kind is started by a stand-in Myrmidon (a separate
-// process running the real code), which is then SIGKILLed.
+// process running the real code), which is then SIGKILLed. Windows has no signals or process groups: there SIGKILL
+// is TerminateProcess, a leash stops its tree at once, with no grace, and trees are found by parent ids alone.
 
 const PARENT = join(import.meta.dir, 'fixtures', 'children-parent.ts')
 const KITTEN_MODEL = join(homedir(), '.myrmidon', 'voice', 'kitten', 'nano')
@@ -22,7 +26,7 @@ const seen = new Set<number>()
 afterEach(() => {
   for (const pid of seen) signal(pid, 'SIGKILL')
   seen.clear()
-  for (const d of dirs.splice(0)) removeTempDir(d)
+  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
 })
 
 function tempDir() {
@@ -39,16 +43,9 @@ function signal(pid: number, sig: NodeJS.Signals) {
   }
 }
 
-/** Running processes (zombies are as good as gone), with their parent and process group. */
-function processes(): Map<number, { ppid: number; pgid: number }> {
-  const ps = Bun.spawnSync(['ps', '-Ao', 'pid=,ppid=,pgid=,stat='], { stdout: 'pipe' })
-  const out = new Map<number, { ppid: number; pgid: number }>()
-  for (const line of new TextDecoder().decode(ps.stdout).trim().split('\n')) {
-    const [pid, ppid, pgid, stat] = line.trim().split(/\s+/)
-    if (pid && ppid && pgid && !stat?.startsWith('Z'))
-      out.set(Number(pid), { ppid: Number(ppid), pgid: Number(pgid) })
-  }
-  return out
+/** Running processes, with their parent and process group (none on Windows). */
+function processes(): Map<number, ProcessRow> {
+  return new Map(runningProcesses().map((r) => [r.pid, r]))
 }
 
 /** The processes below `pid`, and those in the process groups they lead (which an orphan may have left). */
@@ -58,7 +55,7 @@ function tree(pid: number): number[] {
   for (let grew = true; grew; ) {
     grew = false
     for (const [p, { ppid, pgid }] of all)
-      if ((found.has(ppid) || (found.has(pgid) && pgid !== pid)) && !found.has(p)) {
+      if ((found.has(ppid) || (pgid !== undefined && found.has(pgid) && pgid !== pid)) && !found.has(p)) {
         found.add(p)
         grew = true
       }
@@ -78,10 +75,16 @@ async function waitGone(pids: readonly number[], ms = GONE_MS): Promise<number[]
   }
 }
 
+/** This environment's PATH with `bin` first, under the name PATH has here (Windows' names ignore case: often Path). */
+function pathWith(bin: string): Record<string, string> {
+  const key = Object.keys(process.env).find((k) => k.toUpperCase() === 'PATH') ?? 'PATH'
+  return { [key]: `${bin}${delimiter}${process.env[key]}` }
+}
+
 /** Starts the stand-in Myrmidon with one kind of child and waits until it says the child runs. */
 async function startParent(kind: string, dir: string, env: Record<string, string> = {}) {
   const parent = Bun.spawn([process.execPath, PARENT, kind, dir], {
-    env: { ...process.env, ...env },
+    env: { ...process.env, MYR_LEASH_LOG: join(dir, 'leash.log'), ...env },
     stdin: 'pipe',
     stdout: 'pipe',
     stderr: 'pipe',
@@ -109,30 +112,30 @@ async function orphansAfterKill(kind: string, env?: Record<string, string>) {
   expect(children.length).toBeGreaterThan(0)
   parent.kill('SIGKILL')
   await parent.exited
-  return { children, left: await waitGone(children.filter((p) => !words.includes(p))), words }
+  const left = await waitGone(children.filter((p) => !words.includes(p)))
+  // With their command lines and what the leash saw (leash.ts MYR_LEASH_LOG), so a failure says what outlived the
+  // parent and why.
+  const rows = processes()
+  const log = join(dir, 'leash.log')
+  const swept = left.length && existsSync(log) ? [readFileSync(log, 'utf8')] : []
+  return { children, left: [...left.map((p) => `${p} ${rows.get(p)?.command ?? ''}`), ...swept], words }
 }
 
-pendingOn('win32', 'processTreeTests')(
-  'a leashed command and all it started stop when the parent is SIGKILLed, one ignoring SIGTERM too',
-  async () => {
-    const { children, left } = await orphansAfterKill('leash')
-    // The leash, sh, and its two sleeps.
-    expect(children.length).toBe(4)
-    expect(left).toEqual([])
-  },
-)
+test('a leashed command and all it started stop when the parent is SIGKILLed, one ignoring SIGTERM too', async () => {
+  const { children, left } = await orphansAfterKill('leash')
+  // The leash, the command, and its two children.
+  expect(children.length).toBe(4)
+  expect(left).toEqual([])
+})
 
-pendingOn('win32', 'processTreeTests')(
-  "a child started after a leashed one does not hold the leash's stdin open",
-  async () => {
-    const { left, words } = await orphansAfterKill('sibling')
-    expect(left).toEqual([])
-    const other = words[0] ?? 0
-    expect(processes().has(other)).toBe(true)
-  },
-)
+test("a child started after a leashed one does not hold the leash's stdin open", async () => {
+  const { left, words } = await orphansAfterKill('sibling')
+  expect(left).toEqual([])
+  const other = words[0] ?? 0
+  expect(processes().has(other)).toBe(true)
+})
 
-pendingOn('win32', 'processTreeTests', !findChrome())(
+test.skipIf(!findChrome())(
   'Chrome and its helpers stop when the process that launched it is SIGKILLed',
   async () => {
     const { left } = await orphansAfterKill('chrome')
@@ -141,7 +144,7 @@ pendingOn('win32', 'processTreeTests', !findChrome())(
   60_000,
 )
 
-pendingOn('win32', 'processTreeTests', !findChrome())(
+test.skipIf(!findChrome())(
   'closing the browser stops Chrome and its leash, and the next one starts on the same profile',
   async () => {
     const hub = new BrowserHub(join(tempDir(), 'profile'))
@@ -163,7 +166,7 @@ pendingOn('win32', 'processTreeTests', !findChrome())(
 )
 
 test('a leash on a process already running ends once that process has', async () => {
-  const proc = Bun.spawn(['sleep', '600'], { detached: true })
+  const proc = Bun.spawn(sleeper(), { detached: true })
   seen.add(proc.pid)
   const leash = leashRunning(proc.pid)
   seen.add(leash.pid)
@@ -178,27 +181,24 @@ function fakeFermion(dir: string) {
   return bin
 }
 
-pendingOn('win32', 'processTreeTests')(
-  "Phonon's server and what it started stop when Myrmidon is SIGKILLed",
-  async () => {
-    const bin = fakeFermion(tempDir())
-    const { children, left } = await orphansAfterKill('phonon', {
-      PATH: `${bin}${delimiter}${process.env.PATH}`,
-    })
-    // The leash, the server, and the server's own process.
-    expect(children.length).toBe(3)
-    expect(left).toEqual([])
-  },
-)
+/**
+ * The processes Phonon's fake server makes: the leash, the server, and the server's own process; on Windows also the
+ * cmd.exe running the server's `.cmd` shim, which runs Bun (a `#!/bin/sh` shim execs it).
+ */
+const PHONON_TREE = process.platform === 'win32' ? 4 : 3
 
-pendingOn('win32', 'processTreeTests')(
-  'a dev server from start_server, and its children, stop when Myrmidon is SIGKILLed',
-  async () => {
-    const { children, left } = await orphansAfterKill('server')
-    expect(children.length).toBeGreaterThanOrEqual(3)
-    expect(left).toEqual([])
-  },
-)
+test("Phonon's server and what it started stop when Myrmidon is SIGKILLed", async () => {
+  const bin = fakeFermion(tempDir())
+  const { children, left } = await orphansAfterKill('phonon', pathWith(bin))
+  expect(children.length).toBe(PHONON_TREE)
+  expect(left).toEqual([])
+})
+
+test('a dev server from start_server, and its children, stop when Myrmidon is SIGKILLed', async () => {
+  const { children, left } = await orphansAfterKill('server')
+  expect(children.length).toBeGreaterThanOrEqual(3)
+  expect(left).toEqual([])
+})
 
 test.skipIf(!existsSync(join(KITTEN_MODEL, 'config.json')))(
   "Kitten's worker exits when Myrmidon is SIGKILLed",
@@ -233,63 +233,65 @@ test('the leash runs from its source alone, as a compiled Myrmidon runs it', asy
   expect(await proc.exited).toBe(5)
 })
 
-pendingOn('win32', 'processTreeTests')(
-  'a signal to the leash goes to the command, and the leash ends the way the command did',
-  async () => {
-    const proc = spawnLeashed(['sleep', '600'], { stdout: 'ignore' })
-    for (let i = 0; i < 50 && tree(proc.pid).length === 0; i++) await Bun.sleep(50)
-    const children = tree(proc.pid)
-    expect(children.length).toBe(1)
-    proc.kill('SIGTERM')
-    await proc.exited
-    expect(proc.signalCode).toBe('SIGTERM')
-    expect(await waitGone(children)).toEqual([])
-  },
-)
+test('a signal to the leash goes to the command, and the leash ends the way the command did', async () => {
+  const proc = spawnLeashed(sleeper(), { stdout: 'ignore' })
+  for (let i = 0; i < 50 && tree(proc.pid).length === 0; i++) await Bun.sleep(50)
+  const children = tree(proc.pid)
+  expect(children.length).toBe(1)
+  proc.kill('SIGTERM')
+  await proc.exited
+  if (process.platform === 'win32') {
+    // No signal to pass on: kill() ends the leash's stdin, the leash ends the command (which then exits 1, as a
+    // process ended from outside does there), and exits as it did.
+    expect(proc.signalCode).toBeNull()
+    expect(proc.exitCode).toBe(1)
+  } else expect(proc.signalCode).toBe('SIGTERM')
+  expect(await waitGone(children)).toEqual([])
+})
 
-pendingOn('win32', 'processTreeTests')(
-  "ending the leash's stdin stops the whole tree, killing what ignores SIGTERM after the grace",
-  async () => {
-    const proc = spawnLeashed(['sh', '-c', 'trap "" TERM; sleep 600 & wait'], { stdout: 'ignore' })
-    for (let i = 0; i < 50 && tree(proc.pid).length < 2; i++) await Bun.sleep(50)
-    const children = tree(proc.pid)
-    expect(children.length).toBe(2)
-    const started = Date.now()
-    proc.stdin.end()
-    await proc.exited
+test("ending the leash's stdin stops the whole tree, killing what ignores SIGTERM after the grace", async () => {
+  const proc = spawnLeashed(sleeper('--ignore-term', '--children=1'), { stdout: 'ignore' })
+  for (let i = 0; i < 50 && tree(proc.pid).length < 2; i++) await Bun.sleep(50)
+  const children = tree(proc.pid)
+  expect(children.length).toBe(2)
+  const started = Date.now()
+  proc.stdin.end()
+  await proc.exited
+  if (process.platform === 'win32') {
+    // Nothing ignores being ended there: the command is ended at once, and the leash exits as it did.
+    expect(proc.signalCode).toBeNull()
+    expect(proc.exitCode).toBe(1)
+  } else {
     expect(Date.now() - started).toBeGreaterThanOrEqual(LEASH_GRACE_MS)
     expect(proc.signalCode).toBe('SIGKILL')
-    expect(await waitGone(children, 1000)).toEqual([])
-  },
-)
+  }
+  expect(await waitGone(children, 1000)).toEqual([])
+})
 
-pendingOn('win32', 'processTreeTests')(
-  'what a command leaves running when it ends is stopped with it',
-  async () => {
-    const proc = spawnLeashed(['sh', '-c', 'sleep 600 & echo $!'], { stdout: 'pipe' })
-    const orphan = Number((await new Response(proc.stdout).text()).trim())
-    seen.add(orphan)
-    expect(await proc.exited).toBe(0)
-    expect(await waitGone([orphan], 1000)).toEqual([])
-  },
-)
+test('what a command leaves running when it ends is stopped with it', async () => {
+  const proc = spawnLeashed(sleeper('--orphan'), { stdout: 'pipe' })
+  const orphan = Number((await new Response(proc.stdout).text()).trim())
+  seen.add(orphan)
+  expect(await proc.exited).toBe(0)
+  expect(await waitGone([orphan], 1000)).toEqual([])
+})
 
-pendingOn('win32', 'processTreeTests')("stopping Phonon stops its server's whole tree", async () => {
+test("stopping Phonon stops its server's whole tree", async () => {
   const dir = tempDir()
   const bin = fakeFermion(dir)
-  const { parent } = await startParent('phonon', dir, { PATH: `${bin}${delimiter}${process.env.PATH}` })
+  const { parent } = await startParent('phonon', dir, pathWith(bin))
   const children = tree(parent.pid)
-  expect(children.length).toBe(3)
+  expect(children.length).toBe(PHONON_TREE)
   parent.stdin.write('stop\n')
   parent.stdin.flush()
   expect(await waitGone(children)).toEqual([])
   expect(processes().has(parent.pid)).toBe(true)
 })
 
-pendingOn('win32', 'processTreeTests')('stopping a dev server stops its whole tree', async () => {
+test('stopping a dev server stops its whole tree', async () => {
   const project = tempDir()
   const server = detectSandbox().start({
-    command: 'sleep 600 & sleep 600',
+    command: twoSleeps(),
     cwd: project,
     writable: [project],
   })
