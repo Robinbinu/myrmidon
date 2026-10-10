@@ -23,7 +23,7 @@ import { ownerOnly } from './owner-only.ts'
 
 /** Tool groups a saved specialist can be kept out of (Settings → Specialists). */
 export const TOOL_GROUPS = {
-  shell: ['shell'],
+  shell: ['shell', 'eval'],
   web: ['web_search', 'web_fetch'],
   files: ['fs_write', 'fs_edit', 'fs_read', 'fs_list', 'ast_grep', 'ast_edit', 'lsp', 'request_read'],
   messaging: ['message', 'create_group', 'update_group', 'append_note'],

@@ -2,6 +2,7 @@ import { afterAll, beforeAll, expect, test } from 'bun:test'
 import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { CELL_WORKER_COMMAND } from '../../../packages/runtime/src/config.ts'
 import { KITTEN_WORKER_COMMAND } from '../../../packages/runtime/src/voice/tts.ts'
 import { asPlatform, executableName } from '../src/platform.ts'
 
@@ -36,4 +37,40 @@ test("the compiled server carries Kitten's worker and the native runtime it load
   expect(run.stderr.toString()).toContain(`no such file or directory, open '${join(empty, 'config.json')}'`)
   expect(run.stdout.toString()).toBe('')
   expect(run.exitCode).not.toBe(0)
+}, 60_000)
+
+test('the compiled server carries the JavaScript cell runtime, and it runs a cell', async () => {
+  const run = (code: string) => ({
+    type: 'run',
+    runId: 'cell-1',
+    code,
+    filename: 'cell-1.js',
+    snapshot: { cwd: dir, sessionId: 's' },
+  })
+  const proc = Bun.spawn([bin, CELL_WORKER_COMMAND], {
+    cwd: dir,
+    env: { ...process.env, MYR_CELL_FRAME: '#' },
+    stdin: 'pipe',
+    stdout: 'pipe',
+    stderr: 'pipe',
+  })
+  for (const m of [{ type: 'init', snapshot: { cwd: dir, sessionId: 's' } }, run('6 * 7')])
+    proc.stdin.write(`${JSON.stringify(m)}\n`)
+  await proc.stdin.flush()
+  const timer = setTimeout(() => proc.kill(), 30_000)
+  type Frame = { type: string; chunk?: string; ok?: boolean }
+  const frames: Frame[] = []
+  let out = ''
+  for await (const chunk of proc.stdout) {
+    out += new TextDecoder().decode(chunk)
+    const lines = out.split('\n')
+    out = lines.pop() ?? ''
+    frames.push(...lines.filter((l) => l.startsWith('#')).map((l) => JSON.parse(l.slice(1)) as Frame))
+    // The runtime lives until its parent closes stdin, as when Myrmidon goes.
+    if (frames.some((f) => f.type === 'result')) proc.stdin.end()
+  }
+  clearTimeout(timer)
+  expect(frames.map((f) => f.type)).toContain('ready')
+  expect(frames.find((f) => f.type === 'text')?.chunk).toBe('42\n')
+  expect(frames.find((f) => f.type === 'result')?.ok).toBe(true)
 }, 60_000)

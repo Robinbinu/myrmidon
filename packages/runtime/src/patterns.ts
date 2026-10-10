@@ -47,6 +47,7 @@ const BUILD = [
   'lsp',
   'request_read',
   'shell',
+  'eval',
   'run_checks',
   'start_server',
   'server_logs',
@@ -59,6 +60,8 @@ const BUILD = [
 const USER = ['reply_user', 'check_in', 'ask_user', 'remember']
 /** Structural search and rewrite, and language servers: loaded on demand, as omp marks them discoverable. */
 const CODE_INTEL = ['ast_grep', 'ast_edit', 'lsp']
+/** Code cells whose state lasts the round: loaded on demand, as omp marks its eval discoverable. */
+const CELLS = ['eval']
 /** For the agent that speaks: features of Myrmidon itself are built as plugins the person switches on. */
 const PLUGIN = ['create_plugin', 'test_plugin', 'propose_plugin']
 
@@ -185,6 +188,7 @@ const ON_DEMAND = new Set([
   'read_log',
   'read_docs',
   ...CODE_INTEL,
+  ...CELLS,
   ...ACCESS_GROUPS.computer,
   ...PLUGIN,
 ])
@@ -212,6 +216,10 @@ export function preloaded(request: string, names: readonly string[]): string[] {
     /\b(renam\w*|refactor\w*|codemod|references?|call ?sites?|callers|go ?to ?definition|type errors?|diagnostics|ast[ -]grep)\b/i.test(
       request,
     )
+  const cells =
+    /\b(repl|notebook|jupyter|pandas|numpy|dataframes?|data ?analysis|analy[sz]e (the )?data|crunch|interactive(ly)?)\b/i.test(
+      request,
+    )
   const computer =
     /\b(my (mac|screen|desktop|computer)|on (my|the) screen|desktop app|native app|the app\b|open (the )?\w+ app|finder|system settings|simulator|xcode|computer use)\b/i.test(
       request,
@@ -222,6 +230,7 @@ export function preloaded(request: string, names: readonly string[]): string[] {
       (server && ['start_server', 'server_logs', 'stop_server'].includes(n)) ||
       (plugin && (PLUGIN.includes(n) || n === 'read_docs')) ||
       (code && CODE_INTEL.includes(n)) ||
+      (cells && CELLS.includes(n)) ||
       (computer && ACCESS_GROUPS.computer.includes(n)),
   )
 }
