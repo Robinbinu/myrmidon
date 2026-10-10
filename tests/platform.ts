@@ -19,8 +19,6 @@ export const GAPS = {
   cuaDriverOnWindows:
     'computer use cannot start a Cua Driver on Windows (its manifest and daemon never answer), so every computer ' +
     'tool fails there',
-  terminalForeground:
-    "the terminal panel on Windows does not report what runs in each terminal's foreground (ConPTY)",
   bunWindowsSockets:
     'Bun 1.3.14 on Windows crashes (segfault, or exit 127) in the IRC raw-socket tests, ending the whole run',
   timeoutStopOnWindows:
