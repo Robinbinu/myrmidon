@@ -1,9 +1,13 @@
-/** omp's native addon (pi-natives): glob, grep and ast-grep, document converters, processes, terminals and its bash. */
+/**
+ * omp's native addon (pi-natives): glob, grep and ast-grep, document converters, processes, terminals, its bash and
+ * cross-process file locks.
+ */
 export {
   type AstReplaceChange,
   astEdit,
   astGrep,
   executeShell,
+  FileLock,
   FileType,
   GrepOutputMode,
   glob,
