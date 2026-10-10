@@ -1,9 +1,10 @@
 import { afterEach, expect, test } from 'bun:test'
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { chromeCandidates } from '../src/browser.ts'
 import { sandboxHiddenRoots, sandboxSecrets, sandboxSystemBins, sandboxToolchains } from '../src/config.ts'
+import { ownerOnly, ownerOnlyCommand, windowsAccount } from '../src/owner-only.ts'
 import { absoluteFolder, folderParent, isFsRoot, projectSecret, windowsDrives } from '../src/projects.ts'
 import { expandHome, keysAt, readFolder, within } from '../src/read-access.ts'
 import { confinedEnvFor, sandboxPath } from '../src/sandbox.ts'
@@ -229,4 +230,54 @@ test('Phonon’s live stream reaches a loopback port with its key, as on Windows
   expect(auth as string | null).toBe('Bearer s3cret')
   expect(config).toEqual({ sample_rate: 16_000, format: 'pcm_s16le' })
   expect(heard).toEqual(['hello'])
+})
+
+test('a file of keys is left to its owner: mode 0600 here, its access list on Windows', () => {
+  const file = join(temp(), 'server.json')
+  writeFileSync(file, '{}', { mode: 0o644 })
+  ownerOnly(file)
+  if (process.platform !== 'win32') expect(statSync(file).mode & 0o777).toBe(0o600)
+
+  expect(windowsAccount({ USERNAME: 'ada', USERDOMAIN: 'DESKTOP-1' })).toBe('DESKTOP-1\\ada')
+  expect(ownerOnlyCommand('C:\\Users\\ada\\.myrmidon\\server.json', 'DESKTOP-1\\ada', 'C:\\WINDOWS')).toEqual(
+    [
+      'C:\\WINDOWS\\System32\\icacls.exe',
+      'C:\\Users\\ada\\.myrmidon\\server.json',
+      '/inheritance:r',
+      '/grant:r',
+      'DESKTOP-1\\ada:F',
+    ],
+  )
+  const ran: string[][] = []
+  const logged: string[] = []
+  const env = { USERNAME: 'ada', USERDOMAIN: 'PC', SystemRoot: 'C:\\WINDOWS' }
+  ownerOnly('C:\\x\\models.yml', 0o600, {
+    platform: 'win32',
+    env,
+    run: (argv) => {
+      ran.push(argv)
+      return { ok: true, output: '' }
+    },
+    log: (l) => logged.push(l),
+  })
+  expect(ran[0]?.slice(-3)).toEqual(['/inheritance:r', '/grant:r', 'PC\\ada:F'])
+  expect(logged).toEqual([])
+  // Best effort: a failure is logged, never thrown, so the file is still saved.
+  ownerOnly('C:\\x\\models.yml', 0o600, {
+    platform: 'win32',
+    env,
+    run: () => ({ ok: false, output: 'Access is denied.' }),
+    log: (l) => logged.push(l),
+  })
+  ownerOnly('C:\\x\\models.yml', 0o600, {
+    platform: 'win32',
+    env,
+    run: () => {
+      throw new Error('Executable not found')
+    },
+    log: (l) => logged.push(l),
+  })
+  expect(logged).toHaveLength(2)
+  expect(logged[0]).toContain('Access is denied.')
+  expect(logged[1]).toContain('Executable not found')
 })

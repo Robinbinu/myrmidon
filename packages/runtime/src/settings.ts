@@ -18,6 +18,7 @@ import {
   MAX_READ_FOLDERS,
   MAX_THEME_COLORS,
 } from './config.ts'
+import { ownerOnly } from './owner-only.ts'
 
 /** Tool groups a saved specialist can be kept out of (Settings → Specialists). */
 export const TOOL_GROUPS = {
@@ -636,7 +637,9 @@ export function withoutModel(
 export function atomicWrite(path: string, text: string, mode: number) {
   const tmp = `${path}.${process.pid}.tmp`
   writeFileSync(tmp, text, { mode })
-  chmodSync(tmp, mode)
+  // A file only its owner may read (cookies, say) needs its access list set on Windows too.
+  if (mode & 0o077) chmodSync(tmp, mode)
+  else ownerOnly(tmp, mode)
   renameSync(tmp, path)
 }
 
