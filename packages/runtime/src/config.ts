@@ -417,10 +417,13 @@ export function sandboxSystemBins(
 export const SANDBOX_SYSTEM_BINS = sandboxSystemBins()
 /**
  * Folders outside the home that sandboxed commands may not read either: other disks, the folder all accounts share,
- * and the per-user temp and cache folders where other apps (and other chats) leave files; on Linux the person's
- * runtime folder too, which holds their session's sockets (D-Bus, the keyring's, gpg's and ssh's agents). Folders a
- * command may read or write inside them (a project in the temp folder, or on a disk in /mnt) open again. Windows has
- * no confinement of its own for these to apply to: there commands run in WSL, under Linux's rules.
+ * and the per-user temp and cache folders where other apps (and other chats) leave files. On Linux also every
+ * account's home, the X server's sockets (the screen, input and the clipboard, which macOS keeps from commands by
+ * denying the window server and the pasteboard), and the person's runtime folder, which holds their session's
+ * sockets: D-Bus, Wayland's, the keyring's, gpg's and ssh's agents (sandbox.ts adds `XDG_RUNTIME_DIR` when it is
+ * elsewhere). Folders a command may read or write inside them (a project in the temp folder, or on a disk in /mnt)
+ * open again. Windows has no confinement of its own for these to apply to: there commands run in WSL, under Linux's
+ * rules.
  */
 export function sandboxHiddenRoots(
   platform: NodeJS.Platform = process.platform,
@@ -428,7 +431,14 @@ export function sandboxHiddenRoots(
 ): readonly string[] {
   if (platform === 'darwin') return ['/Volumes', '/Users/Shared', '/private/var/folders']
   if (platform === 'linux')
-    return ['/mnt', '/media', '/run/media', ...(uid === undefined ? [] : [`/run/user/${uid}`])]
+    return [
+      '/mnt',
+      '/media',
+      '/run/media',
+      '/home',
+      '/tmp/.X11-unix',
+      ...(uid === undefined ? [] : [`/run/user/${uid}`]),
+    ]
   return []
 }
 export const SANDBOX_HIDDEN_ROOTS = sandboxHiddenRoots()

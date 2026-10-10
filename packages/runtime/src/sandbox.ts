@@ -113,8 +113,24 @@ function tmpSocketDirs(): string[] {
   }
 }
 
+/**
+ * The person's runtime folder when `XDG_RUNTIME_DIR` puts it outside /run/user/<uid> (a hidden root already): only a
+ * folder that is theirs and closed to others, as the XDG spec has it, so a variable naming a shared folder (`/tmp`)
+ * hides nothing.
+ */
+function runtimeDir(): string[] {
+  const dir = process.env.XDG_RUNTIME_DIR
+  if (process.platform !== 'linux' || !dir?.startsWith('/')) return []
+  try {
+    const stat = statSync(dir)
+    return stat.isDirectory() && stat.uid === process.getuid?.() && (stat.mode & 0o077) === 0 ? [dir] : []
+  } catch {
+    return []
+  }
+}
+
 /** Folders hidden for lying outside the home (and holding other apps' files or sockets), as real paths. */
-const hiddenRoots = () => [...SANDBOX_HIDDEN_ROOTS, ...tmpSocketDirs()].map(realPath)
+const hiddenRoots = () => [...SANDBOX_HIDDEN_ROOTS, ...runtimeDir(), ...tmpSocketDirs()].map(realPath)
 
 const depth = (path: string) => path.split(sep).filter(Boolean).length
 
@@ -506,6 +522,10 @@ export function detectSandbox(options: { home?: string } = {}): Sandbox {
       '/proc',
       ...bwrapMounts(spec, home, { chmod }),
       '--unshare-pid',
+      // Its own session, with no controlling terminal: when Myrmidon runs in a terminal, a command could otherwise
+      // type into it (TIOCSTI) and have the shell run that after Myrmidon exits, outside the sandbox.
+      '--new-session',
+      // Stopped when Myrmidon (or the leash) is, however it ends.
       '--die-with-parent',
       '--chdir',
       spec.cwd,
