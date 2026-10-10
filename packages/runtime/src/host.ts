@@ -10,6 +10,7 @@ import type {
   Review,
 } from '@myrmidon/protocol'
 import type { AgentTool } from '@oh-my-pi/pi-agent-core'
+import type { Judge } from '@oh-my-pi/pi-ai'
 import type { Advisor } from './advisor.ts'
 import type { ModelError } from './agent.ts'
 import type { BrowserHub } from './browser.ts'
@@ -75,6 +76,11 @@ export interface ColonyHost {
   huddling(): boolean
   /** Search and page fetching for agents. */
   readonly web: WebTools
+  /**
+   * The model that judges find's names and passages for this agent: the cheapest the person can use, as chat titles
+   * pick one. Absent (tests, bare hosts), find ranks by words alone.
+   */
+  judge?(agent: string): Judge | undefined
   /** Tools of the connected MCP servers, offered to agents allowed `mcp`. */
   mcpTools(): AgentTool[]
   /** The MCP server marks this tool read-only (it changes nothing), so by default it runs without asking. */
