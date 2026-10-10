@@ -68,7 +68,6 @@ which are not gaps. `expectOwnerOnly` checks a private file the way each system 
 | `bunWindowsSockets` | channels-irc: 7 | Bun 1.3.14 on Windows crashes (segfault, or exit 127) in the IRC raw-socket tests, ending the whole run |
 | `windowsShellPath` | sandbox: *keeps HOME and TMPDIR in the agent scratch* | commands run in Git's `sh.exe` with a PATH lacking Git's `usr\bin`: `mkdir: command not found` |
 | `timeoutStopOnWindows` | sandbox: *a full-access command that runs too long is stopped* | `run()` does not return at its timeout on Windows |
-| `settingsPosixPaths` | read-access: *a folder listed in Settings opens for every chat…* | Settings' `sandbox.read` accepts only `~`, `~/…` or `/…` |
 | `terminalForeground` | server-terminal: *several terminals run their own shells…* | terminals do not report their foreground program (ConPTY) |
 
 ### Not on Windows (by design)

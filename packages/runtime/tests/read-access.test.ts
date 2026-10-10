@@ -367,45 +367,42 @@ const readSpec = () => [
   [tool('reply_user', { text: 'Done.', final: true })],
 ]
 
-pendingOn('win32', 'settingsPosixPaths')(
-  'a folder listed in Settings opens for every chat of the person, never for a channel member',
-  async () => {
-    await setUpChats()
-    try {
-      const settings = new SettingsStore(myr)
-      const before = new ChatService(runtime, { resolver: models(readSpec()), settings })
-      const one = await before.send('Read the spec', config)
-      await waitFor(one.colonyId)
-      expect((await results(one.colonyId))[0]?.ok).toBe(false)
-      await before.stopAll()
+test('a folder listed in Settings opens for every chat of the person, never for a channel member', async () => {
+  await setUpChats()
+  try {
+    const settings = new SettingsStore(myr)
+    const before = new ChatService(runtime, { resolver: models(readSpec()), settings })
+    const one = await before.send('Read the spec', config)
+    await waitFor(one.colonyId)
+    expect((await results(one.colonyId))[0]?.ok).toBe(false)
+    await before.stopAll()
 
-      settings.set({ ...settings.get(), sandbox: { enabled: true, read: [outside, '~/.ssh'] } })
-      const told = models(readSpec())
-      const after = new ChatService(runtime, { resolver: told, settings })
-      const two = await after.send('Read the spec', config)
-      await waitFor(two.colonyId)
-      const [read] = await results(two.colonyId)
-      expect(read?.ok).toBe(true)
-      expect(read?.output).toContain('the spec')
-      // The agent is told which folders it may read, and how to ask for more.
-      expect(told.prompts[0]).toContain(outside)
-      expect(told.prompts[0]).toContain('request_read')
-      // Settings alone can open the keys' folder, by naming it (the test never reads it).
-      expect(told.prompts[0]).toContain(join(homedir(), '.ssh'))
-      await after.stopAll()
+    settings.set({ ...settings.get(), sandbox: { enabled: true, read: [outside, '~/.ssh'] } })
+    const told = models(readSpec())
+    const after = new ChatService(runtime, { resolver: told, settings })
+    const two = await after.send('Read the spec', config)
+    await waitFor(two.colonyId)
+    const [read] = await results(two.colonyId)
+    expect(read?.ok).toBe(true)
+    expect(read?.output).toContain('the spec')
+    // The agent is told which folders it may read, and how to ask for more.
+    expect(told.prompts[0]).toContain(outside)
+    expect(told.prompts[0]).toContain('request_read')
+    // Settings alone can open the keys' folder, by naming it (the test never reads it).
+    expect(told.prompts[0]).toContain(join(homedir(), '.ssh'))
+    await after.stopAll()
 
-      const member = models(readSpec())
-      const members = new ChatService(runtime, { resolver: member, settings })
-      const three = await members.send('Read the spec', config, undefined, { askAll: true })
-      await waitFor(three.colonyId)
-      expect((await results(three.colonyId))[0]?.ok).toBe(false)
-      expect(member.prompts[0]).not.toContain(outside)
-      await members.stopAll()
-    } finally {
-      await tearDownChats()
-    }
-  },
-)
+    const member = models(readSpec())
+    const members = new ChatService(runtime, { resolver: member, settings })
+    const three = await members.send('Read the spec', config, undefined, { askAll: true })
+    await waitFor(three.colonyId)
+    expect((await results(three.colonyId))[0]?.ok).toBe(false)
+    expect(member.prompts[0]).not.toContain(outside)
+    await members.stopAll()
+  } finally {
+    await tearDownChats()
+  }
+})
 
 test("a project's readable folders open for its chats only, and it can never name keys or other chats", async () => {
   await setUpChats()

@@ -23,8 +23,6 @@ export const GAPS = {
     "the terminal panel on Windows does not report what runs in each terminal's foreground (ConPTY)",
   bunWindowsSockets:
     'Bun 1.3.14 on Windows crashes (segfault, or exit 127) in the IRC raw-socket tests, ending the whole run',
-  settingsPosixPaths:
-    "Settings' sandbox.read folders must match /^(~$|~\\/|\\/)/, so no Windows folder can be listed (settings.ts)",
   timeoutStopOnWindows:
     'a full-access command past its timeout is not stopped on Windows: run() does not return for the whole sleep ' +
     '(sandbox.ts runLeashed, leash.ts)',
