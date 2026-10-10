@@ -913,8 +913,11 @@ stay small so they merge cleanly into either.
       sandbox note (macOS only: bubblewrap leaves the clipboard alone).
 ### [decide]
 - [ ] Linux: sandboxed agents can still reach the managed Chrome's DevTools port (bwrap cannot block one port), so
-      they could read the person's browser cookies there. Run sandboxed commands in a network namespace, or carry
-      DevTools over a pipe on Linux (the pipe crashed on macOS).
+      they could read the person's browser cookies there (gap `devtoolsPortOnLinux`, docs/ci.md). A network
+      namespace per command would also cut commands off from the dev servers they start and the browser loads, and
+      slirp4netns or pasta, to give it the network back, are missing on most desktops; one namespace shared by every
+      command, with pasta forwarding their servers out, would work where pasta is installed. Or carry DevTools over
+      a pipe on Linux (the pipe crashed on macOS: Bun double-closes it).
 - [ ] `bun run` fails inside projects under the home folder (the sandbox hides the folders above them):
       allow listing the home's parent folders (exposes file names in ~) or leave it.
 - [ ] Full access and approvals: an unsandboxed agent can read `~/.myrmidon/server.json` and call the API as you.

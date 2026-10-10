@@ -104,7 +104,14 @@ test('each system hides its own keys and opens its own toolchains', () => {
   expect(sandboxToolchains('linux')).not.toContain('Library/pnpm')
 
   expect(sandboxHiddenRoots('darwin')).toEqual(['/Volumes', '/Users/Shared', '/private/var/folders'])
-  expect(sandboxHiddenRoots('linux', 1000)).toEqual(['/mnt', '/media', '/run/media', '/run/user/1000'])
+  expect(sandboxHiddenRoots('linux', 1000)).toEqual([
+    '/mnt',
+    '/media',
+    '/run/media',
+    '/home',
+    '/tmp/.X11-unix',
+    '/run/user/1000',
+  ])
   expect(sandboxHiddenRoots('win32')).toEqual([])
 })
 
