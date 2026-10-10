@@ -204,7 +204,9 @@ export class ComputerHub {
   ) {
     this._dir = join(home, 'computer')
     this._state = this._found()
-    this.desktop = options.desktop ?? new DesktopEngine()
+    this.desktop =
+      options.desktop ??
+      new DesktopEngine({ point: (holder, x, y, action) => this.point(holder, x, y, action) })
   }
 
   get engine(): ComputerEngine {
