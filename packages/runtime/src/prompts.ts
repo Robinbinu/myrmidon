@@ -350,6 +350,15 @@ ${p.list}
         `<project_instructions source="${files.join(', ')}">\n${text}\n</project_instructions>`,
       nested: (files: readonly string[]) =>
         `More instructions in sub-folders: ${files.slice(0, 30).join(', ')}${files.length > 30 ? ', …' : ''}. Before working in one of those folders, read the nearest file; it refines the ones above it.`,
+      /**
+       * Rules that apply only sometimes, after omp's <domain-rules>: one for some files arrives with the first of them
+       * an agent reads or edits; `read`: the agent has fs_read to open the others when its task fits; `more`: how many
+       * were left off the list.
+       */
+      rules: (lines: readonly string[], more: number, read: boolean) =>
+        `Project rules for some files or tasks: a file's rule arrives when you first read or edit a matching file${read ? '; fs_read one whose description fits your task first' : ''}.\n<project_rules>\n${lines.join('\n')}${more > 0 ? `\n… ${more} more` : ''}\n</project_rules>`,
+      ruleLine: (name: string, file: string, globs: readonly string[], about?: string) =>
+        `- ${name}${globs.length ? ` (${globs.join(', ')})` : ''}${about ? `: ${about}` : ''} [${file}]`,
       memory: (lines: readonly string[]) =>
         `Memory, kept across chats: follow it unless their current message says otherwise, and do not repeat it back.\n<memory>\n${lines.join('\n')}\n</memory>`,
       /** `list`: the skills this request may need, one line each; `others`: the rest, by name. */
@@ -1377,6 +1386,12 @@ Reply with JSON only: {"lines": ["...", "...", "..."]}.`,
       'the swarm is still huddling: send your proposal to the team chat (message to "team") and stop; work starts once every crewmate has proposed',
     editedByPerson:
       '\n(The person edited this before approving; what ran is their version. Read it back before building on it.)',
+    /**
+     * A project rule for the file just read or written, shown with the first such file (Cursor's auto-attached rules);
+     * `cut`: the rule was longer than shown, so the rest is in its file.
+     */
+    projectRule: (name: string, file: string, globs: readonly string[], text: string, cut: boolean) =>
+      `\n\nThe project's rule ${name} (${file}) applies to ${globs.join(', ')}; follow it for this file and the others it covers:\n<project_rule name="${name}">\n${text}${cut ? `\n…[cut; the rest is in ${file}]` : ''}\n</project_rule>`,
     askToRead:
       '. The sandbox hides the rest of the computer; if the task needs this, ask with request_read (its folder and why)',
     /** `tools`: the agent's own tools, so it is pointed only at ones it has. */

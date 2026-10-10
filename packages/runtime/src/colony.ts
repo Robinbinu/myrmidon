@@ -1273,6 +1273,9 @@ export class ColonyRun implements ColonyHost {
     this._deadline = Date.now() + wallMs
     if (!resumedBecause) this._spentBefore = totals(this._state)
     this._bootstrapAt = Date.now()
+    // So the person can see which of their files the agents were told to follow, other tools' rules included.
+    const guide = this.project?.instructions
+    const rules = guide ? [...guide.files, ...guide.rules.map((r) => r.file)] : []
     const swarm = this.spec.team?.mode === 'swarm' && this.spec.tier === 'team' && this.spec.agents.length > 1
     const from = this._state.rounds.at(-1)?.startSeq ?? 0
     const planned =
@@ -1288,6 +1291,7 @@ export class ColonyRun implements ColonyHost {
         hostname: hostname(),
         ...(resumedBecause ? { resumed: true } : {}),
         ...(Object.keys(models).length ? { models } : {}),
+        ...(rules.length && !resumedBecause ? { rules } : {}),
       },
     })
     if (resumedBecause) await this._wakeAfterResume(resumedBecause)

@@ -142,6 +142,7 @@ const defs: EventTypeDefinition[] = [
       hostname: Schema.string(),
       resumed: Schema.boolean(),
       models: Schema.dict(Schema.string()),
+      rules: Schema.array(Schema.string()),
     }),
   },
   {

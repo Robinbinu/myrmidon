@@ -574,6 +574,15 @@ export const SETUP_ENV_KEYS: Readonly<Record<string, string>> = {
 export const INSTRUCTIONS_MAX_TEXT = 24 * 1024
 export const MAX_IMPORT_DEPTH = 4
 export const INSTRUCTIONS_MAX_DIRS = 3000
+/**
+ * Other tools' rule files (rule-files.ts): how many are read from one project, the largest one read at all (a bigger
+ * file is not a rule anyone wrote by hand), how much of a file-scoped rule comes with a matching file before it is cut
+ * to a pointer, and how many conditional rules the prompt lists by name.
+ */
+export const RULES_MAX_FILES = 200
+export const RULE_FILE_MAX_BYTES = 256 * 1024
+export const RULE_MAX_TEXT = 8 * 1024
+export const RULES_MAX_LISTED = 50
 /** The largest diff patch returned, and which untracked files are shown in full: the first 50, up to 256 KB each. */
 export const MAX_PATCH = 512 * 1024
 export const MAX_UNTRACKED_SHOWN = 50
