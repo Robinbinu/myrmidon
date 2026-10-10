@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import { join } from 'node:path'
 import type { InferenceSession, Tensor } from 'onnxruntime-node'
 import { VOICE_VAD_SHA256, VOICE_VAD_URL } from '../config.ts'
+import { fetchBytes } from './download.ts'
 
 /** Samples Silero VAD takes per chunk at 16 kHz (32 ms), and the samples of the chunk before that go with each. */
 export const VAD_CHUNK = 512
@@ -71,9 +72,7 @@ export class SileroVad implements SpeechDetector {
 
   private async _load(): Promise<InferenceSession> {
     if (!existsSync(this._file)) {
-      const res = await fetch(this.url)
-      if (!res.ok) throw new Error(`downloading the speech detector failed (${res.status})`)
-      const bytes = new Uint8Array(await res.arrayBuffer())
+      const bytes = await fetchBytes(this.url, 'the speech detector')
       const got = createHash('sha256').update(bytes).digest('hex')
       if (got !== this.sha256) throw new Error(`the speech detector download did not match its hash (${got})`)
       mkdirSync(join(this._file, '..'), { recursive: true, mode: 0o700 })

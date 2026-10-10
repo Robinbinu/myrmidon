@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import { join } from 'node:path'
 import type { InferenceSession, Tensor } from 'onnxruntime-node'
 import { VOICE_SMART_TURN_SHA256, VOICE_SMART_TURN_URL } from '../config.ts'
+import { fetchBytes } from './download.ts'
 import { MELS, whisperFeatures } from './whisper-features.ts'
 
 /** How sure (0–1) a model is that the person has finished their turn, from its audio so far. */
@@ -61,9 +62,7 @@ export class SmartTurn implements TurnJudge {
 
   private async _load(): Promise<InferenceSession> {
     if (!existsSync(this._file)) {
-      const res = await fetch(this.url)
-      if (!res.ok) throw new Error(`downloading the turn model failed (${res.status})`)
-      const bytes = new Uint8Array(await res.arrayBuffer())
+      const bytes = await fetchBytes(this.url, 'the turn model')
       const got = createHash('sha256').update(bytes).digest('hex')
       if (got !== this.sha256) throw new Error(`the turn model download did not match its hash (${got})`)
       mkdirSync(join(this._file, '..'), { recursive: true, mode: 0o700 })

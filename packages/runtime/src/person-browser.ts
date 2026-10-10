@@ -496,13 +496,16 @@ export class PersonBrowser {
     throw new PersonBrowserError('private', `${parsed.hostname} is on the local network`, parsed.hostname)
   }
 
-  /** The page itself tried to open a local address in its tab (the proxy refused it): its watchers are told. */
-  #refusedNavigation(entry: Entry, url: string) {
+  /**
+   * The page itself tried to open a local address in its tab (the proxy refused it): its watchers are told. `page` is
+   * the address the tab showed when the navigation was sent.
+   */
+  #refusedNavigation(entry: Entry, url: string, page: string) {
     let target: URL
     let from = ''
     try {
       target = new URL(url)
-      from = new URL(entry.page.url()).host
+      from = new URL(page).host
     } catch {
       return
     }
@@ -650,14 +653,24 @@ export class PersonBrowser {
       })
       // A refused navigation of the tab's own: a page served in its place over http, or a tunnel refused for https.
       const ownNavigation = (r: HTTPRequest) => r.isNavigationRequest() && r.frame() === page.mainFrame()
+      // Where each navigation left from, noted as it is sent: by the time its refusal is told the tab may already
+      // show what replaced the page (the refusal page, or Chrome's own error page).
+      const leftFrom = new WeakMap<HTTPRequest, string>()
+      page.on('request', (r) => {
+        if (ownNavigation(r)) leftFrom.set(r, page.url())
+      })
+      const fromOf = (r: HTTPRequest) => leftFrom.get(r) ?? page.url()
       page.on('response', (r) => {
-        if (r.headers()[REFUSED_HEADER] && ownNavigation(r.request())) this.#refusedNavigation(entry, r.url())
+        const request = r.request()
+        if (r.headers()[REFUSED_HEADER] && ownNavigation(request))
+          this.#refusedNavigation(entry, r.url(), fromOf(request))
       })
       page.on('requestfailed', (r) => {
         // One answered by the proxy's refusal page was told above, when it answered.
         if (!ownNavigation(r) || r.response()) return
         try {
-          if (quickRefusal(new URL(r.url()), () => this.#ports())) this.#refusedNavigation(entry, r.url())
+          if (quickRefusal(new URL(r.url()), () => this.#ports()))
+            this.#refusedNavigation(entry, r.url(), fromOf(r))
         } catch {}
       })
       page.on('framenavigated', (frame) => {

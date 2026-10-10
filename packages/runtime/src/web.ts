@@ -385,12 +385,17 @@ export async function withPinnedNetwork<T>(
   return readScope.run(scope, () => read(scope.refused))
 }
 
-export function ompWebTools(omp: OmpRuntime, provider: () => string): WebTools {
+/** `lookup` resolves host names (the system's by default; tests give a table, so they need no DNS). */
+export function ompWebTools(
+  omp: OmpRuntime,
+  provider: () => string,
+  lookup: Lookup = systemLookup,
+): WebTools {
   return {
     search: (query, options = {}) => omp.search(query, { ...options, provider: provider() }),
     async read(url, localPorts = NO_LOCAL_PORTS) {
-      const href = (await assertReachableUrl(url, localPorts)).href
-      return withPinnedNetwork({ localPorts }, async (refused) => {
+      const href = (await assertReachableUrl(url, localPorts, lookup)).href
+      return withPinnedNetwork({ localPorts, lookup }, async (refused) => {
         const result = await omp.read(href)
         // The reader turns a refused request into "Failed to fetch"; the agent should hear why instead.
         const [first] = refused

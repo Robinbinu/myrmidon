@@ -224,8 +224,12 @@ server down). Letters are fix groups; each group owns its files so they can be w
 - [x] **"Chats only" devices see everything** — `whoami().me.scope` is never read; hide Settings, Terminal, Devices,
       Plugins for that scope.
 - [x] **Empty states flash before data loads** (sidebar, Crews, `?chat=` deep link; a bad id stays on the hero).
-- [ ] **New chat resets the composer** to the default lead and helpers, dropping what the person picked.
-      **Left:** could not reproduce in-session (choices persist via localStorage); fixed the one real loss (`helpers: always` dropped on reload). If it recurs, keep the last composer config on the server.
+- [x] **New chat resets the composer** to the default lead and helpers, dropping what the person picked.
+      Within one browser the pick survives the New chat buttons, ⌘N, a project's new chat and a reload (tested). It
+      was lost wherever the page's storage is new: another browser and the desktop app, which serves each launch
+      from a new port. The last pick is now kept on the server (`composer` in settings.json, PUT
+      /api/settings/composer) and wins over the browser's copy; a default crew saved with no crewmates no longer
+      comes back with two.
 - [x] **Adding a project leaves the open chat** and lands on a new task.
 - [x] **The home greeting quotes the last chat title** (`"Add a multiply(a,…" is done`); the "G 26×29" selection
       box over the greeting reads as a bug.
@@ -307,7 +311,7 @@ Open work, in the order it will be done:
 0. - [x] **Neural next-word fallback** (done, merged to develop; Pythia-14M, off by default) — Settings → General
       "Smarter next words" downloads the pinned 17 MB model; the composer asks it after a space when history has
       nothing, shown at ≥ 0.3 confidence, a few ms a word.
-0. - [ ] **Agent feedback, round 2** (2026-10-09; report: probe chat `i-built-this-harness…`, artifact
+0. - [x] **Agent feedback, round 2** (1–5 done, merged; 6 leftovers wait for the person's OK) (2026-10-09; report: probe chat `i-built-this-harness…`, artifact
       `myrmidon-feedback.md` §0). In order:
       1. A task with no required files can never pass: `Verifier.verifyTask` (verifier.ts:51) fails any task with
          `artifacts: []` ("no artifacts were submitted"), even when its brief says "a note + a message, no files". Let
@@ -479,7 +483,7 @@ Open work, in the order it will be done:
       - [x] The Kitten worker likely fails in the packaged desktop app (it runs kitten-worker.ts, not on disk in
         the compiled sidecar) — check and bundle it. Worse: voice on crashed the packaged server, and onnxruntime's
         library and the warm-up clip were missing too. Fixed and checked in a compiled build.
-      - [ ] Kitten's model download has no timeout: a stuck connection (seen: IPv6 SYN_SENT to the CDN) hangs it.
+      - [x] Kitten's model download has no timeout (done: quiet deadline for Kitten, the speech detector and the turn model): a stuck connection (seen: IPv6 SYN_SENT to the CDN) hangs it.
 12i. - [x] **First-run setup assistant** (asked 2026-10-09) — nine skippable screens with a live mascot, resumable,
       "Run setup again" in Settings → General. Done. Not checked live: the mic level meter, the local voice download,
       sending a starter prompt, notification bodies, the hand-off animation in a normal window.
@@ -885,21 +889,23 @@ stay small so they merge cleanly into either.
       Branch fx-l-browser.
 
 ### Left after the fixes (2026-10-10)
-- [ ] Flaky under full-suite load (passes alone 3/3): person-browser "a page that opens a local address itself…".
+- [x] Flaky under full-suite load (passes alone 3/3) (done: a real bug, the refusal now records where navigation started): person-browser "a page that opens a local address itself…".
 - [x] On develop itself: apps/web/tests/mascot-settings.test.tsx "the screen is drawn as set…" fails (eyes not in the
       theme accent) — not from these fixes. Fixed ee3265a: at night the resting mood has its own eye colour; the test pins midday.
-- [ ] A rare double review: requestFinalVerification sets _finalRunning only after awaiting the worktree merge.
-- [ ] An independent, adversarial probe of the command parser after its second round of fixes (I2): the reviewer was
+- [x] (done) A rare double review: requestFinalVerification sets _finalRunning only after awaiting the worktree merge.
+- [x] (done: 2 High findings fixed; docs/research/2026-10-10-command-parser-probe.md) An independent, adversarial probe of the command parser after its second round of fixes (I2): the reviewer was
       stopped before probing; the fix agent re-ran the earlier probes (all now ask or are denied). Run
       scratchpad review-i/p1–p4 style probes again before relying on Ask for untrusted repos.
-- [ ] A stopped round's computer-use approval card stays up until it times out (Stop should cancel pending computer
+- [x] (done) A stopped round's computer-use approval card stays up until it times out (Stop should cancel pending computer
       approvals in colony.ts).
 - [ ] Browser view follow-ups: pick element, auto-verify changes, split layout, handing a tab to an agent (with a
       site list for that), downloads (denied now), LAN hosts in Allowed sites.
-- [ ] Terminals end on page reload (by design for now); no close-all; a label can show an option's value as the
-      argument (`vim -u NONE x` → `vim NONE`).
-- [ ] The sandbox now hides the clipboard: a project test that copies and pastes fails inside the sandbox (stated
-      in a code comment; say it in the docs).
+- [x] Terminals end on page reload (by design for now); no close-all; a label can show an option's value as the
+      argument (`vim -u NONE x` → `vim NONE`). Close all is in the ⋯ menu (asks while a command runs); labels skip
+      known options' values (`vim x`), inline code (`python3 -c …` → `python3`) and what follows a secret-named option.
+- [x] The sandbox now hides the clipboard: a project test that copies and pastes fails inside the sandbox (stated
+      in a code comment; say it in the docs). Said in the README's "Safe by default" and the Permissions page's
+      sandbox note (macOS only: bubblewrap leaves the clipboard alone).
 ### [decide]
 - [ ] Linux: sandboxed agents can still reach the managed Chrome's DevTools port (bwrap cannot block one port), so
       they could read the person's browser cookies there. Run sandboxed commands in a network namespace, or carry

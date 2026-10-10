@@ -1515,7 +1515,12 @@ export const copy = {
       sandbox: (kind: string) =>
         kind === 'none'
           ? 'No OS sandbox was found on this computer: commands only run with Full access.'
-          : `The sandbox (${kind === 'sandbox-exec' ? 'macOS' : kind}) keeps commands to the project and the agent’s own files in every preset but Full access.`,
+          : `The sandbox (${kind === 'sandbox-exec' ? 'macOS' : kind}) keeps commands to the project and the agent’s own files in every preset but Full access.${
+              // Pasteboard services are denied under sandbox-exec only (sandbox.ts); bubblewrap leaves the clipboard be.
+              kind === 'sandbox-exec'
+                ? ' It also hides the clipboard, so a test that copies and pastes fails there.'
+                : ''
+            }`,
       movedFromTools: 'Presets, rules and who may use what now live in Permissions.',
       openPermissions: 'Open Permissions',
     },
@@ -1901,6 +1906,13 @@ export const copy = {
     /** Asked before closing a terminal with a command still running in it. */
     stillRunning: (name: string, command: string) => `${command} is still running in ${name}.`,
     confirmClose: 'Yes, close terminal',
+    /** The ⋯ menu's item that closes every terminal of the project, and its question while commands run. */
+    closeAll: 'Close all terminals',
+    stillRunningAll: (commands: string[]) =>
+      `${commands.length > 1 ? `${commands.slice(0, -1).join(', ')} and ${commands.at(-1)}` : commands[0]} ${
+        commands.length > 1 ? 'are' : 'is'
+      } still running.`,
+    confirmCloseAll: 'Yes, close all',
     cancel: 'Cancel',
     add: 'New terminal',
     addTitle: (keys: string) => `New terminal (${keys})`,

@@ -278,7 +278,8 @@ test("web_fetch says why when the reader's fetch was refused", async () => {
         }
       },
     } as unknown as OmpRuntime
-    const web = ompWebTools(omp, () => 'auto')
+    // example.com resolves from a table: the system's DNS (slow or down under load) is not what this checks.
+    const web = ompWebTools(omp, () => 'auto', resolver({ 'example.com': ['93.184.216.34'] }))
     await expect(web.read('https://example.com/alternate')).rejects.toThrow(
       `localhost:${local.port} is not a server`,
     )

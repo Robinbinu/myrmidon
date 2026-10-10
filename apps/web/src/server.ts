@@ -1392,7 +1392,8 @@ export function startServer(options: ServeOptions): WebServer {
       }),
       '/api/models': guard(async (_req, url) => {
         const omp = options.omp
-        if (!omp) return json({ models: [], defaults: options.settings?.get().team })
+        const composer = options.settings?.get().composer
+        if (!omp) return json({ models: [], defaults: options.settings?.get().team, composer })
         if (url.searchParams.get('refresh') === '1') await omp.refreshModels()
         const models = buildCatalog(
           omp,
@@ -1405,6 +1406,7 @@ export function startServer(options: ServeOptions): WebServer {
           models,
           default: saved?.leadModel ?? automaticLead() ?? models[0]?.ref,
           defaults: saved,
+          composer,
         })
       }),
       '/api/models/test': {
@@ -1498,9 +1500,10 @@ export function startServer(options: ServeOptions): WebServer {
         PUT: guard(async (req) => {
           if (!options.settings) return json({ error: 'settings need the chat runtime' }, 503)
           try {
-            // Setup is kept by /api/setup alone: a page saving its settings sends the copy it read, which may be older.
-            const { setup } = options.settings.get()
-            const body = { ...((await req.json()) as Record<string, unknown>), setup }
+            // Setup is kept by /api/setup alone, and the message box's crew by /api/settings/composer: a page saving its
+            // settings sends the copy it read, which may be older.
+            const { setup, composer } = options.settings.get()
+            const body = { ...((await req.json()) as Record<string, unknown>), setup, composer }
             const was = options.settings.get().computerUse
             const settings = options.settings.set(body)
             // Switched off, or to the other engine: agents on the person's Mac stop at once, and the driver with them.
@@ -1511,6 +1514,19 @@ export function startServer(options: ServeOptions): WebServer {
             }
             await options.chats?.permissionsChanged()
             return json({ settings })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
+        }),
+      },
+      // The crew last picked in the message box, kept for every browser's next new chat.
+      '/api/settings/composer': {
+        PUT: guard(async (req) => {
+          const settings = options.settings
+          if (!settings) return json({ error: 'settings need the chat runtime' }, 503)
+          try {
+            const composer = await req.json()
+            return json({ composer: settings.set({ ...settings.get(), composer }).composer })
           } catch (err) {
             return json({ error: err instanceof Error ? err.message : String(err) }, 400)
           }

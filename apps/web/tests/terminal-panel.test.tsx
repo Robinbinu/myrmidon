@@ -168,6 +168,50 @@ test('closing a terminal with a command running asks first; closing the last lea
   }
 })
 
+test('the ⋯ menu closes every terminal at once, asking first while a command runs in any', async () => {
+  const { CONFIRM_ARM_DELAY_MS } = await import('../src/client/ui-config.ts')
+  const ui = await render('close-all')
+  const closeAll = async () => {
+    await ui.click(ui.button('Terminal options'))
+    const item = [...ui.doc.querySelectorAll<HTMLElement>('[role=menuitem]')].find(
+      (i) => i.textContent === 'Close all terminals',
+    )
+    if (!item) throw new Error('no Close all terminals')
+    await ui.click(item)
+  }
+  try {
+    await ui.click(ui.button('New terminal'))
+    await ui.click(ui.button('New terminal'))
+    await FakeSocket.all[0]?.note({ type: 'process', name: 'sleep 30' })
+    await FakeSocket.all[2]?.note({ type: 'process', name: 'bun run dev' })
+    await closeAll()
+    // The question names what would stop, and the answer has focus, as when one tab asks.
+    expect(ui.doc.querySelector('[role=alert]')?.textContent).toContain(
+      'sleep 30 and bun run dev are still running.',
+    )
+    expect(ui.doc.activeElement?.textContent).toBe('Yes, close all')
+    await ui.click(ui.button('Cancel'))
+    expect(ui.tabs()).toHaveLength(3)
+    await closeAll()
+    await act(async () => Bun.sleep(CONFIRM_ARM_DELAY_MS + 50))
+    await ui.click(ui.button('Yes, close all'))
+    expect(ui.tabs()).toHaveLength(0)
+    expect(FakeSocket.all.every((s) => s.closed)).toBe(true)
+    expect(ui.doc.body.textContent).toContain('No terminals open')
+
+    // Idle shells close at once; with none open, the menu does not offer it.
+    await ui.click(ui.button('New terminal'))
+    await ui.click(ui.button('New terminal'))
+    await closeAll()
+    expect(ui.tabs()).toHaveLength(0)
+    expect(ui.doc.querySelector('[role=alert]')).toBeNull()
+    await ui.click(ui.button('Terminal options'))
+    expect(ui.doc.querySelector('[role=menu]')?.textContent).not.toContain('Close all terminals')
+  } finally {
+    await ui.unmount()
+  }
+})
+
 test('a chat holds a limited number of terminals', async () => {
   const { MAX_TERMINAL_TABS } = await import('../src/client/ui-config.ts')
   const ui = await render('limit')
