@@ -83,6 +83,7 @@ import {
   usePersistentFlag,
 } from './ui/hooks.ts'
 import { FEATURE_ICONS } from './ui/icons.ts'
+import { ProviderLogo } from './ui/ProviderGlyph.tsx'
 import { AgentAvatar } from './ui/pixel.tsx'
 import {
   Badge,
@@ -1222,6 +1223,24 @@ function ModelsSection(props: {
         >
           {copy.settings.models.refresh}
         </Button>
+        {groups.length > 1 && (
+          <>
+            <Button
+              variant="borderless"
+              size="sm"
+              onClick={() => setOpen(Object.fromEntries(groups.map(([p]) => [p, true])))}
+            >
+              {copy.settings.models.expandAll}
+            </Button>
+            <Button
+              variant="borderless"
+              size="sm"
+              onClick={() => setOpen(Object.fromEntries(groups.map(([p]) => [p, false])))}
+            >
+              {copy.settings.models.collapseAll}
+            </Button>
+          </>
+        )}
         <Button variant="primary" onClick={props.onAddProvider} icon={<Plus className="size-3.5" />}>
           {copy.settings.models.addModels}
         </Button>
@@ -1247,6 +1266,11 @@ function ModelsSection(props: {
                   <motion.span animate={{ rotate: expanded ? 90 : 0 }} transition={spring}>
                     <ChevronRight className="size-4 text-muted" />
                   </motion.span>
+                  <ProviderLogo
+                    provider={provider}
+                    size={16}
+                    className={cn('shrink-0', off && 'opacity-60')}
+                  />
                   {/* Off reads in the muted ink rather than a faded card, which would drop below AA contrast. */}
                   <span className={cn('font-mono text-body font-medium', off && 'text-muted')}>
                     {provider}

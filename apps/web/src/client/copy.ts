@@ -2555,6 +2555,8 @@ export const copy = {
       refreshed: 'Model lists refreshed from providers',
       refresh: 'Refresh',
       addModels: 'Add models',
+      expandAll: 'Expand all',
+      collapseAll: 'Collapse all',
       noMatch: 'No models match',
       none: 'No models yet',
       inPickers: 'In pickers',
