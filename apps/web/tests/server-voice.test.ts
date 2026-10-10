@@ -307,7 +307,7 @@ test('a refused call opens and closes with a code and a reason the page can show
   expect(reason).toContain('voice calls are off')
 })
 
-test('a call whose page closes while the engines warm up is never made', async () => {
+test('a call hung up while the engines warm up is never made', async () => {
   let release: () => void = () => {}
   const slowModels = new Promise<void>((resolve) => {
     release = resolve
@@ -315,8 +315,10 @@ test('a call whose page closes while the engines warm up is never made', async (
   const { call, spoken } = gateway({ slowModels })
   const early = await call('chat=c1')
   await until(() => early.messages.some((m) => m.state === 'preparing'))
-  early.ws.close()
-  await early.closed
+  // The page hangs up as it does (hangup, then close). Waiting on the page's own close would not do: Bun can report
+  // it before the server has read it, and a server that has not seen it rightly makes the call.
+  early.ws.send(JSON.stringify({ type: 'hangup' }))
+  expect((await early.closed).code).toBe(1000)
   release()
   // The next call in the chat is not refused as a second one, and only it greets.
   const next = await call('chat=c1')

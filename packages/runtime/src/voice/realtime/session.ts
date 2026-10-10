@@ -67,6 +67,7 @@ export class RealtimeCallSession extends CallSession {
   }
 
   override async start() {
+    if (this._ended) return
     this.emit({
       type: 'hello',
       talk: this._voice,

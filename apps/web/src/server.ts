@@ -325,6 +325,15 @@ const VOICE_KEY_MAX = 4096
 /** The largest audio frame (about a second at 48 kHz) and control message a call takes from the person's side. */
 const VOICE_FRAME_MAX = 96_000
 const VOICE_MESSAGE_MAX = 1024
+
+/** A call's control message is the page hanging up. */
+function hangsUp(raw: string): boolean {
+  try {
+    return (JSON.parse(raw) as { type?: unknown } | null)?.type === 'hangup'
+  } catch {
+    return false
+  }
+}
 /** The largest webhook body a platform may post (media comes by reference, not inline). */
 const WEBHOOK_MAX = 5 * 1024 * 1024
 
@@ -3358,7 +3367,15 @@ export function startServer(options: ServeOptions): WebServer {
         }
         if (ws.data.kind === 'call') {
           const session = ws.data.session
-          if (!session) return
+          if (!session) {
+            // Hung up while the engines warm up: no call is made, and the page is told the call is over at once
+            // rather than when its own close arrives, which can be after the warm-up ends.
+            if (typeof raw === 'string' && raw.length <= VOICE_MESSAGE_MAX && hangsUp(raw)) {
+              ws.data.closed = true
+              ws.close(1000, 'call ended')
+            }
+            return
+          }
           if (typeof raw !== 'string') {
             if (raw.byteLength > VOICE_FRAME_MAX) return ws.close(1009, 'audio frame too large')
             // 16-bit samples: an odd trailing byte is not half a sample worth keeping.

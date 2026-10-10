@@ -293,6 +293,8 @@ export class CallSession {
   protected _playingUntil = 0
   protected _muted = false
   protected _ended = false
+  /** Aborted when the call ends, calling off what it still had to say (the greeting, a fallback notice). */
+  private readonly _life = new AbortController()
   /** The state the call is in, shown again when the person unmutes. */
   protected _current: CallState = 'listening'
   private _vad?: { chance(chunk: Float32Array): Promise<number> }
@@ -417,6 +419,8 @@ export class CallSession {
 
   /** Says who answered, greets the person; the call is then listening. */
   async start() {
+    // Hung up before it started (the person's side closed while the engines warmed up): nothing is said or readied.
+    if (this._ended) return
     // While the greeting plays, so the person's first turn is not the one to pay for them.
     this._stt
       .prepare?.(this._hotwords)
@@ -430,7 +434,7 @@ export class CallSession {
     const hello = this.direct
       ? prompts.voice.direct.hello(this.options.name, this.direct)
       : prompts.voice.hello(this.options.name)
-    await this._say(hello, new AbortController().signal, this._voice)
+    await this._say(hello, this._life.signal, this._voice)
     await this._speech
     this._state('listening')
   }
@@ -532,8 +536,7 @@ export class CallSession {
     this.ports.log?.(
       `${which === 'stt' ? 'speech to text' : 'text to speech'} failed, using this machine's: ${message}`,
     )
-    if (which === 'stt')
-      void this._say(prompts.voice.fallback.said(which), new AbortController().signal, this._voice)
+    if (which === 'stt') void this._say(prompts.voice.fallback.said(which), this._life.signal, this._voice)
   }
 
   /**
@@ -594,6 +597,7 @@ export class CallSession {
     if (this._ended) return
     this._ended = true
     this._reply?.abort()
+    this._life.abort()
     this._live?.close()
     this._off()
     this._offStream?.()
