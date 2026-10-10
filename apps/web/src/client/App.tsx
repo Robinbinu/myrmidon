@@ -58,6 +58,7 @@ import { FolderPicker, ProjectPill } from './chat/FolderPicker.tsx'
 import { chatFamily, familySize } from './chat/family.ts'
 import { Hero } from './chat/Hero.tsx'
 import { useHeldDeletes } from './chat/held-deletes.ts'
+import { LiveShare } from './chat/LiveShare.tsx'
 import { canLead } from './chat/model-list.ts'
 import { ProjectFiles } from './chat/ProjectFiles.tsx'
 import { FullAccessBadge, ProjectPermissions } from './chat/ProjectPermissions.tsx'
@@ -343,9 +344,10 @@ export function App() {
   const [deleting, setDeleting] = useState<readonly ChatSummary[]>()
   /** `/rule`: the complaint about the open chat's last reply that a rule is being drafted from. */
   const [ruleFor, setRuleFor] = useState<{ chatId: string; complaint: string; project: boolean }>()
-  /** The chat whose family sheet is open, and the chat being sealed into a share file. */
+  /** The chat whose family sheet is open, the chat being sealed into a share file, and the one shared live. */
   const [familyOf, setFamilyOf] = useState<string>()
   const [sharing, setSharing] = useState<ChatSummary>()
+  const [sharingLive, setSharingLive] = useState<ChatSummary>()
   const deletes = useHeldDeletes({
     remove: (chatId) => request('DELETE', `/api/chats/${chatId}`),
     gone: (chatIds) => {
@@ -1071,6 +1073,7 @@ export function App() {
       onDelete={setDeleting}
       onExport={exportAs}
       onShare={setSharing}
+      {...(fullAccess ? { onShareLive: setSharingLive } : {})}
       onFamily={(c) => setFamilyOf(c.chatId)}
       onRename={async (c, title) => {
         try {
@@ -1201,6 +1204,16 @@ export function App() {
           label: a.share,
           icon: <FEATURE_ICONS.shareFile className={icon} />,
           run: () => setSharing(chat),
+        },
+      // Letting someone else into a chat takes a device with full access, as the server holds it to.
+      view === 'chat' &&
+        !!chat &&
+        fullAccess && {
+          id: 'share-live',
+          group: 'actions',
+          label: a.shareLive,
+          icon: <FEATURE_ICONS.liveShare className={icon} />,
+          run: () => setSharingLive(chat),
         },
       view === 'chat' &&
         !!chat && {
@@ -1888,6 +1901,16 @@ export function App() {
             {sharing && (
               <Sheet key="share" title={copy.share.title} onClose={() => setSharing(undefined)} size="sm">
                 <ShareChat chat={sharing} onClose={() => setSharing(undefined)} />
+              </Sheet>
+            )}
+            {sharingLive && (
+              <Sheet
+                key="share-live"
+                title={copy.liveShare.title}
+                onClose={() => setSharingLive(undefined)}
+                size="sm"
+              >
+                <LiveShare chat={sharingLive} onClose={() => setSharingLive(undefined)} />
               </Sheet>
             )}
             {shortcutsOpen && (

@@ -30,7 +30,9 @@ import {
   type CallSession,
   type ChannelChats,
   ChannelHub,
+  type ChatGuest,
   type ChatService,
+  ChatShares,
   type ChatShelf,
   type ComputerHub,
   CUSTOM_APIS,
@@ -55,6 +57,9 @@ import {
   gitWorkingChanges,
   guardedPaths,
   guardSecrets,
+  guestEvents,
+  guestMessage,
+  guestSummary,
   type HookStore,
   importFromOmp,
   type LiveInput,
@@ -237,8 +242,8 @@ export interface WebServer {
   stop(): Promise<void>
 }
 
-/** Which paired device opened a socket, so revoking it closes them. */
-type Opened = { device?: string }
+/** Which paired device or chat guest opened a socket, so revoking it, or removing them, closes them. */
+type Opened = { device?: string; guest?: string }
 type StreamData = Opened &
   (
     | { kind: 'events'; colony: ColonyId; cursor: number }
@@ -307,6 +312,12 @@ const DEVICE_COOKIE = 'myr_device'
 const SECURE_DEVICE_COOKIE = `__Host-${DEVICE_COOKIE}`
 /** The pairing call comes before sign-in, so its body is capped. */
 const PAIR_BODY_MAX = 4096
+/**
+ * A guest of a shared chat holds their own token in this cookie: a separate one from a device's, which the rest of
+ * the API never accepts, so a guest reaches only the routes made for them (`guestOf`).
+ */
+const GUEST_COOKIE = 'myr_guest'
+const SECURE_GUEST_COOKIE = `__Host-${GUEST_COOKIE}`
 /**
  * Seconds a request may wait for its answer before Bun closes the connection. Bun's default of 10 cut off slow GETs
  * (seen on Bun 1.3.14), such as one forwarded to another gateway, which may take up to FORWARD_MS; 255 is Bun's most.
@@ -511,6 +522,8 @@ export function startServer(options: ServeOptions): WebServer {
   const devices = new DeviceStore(options.home)
   const pairing = new PairingCodes()
   const audit = new AuthAudit(options.home)
+  /** Chats shared live with other people (Share live in a chat's menu); in memory, so a restart ends them. */
+  const shares = new ChatShares()
   const token = options.noAuth
     ? ''
     : (options.token ?? Buffer.from(crypto.getRandomValues(new Uint8Array(24))).toString('base64url'))
@@ -823,6 +836,35 @@ export function startServer(options: ServeOptions): WebServer {
   const closeDevice = (id: string) => {
     for (const ws of opened) if (ws.data.device === id) ws.close(4401, 'device revoked')
   }
+  /**
+   * The guest of a shared chat a request comes from, on this server's own origins. `authorized` never accepts a
+   * guest, so every route stays closed to them except the few that ask this: their chat's logs and the guest routes.
+   */
+  const guestOf = (req: Request): ChatGuest | undefined =>
+    sameOrigin(req) ? shares.find(cookie(req, SECURE_GUEST_COOKIE) ?? cookie(req, GUEST_COOKIE)) : undefined
+  const sharedChat = async (guest: ChatGuest) =>
+    (await options.chats?.list())?.find((c) => c.chatId === guest.chatId)
+  /** Whether a colony ran one of the shared chat's rounds: the only logs its guests may read. */
+  const guestMayRead = async (guest: ChatGuest, colony: string) =>
+    !!(await sharedChat(guest))?.rounds.some((r) => r.colonyId === colony)
+  /** Guests removed, or a chat no longer shared: whatever they have open closes at once. */
+  const closeGuests = (ids: readonly string[]) => {
+    for (const ws of opened)
+      if (ws.data.guest && ids.includes(ws.data.guest)) ws.close(4401, 'no longer in the shared chat')
+  }
+  const notShared = () => json({ error: 'That is not part of the chat shared with you.' }, 403)
+  /** Where a guest opens an invite: the address devices use, else the one the person's request came in on. */
+  const shareLink = (req: Request, code: string) =>
+    `${publicUrl?.origin ?? `${new URL(req.url).protocol}//${req.headers.get('host') ?? ''}`}/#join=${code}`
+  const guestJson = (g: ChatGuest) => ({ id: g.id, name: g.name, access: g.access, joinedAt: g.joinedAt })
+  /**
+   * A guest's cookie, as a device's: HttpOnly and Strict, `__Host-` and Secure over HTTPS. No Max-Age: a guest lasts as
+   * long as the share, which a restart ends.
+   */
+  const guestCookie = (host: string, value: string) => {
+    const secure = publicUrl?.protocol === 'https:' && host === publicUrl.host
+    return `${secure ? SECURE_GUEST_COOKIE : GUEST_COOKIE}=${value}; Path=/; HttpOnly; SameSite=Strict${secure ? '; Secure' : ''}`
+  }
   const forbidden = () =>
     json({ error: 'This device can use chats only. To do this, pair it again with full access.' }, 403)
 
@@ -853,6 +895,15 @@ export function startServer(options: ServeOptions): WebServer {
         return json({ error: 'internal error' }, 500)
       }
     }
+
+  /** The part of a colony's log a request asks for: `from` (the first seq) and `limit`, at most 20,000. */
+  const eventRange = (url: URL) => ({
+    from: Number(url.searchParams.get('from') ?? '1'),
+    limit: Math.min(Number(url.searchParams.get('limit') ?? '5000'), 20000),
+  })
+  const readEvents = guard(async (req, url) =>
+    json(await store.read(colonyId(req.params.id ?? ''), eventRange(url))),
+  )
 
   // Agent-built pages run on their own port: a separate origin cannot read the dashboard's token or call its API.
   // Each device gets its own preview key, so revoking a device ends its previews too.
@@ -1092,9 +1143,111 @@ export function startServer(options: ServeOptions): WebServer {
           })
         },
       },
+      // Joining a shared chat with an invite: no sign-in yet (the code is the proof), only from the server's own origins.
+      '/api/guest/join': {
+        POST: async (req: Request) => {
+          if (!sameOrigin(req)) return json({ error: 'unauthorized' }, 401)
+          const raw = await req.text()
+          if (raw.length > PAIR_BODY_MAX) return json({ error: 'request too large' }, 413)
+          let body: { code?: unknown; name?: unknown } = {}
+          try {
+            body = JSON.parse(raw) as typeof body
+          } catch {
+            body = {}
+          }
+          const host = req.headers.get('host') ?? ''
+          const joined = shares.join(typeof body.code === 'string' ? body.code : '', body.name)
+          if (joined === 'wrong') {
+            audit.record('guest-join-failed', { host })
+            // A wrong code costs a moment, so guessing is slow as well as hopeless.
+            await Bun.sleep(500)
+            return json(
+              { error: 'That invite is wrong, used or expired. Ask for a new link to this chat.' },
+              401,
+            )
+          }
+          if (joined === 'full')
+            return json({ error: 'This chat has as many guests as it can take. Try again later.' }, 409)
+          const { guest, token: guestToken } = joined
+          audit.record('guest-joined', {
+            guest: guest.id,
+            name: guest.name,
+            chat: guest.chatId,
+            access: guest.access,
+            host,
+          })
+          return new Response(JSON.stringify({ guest: guestJson(guest), chatId: guest.chatId }), {
+            headers: {
+              'content-type': 'application/json',
+              'cache-control': 'no-store',
+              'set-cookie': guestCookie(host, encodeURIComponent(guestToken)),
+            },
+          })
+        },
+      },
+      /** The shared chat as its guest sees it (guestSummary), with who shared it; DELETE leaves it. */
+      '/api/guest': {
+        GET: async (req: Request) => {
+          const guest = guestOf(req)
+          if (!guest) return json({ error: 'unauthorized', remote }, 401)
+          const chat = await sharedChat(guest)
+          if (!chat) return json({ error: 'no such chat' }, 404)
+          return json({
+            guest: guestJson(guest),
+            host: options.settings?.get().profile.name ?? account,
+            chat: guestSummary(chat),
+          })
+        },
+        DELETE: (req: Request) => {
+          const guest = guestOf(req)
+          if (!guest) return json({ error: 'unauthorized' }, 401)
+          shares.remove(guest.chatId, guest.id)
+          audit.record('guest-removed', { guest: guest.id, chat: guest.chatId, by: 'themselves' })
+          closeGuests([guest.id])
+          return new Response(JSON.stringify({ ok: true }), {
+            headers: {
+              'content-type': 'application/json',
+              'set-cookie': `${guestCookie(req.headers.get('host') ?? '', '')}; Max-Age=0`,
+            },
+          })
+        },
+      },
+      /**
+       * A guest who may write posts into the shared chat. It carries their name, and runs as a channel member's
+       * message does: every step that changes something outside the round waits for the person's approval (askAll).
+       */
+      '/api/guest/messages': {
+        POST: async (req: Request) => {
+          const guest = guestOf(req)
+          if (!guest) return json({ error: 'unauthorized' }, 401)
+          if (guest.access !== 'write')
+            return json({ error: 'You can watch this chat, but not write in it.' }, 403)
+          if (!options.chats) return json({ error: 'this server was started without the chat runtime' }, 503)
+          const { text } = (await req.json().catch(() => ({}))) as { text?: unknown }
+          if (typeof text !== 'string' || !text.trim()) return json({ error: 'text is required' }, 400)
+          const problem = sendProblem({ text })
+          if (problem) return json({ error: problem }, 400)
+          try {
+            await options.chats.send(guestMessage(guest.name, text.trim()), defaultTeam(), guest.chatId, {
+              askAll: true,
+            })
+            return json({ ok: true })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 422)
+          }
+        },
+      },
       /** Who this is: lets the page show what this device may do, and whether the gateway is remote. */
       '/api/whoami': (req: Request) => {
         const access = authorized(req, new URL(req.url))
+        // A guest of a shared chat: the page opens that chat alone (GuestChat.tsx).
+        const guest = access ? undefined : guestOf(req)
+        if (guest)
+          return json({
+            scope: 'guest',
+            remote,
+            guest: { name: guest.name, access: guest.access, chatId: guest.chatId },
+          })
         if (!access) return json({ error: 'unauthorized', remote }, 401)
         return json({
           scope: access.scope,
@@ -2796,10 +2949,65 @@ export function startServer(options: ServeOptions): WebServer {
           if (deleted.length === 0) return json({ error: 'no such chat' }, 404)
           for (const id of deleted) store.forget(id as ColonyId)
           voice?.forget(req.params.chatId ?? '')
+          closeGuests(shares.stop(req.params.chatId ?? '').map((g) => g.id))
           for (const ws of sockets)
             if (ws.data.kind === 'events' && deleted.includes(ws.data.colony))
               ws.close(1000, 'colony deleted')
           return json({ ok: true, deleted })
+        }),
+      },
+      // Sharing a chat live (Share live in its menu): its open invites and who is in, a new invite, and stopping. Only a
+      // device with full access may let someone else in (needsFull).
+      '/api/chats/:chatId/share': {
+        GET: guard((req) => {
+          const chatId = req.params.chatId ?? ''
+          return json({
+            remote,
+            invites: shares
+              .invites(chatId)
+              .map((i) => ({ id: i.id, access: i.access, createdAt: i.createdAt, expiresAt: i.expiresAt })),
+            guests: shares.guests(chatId).map((g) => ({
+              ...guestJson(g),
+              online: [...opened].some((ws) => ws.data.guest === g.id),
+            })),
+          })
+        }),
+        POST: guard(async (req) => {
+          const chatId = req.params.chatId ?? ''
+          if (!(await options.chats?.list())?.some((c) => c.chatId === chatId))
+            return json({ error: 'no such chat' }, 404)
+          const body = (await req.json().catch(() => ({}))) as { access?: unknown }
+          try {
+            const { invite, code } = shares.invite(chatId, body.access === 'write' ? 'write' : 'view')
+            audit.record('guest-invited', { chat: chatId, access: invite.access })
+            return json({ invite, code, link: shareLink(req, code) })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 409)
+          }
+        }),
+        DELETE: guard((req) => {
+          const chatId = req.params.chatId ?? ''
+          const out = shares.stop(chatId)
+          for (const g of out) audit.record('guest-removed', { guest: g.id, chat: chatId })
+          closeGuests(out.map((g) => g.id))
+          return json({ ok: true, removed: out.length })
+        }),
+      },
+      '/api/chats/:chatId/share/invites/:id': {
+        DELETE: guard((req) =>
+          shares.withdraw(req.params.chatId ?? '', req.params.id ?? '')
+            ? json({ ok: true })
+            : json({ error: 'no such invite' }, 404),
+        ),
+      },
+      '/api/chats/:chatId/share/guests/:id': {
+        DELETE: guard((req) => {
+          const chatId = req.params.chatId ?? ''
+          const out = shares.remove(chatId, req.params.id ?? '')
+          if (!out) return json({ error: 'no such guest' }, 404)
+          audit.record('guest-removed', { guest: out.id, chat: chatId })
+          closeGuests([out.id])
+          return json({ ok: true })
         }),
       },
       // The chat as one HTML page, for Export and for sealing into a share file in the page. Any device that sees the
@@ -3021,12 +3229,14 @@ export function startServer(options: ServeOptions): WebServer {
         const b = colonyId(url.searchParams.get('b') ?? '')
         return json(runDiff({ id: a, events: await store.read(a) }, { id: b, events: await store.read(b) }))
       }),
-      '/api/colonies/:id/events': guard(async (req, url) => {
-        const id = colonyId(req.params.id ?? '')
-        const from = Number(url.searchParams.get('from') ?? '1')
-        const limit = Math.min(Number(url.searchParams.get('limit') ?? '5000'), 20000)
-        return json(await store.read(id, { from, limit }))
-      }),
+      '/api/colonies/:id/events': async (req: Request & { params: Record<string, string> }) => {
+        const url = new URL(req.url)
+        // A guest of a shared chat reads its rounds' logs too, pared to the conversation (guestEvents).
+        const guest = authorized(req, url) ? undefined : guestOf(req)
+        if (!guest) return readEvents(req)
+        if (!(await guestMayRead(guest, req.params.id ?? ''))) return notShared()
+        return json(guestEvents(await store.read(colonyId(req.params.id ?? ''), eventRange(url))))
+      },
       '/api/colonies/:id/changes': guard(async (req, url) => {
         if (!options.chats) return json({ error: 'this server was started without the chat runtime' }, 503)
         const round = url.searchParams.get('round')
@@ -3319,10 +3529,13 @@ export function startServer(options: ServeOptions): WebServer {
       '/api/colonies/:id/stream': async (req: Request & { params: Record<string, string> }) => {
         const url = new URL(req.url)
         const access = authorized(req, url)
-        if (!access) return json({ error: 'unauthorized' }, 401)
+        // A guest watches their shared chat's rounds, and nothing else (pump pares what they get).
+        const guest = access ? undefined : guestOf(req)
+        if (!access && !guest) return json({ error: 'unauthorized' }, 401)
+        if (guest && !(await guestMayRead(guest, req.params.id ?? ''))) return notShared()
         const id = colonyId(req.params.id ?? '')
         const cursor = Math.max(0, Number(url.searchParams.get('from') ?? '1') - 1)
-        const device = access.device ? { device: access.device.id } : {}
+        const device = access?.device ? { device: access.device.id } : guest ? { guest: guest.id } : {}
         if (server.upgrade(req, { data: { kind: 'events', colony: id, cursor, ...device } }))
           return undefined as unknown as Response
         return json({ error: 'websocket upgrade failed' }, 400)
@@ -3797,7 +4010,9 @@ export function startServer(options: ServeOptions): WebServer {
     const events = await store.read(ws.data.colony, { from: ws.data.cursor + 1, limit: BATCH })
     if (events.length === 0) return
     ws.data.cursor = events.at(-1)?.seq ?? ws.data.cursor
-    ws.send(JSON.stringify(events))
+    // A shared chat's guest gets the conversation only; a batch with none of it sends nothing.
+    const shown = ws.data.guest ? guestEvents(events) : events
+    if (shown.length) ws.send(JSON.stringify(shown))
   }
 
   const poll = setInterval(() => {

@@ -430,6 +430,10 @@ export const SIGNED_OUT_RECHECK_MS = 10_000
 /** How often the gateway switcher checks whether the other gateways answer. */
 export const GATEWAY_POLL_MS = 30_000
 
+/** How often Share live asks who is in the chat now, and a guest's page whether the chat works, waits or let them go. */
+export const SHARE_POLL_MS = 4000
+export const GUEST_POLL_MS = 4000
+
 /* ------------------------------------------------------------------ settings */
 
 /**
