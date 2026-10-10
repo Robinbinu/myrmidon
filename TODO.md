@@ -550,6 +550,18 @@ Open work, in the order it will be done:
       windows) runs typecheck and the full suite on every PR to main and push to develop. Windows sandbox: commands
       run inside WSL2 with bubblewrap when available, otherwise every command asks and Settings says why. Start
       from the cross-platform audit; fix blockers first.
+      - [x] Windows pass 1 (`xp-windows-core`, merged 2026-10-10): sqlite handles, file-tool paths, rounds stall,
+        worktrees, POSIX paths in settings, shell path, data folder, separators in text, terminal foreground,
+        server.json after kill, process-tree tests.
+      - [ ] Windows bugs parked 2026-10-10 ("stop windows mark the bug in todo and solve it later"), each a
+        `pendingOn('win32', …)` gap in tests/platform.ts and docs/ci.md:
+        - `walSidecarOnWindows`: a WAL database copied without `-wal`/`-shm` must read without SQLite creating
+          them; the immutable-first open (fd07371) never ran on Windows CI.
+        - `ptyTerminalOnWindows`: the PowerShell answer never comes back through pi-natives' ConPTY session.
+        - `bunWindowsSockets`: Bun heap corruption on TCP close (1.3.14 and 1.4.3); report upstream, then upgrade.
+        - Command timeout on Windows is only half fixed: `run()` returns at the timeout, but grandchildren Git
+          Bash hands off through an exited parent (e.g. `sleep 30`) are not linked by parent PID and outlive the
+          stop. Needs a Job Object per command.
 12y. - [ ] **omp features Myrmidon lacks** (asked 2026-10-10; reuse omp's modules where they fit):
       1. Long-term memory engine: extraction from chats, recall / reflect / edit (omp hindsight, mnemopi).
       2. Debugger for agents over the Debug Adapter Protocol (omp dap).

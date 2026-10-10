@@ -1668,6 +1668,8 @@ test.skipIf(!findChrome() || detectSandbox().kind === 'none')(
     await browser.close()
     site.stop(true)
   },
+  // A real Chrome launch and three model rounds: well past the default 5s on a busy machine.
+  60_000,
 )
 
 test.skipIf(!findChrome())('browser tabs, downloads and uploads', async () => {
