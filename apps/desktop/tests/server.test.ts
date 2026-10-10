@@ -2,7 +2,6 @@ import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve, sep } from 'node:path'
-import { pendingOn } from '../../../tests/platform.ts'
 import { freePort, myrmidonHome, pageUrl, runningServer, startServer } from '../src/server.ts'
 
 const FAKE = [process.execPath, join(import.meta.dir, 'fake-cli.ts')]
@@ -87,32 +86,32 @@ function serverPids(home: string): { pid: number; ppid: number } {
   return JSON.parse(readFileSync(join(home, 'server.json'), 'utf8'))
 }
 
-pendingOn('win32', 'serverJsonAfterKill')(
-  'the server the app started stops when the app is killed, and removes server.json',
-  async () => {
-    const app = Bun.spawn([process.execPath, join(import.meta.dir, 'server-parent.ts'), home], {
-      stdout: 'pipe',
-    })
-    let children: number[] = []
-    try {
-      const reader = app.stdout.getReader()
-      expect(new TextDecoder().decode((await reader.read()).value)).toContain('started')
-      const { pid, ppid } = serverPids(home)
-      children = [ppid, pid]
-      expect(children.every(alive)).toBe(true)
-      app.kill('SIGKILL')
-      expect(await gone(children)).toEqual([])
-      expect(existsSync(join(home, 'server.json'))).toBe(false)
-    } finally {
-      for (const pid of [app.pid, ...children])
-        try {
-          process.kill(pid, 'SIGKILL')
-        } catch {
-          // Already gone.
-        }
-    }
-  },
-)
+test('the server the app started stops when the app is killed, and its server.json goes with it', async () => {
+  const app = Bun.spawn([process.execPath, join(import.meta.dir, 'server-parent.ts'), home], {
+    stdout: 'pipe',
+  })
+  let children: number[] = []
+  try {
+    const reader = app.stdout.getReader()
+    expect(new TextDecoder().decode((await reader.read()).value)).toContain('started')
+    const { pid, ppid } = serverPids(home)
+    children = [ppid, pid]
+    expect(children.every(alive)).toBe(true)
+    app.kill('SIGKILL')
+    expect(await gone(children)).toEqual([])
+    // Where there are signals the server removes server.json as it stops; Windows can only end it, so there the next
+    // reader finds its pid gone and removes the file. Either way nothing takes it for a running server.
+    expect(await runningServer(home)).toBeUndefined()
+    expect(existsSync(join(home, 'server.json'))).toBe(false)
+  } finally {
+    for (const pid of [app.pid, ...children])
+      try {
+        process.kill(pid, 'SIGKILL')
+      } catch {
+        // Already gone.
+      }
+  }
+})
 
 for (const platform of ['darwin', 'linux', 'win32'] as const)
   test(`on ${platform} quitting asks the server to stop over its API, and it removes server.json`, async () => {

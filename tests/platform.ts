@@ -16,8 +16,6 @@ export const GAPS = {
   voiceWarmupRace:
     'a voice call whose page closed while the engines warmed up still greets once they are ready, so the next ' +
     'call in the chat is spoken twice (apps/web voice gateway; seen on Linux every run)',
-  serverJsonAfterKill:
-    'when the desktop app is killed, the leash stops its server without letting it remove server.json on Windows',
   cuaDriverOnWindows:
     'computer use cannot start a Cua Driver on Windows (its manifest and daemon never answer), so every computer ' +
     'tool fails there',
