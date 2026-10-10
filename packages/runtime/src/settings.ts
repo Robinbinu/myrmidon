@@ -25,7 +25,7 @@ import { ownerOnly } from './owner-only.ts'
 export const TOOL_GROUPS = {
   shell: ['shell'],
   web: ['web_search', 'web_fetch'],
-  files: ['fs_write', 'fs_edit', 'fs_read', 'fs_list', 'request_read'],
+  files: ['fs_write', 'fs_edit', 'fs_read', 'fs_list', 'ast_grep', 'ast_edit', 'lsp', 'request_read'],
   messaging: ['message', 'create_group', 'update_group', 'append_note'],
   browser: [
     'browser_open',

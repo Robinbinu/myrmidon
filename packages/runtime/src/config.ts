@@ -204,6 +204,29 @@ export const READ_LOG_RESULT_CHARS = 400
 /** Consecutive failures after which an MCP server's tools are refused for the rest of the round. */
 export const MCP_FAILURE_LIMIT = 3
 
+// Code intelligence (code-intel.ts): ast_grep, ast_edit, lsp
+
+/** Most structural matches ast_grep returns; `skip` pages on from there. */
+export const AST_GREP_LIMIT = 50
+/**
+ * Most files one ast_edit may change, and most replacements in all: past either it is refused whole, since a codemod
+ * that big is better narrowed (and in Ask, every file is a card the person reads).
+ */
+export const AST_EDIT_MAX_FILES = 40
+export const AST_EDIT_MAX_REPLACEMENTS = 400
+/** How long one structural search or rewrite may scan before it gives up. */
+export const AST_TIMEOUT_MS = 20_000
+/** How long one lsp call waits on its language server, starting and indexing included. */
+export const LSP_CALL_MS = 60_000
+/** How long a file's diagnostics may take to arrive after it is opened or changed. */
+export const LSP_DIAGNOSTICS_MS = 10_000
+/** A language server nobody asked anything for this long is stopped; the next call starts it again. */
+export const LSP_IDLE_MS = 10 * 60_000
+/** How long a project-wide type check (tsc, cargo check, go vet, pyright) may run. */
+export const LSP_PROJECT_CHECK_MS = 300_000
+/** Most references and workspace symbols lsp lists; the rest are counted. */
+export const LSP_LIST_LIMIT = 100
+
 // Browser (browser.ts)
 
 /** The longest page snapshot an agent gets; past it, the agent scrolls or evaluates the part it needs. */
