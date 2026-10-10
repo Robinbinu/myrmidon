@@ -337,6 +337,9 @@ function scan(line: string): { commands: Words[]; simple: boolean; literal: [num
   let words: string[] = []
   let word = ''
   let inWord = false
+  // The word after a redirection operator is its target (a file or here-string body), not an argument, so it is
+  // dropped: an interpreter fed a here-string (`sh <<< rm`) keeps no fake script argument and reads as running input.
+  let skipWord = false
   let quote: '"' | "'" | undefined
   const heredocs: { delimiter: string; tabs: boolean; quoted: boolean }[] = []
   // Open substitutions, parameters and subshells, each with what was being read outside it.
@@ -349,12 +352,16 @@ function scan(line: string): { commands: Words[]; simple: boolean; literal: [num
     quote: '"' | "'" | undefined
   }[] = []
   const endWord = () => {
-    if (inWord) words.push(word)
+    if (inWord) {
+      if (!skipWord) words.push(word)
+      skipWord = false
+    }
     word = ''
     inWord = false
   }
   const endCommand = () => {
     endWord()
+    skipWord = false
     if (words.length) commands.push(words)
     words = []
   }
@@ -522,6 +529,8 @@ function scan(line: string): { commands: Words[]; simple: boolean; literal: [num
       }
       // The rest of the operator (`>>`, `>&`, `&>`, `<<<`, `>|`).
       while ('<>&|'.includes(line[i + 1] ?? ' ')) i++
+      // The next word is the redirection's target (file or here-string body), not a command argument.
+      skipWord = true
       continue
     }
     if (c === ';' || c === '\n' || c === '|' || c === '&') {
@@ -814,6 +823,14 @@ function viewsOf(words: Words): { views: Words[]; whole: boolean } {
 const unknownProgram = (p: string) =>
   /[$*?]/.test(p) || /\[.+\]/.test(p) || /\{[^}]*(?:,|\.\.)[^}]*\}/.test(p)
 
+/**
+ * Whether a view runs a subcommand nobody can read before the line runs: a dispatching program (`git`, `bun`, `npm`…)
+ * whose subcommand word is an expansion. What these do turns entirely on that word, so `git $x` could be `git push`
+ * as easily as `git status`; the deny rules and destructive check must not clear it.
+ */
+const unknownSub = ([program, sub]: Words) =>
+  program !== undefined && sub !== undefined && SUBCOMMANDS.has(program) && unknownProgram(sub)
+
 /** Interpreters that run code from their input when given no script or code of their own (`… | sh`). */
 const STDIN_RUNNERS = new Set([
   'sh',
@@ -966,7 +983,7 @@ function parseCommand(line: string, depth = 0): Omit<ParsedLine, 'loose'> & { li
     if (control || unsafe) simple = false
     if (!words.length) return
     const { views, whole } = viewsOf(words)
-    if (!whole || views.some((v) => unknownProgram(v[0] as string) || runsInput(v))) {
+    if (!whole || views.some((v) => unknownProgram(v[0] as string) || runsInput(v) || unknownSub(v))) {
       simple = false
       unknown = true
     }
