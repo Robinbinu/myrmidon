@@ -879,6 +879,13 @@ ${roster}`,
       observed: string
     }) =>
       `MISSION:\n${p.mission}\n\nRUBRIC:\n${p.rubric}\n\nARTIFACTS:${p.artifacts}${p.checks ? `\n\nPROJECT CHECKS:\n${p.checks}` : ''}${p.sources ? `\n\nCITED SOURCES:${p.sources}` : ''}${p.observed ? `\n\nOBSERVED (latest tool results, clipped):${p.observed}` : ''}`,
+    /**
+     * A task that names no files is done in its doer's notes and messages: those are its work, shown in place of
+     * artifacts. `notes` and `messages` are one entry per line, latest last.
+     */
+    taskNotes: (owner: string, notes: string, messages: string) =>
+      `\n===== ${owner}'s notes (the task names no files) =====\n${notes || '(none)'}\n` +
+      `\n===== ${owner}'s messages =====\n${messages || '(none)'}\n`,
     /** `done`: the task's own "Done when" checks, which the lead wrote as its acceptance test. */
     task: (subject: string, description: string, done?: string) =>
       `Task: ${subject}\n${description}\n\n${done ? `Its "Done when" is your checklist: check each point against the files and name any that fails.\n${done}\n\n` : ''}Does the submitted work fully and correctly complete this task?`,
@@ -1223,6 +1230,20 @@ It is ${o.now.weekday}, ${o.now.date}, ${o.now.time} in their time zone (${o.now
     readOnly: (project: string, where: string) =>
       `${project} is read-only for agents: you can read it but not change ${where}. Put drafts in your scratch directory and describe the change instead.`,
     crewmateAnswer: (name: string, answer: string) => `${name} answered:\n${answer}`,
+    /** ask_crewmate to a name not on call; `onCall`: "name (role)" for each crewmate on call. */
+    noCrewmate: (name: string, onCall: readonly string[]) =>
+      `${name} is not one of your crewmates on call, and ask_crewmate never brings in someone new. On call: ${onCall.join(', ') || 'nobody'}. Ask one of them by name.`,
+    /** run_checks with nothing to run: `project` when the round has a project, else the agent's scratch folder. */
+    noChecks: (project: boolean) =>
+      project
+        ? 'this project defines no checks (no check, typecheck, lint or test script in package.json, no Cargo.toml, go.mod, or pyproject with ruff, mypy or pytest); run its commands with shell'
+        : 'nothing to check in your scratch folder: run_checks runs what a package.json (check, typecheck, lint or test scripts), tsconfig.json, Cargo.toml, go.mod or pyproject (ruff, mypy, pytest) there defines. Add one, or run your code with shell',
+    /** run_checks(only) naming a check that is not there; `has`: the checks there are. */
+    noSuchCheck: (only: string, has: readonly string[], project: boolean) =>
+      `${project ? 'this project' : 'your scratch folder'} has no ${only} check; it has: ${has.join(', ') || 'none'}`,
+    /** submit_task for a task that names outputs, with none of them submitted. */
+    outputsMissing: (id: string, outputs: readonly string[]) =>
+      `${id} names outputs (${outputs.join(', ')}) and none were submitted, so review would reject it. Publish them with publish_artifact and submit them in artifacts, or release_task and tell the lead why you cannot`,
     crewmateSilent: (name: string) =>
       `${name} stopped without answering. Read the shared files and notes for what it did, or ask it again with a clearer job.`,
     declined: (what: string, note?: string) =>
@@ -1579,7 +1600,8 @@ It is ${o.now.weekday}, ${o.now.date}, ${o.now.time} in their time zone (${o.now
     list_agents: {
       description:
         'List everyone in the round with their role, model, status (working, idle, stopped) and the task they hold. ' +
-        'Use it to see who is free before you assign or message; crewmates on call show once they have joined.',
+        'Use it to see who is free before you assign or message; crewmates on call show as "on call" until you ' +
+        'ask one, when it joins.',
     },
     // After Claude Code's TaskList ("prefer working on tasks in ID order").
     list_tasks: {
@@ -1612,7 +1634,8 @@ It is ${o.now.weekday}, ${o.now.date}, ${o.now.time} in their time zone (${o.now
         assignee:
           'The crewmate to do it, who is woken with the task (default: nobody, so anyone may claim it)',
         outputs:
-          'Artifact names the task will publish, e.g. ["index.html"]; nobody else may publish them meanwhile',
+          'Artifact names the task will publish, e.g. ["index.html"]; nobody else may publish them meanwhile, and ' +
+          'it is submitted with them. Leave it out when the deliverable is a note or a message: review then reads those',
         blockedBy: 'Ids of tasks that must be verified before this one can start (default: none)',
       },
     },
@@ -1666,7 +1689,9 @@ It is ${o.now.weekday}, ${o.now.date}, ${o.now.time} in their time zone (${o.now
       params: {
         id: 'Task id, e.g. "task-3"',
         revision: 'The revision you hold (r2 → 2)',
-        artifacts: 'Names of the published artifacts that complete it, e.g. ["report.md"]; each must exist',
+        artifacts:
+          'Names of the published artifacts that complete it, e.g. ["report.md"]; each must exist, and every task ' +
+          'that names outputs needs them. [] for a task that names none, done in its notes and messages',
       },
     },
     publish_artifact: {
@@ -2037,7 +2062,8 @@ It is ${o.now.weekday}, ${o.now.date}, ${o.now.time} in their time zone (${o.now
     ask_crewmate: {
       description: (brief: string) =>
         "Give one of your crewmates on call a job and wait for its answer, which comes back as this call's result; " +
-        'several asked in one step work in parallel. Ask when a piece is independent of yours, needs a tool or ' +
+        'several asked in one step work in parallel. Only those on call can be asked: any other name is refused, ' +
+        'and nobody new joins. Ask when a piece is independent of yours, needs a tool or ' +
         'specialty you lack, or saves time in parallel. Do it yourself when it is small, faster to do than to ' +
         'explain, already open, or your next step waits on it; never ask one only to re-check what you can check. ' +
         'The crewmate sees only the job, so brief it like a task, shorter for a small job:\n' +
@@ -2048,7 +2074,7 @@ It is ${o.now.weekday}, ${o.now.date}, ${o.now.time} in their time zone (${o.now
         'Deliverable: a Markdown table (park, visitors, source URL) in your answer, under 150 words. Done when: every ' +
         'number links to the page it came from. Not yours: the write-up."',
       params: {
-        to: "The crewmate's name, as listed under Working with others",
+        to: 'The name of a crewmate on call, as listed under Working with others (or by list_agents)',
         job: 'The job, standing on its own, under the heads Goal, Context, Deliverable, Approach, Done when and Not yours',
       },
     },
@@ -2277,10 +2303,10 @@ It is ${o.now.weekday}, ${o.now.date}, ${o.now.time} in their time zone (${o.now
     run_checks: {
       /** `full`: the round runs without the sandbox. */
       description: (full: boolean) =>
-        `Run the project's own checks${full ? '' : ' in the sandbox'} and get a short pass or fail per check, with ` +
-        'the failing output: its `check` script if it has one, otherwise typecheck, lint and test, from its ' +
-        'package.json, Cargo.toml, go.mod or pyproject. Run it after you change code and before you say you are done, ' +
-        'then fix what fails. only runs one check by name.',
+        `Run the project's own checks${full ? '' : ' in the sandbox'} (outside a project, your scratch folder's) and ` +
+        'get a short pass or fail per check, with the failing output: its `check` script if it has one, otherwise ' +
+        'typecheck, lint and test, from its package.json, tsconfig.json, Cargo.toml, go.mod or pyproject. Run it ' +
+        'after you change code and before you say you are done, then fix what fails. only runs one check by name.',
       params: {
         only: '"check", "typecheck", "lint", "test" or "build" (build runs only when asked; default: all but build)',
       },

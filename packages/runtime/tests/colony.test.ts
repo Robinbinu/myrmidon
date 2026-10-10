@@ -169,6 +169,32 @@ test('grep and glob search the working directory', async () => {
   expect(out[4]?.output).toContain('outside your scratch directory')
 })
 
+test('a read in the same step as a write sees the write: read_messages after update_group shows the new members', async () => {
+  const resolver = new ModelResolver()
+  scripted(resolver, 'mock/ada', [
+    [tool('create_group', { name: 'pair', members: ['bo'] })],
+    [tool('update_group', { name: 'pair', remove: ['bo'] }), tool('read_messages', { with: 'pair' })],
+  ])
+  scripted(resolver, 'mock/bo', [['ok']])
+  const spec = parseColonySpec({
+    name: 'Groups',
+    mission: 'Change a group.',
+    agents: [
+      { name: 'ada', model: 'mock/ada', tools: ['create_group', 'update_group', 'read_messages'] },
+      { name: 'bo', model: 'mock/bo', tools: ['read_messages'] },
+    ],
+    budget: { wall: '20s' },
+  })
+  const run = new ColonyRun(runtime, spec, { resolver, quietMs: 200 })
+  await run.start()
+  await run.done
+  const read = (await runtime.ctx.log.read(run.id))
+    .filter((e) => e.type === 'tool/result')
+    .map((e) => e.payload as { tool: string; output: string })
+    .find((r) => r.tool === 'read_messages')
+  expect(read?.output).toStartWith('members: ada\n')
+})
+
 test('agents cannot escape their scratch directory', async () => {
   const resolver = new ModelResolver()
   scripted(resolver, 'mock/escape', [
