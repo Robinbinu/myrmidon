@@ -99,6 +99,7 @@
         "@oh-my-pi/pi-coding-agent": "18.8.7",
         "@oh-my-pi/pi-natives": "18.8.7",
         "@oh-my-pi/pi-utils": "18.8.7",
+        "@oh-my-pi/snapcompact": "18.8.7",
         "baileys": "7.0.0-rc14",
         "imapflow": "2.0.5",
         "kitten-tts-js": "0.1.2",

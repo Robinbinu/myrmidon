@@ -399,6 +399,11 @@ const defs: EventTypeDefinition[] = [
       messages: Schema.natural().required(),
       tokens: Schema.natural().required(),
       summaryChars: Schema.natural().required(),
+      // Logs from before there were other methods only ever summarized.
+      methods: Schema.array(Schema.union(['shake', 'snapcompact', 'summary'])).default(['summary']),
+      elided: Schema.natural().default(0),
+      frames: Schema.natural().default(0),
+      tokensAfter: Schema.natural(),
     }),
   },
   {
