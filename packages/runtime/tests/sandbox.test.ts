@@ -148,33 +148,29 @@ test.skipIf(detectSandbox().kind === 'none')(
   },
 )
 
-pendingOn('win32', 'timeoutStopOnWindows')(
-  'a full-access command that runs too long is stopped, with what it started',
-  async () => {
-    const marker = join(root, 'late')
-    const started = Date.now()
-    const log = join(root, 'leash.log')
-    const running = unconfinedSandbox().run({
-      command: `(sleep 3 && touch "${marker}") & sleep 30`,
-      cwd: root,
-      writable: [root],
-      timeoutMs: 500,
-      env: { MYR_LEASH_LOG: log },
-    })
-    const r = await Promise.race([running, Bun.sleep(10_000)])
-    // Says what is still running, and what the leash saw (leash.ts MYR_LEASH_LOG), when the command was not stopped.
-    if (!r)
-      throw new Error(
-        `not stopped: ${JSON.stringify(below(process.pid))}\n${existsSync(log) ? readFileSync(log, 'utf8') : 'no sweep'}`,
-      )
-    expect(r.timedOut).toBe(true)
-    expect(r.code).toBeNull()
-    expect(Date.now() - started).toBeLessThan(10_000)
-    await Bun.sleep(3_500)
-    expect(existsSync(marker)).toBe(false)
-  },
-  20_000,
-)
+test('a full-access command that runs too long is stopped, with what it started', async () => {
+  const marker = join(root, 'late')
+  const started = Date.now()
+  const log = join(root, 'leash.log')
+  const running = unconfinedSandbox().run({
+    command: `(sleep 3 && touch "${marker}") & sleep 30`,
+    cwd: root,
+    writable: [root],
+    timeoutMs: 500,
+    env: { MYR_LEASH_LOG: log },
+  })
+  const r = await Promise.race([running, Bun.sleep(10_000)])
+  // Says what is still running, and what the leash saw (leash.ts MYR_LEASH_LOG), when the command was not stopped.
+  if (!r)
+    throw new Error(
+      `not stopped: ${JSON.stringify(below(process.pid))}\n${existsSync(log) ? readFileSync(log, 'utf8') : 'no sweep'}`,
+    )
+  expect(r.timedOut).toBe(true)
+  expect(r.code).toBeNull()
+  expect(Date.now() - started).toBeLessThan(10_000)
+  await Bun.sleep(3_500)
+  expect(existsSync(marker)).toBe(false)
+}, 20_000)
 
 test.skipIf(detectSandbox().kind === 'none')(
   "a sandboxed command cannot connect to a socket in a hidden folder or another run's /tmp/myr-*, only its own",
