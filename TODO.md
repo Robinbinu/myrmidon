@@ -552,11 +552,12 @@ Open work, in the order it will be done:
       from the cross-platform audit; fix blockers first.
 12y. - [ ] **omp features Myrmidon lacks** (asked 2026-10-10; reuse omp's modules where they fit):
       1. Long-term memory engine: extraction from chats, recall / reflect / edit (omp hindsight, mnemopi).
-      2. Debugger for agents over the Debug Adapter Protocol (omp dap).
+      2. Debugger for agents over the Debug Adapter Protocol (omp dap). Done: the debug tool (debugger.ts).
       3. Live session sharing: another person joins a chat live (omp collab).
       4. Autoresearch: an experiment loop on its own branch, measured and kept or dropped (omp autoresearch).
       5. SSH remote hosts agents can work on (omp ssh).
-      6. Telemetry export over OTLP (omp telemetry-export-otlp); plus a security-scan tool (omp security-scan).
+      6. Telemetry export over OTLP (omp telemetry-export-otlp); plus a security-scan tool (omp security-scan). Done:
+         security_scan (secrets by omp's credential shapes, dependencies by OSV.dev).
 12l. - [x] **Full access, no sandbox** (asked 2026-10-09, like Hermes) — global switch in Settings → Tools (default on)
       and a per-project Full access; lifts the command sandbox, file-path limits and the private-address rule; approvals
       still apply; channel members and read-only projects stay sandboxed. Left: Windows (unconfined commands still use

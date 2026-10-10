@@ -8,7 +8,7 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs'
-import { dirname, join, relative, resolve, sep } from 'node:path'
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import {
   type ColonyState,
   type ConversationLine,
@@ -100,6 +100,7 @@ import {
   RULE_MAX_TEXT,
   TTS_MAX_CHARS,
 } from './config.ts'
+import { DEBUG_ACTIONS, type DebugScope, debugReads, debugSessions } from './debugger.ts'
 import { readFileAs } from './file-read.ts'
 import { find } from './find.ts'
 import { gitCommitChanges, gitWorkingChanges } from './git.ts'
@@ -134,9 +135,10 @@ import { adoptDraft, isOwnDraft, testPlugin, writeDraft } from './plugin-builder
 import { type ProjectCheck, scratchChecks } from './project-context.ts'
 import type { PromptFacts } from './prompt/facts.ts'
 import { type Place, prompts } from './prompts.ts'
-import { within } from './read-access.ts'
+import { keysAt, within } from './read-access.ts'
 import { ruleMatches } from './rule-files.ts'
 import { SANDBOX_DIRS, type SandboxRun } from './sandbox.ts'
+import { SCAN_CHECKS, securityScan } from './security-scan.ts'
 import { hostShell } from './shell.ts'
 import { parseWav } from './voice/audio.ts'
 import { assertArtifactName, SKIP_DIRS } from './workspace.ts'
@@ -602,7 +604,16 @@ function tierOf(def: Pick<ToolDef, 'tier' | 'tierOf'>, params: unknown): Tier {
 }
 
 /** File tools that read from the working directory, which is the person's project in a chat that has one. */
-const PROJECT_READS = new Set(['fs_read', 'fs_list', 'grep', 'glob', 'find', 'ast_grep', 'lsp'])
+const PROJECT_READS = new Set([
+  'fs_read',
+  'fs_list',
+  'grep',
+  'glob',
+  'find',
+  'ast_grep',
+  'lsp',
+  'security_scan',
+])
 
 /**
  * Whether a call reads the person's project rather than the agent's own scratch. A round someone else started
@@ -637,6 +648,7 @@ const GUARDED = new Set([
   'run_checks',
   'propose',
   'github',
+  'debug',
 ])
 /**
  * Guarded tools whose reads are commands too, decided as the commands they run (the github tool's `gh pr view`): the
@@ -1006,10 +1018,53 @@ function cellScope(host: ColonyHost, agent: string): CellScope {
     cwd: spec.cwd,
     filesDir,
     launch: (argv, env) => confinedLaunch(host, { ...confined, env: { ...env } }, argv),
-    python: () => {
-      const path = host.sandbox.env(spec).PATH
-      return Bun.which('python3', path === undefined ? {} : { PATH: path }) ?? undefined
+    python: () => sandboxPython(host, spec),
+  }
+}
+
+/** The python3 a command started with `spec` would run, found on the PATH the sandbox gives it. */
+function sandboxPython(host: ColonyHost, spec: Omit<SandboxRun, 'timeoutMs'>): string | undefined {
+  const path = host.sandbox.env(spec).PATH
+  return Bun.which('python3', path === undefined ? {} : { PATH: path }) ?? undefined
+}
+
+/** A command line's words as sh reads them, quoted only where they need it, for the permission card. */
+const shWord = (word: string) => (/^[\w@%+=:,./-]+$/.test(word) ? word : shQuote(word))
+
+/**
+ * Where an agent debugs, as debugger.ts sees it: in its working directory, its adapter started as its commands are.
+ * Starting a program is decided like the command line that runs it (the adapter's, then the program and its
+ * arguments): a project's own dap.json can name any adapter. In the OS sandbox the adapter runs confined like `shell`,
+ * so the program it runs is too, with the adapter's own files opened for reading when they sit in a hidden folder
+ * (vscode-js-debug in the person's home). Evaluating an expression runs code in the program, so it is decided as a
+ * command, and the person may rewrite it.
+ */
+function debugScope(host: ColonyHost, agent: string): DebugScope {
+  const spec = commandSpec(host, agent)
+  return {
+    colonyId: host.id,
+    agent,
+    access: cellAccess(host),
+    cwd: spec.cwd,
+    resolveRead: (path) => host.workspace.resolveForRead(agent, path),
+    python: () => sandboxPython(host, spec),
+    async start(adapter, target) {
+      const argv = [adapter.resolvedCommand, ...adapter.args]
+      await guardProjectCommand(host, agent, 'debug', [...argv, ...target].map(shWord).join(' '))
+      if (host.sandbox.kind !== 'sandbox-exec' && host.sandbox.kind !== 'bubblewrap') return adapter
+      if (adapter.connectMode === 'socket') throw new Error(prompts.debugger.socketConfined(adapter.name))
+      const files = adapter.args
+        .filter((a) => isAbsolute(a) && existsSync(a) && statSync(a).isFile())
+        .map((a) => dirname(a))
+        .filter((d) => !keysAt(d) && !(spec.hidden ?? []).some((h) => within(d, h)))
+      const [program = '', ...args] = confinedLaunch(
+        host,
+        { ...spec, readable: [...(spec.readable ?? []), ...files] },
+        argv,
+      ).argv
+      return { ...adapter, command: program, resolvedCommand: program, args }
     },
+    approve: (expression) => guardProjectCommand(host, agent, 'debug', expression, true),
   }
 }
 
@@ -3190,6 +3245,63 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       const r = await cellKernels.run(scope, { ...args, code })
       if (!r.ok) throw new Error(clip(r.text))
       return r.images.length ? { text: clip(r.text), images: r.images } : clip(r.text)
+    },
+  },
+  {
+    name: 'debug',
+    tier: 'exec',
+    tierOf: (args) => (debugReads(args) ? 'read' : 'exec'),
+    description: prompts.tools.debug.description(false),
+    describe: (f) => prompts.tools.debug.description(f.access.fullAccess),
+    parameters: type({
+      action: type.enumerated(...DEBUG_ACTIONS).describe(prompts.tools.debug.params.action),
+      'program?': type('string').describe(prompts.tools.debug.params.program),
+      'args?': type('string[]').describe(prompts.tools.debug.params.args),
+      'adapter?': type('string').describe(prompts.tools.debug.params.adapter),
+      'breakpoints?': type({
+        file: type('string').describe(prompts.tools.debug.params.breakpointFile),
+        line: type('number').describe(prompts.tools.debug.params.breakpointLine),
+        'condition?': type('string').describe(prompts.tools.debug.params.breakpointCondition),
+      })
+        .array()
+        .describe(prompts.tools.debug.params.breakpoints),
+      'file?': type('string').describe(prompts.tools.debug.params.file),
+      'line?': type('number').describe(prompts.tools.debug.params.line),
+      'condition?': type('string').describe(prompts.tools.debug.params.condition),
+      'port?': type('number').describe(prompts.tools.debug.params.port),
+      'pid?': type('number').describe(prompts.tools.debug.params.pid),
+      'frame?': type('number').describe(prompts.tools.debug.params.frame),
+      'ref?': type('number').describe(prompts.tools.debug.params.ref),
+      'expression?': type('string').describe(prompts.tools.debug.params.expression),
+      'timeoutSeconds?': type('number').describe(prompts.tools.debug.params.timeoutSeconds),
+    }),
+    async run(args, agent, host) {
+      if (host.sandbox.kind === 'none' && !host.unsafeNoSandbox)
+        throw new Error(prompts.debugger.needsSandbox)
+      return clip(await debugSessions.run(debugScope(host, agent), args))
+    },
+  },
+  {
+    name: 'security_scan',
+    tier: 'read',
+    description: prompts.tools.security_scan.description,
+    parameters: type({
+      'checks?': type.enumerated(...SCAN_CHECKS).describe(prompts.tools.security_scan.params.checks),
+      'path?': type('string').describe(prompts.tools.security_scan.params.path),
+    }),
+    async run(args, agent, host) {
+      // OSV.dev is on the web: only an agent that may use the web sends it the project's package list.
+      const web = toolsAllowed(host, agent).includes('web_fetch')
+      const report = await securityScan(
+        {
+          root: host.workspace.workdir(agent),
+          target: host.workspace.resolveForRead(agent, args.path ?? '.'),
+          mayRead: (path) => host.workspace.mayRead(agent, path),
+          ...(web ? { fetch: (url: string, init?: RequestInit) => fetch(url, init) } : {}),
+        },
+        args,
+      )
+      return clip(report)
     },
   },
 ]
