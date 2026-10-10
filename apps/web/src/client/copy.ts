@@ -443,6 +443,8 @@ export const copy = {
     compactedTail: (messages: number, kTokens: number) => `${messages} messages, at ~${kTokens}k tokens`,
     switchedTo: 'Switched to',
     switchedFrom: (model?: string) => `from ${model}, by you`,
+    fellBackTo: 'Went on with',
+    fellBackFrom: (model?: string) => `after ${model} failed`,
     askedJudge: 'Asked the reviewer to check the result',
     judgeApproved: 'Reviewer approved',
     judgeRejected: 'Reviewer asked for changes',
@@ -530,6 +532,7 @@ export const copy = {
       'agent/compacted': 'older messages summarized',
       'agent/prompt': 'prompt assembled',
       'agent/model': 'model switched',
+      'agent/fallback': 'went on with a fallback model',
       'tool/created': 'tool made',
       'chat/user': 'message from you',
       'chat/reply': 'reply',
@@ -2093,6 +2096,12 @@ export const copy = {
     tryAgain: 'Try again',
     noModel: (window: string) => `No model with ${window} or more is set up. Add one in Settings → Models.`,
     kept: 'The work so far is kept; the failed reply is not.',
+    /** A line in the round: an agent's model failed and it went on with the next of the person's fallbacks. */
+    fellBack: (agent: string, previous: string, model: string) =>
+      `${agent}'s model, ${previous}, failed, so it went on with ${model}.`,
+    fellBackRefused: (agent: string, previous: string, model: string) =>
+      `${previous} declined to continue, so ${agent} went on with ${model}.`,
+    fellBackTitle: (message: string) => `Provider message: ${message}`,
   },
 
   outcome: {
@@ -2890,6 +2899,15 @@ export const copy = {
           'voice api',
         ],
         leadModel: ['default model', 'main model', 'lead model'],
+        fallbacks: [
+          'fallback',
+          'failover',
+          'backup model',
+          'model outage',
+          'overloaded',
+          'rate limit',
+          'model down',
+        ],
         reviewer: ['review', 'judge', 'verifier', 'verification', 'check the work', 'quality'],
         helpers: ['crewmates', 'workers', 'helpers', 'subagents', 'team size', 'parallel'],
         budget: ['budget', 'cost', 'money', 'dollars', 'price', 'spend', 'limit'],
@@ -3137,6 +3155,16 @@ export const copy = {
       units: { minutes: 'min', dollars: '$', tokens: 'tok', seconds: 's' },
       crewTitle: 'Default crew',
       limitsTitle: 'Limits per run',
+      fallbacksTitle: 'If a model fails',
+      leadFallbacks: "Lead's fallback models",
+      leadFallbacksHint:
+        "When the lead's model is down, rate-limited past its retries, signed out or gone, the lead goes on with these, in order. None: the run pauses for you.",
+      workerFallbacks: "Crew's fallback models",
+      workerFallbacksHint:
+        'The same for crewmates and swarm peers. Each round starts on the chosen models again.',
+      addFallback: 'Add a fallback model',
+      removeFallback: (model: string) => `Remove ${model}`,
+      noFallbacks: 'None',
     },
     tools: {
       title: 'Tools',

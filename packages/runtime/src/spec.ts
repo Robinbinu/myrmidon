@@ -69,6 +69,12 @@ export interface ColonySpec {
   }
   /** How the team may grow at run time. */
   team?: TeamPolicy
+  /**
+   * Models an agent goes on with, in order, when its own fails in a way another model could get past: `lead` for the
+   * lead, `workers` for crewmates and swarm peers. Taken from the settings each time a round starts or resumes; not
+   * logged, the `agent/fallback` events say what happened.
+   */
+  fallbacks?: { lead?: string[]; workers?: string[] }
   /** Tools removed from every agent regardless of role. */
   disabledTools?: string[]
   /**

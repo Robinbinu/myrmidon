@@ -421,6 +421,18 @@ const defs: EventTypeDefinition[] = [
     schema: Schema.object({ agent: str(), model: str(), previous: str() }),
   },
   {
+    type: 'agent/fallback',
+    version: 1,
+    actors: ['system'],
+    schema: Schema.object({
+      agent: str(),
+      model: str(),
+      previous: str(),
+      kind: oneOf('refusal', 'error'),
+      message: str(),
+    }),
+  },
+  {
     type: 'tool/created',
     version: 1,
     actors: ['agent', 'system', 'user'],
