@@ -24,3 +24,9 @@ export const SERVER_STOP_TIMEOUT_MS = 10_000
  * (tried in order). Held as a global shortcut, so the key press is consumed and a page or dialog never sees it.
  */
 export const COMPUTER_STOP_KEYS = ['Escape', 'Esc'] as const
+
+/**
+ * The environment variable that names the server the app starts; `myrmidon serve` writes it into server.json as
+ * `launch` (apps/cli/src/main.ts), so the app knows the server.json is its own server's.
+ */
+export const LAUNCH_ID_ENV = 'MYRMIDON_LAUNCH_ID'
