@@ -1,15 +1,18 @@
 import { expect, test } from 'bun:test'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { bunShim } from '../../../tests/platform.ts'
 import { BrowserHub, findChrome, navigate, startBrowserProxy } from '../src/browser.ts'
-import type { OmpRuntime } from '../src/omp/runtime.ts'
+import type { OmpRuntime, ReadResult } from '../src/omp/runtime.ts'
+import { prompts } from '../src/prompts.ts'
 import {
   assertPublicUrl,
   isPublicAddress,
   ompWebTools,
   pinnedFetch,
   quickRefusal,
+  type ReaderPrograms,
   reachableAddresses,
   UnreachableError,
   withPinnedNetwork,
@@ -462,3 +465,256 @@ test.skipIf(!findChrome())(
   },
   60_000,
 )
+
+/** A stand-in yt-dlp: it fetches `targets` through the proxy it was given, as yt-dlp would, and reports what it saw. */
+function standInYtDlp(dir: string, targets: string[]): string {
+  const script = join(dir, 'yt-dlp.ts')
+  writeFileSync(
+    script,
+    `const args = process.argv.slice(2)
+const proxy = args[args.indexOf('--proxy') + 1]
+const results = []
+for (const target of ${JSON.stringify(targets)}) {
+  try {
+    const res = await fetch(target, { proxy })
+    results.push(res.status + ' ' + (await res.text()))
+  } catch (err) {
+    results.push('error ' + err)
+  }
+}
+console.log(JSON.stringify({ args, cwd: process.cwd(), envProxy: process.env.HTTPS_PROXY, results }))
+`,
+  )
+  return bunShim(join(dir, 'yt-dlp'), script)
+}
+
+/** A stand-in page reader (trafilatura or lynx): it reports its arguments and what came on stdin. */
+function standInPageReader(dir: string, name: string): string {
+  const script = join(dir, 'page-reader.ts')
+  writeFileSync(
+    script,
+    'console.log(JSON.stringify({ args: process.argv.slice(2), input: await Bun.stdin.text() }))\n',
+  )
+  return bunShim(join(dir, name), script)
+}
+
+test('a YouTube video is read by yt-dlp, and every connection it makes goes through the guard', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'myr-readers-'))
+  const reachedOther: string[] = []
+  const other = Bun.serve({
+    port: 0,
+    hostname: '127.0.0.1',
+    fetch(req) {
+      reachedOther.push(req.url)
+      return new Response('dashboard')
+    },
+  })
+  const own = Bun.serve({
+    port: 0,
+    hostname: '127.0.0.1',
+    fetch: (req) =>
+      new URL(req.url).pathname === '/away'
+        ? Response.redirect(`http://127.0.0.1:${other.port}/`, 302)
+        : new Response('the transcript'),
+  })
+  try {
+    const ytDlp = standInYtDlp(dir, [
+      `http://localhost:${own.port}/subs`,
+      `http://127.0.0.1:${other.port}/`,
+      `http://localhost:${own.port}/away`,
+      `http://sneaky.example:${own.port}/`,
+    ])
+    // A stand-in for omp's reader: like its YouTube handler, it runs yt-dlp on the video and reads its output.
+    const omp = {
+      async read(url: string): Promise<ReadResult> {
+        if (new URL(url).hostname !== 'www.youtube.com')
+          return { url, method: 'native', contentType: 'text/html', output: 'a page' }
+        const proc = Bun.spawn(
+          [ytDlp, '--dump-json', '--no-warnings', '--no-playlist', '--skip-download', url],
+          { stdout: 'pipe', stderr: 'pipe' },
+        )
+        const output = await new Response(proc.stdout).text()
+        return { url, method: 'youtube', contentType: 'text/plain', output }
+      },
+    } as unknown as OmpRuntime
+    const web = ompWebTools(
+      omp,
+      () => 'auto',
+      resolver({ 'www.youtube.com': ['93.184.216.34'], 'sneaky.example': ['127.0.0.1'] }),
+      async () => ({ 'yt-dlp': ytDlp }),
+    )
+    const video = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
+    const page = await web.read(video, () => new Set([own.port as number]))
+    expect(page.method).toBe('youtube')
+    const seen = JSON.parse(page.output) as {
+      args: string[]
+      cwd: string
+      envProxy: string
+      results: string[]
+    }
+    const proxy = seen.args[2] ?? ''
+    expect(proxy).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/)
+    expect(seen.args).toEqual([
+      '--ignore-config',
+      '--proxy',
+      proxy,
+      '--dump-json',
+      '--no-warnings',
+      '--no-playlist',
+      '--skip-download',
+      video,
+    ])
+    expect(seen.envProxy).toBe(proxy)
+    expect(seen.cwd).toContain('myrmidon-reader-')
+    // Its own server is reached; another local port, a redirect into one and a name resolving to one are not.
+    expect(seen.results[0]).toBe('200 the transcript')
+    expect(seen.results.slice(1).map((r) => r.slice(0, 3))).toEqual(['403', '403', '403'])
+    expect(reachedOther).toEqual([])
+  } finally {
+    own.stop(true)
+    other.stop(true)
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('reader programs take only the options omp passes them; any other program is refused', async () => {
+  const ytDlp = join(tmpdir(), 'yt-dlp')
+  const trafilatura = join(tmpdir(), 'trafilatura')
+  const video = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
+  await withPinnedNetwork({ readers: true }, async (refused) => {
+    for (const command of [
+      ['/bin/sh', '-c', 'true'],
+      [join(tmpdir(), 'uv'), 'tool', 'install', 'trafilatura'],
+      [ytDlp, '--exec', 'touch pwned', video],
+      [ytDlp, '--batch-file', '/etc/passwd'],
+      [ytDlp, '--cookies', '/etc/passwd', video],
+      [ytDlp, '-o', '/etc/out', video],
+      [ytDlp, 'file:///etc/passwd'],
+      [ytDlp, video, 'https://example.com/'],
+      [trafilatura, '-u', 'file:///etc/passwd', '--output-format', 'markdown'],
+      [trafilatura, '-i', '/etc/passwd'],
+      [trafilatura, '-u', video, '--output-format', '../x'],
+    ])
+      expect(() => Bun.spawn(command)).toThrow('does not run other programs')
+    // A private address is refused before the program starts, saying why.
+    expect(() => Bun.spawn([ytDlp, 'http://169.254.169.254/latest/meta-data/'])).toThrow('private or local')
+    expect(refused).toHaveLength(1)
+  })
+  // Without the guard proxy (no reader installed) not even a reader starts.
+  await withPinnedNetwork({}, async () => {
+    expect(() => Bun.spawn([ytDlp, video])).toThrow('does not run other programs')
+  })
+})
+
+test('trafilatura and lynx get the page on stdin, fetched through the guard, instead of its URL', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'myr-readers-'))
+  const reachedOther: string[] = []
+  const other = Bun.serve({
+    port: 0,
+    hostname: '127.0.0.1',
+    fetch(req) {
+      reachedOther.push(req.url)
+      return new Response('dashboard')
+    },
+  })
+  const own = Bun.serve({
+    port: 0,
+    hostname: '127.0.0.1',
+    fetch: (req) =>
+      new URL(req.url).pathname === '/away'
+        ? Response.redirect(`http://127.0.0.1:${other.port}/`, 302)
+        : new Response('<p>article</p>', { headers: { 'content-type': 'text/html' } }),
+  })
+  try {
+    const trafilatura = standInPageReader(dir, 'trafilatura')
+    const lynx = standInPageReader(dir, 'lynx')
+    const lookup = resolver({ 'sneaky.example': ['127.0.0.1'] })
+    const localPorts = () => new Set([own.port as number])
+    await withPinnedNetwork({ readers: true, localPorts, lookup }, async (refused) => {
+      const run = async (command: string[]) => {
+        const proc = Bun.spawn(command, { stdout: 'pipe', stderr: 'pipe' })
+        return JSON.parse(await new Response(proc.stdout).text()) as { args: string[]; input: string }
+      }
+      // omp's own command lines for both.
+      const viaTrafilatura = (url: string) => run([trafilatura, '-u', url, '--output-format', 'markdown'])
+      const page = `http://localhost:${own.port}/page`
+      expect(await viaTrafilatura(page)).toEqual({
+        args: ['--output-format', 'markdown'],
+        input: '<p>article</p>',
+      })
+      expect(await run([lynx, '-dump', '-nolist', '-width', '250', page])).toEqual({
+        args: ['-dump', '-nolist', '-width', '250', '-force_html', '-stdin'],
+        input: '<p>article</p>',
+      })
+      // A redirect into another local port, or a name resolving to one, leaves the reader with nothing to read.
+      expect((await viaTrafilatura(`http://localhost:${own.port}/away`)).input).toBe('')
+      expect((await viaTrafilatura(`http://sneaky.example:${own.port}/`)).input).toBe('')
+      expect(() =>
+        Bun.spawn([trafilatura, '-u', `http://127.0.0.1:${other.port}/`, '--output-format', 'markdown']),
+      ).toThrow(`localhost:${other.port} is not a server`)
+      expect(refused).toHaveLength(3)
+    })
+    expect(reachedOther).toEqual([])
+  } finally {
+    own.stop(true)
+    other.stop(true)
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('a missing reader falls back and says what would enable it; a read installs nothing', async () => {
+  const video = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
+  const download = 'https://github.com/yt-dlp/yt-dlp/releases/download/2026.08.19/yt-dlp_macos'
+  const attempts: string[] = []
+  // A stand-in for omp's reader with no yt-dlp: like ensureTool, it tries to download yt-dlp and to install
+  // trafilatura, then reports the video without a transcript, and an unconvertible page as raw HTML.
+  const omp = {
+    async read(url: string): Promise<ReadResult> {
+      if (url === video) {
+        attempts.push(
+          await fetch(download).then(
+            () => 'downloaded',
+            (err: Error) => err.message,
+          ),
+        )
+        try {
+          Bun.spawn(['uv', 'tool', 'install', 'trafilatura'])
+          attempts.push('installed')
+        } catch (err) {
+          attempts.push((err as Error).message)
+        }
+        return { url, method: 'youtube-no-ytdlp', contentType: 'text/plain', output: 'no yt-dlp' }
+      }
+      return { url, method: 'raw-html', contentType: 'text/html', output: '<div id="app"></div>' }
+    },
+  } as unknown as OmpRuntime
+  const lookup = resolver({ 'www.youtube.com': ['93.184.216.34'], 'example.com': ['93.184.216.34'] })
+  const none = ompWebTools(
+    omp,
+    () => 'auto',
+    lookup,
+    async () => ({}),
+  )
+  expect((await none.read(video)).output).toBe(prompts.toolResults.noTranscriptReader(video))
+  expect(attempts).toEqual([prompts.toolResults.readerInstall, prompts.toolResults.readerProgram])
+  expect((await none.read('https://example.com/app')).output).toBe(
+    `${prompts.toolResults.noPageReader}\n\n<div id="app"></div>`,
+  )
+  // With a page reader installed, raw HTML means it was tried too: nothing to suggest.
+  const installed: ReaderPrograms = { trafilatura: '/usr/bin/trafilatura' }
+  const some = ompWebTools(
+    omp,
+    () => 'auto',
+    lookup,
+    async () => installed,
+  )
+  expect((await some.read('https://example.com/app')).output).toBe('<div id="app"></div>')
+  // A release download the agent asked for itself is fetched like any page.
+  const net = network({ [download]: { body: 'binary' } })
+  await withPinnedNetwork(
+    { url: download, fetch: net.fetch, lookup: resolver({ 'github.com': ['140.82.112.3'] }) },
+    async () => {
+      expect(await (await fetch(download)).text()).toBe('binary')
+    },
+  )
+})
