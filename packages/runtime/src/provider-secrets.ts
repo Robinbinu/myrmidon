@@ -289,6 +289,8 @@ const RESTORES: Readonly<Record<string, (args: Record<string, unknown>, scope: R
   fs_edit: (a, s) => typeof a.path === 'string' && s.inside(a.path),
   ast_edit: (a, s) => s.inside(typeof a.path === 'string' ? a.path : '.'),
   shell: (_, s) => s.confined,
+  // A code cell runs in the same sandbox as shell, so it is a sandboxed command here.
+  eval: (_, s) => s.confined,
   start_server: (_, s) => s.confined,
   grep: () => true,
   ast_grep: () => true,

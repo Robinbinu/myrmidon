@@ -49,7 +49,7 @@ export const ACCESS_GROUPS: Readonly<Record<AccessGroup, readonly string[]>> = {
     'lsp',
     'request_read',
   ],
-  shell: ['shell', 'run_checks', 'start_server', 'server_logs', 'stop_server', 'create_tool'],
+  shell: ['shell', 'eval', 'run_checks', 'start_server', 'server_logs', 'stop_server', 'create_tool'],
   web: ['web_search', 'web_fetch'],
   browser: [
     'browser_open',

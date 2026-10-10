@@ -58,6 +58,7 @@ import {
   switchPage,
   watched,
 } from './browser.ts'
+import { CELL_LANGUAGES, type CellAccess, type CellScope, cellKernels } from './cells.ts'
 import { clockTime, localDate } from './clock.ts'
 import {
   astEdit,
@@ -105,7 +106,7 @@ import {
   type MadeTool,
   scriptCommand,
 } from './made-tools.ts'
-import { toolsFor } from './patterns.ts'
+import { RUNTIMES, toolsFor } from './patterns.ts'
 import { presetOf } from './permissions.ts'
 import { adoptDraft, isOwnDraft, testPlugin, writeDraft } from './plugin-builder.ts'
 import { type ProjectCheck, scratchChecks } from './project-context.ts'
@@ -113,7 +114,7 @@ import type { PromptFacts } from './prompt/facts.ts'
 import { type Place, prompts } from './prompts.ts'
 import { within } from './read-access.ts'
 import { ruleMatches } from './rule-files.ts'
-import { SANDBOX_DIRS } from './sandbox.ts'
+import { SANDBOX_DIRS, type SandboxRun } from './sandbox.ts'
 import { assertArtifactName, SKIP_DIRS } from './workspace.ts'
 
 /** A short, stable file name for a fetched URL. */
@@ -479,6 +480,7 @@ const GUARDED = new Set([
   'ast_edit',
   'lsp',
   'shell',
+  'eval',
   'start_server',
   'run_checks',
   'propose',
@@ -791,21 +793,66 @@ async function launchServer(host: ColonyHost, agent: string, server: ServerConfi
     asked.add(`${agent}\0${line}`)
   }
   if (host.sandbox.kind !== 'sandbox-exec' && host.sandbox.kind !== 'bubblewrap') return server
-  const spec = {
+  const [program = '', ...args] = confinedLaunch(host, commandSpec(host, agent), argv).argv
+  return { ...server, command: program, resolvedCommand: program, args }
+}
+
+/** Where and with what access the agent's commands run (see `SandboxRun`), without the command. */
+function commandSpec(host: ColonyHost, agent: string): Omit<SandboxRun, 'timeoutMs'> {
+  return {
     command: '',
     cwd: host.workspace.workdir(agent),
     writable: writableFor(host, agent),
     ...host.workspace.confinement(),
   }
-  const env = Object.entries(host.sandbox.env(spec)).flatMap(([k, v]) =>
-    v === undefined ? [] : [`${k}=${v}`],
-  )
-  const confined = host.sandbox.argv({
-    ...spec,
-    command: `exec /usr/bin/env -i ${[...env, ...argv].map(shQuote).join(' ')}`,
-  })
-  const [program = '', ...args] = confined
-  return { ...server, command: program, resolvedCommand: program, args }
+}
+
+/**
+ * A program started as the agent's commands are, by a caller that spawns it itself because it needs the program's
+ * pipes (a language server, a cell runtime): in the OS sandbox its command line is wrapped in the confinement and run
+ * with the sandbox's environment alone; with full access (or no sandbox, when allowed) it runs as it is, in the
+ * environment `run` would give it.
+ */
+function confinedLaunch(
+  host: ColonyHost,
+  spec: Omit<SandboxRun, 'timeoutMs'>,
+  argv: readonly string[],
+): { argv: string[]; env: Record<string, string | undefined> } {
+  const env = host.sandbox.env(spec)
+  if (host.sandbox.kind !== 'sandbox-exec' && host.sandbox.kind !== 'bubblewrap')
+    return { argv: [...argv], env }
+  const vars = Object.entries(env).flatMap(([k, v]) => (v === undefined ? [] : [`${k}=${v}`]))
+  const command = `exec /usr/bin/env -i ${[...vars, ...argv].map(shQuote).join(' ')}`
+  return { argv: host.sandbox.argv({ ...spec, command }), env }
+}
+
+/** The access a cell runtime started now would keep while it runs (see `CellAccess`). */
+export function cellAccess(host: Pick<ColonyHost, 'sandbox' | 'spec'>): CellAccess {
+  return { unconfined: host.sandbox.kind === 'unconfined', readOnly: presetOf(host.spec) === 'read-only' }
+}
+
+/**
+ * Where an agent's code cells run, as cells.ts sees it: started as its commands are, in its working directory. The
+ * runtimes' own files (omp's bundled runtime, its Python runner) go in the chat's folder, which commands may read and
+ * not change, and are opened to the runtime by name.
+ */
+function cellScope(host: ColonyHost, agent: string): CellScope {
+  const filesDir = join(host.workspace.colonyDir, 'cells')
+  mkdirSync(filesDir, { recursive: true })
+  const spec = commandSpec(host, agent)
+  const confined = { ...spec, readable: [...(spec.readable ?? []), filesDir] }
+  return {
+    colonyId: host.id,
+    agent,
+    access: cellAccess(host),
+    cwd: spec.cwd,
+    filesDir,
+    launch: (argv, env) => confinedLaunch(host, { ...confined, env: { ...env } }, argv),
+    python: () => {
+      const path = host.sandbox.env(spec).PATH
+      return Bun.which('python3', path === undefined ? {} : { PATH: path }) ?? undefined
+    },
+  }
 }
 
 /** Where an agent's code tools work, as code-intel.ts sees it: its working directory, read access, and writes. */
@@ -862,7 +909,7 @@ const UNTRUSTED = new Set([
   'browser_eval',
 ])
 /** Tools whose command is checked against recent web content before it runs. */
-const COPY_CHECKED = new Set(['shell', 'start_server'])
+const COPY_CHECKED = new Set(['shell', 'start_server', 'eval'])
 
 function untrustedSource(tool: string, params: unknown, output: string): string {
   const args = (params ?? {}) as { url?: unknown; query?: unknown }
@@ -888,7 +935,8 @@ export function spotlight(boundary: string, source: string, text: string): strin
  * command is often legitimate.
  */
 async function flagIfCopied(host: ColonyHost, agent: string, tool: string, params: unknown) {
-  const command = String((params as { command?: unknown })?.command ?? '').trim()
+  const args = params as { command?: unknown; code?: unknown } | undefined
+  const command = String(args?.command ?? args?.code ?? '').trim()
   if (command.length < 12) return
   const hit = host.recentUntrusted(agent).find((u) => u.text.includes(command))
   if (!hit) return
@@ -2775,6 +2823,29 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       })
       const status = r.timedOut ? 'TIMED OUT' : `exit ${r.code}`
       return clip(`${status}\n--- stdout\n${r.stdout}\n--- stderr\n${r.stderr}`)
+    },
+  },
+  {
+    name: 'eval',
+    tier: 'exec',
+    description: prompts.tools.eval.description(false, RUNTIMES.includes('python3')),
+    describe: (f) => prompts.tools.eval.description(f.access.fullAccess, RUNTIMES.includes('python3')),
+    parameters: type({
+      language: type.enumerated(...CELL_LANGUAGES).describe(prompts.tools.eval.params.language),
+      code: type('string').atLeastLength(1).describe(prompts.tools.eval.params.code),
+      'timeoutSeconds?': type('number').describe(prompts.tools.eval.params.timeoutSeconds),
+      'reset?': type('boolean').describe(prompts.tools.eval.params.reset),
+    }),
+    async run(args, agent, host) {
+      if (host.sandbox.kind === 'none' && !host.unsafeNoSandbox) throw new Error(prompts.cells.needsSandbox)
+      const scope = cellScope(host, agent)
+      // Said before the person is asked about code that could not run anyway.
+      if (args.language === 'py' && !scope.python()) throw new Error(prompts.cells.noPython)
+      // A cell can do what a command can, in the same sandbox, so it is decided as one; the person may rewrite it.
+      const code = await guardProjectCommand(host, agent, 'eval', args.code, true)
+      const r = await cellKernels.run(scope, { ...args, code })
+      if (!r.ok) throw new Error(clip(r.text))
+      return r.images.length ? { text: clip(r.text), images: r.images } : clip(r.text)
     },
   },
 ]

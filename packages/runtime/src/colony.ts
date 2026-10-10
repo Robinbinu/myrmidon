@@ -46,6 +46,7 @@ import {
 import { Advisor } from './advisor.ts'
 import { ColonyAgent, type ModelError } from './agent.ts'
 import type { BrowserHub } from './browser.ts'
+import { cellKernels } from './cells.ts'
 import type { ComputerHub } from './computer/driver.ts'
 import { COMPUTER_TOOL_NAMES } from './computer/names.ts'
 import {
@@ -92,7 +93,7 @@ import {
 import { redactDeep } from './secrets.ts'
 import type { SkillLibrary } from './skills.ts'
 import type { AgentSpec, ColonySpec } from './spec.ts'
-import { guessMediaType } from './tools.ts'
+import { cellAccess, guessMediaType } from './tools.ts'
 import { Verifier } from './verifier.ts'
 import { noWebTools, type WebTools } from './web.ts'
 import { ColonyWorkspace } from './workspace.ts'
@@ -785,10 +786,12 @@ export class ColonyRun implements ColonyHost {
    * Stops the servers started under looser rules than the round has now (full access since taken back, a project
    * since made read-only): a running process keeps the sandbox it started in. All are stopped and their agents told
    * before anything is awaited, so a second tightening finds nothing left to stop and an agent just interrupted hears
-   * of it in the turn that follows. A server still starting fails its start_server call instead.
+   * of it in the turn that follows. A server still starting fails its start_server call instead. Code cell runtimes
+   * started under looser rules stop too; their agents hear of it with their next cell.
    */
   private async _stopLooserServers() {
     const readOnly = presetOf(this.spec) === 'read-only'
+    cellKernels.stopLooser(this.id, cellAccess(this))
     const stopped: string[] = []
     const byAgent = new Map<string, string[]>()
     for (const [name, proc] of [...this._servers]) {
@@ -1647,6 +1650,7 @@ export class ColonyRun implements ColonyHost {
     if (this._state.agents[name]?.dismissed) throw new Error(`${name} was already dismissed`)
     await this.append({ type: 'agent/dismissed', actor: SYSTEM, payload: { agent: name, by, reason } })
     this._agents.get(name)?.stop()
+    cellKernels.close(this.id, name)
     const held = Object.values(this._state.tasks).filter(
       (t) => t.status === 'in_progress' && t.owner === name,
     )
@@ -2496,6 +2500,8 @@ export class ColonyRun implements ColonyHost {
     }).catch((err) => console.error('Stop hooks failed:', err))
     for (const name of [...this._servers.keys()])
       await this.stopServer(name, 'the round ended').catch(() => {})
+    // Code cells' state lasts a round, not a chat: each round's runtimes stop with it.
+    cellKernels.close(this.id)
     for (const { agent, kept } of (await this._worktrees?.close()) ?? [])
       await this.append({ type: 'worktree/closed', actor: SYSTEM, payload: { agent, kept } }).catch(() => {})
     for (const agent of [...this._logins.keys()]) await this.finishLogin(agent, 'stopped').catch(() => false)
