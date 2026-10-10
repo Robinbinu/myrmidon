@@ -5,7 +5,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { deflateSync } from 'node:zlib'
 import { encodeArchive } from '@oh-my-pi/pi-utils/ar'
-import { pendingOn } from '../../../tests/platform.ts'
 import { READ_SQL_MAX_ROWS } from '../src/config.ts'
 import { looksBinary, readFileAs } from '../src/file-read.ts'
 import type { ColonyHost } from '../src/host.ts'
@@ -218,24 +217,21 @@ test('a SQLite database lists its tables with their schema, and sql runs a readi
   expect(readdirSync(dir).sort()).toEqual(before)
 })
 
-pendingOn('win32', 'walSidecarOnWindows')(
-  'a WAL database whose sidecar files are gone still reads, and none are created beside it',
-  async () => {
-    const sub = mkdtempSync(join(dir, 'wal-'))
-    const db = new Database(join(sub, 'app.sqlite'))
-    db.run('PRAGMA journal_mode = WAL')
-    db.run('CREATE TABLE notes (body TEXT)')
-    db.run("INSERT INTO notes VALUES ('kept')")
-    db.run('PRAGMA wal_checkpoint(TRUNCATE)')
-    db.close()
-    // As a database copied without its sidecars arrives.
-    for (const side of ['-wal', '-shm']) rmSync(join(sub, `app.sqlite${side}`), { force: true })
-    expect(readdirSync(sub)).toEqual(['app.sqlite'])
-    const read = await readFileAs(join(sub, 'app.sqlite'), 'app.sqlite', { sql: 'SELECT body FROM notes' })
-    expect(read.text).toBe('{"body":"kept"}')
-    expect(readdirSync(sub)).toEqual(['app.sqlite'])
-  },
-)
+test('a WAL database whose sidecar files are gone still reads, and none are created beside it', async () => {
+  const sub = mkdtempSync(join(dir, 'wal-'))
+  const db = new Database(join(sub, 'app.sqlite'))
+  db.run('PRAGMA journal_mode = WAL')
+  db.run('CREATE TABLE notes (body TEXT)')
+  db.run("INSERT INTO notes VALUES ('kept')")
+  db.run('PRAGMA wal_checkpoint(TRUNCATE)')
+  db.close()
+  // As a database copied without its sidecars arrives.
+  for (const side of ['-wal', '-shm']) rmSync(join(sub, `app.sqlite${side}`), { force: true })
+  expect(readdirSync(sub)).toEqual(['app.sqlite'])
+  const read = await readFileAs(join(sub, 'app.sqlite'), 'app.sqlite', { sql: 'SELECT body FROM notes' })
+  expect(read.text).toBe('{"body":"kept"}')
+  expect(readdirSync(sub)).toEqual(['app.sqlite'])
+})
 
 test('unsupported binary files, and entry or sql on the wrong kind of file, say so plainly', async () => {
   writeFileSync(at('blob.bin'), new Uint8Array([0, 1, 2, 3, 255, 0, 7]))

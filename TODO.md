@@ -555,8 +555,8 @@ Open work, in the order it will be done:
         server.json after kill, process-tree tests.
       - [ ] Windows bugs parked 2026-10-10 ("stop windows mark the bug in todo and solve it later"), each a
         `pendingOn('win32', …)` gap in tests/platform.ts and docs/ci.md:
-        - `walSidecarOnWindows`: a WAL database copied without `-wal`/`-shm` must read without SQLite creating
-          them; the immutable-first open (fd07371) never ran on Windows CI.
+        - [x] `walSidecarOnWindows`: fixed 2026-10-10 (`xp-ci-green`): the immutable open passes SQLITE_OPEN_URI,
+          which Bun's bundled SQLite needs to read the `file:` name as a URI.
         - `ptyTerminalOnWindows`: the PowerShell answer never comes back through pi-natives' ConPTY session.
         - `bunWindowsSockets`: Bun heap corruption on TCP close (1.3.14 and 1.4.3); report upstream, then upgrade.
         - Command timeout on Windows is only half fixed: `run()` returns at the timeout, but grandchildren Git
