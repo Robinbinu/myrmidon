@@ -216,6 +216,13 @@ export const PERSON_BROWSER_VIEWPORTS = {
 
 /** Redirect hops one agent fetch follows, each one checked before anything is sent to it. */
 export const FETCH_MAX_REDIRECTS = 10
+/**
+ * The longest one page reader program (yt-dlp, trafilatura, lynx) may run before it is stopped. omp gives the whole
+ * read its own budget; this bounds a program that ignores it.
+ */
+export const READER_PROGRAM_TIMEOUT_MS = 60_000
+/** The most of a page handed to trafilatura or lynx on stdin; past it the page is cut, as converters cope with. */
+export const READER_PAGE_MAX_BYTES = 10 * 1024 * 1024
 
 // Reviewer (verifier.ts)
 

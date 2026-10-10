@@ -567,8 +567,12 @@ Open work, in the order it will be done:
 14. - [x] **Agents' browser and private addresses** — decide a rule (e.g. only ports the round opened) and DNS-pinned
       fetching in omp to close rebinding (69456b5 notes). **Decided 2026-10-09: only ports the run opened; DNS-pinned.**
       Done 2026-10-09 (web_fetch and the browser). Left: the shell can still reach private addresses (sandbox limits
-      writes only); the shared Chrome lets every open run's own ports through for WebSockets and service workers;
-      web_fetch lost omp's lynx/trafilatura/yt-dlp readers (YouTube transcripts through it no longer work).
+      writes only); the shared Chrome lets every open run's own ports through for WebSockets and service workers.
+      web_fetch's readers back 2026-10-10 (web.ts readerSpawn): yt-dlp (YouTube details and transcripts) runs with
+      every connection through the guard proxy and --ignore-config; trafilatura and lynx get the page on stdin,
+      fetched pinned, so they make no requests; only omp's own options, a timeout, nothing installed during a read;
+      missing ones fall back and say what to install. Left: a reader that ignores its proxy, or a program yt-dlp
+      starts itself (a JS runtime), would reach the network unchecked; lynx's -stdin path untested on a real lynx.
 15. - [x] **Look over in the browser** — Settings → Plugins page and the rewind confirmation sheet. Done 2026-10-09
       on a throwaway project: Plugins renders (placeholder cut at narrow widths); rewind sheet, Rewind files, Undo rewind
       and the Git panel refresh all work. Found and fixed on the way: the folder picker let a slow home listing replace
