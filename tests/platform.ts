@@ -10,9 +10,12 @@ type Pending = 'linux' | 'win32'
  * finds them). docs/ci.md lists the same gaps by OS.
  */
 export const GAPS = {
-  bwrapHiddenFolders:
-    'bubblewrap hides a folder with an empty writable tmpfs, so listing it or writing into it succeeds (into a ' +
-    'throwaway layer) where macOS denies it (sandbox.ts bwrapMounts)',
+  devtoolsPortOnLinux:
+    'bubblewrap cannot filter ports, so a sandboxed command on Linux still reaches a guarded loopback port: the ' +
+    "managed Chrome's DevTools, which hands over every tab and its cookies (sandbox.ts guardLoopbackPort). A " +
+    'network namespace per command would also cut it off from the dev servers it starts and the browser loads, ' +
+    'and slirp4netns or pasta to restore the network are missing on most desktops; DevTools over a pipe needs a ' +
+    'Bun that does not double-close it',
   sqliteHandles:
     'SQLite stores close with db.close() while prepared statements live (core sqlite-store.ts), so the file stays ' +
     'open until GC: on Windows deleting a chat fails with EBUSY (deleteColony) and test folders stay busy; ' +
