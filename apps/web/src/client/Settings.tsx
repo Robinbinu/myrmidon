@@ -12,7 +12,6 @@ import {
   FoldVertical,
   LoaderCircle,
   LogIn,
-  type LucideIcon,
   Monitor,
   Moon,
   Pin,
@@ -24,7 +23,7 @@ import {
   TriangleAlert,
   UnfoldVertical,
 } from 'lucide-react'
-import { AnimatePresence, motion } from 'motion/react'
+import { AnimatePresence, motion, useReducedMotionConfig } from 'motion/react'
 import { type ReactNode, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   activeGateway,
@@ -64,6 +63,26 @@ import {
   ruleToCron,
   type ScheduleRule,
 } from './schedule-rule.ts'
+import { useLiveSettings } from './settings/live.ts'
+import { GROUPS, type ModelsTab, SECTIONS, type Section } from './settings/pages.ts'
+import { SETTINGS, type SettingId } from './settings/registry.ts'
+import {
+  SettingField,
+  type SettingTarget,
+  SettingTargetProvider,
+  setting,
+  settingItem,
+  settingRow,
+  useSettingTarget,
+} from './settings/Setting.tsx'
+import {
+  revealSetting,
+  rowsAbove,
+  SettingsSearchField,
+  SettingsSearchResults,
+  useSettingsSearch,
+} from './settings/SettingsSearch.tsx'
+import { type SearchEntry, settingsIndex } from './settings/search.ts'
 import { baseUrlError, channelSetup, clampNumber, cronError, providerNameError } from './settings-forms.ts'
 import { removeSpecialist, useSpecialists } from './specialists.ts'
 import { useStatus } from './status.tsx'
@@ -112,11 +131,13 @@ import {
 } from './ui/primitives.tsx'
 import { Sheet } from './ui/Sheet.tsx'
 import { ShortcutList } from './ui/ShortcutList.tsx'
+import { matchCombo } from './ui/shortcuts.ts'
 import { useToast } from './ui/Toast.tsx'
 import {
   AGENT_MIN_WINDOW,
   MASCOT_COLORS,
   SETTINGS_NAV_COLLAPSE_PX,
+  SETTINGS_SEARCH_COMBO,
   SUGGEST_MODEL_POLL_MS,
   softSpring,
   spring,
@@ -137,7 +158,7 @@ import { VoiceProviders } from './voice/VoiceProviders.tsx'
 
 type Api = 'openai-completions' | 'openai-responses' | 'anthropic-messages' | 'google-generative-ai'
 
-interface ProviderInfo {
+export interface ProviderInfo {
   id: string
   models: number
   ready: boolean
@@ -230,177 +251,6 @@ export interface SettingsResponse {
   mcpServers?: string[]
 }
 
-export type Section =
-  | 'general'
-  | 'appearance'
-  | 'mascot'
-  | 'specialists'
-  | 'devices'
-  | 'gateways'
-  | 'channels'
-  | 'voice'
-  | 'computer'
-  | 'models'
-  | 'team'
-  | 'tools'
-  | 'permissions'
-  | 'skills'
-  | 'plugins'
-  | 'hooks'
-  | 'schedules'
-  | 'verification'
-  | 'instructions'
-  | 'memory'
-
-type SectionGroup = keyof typeof copy.settings.page.groups
-/** The order the section list shows its groups in. */
-const GROUPS: readonly SectionGroup[] = ['setup', 'agents', 'extend', 'connect', 'you']
-
-/** The sections in the order the list shows them, each under its group's heading. */
-export const SECTIONS: { id: Section; group: SectionGroup; label: string; hint: string; icon: LucideIcon }[] =
-  [
-    {
-      id: 'models',
-      group: 'setup',
-      label: copy.settings.sections.models.label,
-      hint: copy.settings.sections.models.hint,
-      icon: FEATURE_ICONS.models,
-    },
-    {
-      id: 'team',
-      group: 'setup',
-      label: copy.settings.sections.team.label,
-      hint: copy.settings.sections.team.hint,
-      icon: FEATURE_ICONS.crew,
-    },
-    {
-      id: 'permissions',
-      group: 'setup',
-      label: copy.settings.sections.permissions.label,
-      hint: copy.settings.sections.permissions.hint,
-      icon: FEATURE_ICONS.permissions,
-    },
-    {
-      id: 'verification',
-      group: 'setup',
-      label: copy.settings.sections.verification.label,
-      hint: copy.settings.sections.verification.hint,
-      icon: FEATURE_ICONS.reviewer,
-    },
-    {
-      id: 'specialists',
-      group: 'agents',
-      label: copy.settings.sections.specialists.label,
-      hint: copy.settings.sections.specialists.hint,
-      icon: FEATURE_ICONS.specialists,
-    },
-    {
-      id: 'instructions',
-      group: 'agents',
-      label: copy.settings.sections.instructions.label,
-      hint: copy.settings.sections.instructions.hint,
-      icon: FEATURE_ICONS.instructions,
-    },
-    {
-      id: 'memory',
-      group: 'agents',
-      label: copy.settings.sections.memory.label,
-      hint: copy.settings.sections.memory.hint,
-      icon: FEATURE_ICONS.memory,
-    },
-    {
-      id: 'skills',
-      group: 'agents',
-      label: copy.settings.sections.skills.label,
-      hint: copy.settings.sections.skills.hint,
-      icon: FEATURE_ICONS.skills,
-    },
-    {
-      id: 'tools',
-      group: 'extend',
-      label: copy.settings.sections.tools.label,
-      hint: copy.settings.sections.tools.hint,
-      icon: FEATURE_ICONS.tools,
-    },
-    {
-      id: 'plugins',
-      group: 'extend',
-      label: copy.settings.sections.plugins.label,
-      hint: copy.settings.sections.plugins.hint,
-      icon: FEATURE_ICONS.plugins,
-    },
-    {
-      id: 'hooks',
-      group: 'extend',
-      label: copy.settings.sections.hooks.label,
-      hint: copy.settings.sections.hooks.hint,
-      icon: FEATURE_ICONS.hooks,
-    },
-    {
-      id: 'schedules',
-      group: 'extend',
-      label: copy.settings.sections.schedules.label,
-      hint: copy.settings.sections.schedules.hint,
-      icon: FEATURE_ICONS.schedules,
-    },
-    {
-      id: 'general',
-      group: 'you',
-      label: copy.settings.sections.general.label,
-      hint: copy.settings.sections.general.hint,
-      icon: FEATURE_ICONS.general,
-    },
-    {
-      id: 'appearance',
-      group: 'you',
-      label: copy.settings.sections.appearance.label,
-      hint: copy.settings.sections.appearance.hint,
-      icon: FEATURE_ICONS.appearance,
-    },
-    {
-      id: 'mascot',
-      group: 'you',
-      label: copy.settings.sections.mascot.label,
-      hint: copy.settings.sections.mascot.hint,
-      icon: FEATURE_ICONS.mascot,
-    },
-    {
-      id: 'devices',
-      group: 'connect',
-      label: copy.settings.sections.devices.label,
-      hint: copy.settings.sections.devices.hint,
-      icon: FEATURE_ICONS.devices,
-    },
-    {
-      id: 'gateways',
-      group: 'connect',
-      label: copy.settings.sections.gateways.label,
-      hint: copy.settings.sections.gateways.hint,
-      icon: FEATURE_ICONS.gateways,
-    },
-    {
-      id: 'channels',
-      group: 'connect',
-      label: copy.settings.sections.channels.label,
-      hint: copy.settings.sections.channels.hint,
-      icon: FEATURE_ICONS.channels,
-    },
-    {
-      id: 'voice',
-      group: 'connect',
-      label: copy.settings.sections.voice.label,
-      hint: copy.settings.sections.voice.hint,
-      icon: FEATURE_ICONS.voice,
-    },
-    {
-      id: 'computer',
-      group: 'connect',
-      label: copy.settings.sections.computer.label,
-      hint: copy.settings.sections.computer.hint,
-      icon: FEATURE_ICONS.computerUse,
-    },
-  ]
-
 const API_LABELS: Record<Api, string> = {
   'openai-completions': copy.settings.providerForm.apiLabels['openai-completions'],
   'openai-responses': copy.settings.providerForm.apiLabels['openai-responses'],
@@ -448,7 +298,7 @@ export function Settings(props: {
     onSection.current?.(section)
     if (section !== 'models') setVoiceFocus(false)
   }, [section])
-  const [modelsTab, setModelsTab] = useState<'models' | 'providers'>('models')
+  const [modelsTab, setModelsTab] = useState<ModelsTab>('models')
   // Settings → Voice's "Add a voice provider" opens the Providers tab at its voice part.
   const [voiceFocus, setVoiceFocus] = useState(false)
   const { data, error, saving, saveError, retry, update, saveNow, providersChanged, modelsRemoved } =
@@ -481,17 +331,67 @@ export function Settings(props: {
     return () => window.removeEventListener('beforeunload', warn)
   }, [hooksDirty])
 
+  // Search: every setting, and the live lists' items once the field is in use.
+  const [searchUsed, setSearchUsed] = useState(false)
+  const live = useLiveSettings(searchUsed, data, props.models)
+  const index = useMemo(() => settingsIndex(live), [live])
+  const search = useSettingsSearch(index)
+  useEffect(() => {
+    if (search.focused) setSearchUsed(true)
+  }, [search.focused])
+  const searchInput = search.input
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (matchCombo(SETTINGS_SEARCH_COMBO, e) && !anyDialogOpen()) {
+        e.preventDefault()
+        searchInput.current?.focus()
+        searchInput.current?.select()
+        return
+      }
       const typing = (e.target as HTMLElement | null)?.closest('input, textarea, select')
       if (e.key === 'Escape' && !typing && !anyDialogOpen()) onClose.current()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [])
+  }, [searchInput])
+
+  // Choosing a result opens its page (and tab), then finds its row and highlights it.
+  const toast = useToast()
+  const pageArea = useRef<HTMLDivElement>(null)
+  const [target, setTarget] = useState<SettingTarget & { under: string[]; label: string }>()
+  const reduce = useReducedMotionConfig() ?? props.reduceMotion
+  const jump = (entry: SearchEntry) =>
+    leave(() => {
+      setSection(entry.page)
+      if (entry.tab) setModelsTab(entry.tab)
+      setTarget((was) => ({
+        id: entry.id,
+        ...(entry.key ? { key: entry.key } : {}),
+        under: rowsAbove(entry.id),
+        label: entry.label,
+        n: (was?.n ?? 0) + 1,
+      }))
+    })
+  useEffect(() => {
+    if (!target) return
+    return revealSetting(pageArea, target, reduce, (fallback) => {
+      const t = copy.settings.search
+      const first = fallback && fallback in SETTINGS ? SETTINGS[fallback as SettingId].label : undefined
+      toast(
+        fallback
+          ? first
+            ? t.startWith(target.label, first)
+            : t.openOne(target.label)
+          : t.notShown(target.label),
+        'info',
+      )
+    })
+  }, [target, reduce, toast])
 
   const current = SECTIONS.find((s) => s.id === section) ?? SECTIONS[0]
   const waiting = useStatus().status?.waiting?.length ?? 0
+  const field = <SettingsSearchField search={search} onChoose={jump} />
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -509,7 +409,9 @@ export function Settings(props: {
         </Button>
         <span className="text-body font-semibold">{copy.settings.page.title}</span>
         <span className="text-muted">/</span>
-        <span className="truncate text-body text-fg-2">{current?.label}</span>
+        <span className="truncate text-body text-fg-2">
+          {search.open ? copy.settings.search.label : current?.label}
+        </span>
         <span className="flex-1" />
         <AnimatePresence>
           {saving === 'failed' ? (
@@ -556,7 +458,7 @@ export function Settings(props: {
       </header>
       <div className="flex min-h-0 flex-1">
         {/* A source list, as System Settings has: small monochrome tiles, one line per page, the open page in the
-            neutral selection with its tile in amber. */}
+            neutral selection with its tile in amber. The search field sits over it, as on an iPhone. */}
         <nav
           aria-label={copy.settings.page.title}
           className={cn(
@@ -564,6 +466,7 @@ export function Settings(props: {
             wideNav ? 'w-60' : 'w-[60px] items-center',
           )}
         >
+          {wideNav && <div className="px-0.5 pb-1 pt-2">{field}</div>}
           {GROUPS.map((group, i) => (
             <div key={group} className="flex w-full flex-col gap-px">
               {wideNav ? (
@@ -573,230 +476,255 @@ export function Settings(props: {
               ) : (
                 i > 0 && <div aria-hidden className="mx-2 my-2 border-t border-line" />
               )}
-              {SECTIONS.filter((s) => s.group === group).map((s) => (
-                <button
-                  key={s.id}
-                  type="button"
-                  onClick={() => leave(() => setSection(s.id))}
-                  aria-current={section === s.id ? 'page' : undefined}
-                  aria-label={wideNav ? undefined : s.label}
-                  title={wideNav ? s.hint : s.label}
-                  className={cn(
-                    'relative flex h-7 shrink-0 items-center gap-2 rounded-md text-left text-body transition-colors',
-                    wideNav ? 'px-1.5' : 'w-8 justify-center',
-                    section === s.id ? 'text-fg' : 'text-fg-2 hover:bg-fill/70 hover:text-fg',
-                  )}
-                >
-                  {section === s.id && (
-                    <motion.span
-                      layoutId="settings-nav"
-                      transition={spring}
-                      className="absolute inset-0 rounded-md bg-row-selected"
-                    />
-                  )}
-                  <span
+              {SECTIONS.filter((s) => s.group === group).map((s) => {
+                const shown = section === s.id && !search.open
+                return (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() =>
+                      leave(() => {
+                        search.setQuery('')
+                        setSection(s.id)
+                      })
+                    }
+                    aria-current={shown ? 'page' : undefined}
+                    aria-label={wideNav ? undefined : s.label}
+                    title={wideNav ? s.hint : s.label}
                     className={cn(
-                      'relative grid size-5 shrink-0 place-items-center rounded-[5px] transition-colors',
-                      section === s.id ? 'bg-accent text-on-accent' : 'bg-fill-strong text-fg-2',
+                      'relative flex h-7 shrink-0 items-center gap-2 rounded-md text-left text-body transition-colors',
+                      wideNav ? 'px-1.5' : 'w-8 justify-center',
+                      shown ? 'text-fg' : 'text-fg-2 hover:bg-fill/70 hover:text-fg',
                     )}
                   >
-                    <s.icon className="size-3" />
-                    {s.id === 'channels' && waiting > 0 && (
-                      <CountBadge
-                        count={waiting}
-                        tone="accent"
-                        corner
-                        label={copy.settings.channels.waitingBadge(waiting)}
+                    {shown && (
+                      <motion.span
+                        layoutId="settings-nav"
+                        transition={spring}
+                        className="absolute inset-0 rounded-md bg-row-selected"
                       />
                     )}
-                  </span>
-                  {wideNav && <span className="relative min-w-0 truncate">{s.label}</span>}
-                </button>
-              ))}
+                    <span
+                      className={cn(
+                        'relative grid size-5 shrink-0 place-items-center rounded-[5px] transition-colors',
+                        shown ? 'bg-accent text-on-accent' : 'bg-fill-strong text-fg-2',
+                      )}
+                    >
+                      <s.icon className="size-3" />
+                      {s.id === 'channels' && waiting > 0 && (
+                        <CountBadge
+                          count={waiting}
+                          tone="accent"
+                          corner
+                          label={copy.settings.channels.waitingBadge(waiting)}
+                        />
+                      )}
+                    </span>
+                    {wideNav && <span className="relative min-w-0 truncate">{s.label}</span>}
+                  </button>
+                )
+              })}
             </div>
           ))}
         </nav>
-        <div className="min-w-0 flex-1 overflow-y-auto overscroll-contain bg-bg">
-          <div className="border-b border-line p-3 md:hidden">
-            <Select
-              value={section}
-              onChange={(e) => {
-                const next = e.target.value as Section
-                leave(() => setSection(next))
-              }}
-              className="w-full"
-              aria-label={copy.settings.page.sectionPicker}
-            >
-              {GROUPS.map((group) => (
-                <optgroup key={group} label={copy.settings.page.groups[group]}>
-                  {SECTIONS.filter((s) => s.group === group).map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.label}
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
-            </Select>
-          </div>
+        <div ref={pageArea} className="min-w-0 flex-1 overflow-y-auto overscroll-contain bg-bg">
+          {!wideNav && (
+            <div className="flex flex-col gap-2 border-b border-line p-3">
+              {field}
+              <Select
+                value={section}
+                onChange={(e) => {
+                  const next = e.target.value as Section
+                  leave(() => {
+                    search.setQuery('')
+                    setSection(next)
+                  })
+                }}
+                className="w-full md:hidden"
+                aria-label={copy.settings.page.sectionPicker}
+              >
+                {GROUPS.map((group) => (
+                  <optgroup key={group} label={copy.settings.page.groups[group]}>
+                    {SECTIONS.filter((s) => s.group === group).map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.label}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+              </Select>
+            </div>
+          )}
           {error && (
             <Banner tone="bad" className="m-5">
               {error}
             </Banner>
           )}
+          {search.open && (
+            <div className="mx-auto max-w-3xl px-6 py-8">
+              <SettingsSearchResults search={search} onChoose={jump} />
+            </div>
+          )}
           <AnimatePresence mode="wait">
             <motion.div
               key={section}
+              data-settings-page={section}
+              hidden={search.open}
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -4 }}
               transition={{ duration: 0.16 }}
               className="mx-auto max-w-3xl px-6 py-8"
             >
-              {section === 'general' && (
-                <div className="flex flex-col gap-10">
-                  <General
-                    reduceMotion={props.reduceMotion}
-                    onReduceMotion={props.onReduceMotion}
-                    {...(props.onRunSetup ? { onRunSetup: props.onRunSetup } : {})}
-                    {...(props.onOpenSetupStep ? { onOpenSetupStep: props.onOpenSetupStep } : {})}
-                  />
-                  <Shortcuts />
-                  <About data={data} />
-                </div>
-              )}
-              {section === 'models' && data && (
-                <>
-                  <div className="mb-6">
-                    <Segmented
-                      id="models-tab"
-                      value={modelsTab}
-                      onChange={setModelsTab}
-                      options={[
-                        {
-                          value: 'models',
-                          label: (
-                            <>
-                              <FEATURE_ICONS.models className="size-3.5" /> {copy.settings.page.modelsTab}
-                            </>
-                          ),
-                        },
-                        {
-                          value: 'providers',
-                          label: (
-                            <>
-                              <FEATURE_ICONS.providers className="size-3.5" />{' '}
-                              {copy.settings.page.providersTab}
-                            </>
-                          ),
-                        },
-                      ]}
-                    />
-                  </div>
-                  {modelsTab === 'models' ? (
-                    <ModelsSection
-                      models={props.models}
-                      settings={data.settings}
-                      providers={data.providers}
-                      {...(props.config ? { config: props.config } : {})}
-                      onConfig={props.onConfig}
-                      onRemoved={(settings, providers) => {
-                        modelsRemoved(settings, providers)
-                        props.onModelsChanged()
-                        window.dispatchEvent(new Event(SETTINGS_SAVED))
-                      }}
-                      update={update}
-                      onRefresh={props.onModelsChanged}
-                      onAddProvider={() => setModelsTab('providers')}
-                    />
-                  ) : (
-                    <Providers
+              <SettingTargetProvider value={target}>
+                {section === 'general' && (
+                  <div className="flex flex-col gap-10">
+                    <General
+                      reduceMotion={props.reduceMotion}
+                      onReduceMotion={props.onReduceMotion}
                       data={data}
-                      onProviders={providersChanged}
                       update={update}
-                      focusVoice={voiceFocus}
+                      {...(props.onRunSetup ? { onRunSetup: props.onRunSetup } : {})}
+                      {...(props.onOpenSetupStep ? { onOpenSetupStep: props.onOpenSetupStep } : {})}
                     />
-                  )}
-                </>
-              )}
-              {section === 'team' && data && (
-                <TeamSection
-                  data={data}
-                  update={update}
-                  models={props.models}
-                  config={props.config}
-                  onConfig={props.onConfig}
-                />
-              )}
-              {section === 'appearance' && (
-                <AppearanceSection
-                  theme={props.theme}
-                  onTheme={props.onTheme}
-                  {...(data ? { imported: data.settings.appearance?.imported ?? [] } : {})}
-                  onSaveImported={(imported) =>
-                    saveNow((s) => ({ ...s, appearance: { ...s.appearance, imported } }))
-                  }
-                />
-              )}
-              {section === 'mascot' && data && <MascotSection data={data} update={update} />}
-              {section === 'specialists' && <SpecialistsSection models={props.models} />}
-              {section === 'devices' && <DevicesSection />}
-              {section === 'gateways' && <GatewaysSection />}
-              {section === 'channels' && <ChannelsSection initial={props.initialChannel} />}
-              {section === 'voice' && data && (
-                <VoiceSection
-                  settings={data.settings}
-                  update={update}
-                  models={props.models}
-                  onAddProvider={() =>
-                    leave(() => {
-                      setModelsTab('providers')
-                      setVoiceFocus(true)
-                      setSection('models')
-                    })
-                  }
-                />
-              )}
-              {section === 'computer' && data && (
-                <ComputerSection
-                  enabled={data.settings.computerUse?.enabled === true}
-                  setEnabled={(enabled) =>
-                    update((s) => ({ ...s, computerUse: { ...s.computerUse, enabled } }), true)
-                  }
-                  engine={data.settings.computerUse?.engine ?? 'cua'}
-                  setEngine={(engine) =>
-                    update((s) => ({ ...s, computerUse: { enabled: false, ...s.computerUse, engine } }), true)
-                  }
-                />
-              )}
-              {section === 'tools' && data && (
-                <ToolsSection data={data} update={update} onPermissions={() => setSection('permissions')} />
-              )}
-              {section === 'permissions' && data && (
-                <PermissionsPage
-                  permissions={data.settings.permissions}
-                  onChange={(permissions, immediate) => update((s) => ({ ...s, permissions }), immediate)}
-                  tools={data.toolCatalog}
-                  servers={data.mcpServers ?? []}
-                  sandbox={data.sandbox}
-                  reads={<SandboxReads data={data} update={update} />}
-                />
-              )}
-              {section === 'verification' && data && (
-                <VerificationSection settings={data.settings} update={update} />
-              )}
-              {section === 'instructions' && data && (
-                <InstructionsSection settings={data.settings} update={update} />
-              )}
-              {section === 'memory' && <MemorySection />}
-              {section === 'skills' && <SkillsSection />}
-              {section === 'plugins' && <PluginsSection />}
-              {section === 'hooks' && <HooksSection onDirty={setHooksDirty} />}
-              {section === 'schedules' && <SchedulesSection />}
-              {!data && !error && section !== 'general' && section !== 'appearance' && (
-                <div className="flex items-center gap-2 text-body text-muted">
-                  <LoaderCircle className="size-4 animate-spin" /> {copy.settings.page.loading}
-                </div>
-              )}
+                    <Shortcuts />
+                    <About data={data} />
+                  </div>
+                )}
+                {section === 'models' && data && (
+                  <>
+                    <div {...settingRow('models.tabs')} className="mb-6">
+                      <Segmented
+                        id="models-tab"
+                        value={modelsTab}
+                        onChange={setModelsTab}
+                        options={[
+                          {
+                            value: 'models',
+                            label: (
+                              <>
+                                <FEATURE_ICONS.models className="size-3.5" /> {copy.settings.page.modelsTab}
+                              </>
+                            ),
+                          },
+                          {
+                            value: 'providers',
+                            label: (
+                              <>
+                                <FEATURE_ICONS.providers className="size-3.5" />{' '}
+                                {copy.settings.page.providersTab}
+                              </>
+                            ),
+                          },
+                        ]}
+                      />
+                    </div>
+                    {modelsTab === 'models' ? (
+                      <ModelsSection
+                        models={props.models}
+                        settings={data.settings}
+                        providers={data.providers}
+                        {...(props.config ? { config: props.config } : {})}
+                        onConfig={props.onConfig}
+                        onRemoved={(settings, providers) => {
+                          modelsRemoved(settings, providers)
+                          props.onModelsChanged()
+                          window.dispatchEvent(new Event(SETTINGS_SAVED))
+                        }}
+                        update={update}
+                        onRefresh={props.onModelsChanged}
+                        onAddProvider={() => setModelsTab('providers')}
+                      />
+                    ) : (
+                      <Providers
+                        data={data}
+                        onProviders={providersChanged}
+                        update={update}
+                        focusVoice={voiceFocus}
+                      />
+                    )}
+                  </>
+                )}
+                {section === 'team' && data && (
+                  <TeamSection
+                    data={data}
+                    update={update}
+                    models={props.models}
+                    config={props.config}
+                    onConfig={props.onConfig}
+                  />
+                )}
+                {section === 'appearance' && (
+                  <AppearanceSection
+                    theme={props.theme}
+                    onTheme={props.onTheme}
+                    {...(data ? { imported: data.settings.appearance?.imported ?? [] } : {})}
+                    onSaveImported={(imported) =>
+                      saveNow((s) => ({ ...s, appearance: { ...s.appearance, imported } }))
+                    }
+                  />
+                )}
+                {section === 'mascot' && data && <MascotSection data={data} update={update} />}
+                {section === 'specialists' && <SpecialistsSection models={props.models} />}
+                {section === 'devices' && <DevicesSection />}
+                {section === 'gateways' && <GatewaysSection />}
+                {section === 'channels' && <ChannelsSection initial={props.initialChannel} />}
+                {section === 'voice' && data && (
+                  <VoiceSection
+                    settings={data.settings}
+                    update={update}
+                    models={props.models}
+                    onAddProvider={() =>
+                      leave(() => {
+                        setModelsTab('providers')
+                        setVoiceFocus(true)
+                        setSection('models')
+                      })
+                    }
+                  />
+                )}
+                {section === 'computer' && data && (
+                  <ComputerSection
+                    enabled={data.settings.computerUse?.enabled === true}
+                    setEnabled={(enabled) =>
+                      update((s) => ({ ...s, computerUse: { ...s.computerUse, enabled } }), true)
+                    }
+                    engine={data.settings.computerUse?.engine ?? 'cua'}
+                    setEngine={(engine) =>
+                      update(
+                        (s) => ({ ...s, computerUse: { enabled: false, ...s.computerUse, engine } }),
+                        true,
+                      )
+                    }
+                  />
+                )}
+                {section === 'tools' && data && (
+                  <ToolsSection data={data} update={update} onPermissions={() => setSection('permissions')} />
+                )}
+                {section === 'permissions' && data && (
+                  <PermissionsPage
+                    permissions={data.settings.permissions}
+                    onChange={(permissions, immediate) => update((s) => ({ ...s, permissions }), immediate)}
+                    tools={data.toolCatalog}
+                    servers={data.mcpServers ?? []}
+                    sandbox={data.sandbox}
+                    reads={<SandboxReads data={data} update={update} />}
+                  />
+                )}
+                {section === 'instructions' && data && (
+                  <InstructionsSection settings={data.settings} update={update} />
+                )}
+                {section === 'memory' && <MemorySection />}
+                {section === 'skills' && <SkillsSection />}
+                {section === 'plugins' && <PluginsSection />}
+                {section === 'hooks' && <HooksSection onDirty={setHooksDirty} />}
+                {section === 'schedules' && <SchedulesSection />}
+                {!data && !error && section !== 'general' && section !== 'appearance' && (
+                  <div className="flex items-center gap-2 text-body text-muted">
+                    <LoaderCircle className="size-4 animate-spin" /> {copy.settings.page.loading}
+                  </div>
+                )}
+              </SettingTargetProvider>
             </motion.div>
           </AnimatePresence>
         </div>
@@ -943,27 +871,23 @@ function SuggestToggles() {
         : g.suggestModelHint(mb)
   return (
     <>
-      <CardRow>
-        <Field label={g.suggest} hint={g.suggestHint} inline>
-          <Switch checked={on} label={g.suggest} onChange={setOn} />
-        </Field>
-      </CardRow>
-      <CardRow>
-        <Field label={g.suggestModel} hint={hint} inline>
-          <Switch
-            checked={on && modelOn}
-            disabled={!on || !status}
-            label={g.suggestModel}
-            onChange={(v) => {
-              setModelOn(v)
-              if (v && status?.state !== 'ready')
-                post<SuggestModelStatus>('/api/suggestions/model', {}).then(setStatus, (err: Error) =>
-                  toast(err.message, 'error'),
-                )
-            }}
-          />
-        </Field>
-      </CardRow>
+      <SettingField id="general.suggest" inline>
+        <Switch checked={on} label={g.suggest} onChange={setOn} />
+      </SettingField>
+      <SettingField id="general.suggestModel" hint={hint} inline>
+        <Switch
+          checked={on && modelOn}
+          disabled={!on || !status}
+          label={g.suggestModel}
+          onChange={(v) => {
+            setModelOn(v)
+            if (v && status?.state !== 'ready')
+              post<SuggestModelStatus>('/api/suggestions/model', {}).then(setStatus, (err: Error) =>
+                toast(err.message, 'error'),
+              )
+          }}
+        />
+      </SettingField>
     </>
   )
 }
@@ -977,9 +901,9 @@ function NotifyToggle() {
   const [on, setOn] = usePersistentFlag(NOTIFY_KEY, false)
   const granted = shell || (supported && Notification.permission === 'granted')
   return (
-    <Field
-      label={copy.settings.notify.label}
-      hint={supported ? copy.settings.notify.hint : copy.settings.notify.unsupported}
+    <SettingField
+      id="general.notifications"
+      {...(supported ? {} : { hint: copy.settings.notify.unsupported })}
       inline
     >
       <Switch
@@ -995,7 +919,7 @@ function NotifyToggle() {
           })
         }}
       />
-    </Field>
+    </SettingField>
   )
 }
 
@@ -1039,51 +963,61 @@ export function ThemePicker(props: { theme: ThemeChoice; onTheme(t: ThemeChoice)
 function General(props: {
   reduceMotion: boolean
   onReduceMotion(v: boolean): void
+  data: SettingsResponse | undefined
+  update(p: (s: ServerSettings) => ServerSettings, immediate?: boolean): void
   onRunSetup?(): void
   onOpenSetupStep?(step: SetupStep): void
 }) {
+  const m = copy.settings.mascot
+  const titles = props.data?.settings.profile?.titles ?? 'model'
   return (
     <>
       <PageHeader title={copy.settings.general.title}>{copy.settings.general.intro}</PageHeader>
       <Card>
-        <CardRow>
-          <Field
+        <SettingField id="general.reduceMotion" inline>
+          <Switch
+            checked={props.reduceMotion}
+            onChange={props.onReduceMotion}
             label={copy.settings.general.reduceMotion}
-            hint={copy.settings.general.reduceMotionHint}
-            inline
-          >
-            <Switch
-              checked={props.reduceMotion}
-              onChange={props.onReduceMotion}
-              label={copy.settings.general.reduceMotion}
-            />
-          </Field>
-        </CardRow>
-        <CardRow>
-          <NotifyToggle />
-        </CardRow>
+          />
+        </SettingField>
+        <NotifyToggle />
         <SuggestToggles />
+        {props.data && (
+          <SettingField id="general.chatNames" hint={m.titlesHints[titles]} inline>
+            <Segmented
+              id="titles"
+              value={titles}
+              options={[
+                { value: 'model', label: m.titlesModel },
+                { value: 'first-message', label: m.titlesFirst },
+              ]}
+              onChange={(next) =>
+                props.update(
+                  (s) => ({ ...s, profile: { greeting: 'model', ...s.profile, titles: next } }),
+                  true,
+                )
+              }
+            />
+          </SettingField>
+        )}
         {props.onRunSetup && (
-          <CardRow>
-            <Field label={copy.settings.general.setup} hint={copy.settings.general.setupHint} inline>
-              <Button icon={<FEATURE_ICONS.setup className="size-3.5" />} onClick={props.onRunSetup}>
-                {copy.settings.general.runSetup}
-              </Button>
-            </Field>
-          </CardRow>
+          <SettingField id="general.setup" inline>
+            <Button icon={<FEATURE_ICONS.setup className="size-3.5" />} onClick={props.onRunSetup}>
+              {copy.settings.general.runSetup}
+            </Button>
+          </SettingField>
         )}
         {props.onOpenSetupStep && (
-          <CardRow>
-            <Field label={copy.settings.general.setupStep} hint={copy.settings.general.setupStepHint}>
-              <div className="flex flex-wrap gap-1.5">
-                {SETUP_STEPS.filter((s) => s !== 'welcome').map((s) => (
-                  <Button key={s} size="sm" onClick={() => props.onOpenSetupStep?.(s)}>
-                    {copy.setup.steps[s]}
-                  </Button>
-                ))}
-              </div>
-            </Field>
-          </CardRow>
+          <SettingField id="general.setupStep">
+            <div className="flex flex-wrap gap-1.5">
+              {SETUP_STEPS.filter((s) => s !== 'welcome').map((s) => (
+                <Button key={s} size="sm" onClick={() => props.onOpenSetupStep?.(s)}>
+                  {copy.setup.steps[s]}
+                </Button>
+              ))}
+            </div>
+          </SettingField>
         )}
       </Card>
     </>
@@ -1108,6 +1042,14 @@ function ModelsSection(props: {
   const [refreshing, setRefreshing] = useState(false)
   const [open, setOpen] = useState<Record<string, boolean>>({})
   const [hiddenOpen, setHiddenOpen] = useState(false)
+  // Search jumping to a model unfolds the list it is in.
+  const target = useSettingTarget('models.model')
+  const targetModel = props.models.find((x) => x.ref === target?.key)
+  useEffect(() => {
+    if (!targetModel) return
+    if (props.settings.models.hidden.includes(targetModel.ref)) setHiddenOpen(true)
+    else setOpen((o) => ({ ...o, [targetModel.provider]: true }))
+  }, [targetModel, props.settings.models.hidden])
   const hidden = new Set(props.settings.models.hidden)
   const hiddenProviders = new Set(props.settings.models.hiddenProviders)
   const q = query.trim().toLowerCase()
@@ -1199,7 +1141,7 @@ function ModelsSection(props: {
         {copy.settings.models.intro(props.models.length, shown)}
       </PageHeader>
       <div className="mb-3 flex gap-2">
-        <div className="relative flex-1">
+        <div {...settingRow('models.filter')} className="relative flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted" />
           <TextInput
             placeholder={copy.settings.models.search}
@@ -1210,6 +1152,7 @@ function ModelsSection(props: {
           />
         </div>
         <Button
+          {...settingRow('models.refresh')}
           onClick={() => {
             setRefreshing(true)
             api('/api/models?refresh=1')
@@ -1228,12 +1171,14 @@ function ModelsSection(props: {
         {groups.length > 1 && (
           <>
             <Button
+              {...settingRow('models.expandAll')}
               onClick={() => setOpen(Object.fromEntries(groups.map(([p]) => [p, true])))}
               icon={<UnfoldVertical className="size-3.5" />}
             >
               {copy.settings.models.expandAll}
             </Button>
             <Button
+              {...settingRow('models.collapseAll')}
               onClick={() => setOpen(Object.fromEntries(groups.map(([p]) => [p, false])))}
               icon={<FoldVertical className="size-3.5" />}
             >
@@ -1241,7 +1186,12 @@ function ModelsSection(props: {
             </Button>
           </>
         )}
-        <Button variant="primary" onClick={props.onAddProvider} icon={<Plus className="size-3.5" />}>
+        <Button
+          {...settingRow('models.add')}
+          variant="primary"
+          onClick={props.onAddProvider}
+          icon={<Plus className="size-3.5" />}
+        >
           {copy.settings.models.addModels}
         </Button>
       </div>
@@ -1256,7 +1206,10 @@ function ModelsSection(props: {
           const expanded = open[provider] ?? (!!q || models.length <= 20)
           return (
             <Card key={provider}>
-              <div className="flex items-center gap-3 px-4 py-2.5">
+              <div
+                {...settingItem('models.provider', provider)}
+                className="flex items-center gap-3 px-4 py-2.5"
+              >
                 <button
                   type="button"
                   onClick={() => setOpen((o) => ({ ...o, [provider]: !expanded }))}
@@ -1291,7 +1244,11 @@ function ModelsSection(props: {
                   {models.map((m) => {
                     const t = tests[m.ref]
                     return (
-                      <div key={m.ref} className="group/model flex items-center gap-3 py-2 pl-10 pr-4">
+                      <div
+                        key={m.ref}
+                        {...settingItem('models.model', m)}
+                        className="group/model flex items-center gap-3 py-2 pl-10 pr-4"
+                      >
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
                             <span className="truncate text-body font-medium">{m.name}</span>
@@ -1359,6 +1316,7 @@ function ModelsSection(props: {
           <Card>
             <button
               type="button"
+              {...settingRow('models.hidden')}
               onClick={() => setHiddenOpen((o) => !o)}
               aria-expanded={hiddenOpen}
               className="flex w-full items-center gap-2 px-4 py-2.5 text-left"
@@ -1374,7 +1332,11 @@ function ModelsSection(props: {
             {hiddenOpen && (
               <div className="max-h-[46vh] overflow-auto">
                 {hiddenModels.map((m) => (
-                  <div key={m.ref} className="flex items-center gap-3 py-2 pl-10 pr-4">
+                  <div
+                    key={m.ref}
+                    {...settingItem('models.model', m)}
+                    className="flex items-center gap-3 py-2 pl-10 pr-4"
+                  >
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-body font-medium text-fg-2">{m.name}</div>
                       <div className="truncate font-mono text-caption text-muted">{m.ref}</div>
@@ -1473,7 +1435,7 @@ function WindowField(props: { model: ModelOption; set?: number; onSet(tokens?: n
   )
 }
 
-interface LoginOption {
+export interface LoginOption {
   id: string
   name: string
   provider: string
@@ -1510,6 +1472,11 @@ function SignIns(props: { onProviders(p: ProviderInfo[]): void }) {
   const [session, setSession] = useState<LoginState>()
   const [answer, setAnswer] = useState('')
   const [more, setMore] = useState(false)
+  // Search jumping to a sign-in behind "More" shows them all.
+  const target = useSettingTarget('providers.signIn')
+  useEffect(() => {
+    if (target) setMore(true)
+  }, [target])
 
   const load = () =>
     api<{ logins: LoginOption[] }>('/api/logins')
@@ -1576,7 +1543,7 @@ function SignIns(props: { onProviders(p: ProviderInfo[]): void }) {
   const shown = more ? sorted : sorted.filter((l) => l.ready || FEATURED_LOGINS.includes(l.id))
 
   return (
-    <div className="mb-8">
+    <div {...settingRow('providers.signIns')} className="mb-8">
       <SectionHeader
         className="mb-2"
         icon={<LogIn className="size-4 text-muted" />}
@@ -1587,7 +1554,11 @@ function SignIns(props: { onProviders(p: ProviderInfo[]): void }) {
         {shown.map((l) => {
           const active = session?.login === l.id && session.status === 'waiting' ? session : undefined
           return (
-            <div key={l.id} className="border-b border-line px-4 py-3 last:border-0">
+            <div
+              key={l.id}
+              {...settingItem('providers.signIn', l)}
+              className="border-b border-line px-4 py-3 last:border-0"
+            >
               <div className="flex flex-wrap items-center gap-3">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 text-reading font-medium">
@@ -1715,6 +1686,11 @@ export function Providers(props: {
   const [editing, setEditing] = useState<string>()
   const [importing, setImporting] = useState<'idle' | 'confirm' | 'busy'>('idle')
   const providers = props.data.providers
+  // Search jumping to a provider the short list leaves out shows them all.
+  const target = useSettingTarget('providers.provider')
+  useEffect(() => {
+    if (target) setShowAll(true)
+  }, [target])
   const shown = showAll ? providers : providers.filter((p) => p.ready || p.custom)
   const hiddenCount = providers.length - shown.length
 
@@ -1743,7 +1719,7 @@ export function Providers(props: {
 
       {props.data.ompSetup && (
         <Card className="mb-8">
-          <div className="flex flex-wrap items-center gap-3 px-4 py-3.5">
+          <div {...settingRow('providers.import')} className="flex flex-wrap items-center gap-3 px-4 py-3.5">
             <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-accent-soft text-accent-fg">
               <Download className="size-4" />
             </span>
@@ -1789,14 +1765,19 @@ export function Providers(props: {
 
       <SignIns onProviders={props.onProviders} />
 
-      <div className="mb-2 flex items-center justify-between">
+      <div {...settingRow('providers.list')} className="mb-2 flex items-center justify-between">
         <SectionHeader
           icon={<FEATURE_ICONS.providers className="size-4 text-muted" />}
           title={copy.settings.providers.heading}
           note={copy.settings.providers.readyCount(providers.filter((p) => p.ready).length, providers.length)}
         />
         {!adding && (
-          <Button size="sm" onClick={() => setAdding(true)} icon={<Plus className="size-3.5" />}>
+          <Button
+            {...settingRow('providers.custom')}
+            size="sm"
+            onClick={() => setAdding(true)}
+            icon={<Plus className="size-3.5" />}
+          >
             {copy.settings.providers.customEndpoint}
           </Button>
         )}
@@ -1804,6 +1785,7 @@ export function Providers(props: {
       <AnimatePresence>
         {adding && (
           <motion.div
+            {...settingRow('providers.custom')}
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
             exit={{ opacity: 0, height: 0 }}
@@ -1837,7 +1819,7 @@ export function Providers(props: {
           </Empty>
         )}
         {shown.map((p) => (
-          <div key={p.id} className="px-4 py-2.5">
+          <div key={p.id} {...settingItem('providers.provider', p)} className="px-4 py-2.5">
             <div className="flex items-center gap-3">
               <Dot status={p.ready ? 'ready' : 'idle'} />
               <ProviderLogo provider={p.id} size={16} className="shrink-0" />
@@ -2159,83 +2141,78 @@ function TeamSection(props: {
     <>
       <PageHeader title={copy.settings.team.title}>{copy.settings.team.intro}</PageHeader>
       {props.config && (
-        <Card className="mb-6">
-          <div className="p-4">
-            <TeamSettings
-              placement="down"
-              models={props.models}
-              config={props.config}
-              onConfig={(c) => {
-                props.onConfig(c)
-                props.update((s) => withDefaultCrew(s, c))
-              }}
-            />
-          </div>
-        </Card>
+        <>
+          <SectionHeader as="h3" className="mb-2" title={copy.settings.team.crewTitle} />
+          <Card className="mb-8">
+            <div className="p-4">
+              <TeamSettings
+                placement="down"
+                models={props.models}
+                config={props.config}
+                onConfig={(c) => {
+                  props.onConfig(c)
+                  props.update((s) => withDefaultCrew(s, c))
+                }}
+              />
+            </div>
+          </Card>
+        </>
       )}
-      <Card>
-        <CardRow>
-          <Field label={copy.settings.team.timeLimit} hint={copy.settings.team.timeLimitHint} inline>
-            <NumberField
-              label={copy.settings.team.timeLimit}
-              value={t.wallMinutes}
-              min={1}
-              max={240}
-              suffix={copy.settings.team.units.minutes}
-              onChange={(v) => props.update((s) => ({ ...s, team: { ...s.team, wallMinutes: v } }))}
-            />
-          </Field>
-        </CardRow>
-        <CardRow>
-          <Field label={copy.settings.team.spendLimit} hint={copy.settings.team.spendLimitHint} inline>
-            <NumberField
-              label={copy.settings.team.spendLimit}
-              value={t.costUsd}
-              min={0}
-              max={1000}
-              step={0.1}
-              suffix={copy.settings.team.units.dollars}
-              onChange={(v) => props.update((s) => ({ ...s, team: { ...s.team, costUsd: v } }))}
-            />
-          </Field>
-        </CardRow>
-        <CardRow>
-          <Field label={copy.settings.team.tokenLimit} hint={copy.settings.team.tokenLimitHint} inline>
-            <NumberField
-              label={copy.settings.team.tokenLimit}
-              value={t.tokens}
-              min={0}
-              max={1_000_000_000}
-              suffix={copy.settings.team.units.tokens}
-              wide
-              onChange={(v) => props.update((s) => ({ ...s, team: { ...s.team, tokens: v } }))}
-            />
-          </Field>
-        </CardRow>
-        <CardRow>
-          <Field label={copy.settings.team.turns} hint={copy.settings.team.turnsHint} inline>
-            <NumberField
-              label={copy.settings.team.turns}
-              value={t.maxTurns}
-              min={1}
-              max={200}
-              onChange={(v) => props.update((s) => ({ ...s, team: { ...s.team, maxTurns: v } }))}
-            />
-          </Field>
-        </CardRow>
-        <CardRow>
-          <Field label={copy.settings.team.observer} hint={copy.settings.team.observerHint} inline>
-            <NumberField
-              label={copy.settings.team.observer}
-              value={props.data.settings.observer.intervalSeconds}
-              min={10}
-              max={600}
-              suffix={copy.settings.team.units.seconds}
-              onChange={(v) => props.update((s) => ({ ...s, observer: { intervalSeconds: v } }))}
-            />
-          </Field>
-        </CardRow>
+      <SectionHeader as="h3" className="mb-2" title={copy.settings.team.limitsTitle} />
+      <Card className="mb-8">
+        <SettingField id="team.wallMinutes" inline>
+          <NumberField
+            label={copy.settings.team.timeLimit}
+            value={t.wallMinutes}
+            min={1}
+            max={240}
+            suffix={copy.settings.team.units.minutes}
+            onChange={(v) => props.update((s) => ({ ...s, team: { ...s.team, wallMinutes: v } }))}
+          />
+        </SettingField>
+        <SettingField id="team.costUsd" inline>
+          <NumberField
+            label={copy.settings.team.spendLimit}
+            value={t.costUsd}
+            min={0}
+            max={1000}
+            step={0.1}
+            suffix={copy.settings.team.units.dollars}
+            onChange={(v) => props.update((s) => ({ ...s, team: { ...s.team, costUsd: v } }))}
+          />
+        </SettingField>
+        <SettingField id="team.tokens" inline>
+          <NumberField
+            label={copy.settings.team.tokenLimit}
+            value={t.tokens}
+            min={0}
+            max={1_000_000_000}
+            suffix={copy.settings.team.units.tokens}
+            wide
+            onChange={(v) => props.update((s) => ({ ...s, team: { ...s.team, tokens: v } }))}
+          />
+        </SettingField>
+        <SettingField id="team.maxTurns" inline>
+          <NumberField
+            label={copy.settings.team.turns}
+            value={t.maxTurns}
+            min={1}
+            max={200}
+            onChange={(v) => props.update((s) => ({ ...s, team: { ...s.team, maxTurns: v } }))}
+          />
+        </SettingField>
+        <SettingField id="team.observer" inline>
+          <NumberField
+            label={copy.settings.team.observer}
+            value={props.data.settings.observer.intervalSeconds}
+            min={10}
+            max={600}
+            suffix={copy.settings.team.units.seconds}
+            onChange={(v) => props.update((s) => ({ ...s, observer: { intervalSeconds: v } }))}
+          />
+        </SettingField>
       </Card>
+      <ReviewerSettings settings={props.data.settings} update={props.update} />
     </>
   )
 }
@@ -2331,11 +2308,11 @@ function SandboxReads(props: {
         note={t.subtitle}
       />
       <Card className="mb-6">
-        <CardRow>
+        <CardRow {...settingRow('permissions.readHome')}>
           <div className="flex items-center gap-3">
             <div className="min-w-0 flex-1">
-              <div className="text-reading font-medium">{t.home}</div>
-              <div className="text-callout text-muted">{t.homeHint}</div>
+              <div className="text-reading font-medium">{setting('permissions.readHome').label}</div>
+              <div className="text-callout text-muted">{setting('permissions.readHome').help}</div>
             </div>
             <Switch
               checked={!!sandbox.readHome}
@@ -2344,8 +2321,8 @@ function SandboxReads(props: {
             />
           </div>
         </CardRow>
-        <CardRow>
-          <Field label={t.folders}>
+        <CardRow {...settingRow('permissions.readFolders')}>
+          <Field label={setting('permissions.readFolders').label}>
             <TextArea
               value={text}
               onChange={(e) => {
@@ -2385,46 +2362,42 @@ function ToolsSection(props: {
         </Button>
       </Banner>
       <McpServers />
-      <SectionHeader
-        className="mb-2 mt-8"
-        icon={<FEATURE_ICONS.tools className="size-4 text-muted" />}
-        title={copy.settings.tools.libraryTitle}
-        note={copy.settings.tools.librarySubtitle}
-      />
-      <ToolLibraryList />
+      <div {...settingRow('tools.library')}>
+        <SectionHeader
+          className="mb-2 mt-8"
+          icon={<FEATURE_ICONS.tools className="size-4 text-muted" />}
+          title={copy.settings.tools.libraryTitle}
+          note={copy.settings.tools.librarySubtitle}
+        />
+        <ToolLibraryList />
+      </div>
       <SectionHeader
         className="mb-2 mt-8"
         icon={<Search className="size-4 text-muted" />}
         title={copy.settings.tools.webSearch}
       />
       <Card>
-        <CardRow>
-          <Field
-            label={copy.settings.tools.searchProvider}
-            hint={copy.settings.tools.searchProviderHint}
-            inline
+        <SettingField id="tools.webSearch" inline>
+          <Select
+            value={props.data.settings.search.provider}
+            onChange={(e) => props.update((s) => ({ ...s, search: { provider: e.target.value } }), true)}
+            aria-label={copy.settings.tools.searchProvider}
+            className="min-w-44"
           >
-            <Select
-              value={props.data.settings.search.provider}
-              onChange={(e) => props.update((s) => ({ ...s, search: { provider: e.target.value } }), true)}
-              aria-label={copy.settings.tools.searchProvider}
-              className="min-w-44"
-            >
-              <option value="auto">{copy.settings.tools.searchAuto}</option>
-              {props.data.searchProviders.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.label}
-                </option>
-              ))}
-            </Select>
-          </Field>
-        </CardRow>
+            <option value="auto">{copy.settings.tools.searchAuto}</option>
+            {props.data.searchProviders.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.label}
+              </option>
+            ))}
+          </Select>
+        </SettingField>
       </Card>
     </>
   )
 }
 
-interface McpServer {
+export interface McpServer {
   name: string
   transport: 'stdio' | 'http' | 'sse'
   target: string
@@ -2494,7 +2467,7 @@ function McpServers() {
   }
 
   return (
-    <>
+    <div {...settingRow('tools.mcp')}>
       <div className="mb-2 mt-8 flex items-center justify-between">
         <SectionHeader
           icon={<FEATURE_ICONS.mcp className="size-4 text-muted" />}
@@ -2597,7 +2570,7 @@ function McpServers() {
           </CardRow>
         ) : (
           servers.map((m) => (
-            <CardRow key={m.name}>
+            <CardRow key={m.name} {...settingItem('tools.mcpServer', m)}>
               <div className="flex items-center gap-3">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 text-reading font-medium">
@@ -2640,7 +2613,7 @@ function McpServers() {
           ))
         )}
       </Card>
-    </>
+    </div>
   )
 }
 
@@ -2650,7 +2623,7 @@ const REVIEWER_HINT = {
   always: copy.settings.reviewer.hints.always,
 } as const
 
-interface DeviceRow {
+export interface DeviceRow {
   id: string
   name: string
   scope: 'full' | 'chat'
@@ -2704,23 +2677,21 @@ function DevicesSection() {
         </div>
       ) : (
         <Card className="mb-6">
-          <CardRow>
-            <Field label={t.scope} hint={t.scopeHints[scope]} inline>
-              <Segmented
-                id="pair-scope"
-                value={scope}
-                options={[
-                  { value: 'full', label: t.scopes.full },
-                  { value: 'chat', label: t.scopes.chat },
-                ]}
-                onChange={(s) => {
-                  setScope(s)
-                  setLink(undefined)
-                }}
-              />
-            </Field>
-          </CardRow>
-          <CardRow>
+          <SettingField id="devices.scope" hint={t.scopeHints[scope]} inline>
+            <Segmented
+              id="pair-scope"
+              value={scope}
+              options={[
+                { value: 'full', label: t.scopes.full },
+                { value: 'chat', label: t.scopes.chat },
+              ]}
+              onChange={(s) => {
+                setScope(s)
+                setLink(undefined)
+              }}
+            />
+          </SettingField>
+          <CardRow {...settingRow('devices.pair')}>
             {link ? (
               <div className="flex flex-col gap-2">
                 <p className="text-body text-fg-2">{t.link}</p>
@@ -2752,7 +2723,11 @@ function DevicesSection() {
       ) : (
         <Card>
           {data?.devices.map((d) => (
-            <div key={d.id} className="flex items-center gap-3 px-4 py-3">
+            <div
+              key={d.id}
+              {...settingItem('devices.device', d)}
+              className="flex items-center gap-3 px-4 py-3"
+            >
               <FEATURE_ICONS.devices className="size-4 shrink-0 text-muted" />
               <div className="min-w-0 flex-1">
                 <div className="flex items-baseline gap-2">
@@ -2891,13 +2866,14 @@ export function ChannelsSection(props: {
         </Banner>
       )}
       {connected.length > 0 && (
-        <section className="mb-8">
+        <section {...settingRow('channels.yours')} className="mb-8">
           <SectionHeader as="h3" className="mb-2" title={t.yours} />
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             {connected.map((c) => (
               <button
                 key={c.id}
                 type="button"
+                {...settingItem('channels.channel', c)}
                 onClick={() => setOpen(c.id)}
                 className="flex items-center gap-3 rounded-2xl border border-line bg-surface p-3 text-left shadow-soft transition-colors hover:bg-fill"
               >
@@ -2926,7 +2902,7 @@ export function ChannelsSection(props: {
         </div>
       )}
       {list && (
-        <section>
+        <section {...settingRow('channels.add')}>
           <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
             <div className="min-w-0">
               <SectionHeader as="h3" title={t.add} />
@@ -2955,6 +2931,7 @@ export function ChannelsSection(props: {
                     <button
                       key={c.id}
                       type="button"
+                      {...settingItem('channels.channel', c)}
                       onClick={() => setOpen(c.id)}
                       className="flex flex-col items-center gap-2 rounded-lg border border-line bg-surface px-2 py-3 text-center transition-colors hover:bg-fill"
                     >
@@ -3132,7 +3109,9 @@ function ChannelSheet(props: {
       }
       actions={
         c.configured && (
-          <Switch checked={c.enabled} onChange={(enabled) => void configure({ enabled })} label={t.on} />
+          <span {...settingRow('channels.on')} className="inline-flex">
+            <Switch checked={c.enabled} onChange={(enabled) => void configure({ enabled })} label={t.on} />
+          </span>
         )
       }
     >
@@ -3153,67 +3132,67 @@ function ChannelSheet(props: {
               />
             )}
             {(c.fields.length > 0 || !c.enabled || c.configured) && (
-              <Card>
-                {c.fields.map((f) => (
-                  <CardRow key={f.key}>
-                    <Field
-                      label={f.optional ? t.optional(f.label) : f.label}
-                      hint={f.secret && c.secretsSet.includes(f.key) ? t.secretSet : f.hint}
-                      error={fieldErrors[f.key]}
-                    >
-                      <TextInput
-                        type={f.secret ? 'password' : 'text'}
-                        autoComplete="off"
-                        value={draft[f.key] ?? (f.secret ? '' : (c.values[f.key] ?? ''))}
-                        onChange={(e) => {
-                          const value = e.target.value
-                          setDraft((d) => ({ ...d, [f.key]: value }))
-                          setFieldErrors(({ [f.key]: _, ...rest }) => rest)
-                          setSetupError(undefined)
-                        }}
-                        placeholder={f.placeholder}
-                        className="font-mono"
-                      />
-                    </Field>
-                  </CardRow>
-                ))}
-                {c.fields.length > 0 ? (
-                  <CardRow>
-                    <div className="flex flex-wrap items-center gap-3">
-                      <Button
-                        size="sm"
-                        variant="primary"
-                        disabled={busy || !changed}
-                        onClick={() => void saveValues()}
+              <div {...settingRow('channels.setup')}>
+                <Card>
+                  {c.fields.map((f) => (
+                    <CardRow key={f.key}>
+                      <Field
+                        label={f.optional ? t.optional(f.label) : f.label}
+                        hint={f.secret && c.secretsSet.includes(f.key) ? t.secretSet : f.hint}
+                        error={fieldErrors[f.key]}
                       >
-                        {busy ? t.saving : t.save}
-                      </Button>
-                      {setup.missing.length > 0 && (
-                        <span className="text-small text-muted">
-                          {t.stillNeeded(
-                            c.fields.filter((f) => setup.missing.includes(f.key)).map((f) => f.label),
-                          )}
-                        </span>
-                      )}
-                    </div>
-                    {setupError && (
-                      <p role="alert" className="mt-2 text-small leading-snug text-bad-ink">
-                        {setupError}
-                      </p>
-                    )}
-                  </CardRow>
-                ) : (
-                  !c.enabled && (
-                    <CardRow>
-                      <Button size="sm" variant="primary" onClick={() => void configure({ enabled: true })}>
-                        {t.turnOn}
-                      </Button>
+                        <TextInput
+                          type={f.secret ? 'password' : 'text'}
+                          autoComplete="off"
+                          value={draft[f.key] ?? (f.secret ? '' : (c.values[f.key] ?? ''))}
+                          onChange={(e) => {
+                            const value = e.target.value
+                            setDraft((d) => ({ ...d, [f.key]: value }))
+                            setFieldErrors(({ [f.key]: _, ...rest }) => rest)
+                            setSetupError(undefined)
+                          }}
+                          placeholder={f.placeholder}
+                          className="font-mono"
+                        />
+                      </Field>
                     </CardRow>
-                  )
-                )}
-                {c.configured && (
-                  <CardRow>
-                    <Field label={t.project} hint={t.projectHint} inline>
+                  ))}
+                  {c.fields.length > 0 ? (
+                    <CardRow>
+                      <div className="flex flex-wrap items-center gap-3">
+                        <Button
+                          size="sm"
+                          variant="primary"
+                          disabled={busy || !changed}
+                          onClick={() => void saveValues()}
+                        >
+                          {busy ? t.saving : t.save}
+                        </Button>
+                        {setup.missing.length > 0 && (
+                          <span className="text-small text-muted">
+                            {t.stillNeeded(
+                              c.fields.filter((f) => setup.missing.includes(f.key)).map((f) => f.label),
+                            )}
+                          </span>
+                        )}
+                      </div>
+                      {setupError && (
+                        <p role="alert" className="mt-2 text-small leading-snug text-bad-ink">
+                          {setupError}
+                        </p>
+                      )}
+                    </CardRow>
+                  ) : (
+                    !c.enabled && (
+                      <CardRow>
+                        <Button size="sm" variant="primary" onClick={() => void configure({ enabled: true })}>
+                          {t.turnOn}
+                        </Button>
+                      </CardRow>
+                    )
+                  )}
+                  {c.configured && (
+                    <SettingField id="channels.project" inline>
                       <Select
                         value={c.project ?? ''}
                         onChange={(e) => void configure({ project: e.target.value || null })}
@@ -3226,13 +3205,13 @@ function ChannelSheet(props: {
                           </option>
                         ))}
                       </Select>
-                    </Field>
-                  </CardRow>
-                )}
-              </Card>
+                    </SettingField>
+                  )}
+                </Card>
+              </div>
             )}
             {inUse(c) && (
-              <div className="flex justify-end">
+              <div {...settingRow('channels.remove')} className="flex justify-end">
                 <ConfirmButton
                   label={t.remove}
                   confirm={t.removeConfirm}
@@ -3274,216 +3253,204 @@ function ChannelSheet(props: {
               </Banner>
             )}
             {c.pending.length > 0 && (
+              <div {...settingRow('channels.requests')}>
+                <Card>
+                  <CardRow>
+                    <div className="text-body font-semibold">{t.waiting}</div>
+                    <div className="text-small text-muted">{t.waitingHint}</div>
+                  </CardRow>
+                  {!hasOwner && c.pending.some((p) => p.kind === 'person') && (
+                    <CardRow>
+                      <p className="text-callout text-warn-ink">{t.ownerFirst}</p>
+                    </CardRow>
+                  )}
+                  {c.pending.map((p) => {
+                    const asOwner = !hasOwner && p.kind === 'person'
+                    return (
+                      <div key={p.id} className="flex flex-col gap-2 px-4 py-3">
+                        <div className="min-w-0">
+                          <div className="truncate text-reading font-semibold">
+                            {p.sender.name}
+                            {p.kind === 'group' ? ` · ${t.group(p.chat.title ?? '')}` : ''}
+                          </div>
+                          <div className="truncate font-mono text-small text-muted">
+                            {t.sender(c.label, p.sender.id, p.sender.handle)}
+                          </div>
+                          <div className="text-small text-muted">
+                            {t.expires(new Date(p.expires).toLocaleTimeString())}
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap items-end gap-2">
+                          <div className="w-48">
+                            <Field label={t.code} error={codeErrors[p.id]}>
+                              <TextInput
+                                value={codes[p.id] ?? ''}
+                                onChange={(e) => {
+                                  const code = e.target.value
+                                  setCodes((all) => ({ ...all, [p.id]: code }))
+                                  setCodeErrors(({ [p.id]: _, ...rest }) => rest)
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') void approve(p)
+                                }}
+                                autoComplete="off"
+                                spellCheck={false}
+                                maxLength={PAIRING_CODE_LENGTH}
+                                className="font-mono uppercase"
+                              />
+                            </Field>
+                          </div>
+                          <div className="ml-auto flex gap-2">
+                            <ConfirmButton
+                              label={t.decline}
+                              name={t.declineName(p.kind === 'group' ? (p.chat.title ?? '') : p.sender.name)}
+                              confirm={t.declineConfirm}
+                              onConfirm={() =>
+                                void act(send('DELETE', `/api/channels/${c.id}/request/${p.id}`))
+                              }
+                            />
+                            <Button size="sm" variant="primary" onClick={() => void approve(p)}>
+                              {asOwner ? t.makeOwner : t.approve}
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </Card>
+              </div>
+            )}
+            <div {...settingRow('channels.people')}>
               <Card>
                 <CardRow>
-                  <div className="text-body font-semibold">{t.waiting}</div>
-                  <div className="text-small text-muted">{t.waitingHint}</div>
+                  <div className="text-body font-semibold">{t.people}</div>
                 </CardRow>
-                {!hasOwner && c.pending.some((p) => p.kind === 'person') && (
+                {c.people.length === 0 && <div className="px-4 py-3 text-callout text-muted">{t.none}</div>}
+                {c.people.map((p) => (
+                  <div key={p.id} className="flex items-center gap-3 px-4 py-3">
+                    <div className="min-w-0 flex-1 truncate text-reading">
+                      {p.name}
+                      {p.handle ? <span className="text-muted"> @{p.handle}</span> : null}
+                    </div>
+                    <Badge tone={p.role === 'owner' ? 'accent' : 'neutral'}>
+                      {p.role === 'owner' ? t.owner : t.member}
+                    </Badge>
+                    {p.role === 'member' && (
+                      <ConfirmButton
+                        label={t.makeOwner}
+                        name={t.makeOwnerName(p.name)}
+                        confirm={t.makeOwnerConfirm}
+                        warning={hasOwner ? t.makeOwnerWarning : t.makeOwnerFirstWarning}
+                        onConfirm={() =>
+                          void act(post(`/api/channels/${c.id}/owner`, { person: p.id }), t.madeOwner(p.name))
+                        }
+                      />
+                    )}
+                    <ConfirmButton
+                      label={t.revoke}
+                      name={t.revokeName(p.name)}
+                      confirm={t.revokeConfirm}
+                      warning={p.role === 'owner' ? t.revokeOwnerWarning : t.revokeWarning}
+                      onConfirm={() => void act(send('DELETE', `/api/channels/${c.id}/person/${p.id}`))}
+                    />
+                  </div>
+                ))}
+                {c.approvedGroups.length > 0 && (
                   <CardRow>
-                    <p className="text-callout text-warn-ink">{t.ownerFirst}</p>
+                    <div className="text-body font-semibold">{t.groups}</div>
                   </CardRow>
                 )}
-                {c.pending.map((p) => {
-                  const asOwner = !hasOwner && p.kind === 'person'
-                  return (
-                    <div key={p.id} className="flex flex-col gap-2 px-4 py-3">
-                      <div className="min-w-0">
-                        <div className="truncate text-reading font-semibold">
-                          {p.sender.name}
-                          {p.kind === 'group' ? ` · ${t.group(p.chat.title ?? '')}` : ''}
-                        </div>
-                        <div className="truncate font-mono text-small text-muted">
-                          {t.sender(c.label, p.sender.id, p.sender.handle)}
-                        </div>
-                        <div className="text-small text-muted">
-                          {t.expires(new Date(p.expires).toLocaleTimeString())}
-                        </div>
-                      </div>
-                      <div className="flex flex-wrap items-end gap-2">
-                        <div className="w-48">
-                          <Field label={t.code} error={codeErrors[p.id]}>
-                            <TextInput
-                              value={codes[p.id] ?? ''}
-                              onChange={(e) => {
-                                const code = e.target.value
-                                setCodes((all) => ({ ...all, [p.id]: code }))
-                                setCodeErrors(({ [p.id]: _, ...rest }) => rest)
-                              }}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') void approve(p)
-                              }}
-                              autoComplete="off"
-                              spellCheck={false}
-                              maxLength={PAIRING_CODE_LENGTH}
-                              className="font-mono uppercase"
-                            />
-                          </Field>
-                        </div>
-                        <div className="ml-auto flex gap-2">
-                          <ConfirmButton
-                            label={t.decline}
-                            name={t.declineName(p.kind === 'group' ? (p.chat.title ?? '') : p.sender.name)}
-                            confirm={t.declineConfirm}
-                            onConfirm={() =>
-                              void act(send('DELETE', `/api/channels/${c.id}/request/${p.id}`))
-                            }
-                          />
-                          <Button size="sm" variant="primary" onClick={() => void approve(p)}>
-                            {asOwner ? t.makeOwner : t.approve}
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })}
-              </Card>
-            )}
-            <Card>
-              <CardRow>
-                <div className="text-body font-semibold">{t.people}</div>
-              </CardRow>
-              {c.people.length === 0 && <div className="px-4 py-3 text-callout text-muted">{t.none}</div>}
-              {c.people.map((p) => (
-                <div key={p.id} className="flex items-center gap-3 px-4 py-3">
-                  <div className="min-w-0 flex-1 truncate text-reading">
-                    {p.name}
-                    {p.handle ? <span className="text-muted"> @{p.handle}</span> : null}
-                  </div>
-                  <Badge tone={p.role === 'owner' ? 'accent' : 'neutral'}>
-                    {p.role === 'owner' ? t.owner : t.member}
-                  </Badge>
-                  {p.role === 'member' && (
+                {c.approvedGroups.map((g) => (
+                  <div key={g.id} className="flex items-center gap-3 px-4 py-3">
+                    <div className="min-w-0 flex-1 truncate text-reading">{g.title}</div>
                     <ConfirmButton
-                      label={t.makeOwner}
-                      name={t.makeOwnerName(p.name)}
-                      confirm={t.makeOwnerConfirm}
-                      warning={hasOwner ? t.makeOwnerWarning : t.makeOwnerFirstWarning}
-                      onConfirm={() =>
-                        void act(post(`/api/channels/${c.id}/owner`, { person: p.id }), t.madeOwner(p.name))
-                      }
+                      label={t.revoke}
+                      name={t.revokeName(g.title)}
+                      confirm={t.revokeConfirm}
+                      warning={t.revokeGroupWarning}
+                      onConfirm={() => void act(send('DELETE', `/api/channels/${c.id}/group/${g.id}`))}
                     />
-                  )}
-                  <ConfirmButton
-                    label={t.revoke}
-                    name={t.revokeName(p.name)}
-                    confirm={t.revokeConfirm}
-                    warning={p.role === 'owner' ? t.revokeOwnerWarning : t.revokeWarning}
-                    onConfirm={() => void act(send('DELETE', `/api/channels/${c.id}/person/${p.id}`))}
-                  />
-                </div>
-              ))}
-              {c.approvedGroups.length > 0 && (
-                <CardRow>
-                  <div className="text-body font-semibold">{t.groups}</div>
-                </CardRow>
-              )}
-              {c.approvedGroups.map((g) => (
-                <div key={g.id} className="flex items-center gap-3 px-4 py-3">
-                  <div className="min-w-0 flex-1 truncate text-reading">{g.title}</div>
-                  <ConfirmButton
-                    label={t.revoke}
-                    name={t.revokeName(g.title)}
-                    confirm={t.revokeConfirm}
-                    warning={t.revokeGroupWarning}
-                    onConfirm={() => void act(send('DELETE', `/api/channels/${c.id}/group/${g.id}`))}
-                  />
-                </div>
-              ))}
-            </Card>
+                  </div>
+                ))}
+              </Card>
+            </div>
           </div>
         )}
 
         {tab === 'rules' && (
           <Card>
-            <CardRow>
-              <Field label={t.dm} hint={t.dmHint[c.dm]} inline>
-                <Select
-                  value={c.dm}
-                  onChange={(e) => void configure({ dm: e.target.value })}
-                  aria-label={t.dm}
-                >
-                  {(['pairing', 'allowlist', 'open', 'disabled'] as const).map((v) => (
-                    <option key={v} value={v}>
-                      {t.dmOptions[v]}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-            </CardRow>
-            <CardRow>
-              <Field label={t.groupsLabel} hint={t.groupsHint[c.groups]} inline>
-                <Select
-                  value={c.groups}
-                  onChange={(e) => void configure({ groups: e.target.value })}
-                  aria-label={t.groupsLabel}
-                >
-                  {(['approve', 'open', 'disabled'] as const).map((v) => (
-                    <option key={v} value={v}>
-                      {t.groupsOptions[v]}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-            </CardRow>
-            <CardRow>
-              <Field label={t.mention} hint={t.mentionHint} inline>
-                <Switch
-                  checked={c.mention}
-                  onChange={(mention) => void configure({ mention })}
-                  label={t.mention}
-                />
-              </Field>
-            </CardRow>
-            <CardRow>
-              <Field label={t.perPerson} hint={t.perPersonHint} inline>
-                <Switch
-                  checked={c.perPerson}
-                  onChange={(perPerson) => void configure({ perPerson })}
-                  label={t.perPerson}
-                />
-              </Field>
-            </CardRow>
-            <CardRow>
-              <Field
-                label={t.allow}
-                hint={
-                  <>
-                    {t.allowHint}
-                    {allowSaved && <span className="text-ok-ink"> {t.allowSaved}</span>}
-                  </>
-                }
-                error={
-                  allowError ??
-                  (c.allowInvalid.length ? t.allowStale(c.allowInvalid, c.allowExample) : undefined)
-                }
+            <SettingField id="channels.dm" hint={t.dmHint[c.dm]} inline>
+              <Select value={c.dm} onChange={(e) => void configure({ dm: e.target.value })} aria-label={t.dm}>
+                {(['pairing', 'allowlist', 'open', 'disabled'] as const).map((v) => (
+                  <option key={v} value={v}>
+                    {t.dmOptions[v]}
+                  </option>
+                ))}
+              </Select>
+            </SettingField>
+            <SettingField id="channels.groups" hint={t.groupsHint[c.groups]} inline>
+              <Select
+                value={c.groups}
+                onChange={(e) => void configure({ groups: e.target.value })}
+                aria-label={t.groupsLabel}
               >
-                <TextInput
-                  value={allowDraft ?? c.allow.join(', ')}
-                  onChange={(e) => {
-                    setAllowDraft(e.target.value)
-                    setAllowSaved(false)
-                  }}
-                  onBlur={() => void saveAllow()}
-                  placeholder={c.allowExample ?? t.allowPlaceholder}
-                />
-              </Field>
-            </CardRow>
-            <CardRow>
-              <Field label={t.stream} hint={t.streamHint[c.stream]} inline>
-                <Select
-                  value={c.stream}
-                  onChange={(e) => void configure({ stream: e.target.value })}
-                  aria-label={t.stream}
-                >
-                  {(['progress', 'partial', 'final'] as const).map((v) => (
-                    <option key={v} value={v}>
-                      {t.streamOptions[v]}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-            </CardRow>
+                {(['approve', 'open', 'disabled'] as const).map((v) => (
+                  <option key={v} value={v}>
+                    {t.groupsOptions[v]}
+                  </option>
+                ))}
+              </Select>
+            </SettingField>
+            <SettingField id="channels.mention" inline>
+              <Switch
+                checked={c.mention}
+                onChange={(mention) => void configure({ mention })}
+                label={t.mention}
+              />
+            </SettingField>
+            <SettingField id="channels.perPerson" inline>
+              <Switch
+                checked={c.perPerson}
+                onChange={(perPerson) => void configure({ perPerson })}
+                label={t.perPerson}
+              />
+            </SettingField>
+            <SettingField
+              id="channels.allow"
+              hint={
+                <>
+                  {t.allowHint}
+                  {allowSaved && <span className="text-ok-ink"> {t.allowSaved}</span>}
+                </>
+              }
+              error={
+                allowError ??
+                (c.allowInvalid.length ? t.allowStale(c.allowInvalid, c.allowExample) : undefined)
+              }
+            >
+              <TextInput
+                value={allowDraft ?? c.allow.join(', ')}
+                onChange={(e) => {
+                  setAllowDraft(e.target.value)
+                  setAllowSaved(false)
+                }}
+                onBlur={() => void saveAllow()}
+                placeholder={c.allowExample ?? t.allowPlaceholder}
+              />
+            </SettingField>
+            <SettingField id="channels.stream" hint={t.streamHint[c.stream]} inline>
+              <Select
+                value={c.stream}
+                onChange={(e) => void configure({ stream: e.target.value })}
+                aria-label={t.stream}
+              >
+                {(['progress', 'partial', 'final'] as const).map((v) => (
+                  <option key={v} value={v}>
+                    {t.streamOptions[v]}
+                  </option>
+                ))}
+              </Select>
+            </SettingField>
           </Card>
         )}
 
@@ -3674,28 +3641,26 @@ function VoiceSection(props: {
         : cloudHint('tts', v.tts.provider, providers, endpoints)
   const onOff = (
     <Card className="mb-6">
-      <CardRow>
-        <Field
+      <SettingField
+        id="voice.enabled"
+        hint={
+          <>
+            {t.enabledHint({
+              detector: size(sizes?.vad),
+              turn: size(sizes?.turn),
+              kitten: size(sizes?.kitten[v.tts.kittenModel]),
+            })}
+            {status?.transcriptDays !== undefined && ` ${t.transcripts(status.transcriptDays)}`}
+          </>
+        }
+        inline
+      >
+        <Switch
+          checked={v.enabled}
+          onChange={(enabled) => set((x) => ({ ...x, enabled }))}
           label={t.enabled}
-          hint={
-            <>
-              {t.enabledHint({
-                detector: size(sizes?.vad),
-                turn: size(sizes?.turn),
-                kitten: size(sizes?.kitten[v.tts.kittenModel]),
-              })}
-              {status?.transcriptDays !== undefined && ` ${t.transcripts(status.transcriptDays)}`}
-            </>
-          }
-          inline
-        >
-          <Switch
-            checked={v.enabled}
-            onChange={(enabled) => set((x) => ({ ...x, enabled }))}
-            label={t.enabled}
-          />
-        </Field>
-      </CardRow>
+        />
+      </SettingField>
     </Card>
   )
   if (!v.enabled)
@@ -3712,60 +3677,56 @@ function VoiceSection(props: {
       <Card className="mb-6">
         <CallModeRow voice={v} set={set} />
         {!realtime && (
-          <CardRow>
-            <Field label={t.callModel} hint={t.callModelHint}>
-              <div className="flex flex-wrap items-center gap-2">
-                <Segmented
-                  id="call-model"
-                  value={v.callModel ? 'own' : 'lead'}
-                  options={[
-                    { value: 'lead', label: t.sameAsLead },
-                    { value: 'own', label: t.ownModel },
-                  ]}
-                  onChange={(choice) =>
-                    set((x) => ({
-                      ...x,
-                      callModel: choice === 'lead' ? undefined : (status?.callModel ?? props.models[0]?.ref),
-                    }))
-                  }
+          <SettingField id="voice.callModel">
+            <div className="flex flex-wrap items-center gap-2">
+              <Segmented
+                id="call-model"
+                value={v.callModel ? 'own' : 'lead'}
+                options={[
+                  { value: 'lead', label: t.sameAsLead },
+                  { value: 'own', label: t.ownModel },
+                ]}
+                onChange={(choice) =>
+                  set((x) => ({
+                    ...x,
+                    callModel: choice === 'lead' ? undefined : (status?.callModel ?? props.models[0]?.ref),
+                  }))
+                }
+              />
+              {v.callModel ? (
+                <ModelPicker
+                  variant="compact"
+                  label={t.callModel}
+                  value={v.callModel}
+                  models={props.models}
+                  placement="down"
+                  onChange={(callModel) => set((x) => ({ ...x, callModel }))}
                 />
-                {v.callModel ? (
-                  <ModelPicker
-                    variant="compact"
-                    label={t.callModel}
-                    value={v.callModel}
-                    models={props.models}
-                    placement="down"
-                    onChange={(callModel) => set((x) => ({ ...x, callModel }))}
-                  />
-                ) : (
-                  status?.callModel && (
-                    <span className="text-callout text-muted">
-                      {t.leadModel(
-                        props.models.find((m) => m.ref === status.callModel)?.name ?? status.callModel,
-                      )}
-                    </span>
-                  )
-                )}
-              </div>
-            </Field>
-          </CardRow>
+              ) : (
+                status?.callModel && (
+                  <span className="text-callout text-muted">
+                    {t.leadModel(
+                      props.models.find((m) => m.ref === status.callModel)?.name ?? status.callModel,
+                    )}
+                  </span>
+                )
+              )}
+            </div>
+          </SettingField>
         )}
-        <CardRow>
-          <Field label={t.sensitivity} hint={t.sensitivityHint} inline>
-            <Select
-              value={v.sensitivity}
-              onChange={(e) => set((x) => ({ ...x, sensitivity: e.target.value as typeof v.sensitivity }))}
-              aria-label={t.sensitivity}
-            >
-              {(['low', 'normal', 'high'] as const).map((k) => (
-                <option key={k} value={k}>
-                  {t.sensitivities[k]}
-                </option>
-              ))}
-            </Select>
-          </Field>
-        </CardRow>
+        <SettingField id="voice.sensitivity" inline>
+          <Select
+            value={v.sensitivity}
+            onChange={(e) => set((x) => ({ ...x, sensitivity: e.target.value as typeof v.sensitivity }))}
+            aria-label={t.sensitivity}
+          >
+            {(['low', 'normal', 'high'] as const).map((k) => (
+              <option key={k} value={k}>
+                {t.sensitivities[k]}
+              </option>
+            ))}
+          </Select>
+        </SettingField>
       </Card>
 
       {realtime && (
@@ -3780,16 +3741,14 @@ function VoiceSection(props: {
         <AddVoiceProvider onClick={props.onAddProvider} />
       </div>
       <Card className="mb-6">
-        <CardRow>
-          <EnginePicker
-            kind="stt"
-            voice={v}
-            providers={providers}
-            endpoints={endpoints}
-            set={set}
-            hint={sttHint}
-          />
-        </CardRow>
+        <EnginePicker
+          kind="stt"
+          voice={v}
+          providers={providers}
+          endpoints={endpoints}
+          set={set}
+          hint={sttHint}
+        />
         {v.stt.provider === 'phonon' && status && (
           <CardRow>
             <div className="flex items-center gap-3 text-body">
@@ -3816,38 +3775,34 @@ function VoiceSection(props: {
 
       <SectionHeader as="h3" className="mb-2" title={t.ttsTitle} note={realtime ? t.directOnly : undefined} />
       <Card className="mb-6">
-        <CardRow>
-          <EnginePicker
-            kind="tts"
-            voice={v}
-            providers={providers}
-            endpoints={endpoints}
-            set={set}
-            hint={ttsHint}
-          />
-        </CardRow>
+        <EnginePicker
+          kind="tts"
+          voice={v}
+          providers={providers}
+          endpoints={endpoints}
+          set={set}
+          hint={ttsHint}
+        />
         {v.tts.provider === 'kitten' && (
           <>
-            <CardRow>
-              <Field label={t.kittenModel} inline>
-                <Select
-                  value={v.tts.kittenModel}
-                  onChange={(e) =>
-                    set((x) => ({
-                      ...x,
-                      tts: { ...x.tts, kittenModel: e.target.value as typeof v.tts.kittenModel },
-                    }))
-                  }
-                  aria-label={t.kittenModel}
-                >
-                  {(['nano', 'micro', 'mini'] as const).map((m) => (
-                    <option key={m} value={m}>
-                      {sizes ? `${t.kittenModels[m]} · ${formatSize(sizes.kitten[m])}` : t.kittenModels[m]}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-            </CardRow>
+            <SettingField id="voice.tts.kittenModel" inline>
+              <Select
+                value={v.tts.kittenModel}
+                onChange={(e) =>
+                  set((x) => ({
+                    ...x,
+                    tts: { ...x.tts, kittenModel: e.target.value as typeof v.tts.kittenModel },
+                  }))
+                }
+                aria-label={t.kittenModel}
+              >
+                {(['nano', 'micro', 'mini'] as const).map((m) => (
+                  <option key={m} value={m}>
+                    {sizes ? `${t.kittenModels[m]} · ${formatSize(sizes.kitten[m])}` : t.kittenModels[m]}
+                  </option>
+                ))}
+              </Select>
+            </SettingField>
             {status && (
               <CardRow>
                 <div className="flex items-center gap-3 text-body">
@@ -3869,40 +3824,36 @@ function VoiceSection(props: {
                 </div>
               </CardRow>
             )}
-            <CardRow>
-              <Field label={t.voice} inline>
-                <Select
-                  value={v.tts.voice}
-                  onChange={(e) => set((x) => ({ ...x, tts: { ...x.tts, voice: e.target.value } }))}
-                  aria-label={t.voice}
-                >
-                  {(status?.tts.voices ?? [v.tts.voice]).map((name) => (
-                    <option key={name} value={name}>
-                      {name}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-            </CardRow>
+            <SettingField id="voice.tts.voice" inline>
+              <Select
+                value={v.tts.voice}
+                onChange={(e) => set((x) => ({ ...x, tts: { ...x.tts, voice: e.target.value } }))}
+                aria-label={t.voice}
+              >
+                {(status?.tts.voices ?? [v.tts.voice]).map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </Select>
+            </SettingField>
           </>
         )}
         <CloudRows kind="tts" voice={v} providers={providers} set={set} />
-        <CardRow>
-          <Field label={t.speed} inline>
-            <Select
-              value={String(v.tts.speed)}
-              onChange={(e) => set((x) => ({ ...x, tts: { ...x.tts, speed: Number(e.target.value) } }))}
-              aria-label={t.speed}
-            >
-              {VOICE_SPEEDS.map((sp) => (
-                <option key={sp} value={String(sp)}>
-                  {`${sp}×`}
-                </option>
-              ))}
-            </Select>
-          </Field>
-        </CardRow>
-        <CardRow>
+        <SettingField id="voice.tts.speed" inline>
+          <Select
+            value={String(v.tts.speed)}
+            onChange={(e) => set((x) => ({ ...x, tts: { ...x.tts, speed: Number(e.target.value) } }))}
+            aria-label={t.speed}
+          >
+            {VOICE_SPEEDS.map((sp) => (
+              <option key={sp} value={String(sp)}>
+                {`${sp}×`}
+              </option>
+            ))}
+          </Select>
+        </SettingField>
+        <CardRow {...settingRow('voice.tts.try')}>
           <Button size="sm" variant="primary" disabled={trying} onClick={() => void tryIt()}>
             {t.tryIt}
           </Button>
@@ -3918,44 +3869,40 @@ function VoiceSection(props: {
             title={t.phone.title}
           />
           <Card className="mb-6">
-            <CardRow>
-              <Field
+            <SettingField
+              id="voice.phone.enabled"
+              hint={
+                <>
+                  {t.phone.hint}
+                  {status.phone.state === 'connecting' && ` ${t.phone.connecting}`}
+                  {status.phone.state === 'on' &&
+                    status.phone.number &&
+                    ` ${t.phone.on(status.phone.number)}`}
+                </>
+              }
+              error={status.phone.state === 'error' ? status.phone.error : undefined}
+              inline
+            >
+              <Switch
+                checked={v.phone === true}
+                onChange={(phone) => set((x) => ({ ...x, phone }))}
                 label={t.phone.enabled}
-                hint={
-                  <>
-                    {t.phone.hint}
-                    {status.phone.state === 'connecting' && ` ${t.phone.connecting}`}
-                    {status.phone.state === 'on' &&
-                      status.phone.number &&
-                      ` ${t.phone.on(status.phone.number)}`}
-                  </>
-                }
-                error={status.phone.state === 'error' ? status.phone.error : undefined}
-                inline
-              >
-                <Switch
-                  checked={v.phone === true}
-                  onChange={(phone) => set((x) => ({ ...x, phone }))}
-                  label={t.phone.enabled}
-                />
-              </Field>
-            </CardRow>
+              />
+            </SettingField>
             {status.phone.state === 'on' && (
-              <CardRow>
-                <Field label={t.phone.callMe} hint={t.phone.callMeHint} inline>
-                  <Button
-                    size="sm"
-                    onClick={() =>
-                      void post<{ to: string }>('/api/voice/phone/call', {}).then(
-                        (r) => toast(t.phone.calling(r.to)),
-                        (err: Error) => toast(err.message, 'error'),
-                      )
-                    }
-                  >
-                    {t.phone.callMe}
-                  </Button>
-                </Field>
-              </CardRow>
+              <SettingField id="voice.phone.callMe" inline>
+                <Button
+                  size="sm"
+                  onClick={() =>
+                    void post<{ to: string }>('/api/voice/phone/call', {}).then(
+                      (r) => toast(t.phone.calling(r.to)),
+                      (err: Error) => toast(err.message, 'error'),
+                    )
+                  }
+                >
+                  {t.phone.callMe}
+                </Button>
+              </SettingField>
             )}
           </Card>
         </>
@@ -4019,28 +3966,24 @@ function GatewaysSection() {
     <>
       <PageHeader title={t.title}>{t.intro}</PageHeader>
       <Card className="mb-6">
-        <CardRow>
-          <Field label={t.link} hint={t.linkHint}>
-            <TextInput
-              value={link}
-              onChange={(e) => setLink(e.target.value)}
-              placeholder="https://box.tail1234.ts.net/#pair=…"
-              aria-label={t.link}
-              className="font-mono"
-            />
-          </Field>
-        </CardRow>
-        <CardRow>
-          <Field label={t.name} hint={t.nameHint}>
-            <TextInput
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              maxLength={40}
-              aria-label={t.name}
-            />
-          </Field>
-        </CardRow>
-        <CardRow>
+        <SettingField id="gateways.link">
+          <TextInput
+            value={link}
+            onChange={(e) => setLink(e.target.value)}
+            placeholder="https://box.tail1234.ts.net/#pair=…"
+            aria-label={t.link}
+            className="font-mono"
+          />
+        </SettingField>
+        <SettingField id="gateways.name">
+          <TextInput
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            maxLength={40}
+            aria-label={t.name}
+          />
+        </SettingField>
+        <CardRow {...settingRow('gateways.add')}>
           <Button
             size="sm"
             variant="primary"
@@ -4058,7 +4001,11 @@ function GatewaysSection() {
       ) : (
         <Card>
           {list?.map((g) => (
-            <div key={g.id} className="flex items-center gap-3 px-4 py-3">
+            <div
+              key={g.id}
+              {...settingItem('gateways.gateway', g)}
+              className="flex items-center gap-3 px-4 py-3"
+            >
               <Dot tone={g.health.ok ? 'ok' : 'bad'} />
               <div className="min-w-0 flex-1">
                 <div className="flex items-baseline gap-2">
@@ -4100,25 +4047,27 @@ function SpecialistsSection(props: { models: ModelOption[] }) {
   return (
     <>
       <PageHeader title={t.title}>{t.intro}</PageHeader>
-      <div className="mb-4 flex justify-end">
-        <Button
-          size="sm"
-          variant="primary"
-          icon={<Plus className="size-3.5" />}
-          onClick={() => setOpen('new')}
-        >
-          {t.add}
-        </Button>
+      <div {...settingRow('specialists.add')}>
+        <div className="mb-4 flex justify-end">
+          <Button
+            size="sm"
+            variant="primary"
+            icon={<Plus className="size-3.5" />}
+            onClick={() => setOpen('new')}
+          >
+            {t.add}
+          </Button>
+        </div>
+        {open === 'new' && (
+          <Card className="mb-4 p-4">
+            <SpecialistEditor
+              models={props.models}
+              onSaved={() => setOpen(undefined)}
+              onCancel={() => setOpen(undefined)}
+            />
+          </Card>
+        )}
       </div>
-      {open === 'new' && (
-        <Card className="mb-4 p-4">
-          <SpecialistEditor
-            models={props.models}
-            onSaved={() => setOpen(undefined)}
-            onCancel={() => setOpen(undefined)}
-          />
-        </Card>
-      )}
       {list.length === 0 && open !== 'new' ? (
         <Empty icon={<FEATURE_ICONS.specialists className="size-5" />} title={t.empty}>
           {t.emptyHint}
@@ -4127,7 +4076,7 @@ function SpecialistsSection(props: { models: ModelOption[] }) {
         <Card>
           {list.map((s) =>
             open === s.id ? (
-              <div key={s.id} className="p-4">
+              <div key={s.id} {...settingItem('specialists.specialist', s)} className="p-4">
                 <SpecialistEditor
                   models={props.models}
                   initial={s}
@@ -4136,7 +4085,11 @@ function SpecialistsSection(props: { models: ModelOption[] }) {
                 />
               </div>
             ) : (
-              <div key={s.id} className="group flex items-center gap-3 px-4 py-3">
+              <div
+                key={s.id}
+                {...settingItem('specialists.specialist', s)}
+                className="group flex items-center gap-3 px-4 py-3"
+              >
                 <AgentAvatar name={s.name} status="idle" size={32} awake />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-baseline gap-2">
@@ -4210,134 +4163,103 @@ export function MascotSection(props: {
     <>
       {!props.embedded && <PageHeader title={t.title}>{t.intro}</PageHeader>}
       <Card className="mb-6">
-        <CardRow>
-          <Field label={t.name} hint={t.nameHint(props.data.account ?? '')} inline>
-            <TextInput
-              value={profile.name ?? ''}
-              placeholder={props.data.account}
-              maxLength={40}
-              aria-label={t.name}
-              onChange={(e) =>
-                props.update((s) => ({
-                  ...s,
-                  profile: { greeting: 'model', ...s.profile, name: e.target.value },
-                }))
-              }
-              className="w-48"
-            />
-          </Field>
-        </CardRow>
+        <SettingField id="mascot.name" hint={t.nameHint(props.data.account ?? '')} inline>
+          <TextInput
+            value={profile.name ?? ''}
+            placeholder={props.data.account}
+            maxLength={40}
+            aria-label={t.name}
+            onChange={(e) =>
+              props.update((s) => ({
+                ...s,
+                profile: { greeting: 'model', ...s.profile, name: e.target.value },
+              }))
+            }
+            className="w-48"
+          />
+        </SettingField>
         {!props.embedded && (
-          <>
-            <CardRow>
-              <Field label={t.greeting} hint={t.greetingHints[profile.greeting]} inline>
-                <Segmented
-                  id="greeting"
-                  value={profile.greeting}
-                  options={[
-                    { value: 'model', label: t.greetingModel },
-                    { value: 'rules', label: t.greetingRules },
-                  ]}
-                  onChange={(greeting) =>
-                    props.update((s) => ({ ...s, profile: { ...s.profile, greeting } }), true)
-                  }
-                />
-              </Field>
-            </CardRow>
-            <CardRow>
-              <Field label={t.titles} hint={t.titlesHints[profile.titles ?? 'model']} inline>
-                <Segmented
-                  id="titles"
-                  value={profile.titles ?? 'model'}
-                  options={[
-                    { value: 'model', label: t.titlesModel },
-                    { value: 'first-message', label: t.titlesFirst },
-                  ]}
-                  onChange={(titles) =>
-                    props.update(
-                      (s) => ({ ...s, profile: { greeting: 'model', ...s.profile, titles } }),
-                      true,
-                    )
-                  }
-                />
-              </Field>
-            </CardRow>
-          </>
+          <SettingField id="mascot.greeting" hint={t.greetingHints[profile.greeting]} inline>
+            <Segmented
+              id="greeting"
+              value={profile.greeting}
+              options={[
+                { value: 'model', label: t.greetingModel },
+                { value: 'rules', label: t.greetingRules },
+              ]}
+              onChange={(greeting) =>
+                props.update((s) => ({ ...s, profile: { ...s.profile, greeting } }), true)
+              }
+            />
+          </SettingField>
         )}
       </Card>
       <Card>
         {!props.embedded && (
-          <CardRow>
+          <CardRow {...settingRow('mascot.preview')}>
             <MascotPreview look={look} />
           </CardRow>
         )}
-        <CardRow>
-          <Field label={t.eyes}>
-            <div className="flex flex-wrap gap-3">
-              {(['round', 'happy', 'tall', 'sleepy', 'lashes'] as const).map((eyes) => (
-                <Tile
-                  key={eyes}
-                  selected={look.eyes === eyes}
-                  label={t.eyeStyles[eyes]}
-                  onClick={() => set({ eyes })}
-                >
-                  <MiniMascot look={{ ...look, eyes, look: 'neutral' }} />
-                </Tile>
-              ))}
-            </div>
-          </Field>
-        </CardRow>
-        <CardRow>
-          <Field label={t.look}>
-            <div className="flex flex-wrap gap-4">
-              {(['neutral', 'flower', 'bow'] as const).map((l) => (
-                <Tile key={l} selected={look.look === l} label={t.looks[l]} onClick={() => set({ look: l })}>
-                  <span className="px-1.5 pb-2 pt-1.5">
-                    <MiniMascot look={{ ...look, look: l }} />
-                  </span>
-                </Tile>
-              ))}
-            </div>
-          </Field>
-        </CardRow>
-        <CardRow>
-          <Field label={t.color}>
-            <div className="flex flex-wrap gap-3">
-              {(Object.keys(MASCOT_COLORS) as (keyof typeof MASCOT_COLORS)[]).map((color) => (
-                <Tile
-                  key={color}
-                  selected={look.color === color}
-                  label={t.colors[color]}
-                  onClick={() => set({ color })}
-                >
-                  <span className="grid size-10 place-items-center rounded-base bg-screen">
-                    <span className="size-4 rounded-sm" style={{ background: MASCOT_COLORS[color] }} />
-                  </span>
-                </Tile>
-              ))}
-            </div>
-          </Field>
-        </CardRow>
-        <CardRow>
-          <Field label={t.screen} inline>
-            <Segmented
-              id="mascot-screen"
-              value={look.screen}
-              options={(['rotate', 'clock', 'name', 'crew', 'face'] as const).map((screen) => ({
-                value: screen,
-                label: t.screens[screen],
-              }))}
-              onChange={(screen) => set({ screen })}
-            />
-          </Field>
-        </CardRow>
+        <SettingField id="mascot.eyes">
+          <div className="flex flex-wrap gap-3">
+            {(['round', 'happy', 'tall', 'sleepy', 'lashes'] as const).map((eyes) => (
+              <Tile
+                key={eyes}
+                selected={look.eyes === eyes}
+                label={t.eyeStyles[eyes]}
+                onClick={() => set({ eyes })}
+              >
+                <MiniMascot look={{ ...look, eyes, look: 'neutral' }} />
+              </Tile>
+            ))}
+          </div>
+        </SettingField>
+        <SettingField id="mascot.look">
+          <div className="flex flex-wrap gap-4">
+            {(['neutral', 'flower', 'bow'] as const).map((l) => (
+              <Tile key={l} selected={look.look === l} label={t.looks[l]} onClick={() => set({ look: l })}>
+                <span className="px-1.5 pb-2 pt-1.5">
+                  <MiniMascot look={{ ...look, look: l }} />
+                </span>
+              </Tile>
+            ))}
+          </div>
+        </SettingField>
+        <SettingField id="mascot.color">
+          <div className="flex flex-wrap gap-3">
+            {(Object.keys(MASCOT_COLORS) as (keyof typeof MASCOT_COLORS)[]).map((color) => (
+              <Tile
+                key={color}
+                selected={look.color === color}
+                label={t.colors[color]}
+                onClick={() => set({ color })}
+              >
+                <span className="grid size-10 place-items-center rounded-base bg-screen">
+                  <span className="size-4 rounded-sm" style={{ background: MASCOT_COLORS[color] }} />
+                </span>
+              </Tile>
+            ))}
+          </div>
+        </SettingField>
+        <SettingField id="mascot.screen" inline>
+          <Segmented
+            id="mascot-screen"
+            value={look.screen}
+            options={(['rotate', 'clock', 'name', 'crew', 'face'] as const).map((screen) => ({
+              value: screen,
+              label: t.screens[screen],
+            }))}
+            onChange={(screen) => set({ screen })}
+          />
+        </SettingField>
       </Card>
       {!props.embedded && <MascotBehaviour look={look} set={set} />}
     </>
   )
 }
 
-function VerificationSection(props: {
+/** Crew & budget → Reviewer: when the work is reviewed, the score it must reach, and the rubric. */
+function ReviewerSettings(props: {
   settings: ServerSettings
   update(p: (s: ServerSettings) => ServerSettings): void
 }) {
@@ -4345,62 +4267,59 @@ function VerificationSection(props: {
   const off = v.reviewer === 'off'
   return (
     <>
-      <PageHeader title={copy.settings.reviewer.title}>{copy.settings.reviewer.intro}</PageHeader>
+      <SectionHeader
+        as="h3"
+        icon={<FEATURE_ICONS.reviewer className="size-4 text-muted" />}
+        title={copy.settings.reviewer.title}
+      />
+      <p className="mb-3 mt-1 text-callout text-muted">{copy.settings.reviewer.intro}</p>
       <Card>
-        <CardRow>
-          <Field label={copy.settings.reviewer.when} hint={REVIEWER_HINT[v.reviewer]} inline>
-            <Segmented
-              id="reviewer"
-              value={v.reviewer}
-              options={[
-                { value: 'off', label: copy.settings.shared.off },
-                { value: 'auto', label: copy.settings.reviewer.auto },
-                { value: 'always', label: copy.settings.reviewer.always },
-              ]}
-              onChange={(reviewer) =>
-                props.update((s) => ({ ...s, verification: { ...s.verification, reviewer } }))
-              }
-            />
-          </Field>
-        </CardRow>
-        <CardRow>
-          <Field label={copy.settings.reviewer.threshold} hint={copy.settings.reviewer.thresholdHint} inline>
-            <div className="flex items-center gap-3">
-              <input
-                type="range"
-                min={0.3}
-                max={1}
-                step={0.05}
-                value={v.threshold}
-                onChange={(e) =>
-                  props.update((s) => ({
-                    ...s,
-                    verification: { ...s.verification, threshold: Number(e.target.value) },
-                  }))
-                }
-                className="w-40 accent-[var(--accent)]"
-                aria-label={copy.settings.reviewer.threshold}
-                disabled={off}
-              />
-              <span className="w-10 text-right font-mono text-body tabular-nums">
-                {v.threshold.toFixed(2)}
-              </span>
-            </div>
-          </Field>
-        </CardRow>
-        <CardRow>
-          <Field label={copy.settings.reviewer.rubric} hint={copy.settings.reviewer.rubricHint}>
-            <TextArea
-              value={v.rubric ?? ''}
+        <SettingField id="reviewer.when" hint={REVIEWER_HINT[v.reviewer]} inline>
+          <Segmented
+            id="reviewer"
+            value={v.reviewer}
+            options={[
+              { value: 'off', label: copy.settings.shared.off },
+              { value: 'auto', label: copy.settings.reviewer.auto },
+              { value: 'always', label: copy.settings.reviewer.always },
+            ]}
+            onChange={(reviewer) =>
+              props.update((s) => ({ ...s, verification: { ...s.verification, reviewer } }))
+            }
+          />
+        </SettingField>
+        <SettingField id="reviewer.threshold" inline>
+          <div className="flex items-center gap-3">
+            <input
+              type="range"
+              min={0.3}
+              max={1}
+              step={0.05}
+              value={v.threshold}
               onChange={(e) =>
-                props.update((s) => ({ ...s, verification: { ...s.verification, rubric: e.target.value } }))
+                props.update((s) => ({
+                  ...s,
+                  verification: { ...s.verification, threshold: Number(e.target.value) },
+                }))
               }
-              placeholder={copy.settings.reviewer.rubricPlaceholder}
-              rows={5}
+              className="w-40 accent-[var(--accent)]"
+              aria-label={copy.settings.reviewer.threshold}
               disabled={off}
             />
-          </Field>
-        </CardRow>
+            <span className="w-10 text-right font-mono text-body tabular-nums">{v.threshold.toFixed(2)}</span>
+          </div>
+        </SettingField>
+        <SettingField id="reviewer.rubric">
+          <TextArea
+            value={v.rubric ?? ''}
+            onChange={(e) =>
+              props.update((s) => ({ ...s, verification: { ...s.verification, rubric: e.target.value } }))
+            }
+            placeholder={copy.settings.reviewer.rubricPlaceholder}
+            rows={5}
+            disabled={off}
+          />
+        </SettingField>
       </Card>
     </>
   )
@@ -4415,36 +4334,32 @@ function InstructionsSection(props: {
     <>
       <PageHeader title={copy.settings.instructions.title}>{copy.settings.instructions.intro}</PageHeader>
       <Card>
-        <CardRow>
-          <Field label={copy.settings.instructions.lead} hint={copy.settings.instructions.leadHint}>
-            <TextArea
-              value={i.lead ?? ''}
-              onChange={(e) =>
-                props.update((s) => ({ ...s, instructions: { ...s.instructions, lead: e.target.value } }))
-              }
-              placeholder={copy.settings.instructions.leadPlaceholder}
-              rows={5}
-            />
-          </Field>
-        </CardRow>
-        <CardRow>
-          <Field label={copy.settings.instructions.workers} hint={copy.settings.instructions.workersHint}>
-            <TextArea
-              value={i.worker ?? ''}
-              onChange={(e) =>
-                props.update((s) => ({ ...s, instructions: { ...s.instructions, worker: e.target.value } }))
-              }
-              placeholder={copy.settings.instructions.workersPlaceholder}
-              rows={5}
-            />
-          </Field>
-        </CardRow>
+        <SettingField id="instructions.lead">
+          <TextArea
+            value={i.lead ?? ''}
+            onChange={(e) =>
+              props.update((s) => ({ ...s, instructions: { ...s.instructions, lead: e.target.value } }))
+            }
+            placeholder={copy.settings.instructions.leadPlaceholder}
+            rows={5}
+          />
+        </SettingField>
+        <SettingField id="instructions.workers">
+          <TextArea
+            value={i.worker ?? ''}
+            onChange={(e) =>
+              props.update((s) => ({ ...s, instructions: { ...s.instructions, worker: e.target.value } }))
+            }
+            placeholder={copy.settings.instructions.workersPlaceholder}
+            rows={5}
+          />
+        </SettingField>
       </Card>
     </>
   )
 }
 
-interface ScheduleEntry {
+export interface ScheduleEntry {
   id: string
   name: string
   request: string
@@ -4653,7 +4568,7 @@ function SchedulesSection() {
     <>
       <PageHeader title={copy.settings.schedules.title}>{copy.settings.schedules.intro}</PageHeader>
       <Card className="mb-6">
-        <CardRow>
+        <CardRow {...settingRow('schedules.add')}>
           <Field label={copy.settings.schedules.request}>
             <TextArea
               rows={2}
@@ -4729,7 +4644,7 @@ function SchedulesSection() {
       ) : (
         <Card>
           {list.map((s) => (
-            <CardRow key={s.id}>
+            <CardRow key={s.id} {...settingItem('schedules.schedule', s)}>
               <div className="flex items-start gap-3">
                 <div className="min-w-0 flex-1">
                   <p className="text-reading leading-relaxed">{s.request}</p>
@@ -4936,96 +4851,98 @@ function HooksSection(props: { onDirty(dirty: boolean): void }) {
           <LoaderCircle className="size-4 animate-spin" /> {copy.settings.hooks.loading}
         </div>
       ) : (
-        <Card>
-          {rows.length === 0 && (
-            <CardRow>
-              <p className="text-body text-muted">{copy.settings.hooks.empty}</p>
-            </CardRow>
-          )}
-          {rows.map((r, i) => (
-            // biome-ignore lint/suspicious/noArrayIndexKey: rows are edited in place by position
-            <CardRow key={i}>
-              <div className="flex flex-col gap-2">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Select
-                    aria-label={copy.settings.hooks.when}
-                    value={r.event}
-                    onChange={(e) => change(i, { event: e.target.value as HookEvent })}
-                  >
-                    {HOOK_EVENTS.map((ev) => (
-                      <option key={ev.value} value={ev.value}>
-                        {ev.label}
-                      </option>
-                    ))}
-                  </Select>
-                  {r.event !== 'Stop' && (
-                    <div className="w-56">
+        <div {...settingRow('hooks.list')}>
+          <Card>
+            {rows.length === 0 && (
+              <CardRow>
+                <p className="text-body text-muted">{copy.settings.hooks.empty}</p>
+              </CardRow>
+            )}
+            {rows.map((r, i) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: rows are edited in place by position
+              <CardRow key={i}>
+                <div className="flex flex-col gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Select
+                      aria-label={copy.settings.hooks.when}
+                      value={r.event}
+                      onChange={(e) => change(i, { event: e.target.value as HookEvent })}
+                    >
+                      {HOOK_EVENTS.map((ev) => (
+                        <option key={ev.value} value={ev.value}>
+                          {ev.label}
+                        </option>
+                      ))}
+                    </Select>
+                    {r.event !== 'Stop' && (
+                      <div className="w-56">
+                        <TextInput
+                          aria-label={copy.settings.hooks.tools}
+                          value={r.matcher}
+                          onChange={(e) => change(i, { matcher: e.target.value })}
+                          placeholder={copy.settings.hooks.toolsPlaceholder}
+                        />
+                      </div>
+                    )}
+                    <div className="w-20">
                       <TextInput
-                        aria-label={copy.settings.hooks.tools}
-                        value={r.matcher}
-                        onChange={(e) => change(i, { matcher: e.target.value })}
-                        placeholder={copy.settings.hooks.toolsPlaceholder}
+                        aria-label={copy.settings.hooks.timeout}
+                        value={r.timeout}
+                        onChange={(e) => change(i, { timeout: e.target.value.replace(/[^\d.]/g, '') })}
+                        placeholder={copy.settings.hooks.timeoutPlaceholder}
                       />
                     </div>
-                  )}
-                  <div className="w-20">
-                    <TextInput
-                      aria-label={copy.settings.hooks.timeout}
-                      value={r.timeout}
-                      onChange={(e) => change(i, { timeout: e.target.value.replace(/[^\d.]/g, '') })}
-                      placeholder={copy.settings.hooks.timeoutPlaceholder}
-                    />
+                    <span className="flex-1" />
+                    <IconButton
+                      label={copy.settings.hooks.remove}
+                      onClick={() => {
+                        setRows((rs) => rs?.filter((_, j) => j !== i))
+                        setDirty(true)
+                      }}
+                    >
+                      <Trash2 className="size-4" />
+                    </IconButton>
                   </div>
-                  <span className="flex-1" />
-                  <IconButton
-                    label={copy.settings.hooks.remove}
-                    onClick={() => {
-                      setRows((rs) => rs?.filter((_, j) => j !== i))
-                      setDirty(true)
-                    }}
-                  >
-                    <Trash2 className="size-4" />
-                  </IconButton>
+                  <TextInput
+                    aria-label={copy.settings.hooks.command}
+                    value={r.command}
+                    onChange={(e) => change(i, { command: e.target.value })}
+                    placeholder={copy.settings.hooks.commandPlaceholder}
+                    className="font-mono"
+                  />
                 </div>
-                <TextInput
-                  aria-label={copy.settings.hooks.command}
-                  value={r.command}
-                  onChange={(e) => change(i, { command: e.target.value })}
-                  placeholder={copy.settings.hooks.commandPlaceholder}
-                  className="font-mono"
-                />
+              </CardRow>
+            ))}
+            <CardRow>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="borderless"
+                  icon={<Plus className="size-3.5" />}
+                  onClick={() => {
+                    setRows((rs) => [
+                      ...(rs ?? []),
+                      { event: 'PostToolUse', matcher: '', command: '', timeout: '' },
+                    ])
+                    setDirty(true)
+                  }}
+                >
+                  {copy.settings.hooks.add}
+                </Button>
+                <span className="flex-1" />
+                <Button size="sm" variant="primary" disabled={!dirty} onClick={() => void save()}>
+                  {copy.settings.shared.save}
+                </Button>
               </div>
             </CardRow>
-          ))}
-          <CardRow>
-            <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                variant="borderless"
-                icon={<Plus className="size-3.5" />}
-                onClick={() => {
-                  setRows((rs) => [
-                    ...(rs ?? []),
-                    { event: 'PostToolUse', matcher: '', command: '', timeout: '' },
-                  ])
-                  setDirty(true)
-                }}
-              >
-                {copy.settings.hooks.add}
-              </Button>
-              <span className="flex-1" />
-              <Button size="sm" variant="primary" disabled={!dirty} onClick={() => void save()}>
-                {copy.settings.shared.save}
-              </Button>
-            </div>
-          </CardRow>
-        </Card>
+          </Card>
+        </div>
       )}
     </>
   )
 }
 
-interface SkillEntry {
+export interface SkillEntry {
   name: string
   description: string
   dir: string
@@ -5048,7 +4965,7 @@ const SKILL_SOURCES: Record<SkillEntry['source'], string> = {
   project: copy.settings.skills.sources.project,
 }
 
-interface PluginEntry {
+export interface PluginEntry {
   name: string
   version?: string
   description?: string
@@ -5150,6 +5067,7 @@ function PluginsSection() {
     <>
       <PageHeader title={copy.settings.plugins.title}>{copy.settings.plugins.intro}</PageHeader>
       <form
+        {...settingRow('plugins.add')}
         className="mb-4 flex gap-2"
         onSubmit={(e) => {
           e.preventDefault()
@@ -5185,7 +5103,7 @@ function PluginsSection() {
         <>
           <Card>
             {data.plugins.map((p) => (
-              <CardRow key={p.name}>
+              <CardRow key={p.name} {...settingItem('plugins.plugin', p)}>
                 <div className="flex items-start gap-3">
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
@@ -5362,7 +5280,7 @@ function SkillsSection() {
           ` ${copy.settings.skills.retireIntro(data.retire.staleDays, data.retire.archiveDays)}`}
       </PageHeader>
       {proposed.length > 0 && (
-        <div className="mb-6 flex flex-col gap-3">
+        <div {...settingRow('skills.proposed')} className="mb-6 flex flex-col gap-3">
           <SectionHeader title={copy.settings.skills.proposed(proposed.length)} />
           <AnimatePresence initial={false}>
             {proposed.map((p) => (
@@ -5382,7 +5300,7 @@ function SkillsSection() {
       ) : (
         <Card>
           {data.skills.map((s) => (
-            <CardRow key={s.name}>
+            <CardRow key={s.name} {...settingItem('skills.skill', s)}>
               <div className="flex items-start gap-3">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
@@ -5440,7 +5358,7 @@ function SkillsSection() {
         </Card>
       )}
       {!!data?.archived.length && (
-        <div className="mt-8">
+        <div {...settingRow('skills.archived')} className="mt-8">
           <SectionHeader title={copy.settings.skills.archivedTitle(data.archived.length)} />
           <p className="mb-3 text-footnote text-muted">{copy.settings.skills.archivedHint}</p>
           <Card>
@@ -5523,7 +5441,7 @@ function MemorySection() {
     <>
       <PageHeader title={copy.settings.memory.title}>{copy.settings.memory.intro}</PageHeader>
       <Card className="mb-6">
-        <CardRow>
+        <CardRow {...settingRow('memory.add')}>
           <Field label={copy.settings.memory.remember} hint={copy.settings.memory.rememberHint}>
             <TextArea
               value={draft.text}
@@ -5583,130 +5501,134 @@ function MemorySection() {
           {copy.settings.memory.emptyBody}
         </Empty>
       ) : (
-        groups.map((g) => (
-          <section key={g || 'all'} className="mb-6">
-            <h4 className="mb-2 section-label text-muted">{scopeName(g || undefined)}</h4>
-            <Card>
-              {memories
-                .filter((m) => (m.project ?? '') === g)
-                .map((m) => (
-                  <CardRow key={m.id}>
-                    <div className="flex items-start gap-3">
-                      <div className="min-w-0 flex-1">
-                        {editing?.id === m.id ? (
-                          <TextArea
-                            autoFocus
-                            rows={2}
-                            value={editing.text}
-                            onChange={(e) => setEditing({ id: m.id, text: e.target.value })}
-                          />
-                        ) : (
-                          <button
-                            type="button"
-                            title={copy.settings.memory.edit}
-                            onClick={() => setEditing({ id: m.id, text: m.text })}
-                            className="w-full text-left text-reading leading-relaxed hover:text-fg-2"
-                          >
-                            {m.text}
-                          </button>
-                        )}
-                        <div className="mt-1.5 flex flex-wrap items-center gap-2 text-small text-muted">
-                          <Select
-                            aria-label={copy.settings.memory.kind}
-                            value={m.kind}
-                            onChange={(e) =>
-                              void act(() => send('PATCH', `/api/memory/${m.id}`, { kind: e.target.value }))
-                            }
-                          >
-                            {MEMORY_KINDS.map((k) => (
-                              <option key={k} value={k}>
-                                {copy.settings.memory.kinds[k]}
-                              </option>
-                            ))}
-                          </Select>
-                          <Select
-                            aria-label={copy.settings.memory.appliesTo}
-                            value={m.project ?? ''}
-                            onChange={(e) =>
-                              void act(() =>
-                                send('PATCH', `/api/memory/${m.id}`, { project: e.target.value || null }),
-                              )
-                            }
-                          >
-                            <option value="">{copy.settings.memory.everyChat}</option>
-                            {projects.map((p) => (
-                              <option key={p.id} value={p.id}>
-                                {copy.settings.memory.onlyProject(p.name)}
-                              </option>
-                            ))}
-                          </Select>
-                          <span>
-                            {m.source.by === 'agent'
-                              ? copy.settings.memory.fromAgent(m.source.agent ?? copy.settings.memory.anAgent)
-                              : copy.settings.memory.addedByYou}{' '}
-                            · {day(m.updatedAt)}
-                          </span>
-                          {m.status === 'proposed' && (
-                            <Badge tone="warn">{copy.settings.memory.waiting}</Badge>
+        <div {...settingRow('memory.list')}>
+          {groups.map((g) => (
+            <section key={g || 'all'} className="mb-6">
+              <h4 className="mb-2 section-label text-muted">{scopeName(g || undefined)}</h4>
+              <Card>
+                {memories
+                  .filter((m) => (m.project ?? '') === g)
+                  .map((m) => (
+                    <CardRow key={m.id}>
+                      <div className="flex items-start gap-3">
+                        <div className="min-w-0 flex-1">
+                          {editing?.id === m.id ? (
+                            <TextArea
+                              autoFocus
+                              rows={2}
+                              value={editing.text}
+                              onChange={(e) => setEditing({ id: m.id, text: e.target.value })}
+                            />
+                          ) : (
+                            <button
+                              type="button"
+                              title={copy.settings.memory.edit}
+                              onClick={() => setEditing({ id: m.id, text: m.text })}
+                              className="w-full text-left text-reading leading-relaxed hover:text-fg-2"
+                            >
+                              {m.text}
+                            </button>
+                          )}
+                          <div className="mt-1.5 flex flex-wrap items-center gap-2 text-small text-muted">
+                            <Select
+                              aria-label={copy.settings.memory.kind}
+                              value={m.kind}
+                              onChange={(e) =>
+                                void act(() => send('PATCH', `/api/memory/${m.id}`, { kind: e.target.value }))
+                              }
+                            >
+                              {MEMORY_KINDS.map((k) => (
+                                <option key={k} value={k}>
+                                  {copy.settings.memory.kinds[k]}
+                                </option>
+                              ))}
+                            </Select>
+                            <Select
+                              aria-label={copy.settings.memory.appliesTo}
+                              value={m.project ?? ''}
+                              onChange={(e) =>
+                                void act(() =>
+                                  send('PATCH', `/api/memory/${m.id}`, { project: e.target.value || null }),
+                                )
+                              }
+                            >
+                              <option value="">{copy.settings.memory.everyChat}</option>
+                              {projects.map((p) => (
+                                <option key={p.id} value={p.id}>
+                                  {copy.settings.memory.onlyProject(p.name)}
+                                </option>
+                              ))}
+                            </Select>
+                            <span>
+                              {m.source.by === 'agent'
+                                ? copy.settings.memory.fromAgent(
+                                    m.source.agent ?? copy.settings.memory.anAgent,
+                                  )
+                                : copy.settings.memory.addedByYou}{' '}
+                              · {day(m.updatedAt)}
+                            </span>
+                            {m.status === 'proposed' && (
+                              <Badge tone="warn">{copy.settings.memory.waiting}</Badge>
+                            )}
+                          </div>
+                          {m.source.why && (
+                            <p className="mt-1 text-small text-muted">
+                              {copy.settings.memory.why(m.source.why)}
+                            </p>
                           )}
                         </div>
-                        {m.source.why && (
-                          <p className="mt-1 text-small text-muted">
-                            {copy.settings.memory.why(m.source.why)}
-                          </p>
-                        )}
+                        <div className="flex shrink-0 items-center gap-1">
+                          {editing?.id === m.id ? (
+                            <Button
+                              size="sm"
+                              variant="primary"
+                              onClick={() =>
+                                void act(async () => {
+                                  await send('PATCH', `/api/memory/${m.id}`, { text: editing.text })
+                                  setEditing(undefined)
+                                })
+                              }
+                            >
+                              {copy.settings.shared.save}
+                            </Button>
+                          ) : m.status === 'proposed' ? (
+                            <Button
+                              size="sm"
+                              variant="primary"
+                              icon={<Check className="size-3.5" />}
+                              onClick={() =>
+                                void act(() => send('POST', `/api/memory/${m.id}/decide`, { keep: true }))
+                              }
+                            >
+                              {copy.settings.memory.keep}
+                            </Button>
+                          ) : null}
+                          {m.status === 'proposed' ? (
+                            <IconButton
+                              size="sm"
+                              label={copy.settings.memory.forget}
+                              onClick={() =>
+                                void act(() => send('POST', `/api/memory/${m.id}/decide`, { keep: false }))
+                              }
+                            >
+                              <Trash2 className="size-4" />
+                            </IconButton>
+                          ) : (
+                            <ConfirmButton
+                              icon
+                              label={copy.settings.memory.forget}
+                              confirm={copy.settings.memory.confirmForget}
+                              onConfirm={() => void act(() => send('DELETE', `/api/memory/${m.id}`))}
+                            />
+                          )}
+                        </div>
                       </div>
-                      <div className="flex shrink-0 items-center gap-1">
-                        {editing?.id === m.id ? (
-                          <Button
-                            size="sm"
-                            variant="primary"
-                            onClick={() =>
-                              void act(async () => {
-                                await send('PATCH', `/api/memory/${m.id}`, { text: editing.text })
-                                setEditing(undefined)
-                              })
-                            }
-                          >
-                            {copy.settings.shared.save}
-                          </Button>
-                        ) : m.status === 'proposed' ? (
-                          <Button
-                            size="sm"
-                            variant="primary"
-                            icon={<Check className="size-3.5" />}
-                            onClick={() =>
-                              void act(() => send('POST', `/api/memory/${m.id}/decide`, { keep: true }))
-                            }
-                          >
-                            {copy.settings.memory.keep}
-                          </Button>
-                        ) : null}
-                        {m.status === 'proposed' ? (
-                          <IconButton
-                            size="sm"
-                            label={copy.settings.memory.forget}
-                            onClick={() =>
-                              void act(() => send('POST', `/api/memory/${m.id}/decide`, { keep: false }))
-                            }
-                          >
-                            <Trash2 className="size-4" />
-                          </IconButton>
-                        ) : (
-                          <ConfirmButton
-                            icon
-                            label={copy.settings.memory.forget}
-                            confirm={copy.settings.memory.confirmForget}
-                            onConfirm={() => void act(() => send('DELETE', `/api/memory/${m.id}`))}
-                          />
-                        )}
-                      </div>
-                    </div>
-                  </CardRow>
-                ))}
-            </Card>
-          </section>
-        ))
+                    </CardRow>
+                  ))}
+              </Card>
+            </section>
+          ))}
+        </div>
       )}
     </>
   )
@@ -5714,10 +5636,10 @@ function MemorySection() {
 
 function Shortcuts() {
   return (
-    <>
+    <div {...settingRow('general.shortcuts')}>
       <PageHeader title={copy.settings.shortcuts.title} />
       <ShortcutList />
-    </>
+    </div>
   )
 }
 
@@ -5726,27 +5648,17 @@ function About({ data }: { data?: SettingsResponse }) {
     <>
       <PageHeader title={copy.settings.about.title}>{copy.settings.about.intro}</PageHeader>
       <Card>
-        <CardRow>
-          <Field label={copy.settings.about.dataDirectory} inline>
-            <span className="font-mono text-callout text-muted">{data?.home ?? '…'}</span>
-          </Field>
-        </CardRow>
-        <CardRow>
-          <Field
-            label={copy.settings.about.providersReady}
-            hint={copy.settings.about.providersReadyHint}
-            inline
-          >
-            <span className="font-mono text-callout text-muted">
-              {data ? data.providers.filter((p) => p.ready).length : '…'}
-            </span>
-          </Field>
-        </CardRow>
-        <CardRow>
-          <Field label={copy.settings.about.sandbox} inline>
-            <span className="font-mono text-callout text-muted">{data?.sandbox ?? '…'}</span>
-          </Field>
-        </CardRow>
+        <SettingField id="general.dataFolder" inline>
+          <span className="font-mono text-callout text-muted">{data?.home ?? '…'}</span>
+        </SettingField>
+        <SettingField id="general.providersReady" inline>
+          <span className="font-mono text-callout text-muted">
+            {data ? data.providers.filter((p) => p.ready).length : '…'}
+          </span>
+        </SettingField>
+        <SettingField id="general.sandbox" inline>
+          <span className="font-mono text-callout text-muted">{data?.sandbox ?? '…'}</span>
+        </SettingField>
         <CardRow>
           <p className="text-callout text-muted">{copy.settings.about.eventLog}</p>
         </CardRow>
