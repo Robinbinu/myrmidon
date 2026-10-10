@@ -647,3 +647,12 @@ export const SUGGEST_MODEL_DEBOUNCE_MS = 120
 export const SUGGEST_MODEL_POLL_MS = 1_000
 /** About how big the next-word model's download is, for Settings search's text; the row shows the server's figure. */
 export const SUGGEST_MODEL_MB = 15
+
+/* ------------------------------------------------------------------ importing sessions */
+
+/**
+ * Import a session: how many of a project's sessions the list shows before "Show all" (search shows every match), and
+ * how much of a tool's result an imported transcript shows under its call (the import keeps a little more).
+ */
+export const IMPORT_SHOWN_PER_PROJECT = 5
+export const IMPORT_RESULT_CHARS = 240
