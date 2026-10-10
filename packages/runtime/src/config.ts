@@ -319,6 +319,26 @@ export const SANDBOX_SECRETS = [
   'Library/Group Containers',
 ] as const
 /**
+ * System folders of programs that a sandboxed command's PATH keeps besides the toolchains (SANDBOX_TOOLCHAINS). The
+ * person's own PATH names their apps and folders, so only these entries of it pass, in its order; those it lacks
+ * and this computer has are added after.
+ */
+export const SANDBOX_SYSTEM_BINS = [
+  '/opt/homebrew/bin',
+  '/opt/homebrew/sbin',
+  '/usr/local/bin',
+  '/usr/local/sbin',
+  '/opt/local/bin',
+  '/home/linuxbrew/.linuxbrew/bin',
+  '/nix/var/nix/profiles/default/bin',
+  '/run/current-system/sw/bin',
+  '/snap/bin',
+  '/usr/bin',
+  '/bin',
+  '/usr/sbin',
+  '/sbin',
+] as const
+/**
  * Folders outside the home that sandboxed commands may not read either: other disks, the folder all accounts share,
  * and the per-user temp and cache folders where other apps (and other chats) leave files. Folders a command may
  * read or write inside them (a project in the temp folder) open again.

@@ -11,7 +11,8 @@ import {
 } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { detectSandbox, fullAccessIn, unconfinedSandbox } from '../src/sandbox.ts'
+import { RUNTIMES } from '../src/patterns.ts'
+import { detectSandbox, fullAccessIn, sandboxPath, unconfinedSandbox } from '../src/sandbox.ts'
 
 let root: string
 
@@ -41,6 +42,46 @@ test('a command run in the project keeps HOME and TMPDIR in the agent scratch, n
   expect(r.stdout.trim()).toBe(join(scratch, '.home'))
   expect(existsSync(join(scratch, '.home/Library/Caches/com.apple.python/x.pyc'))).toBe(true)
   expect(existsSync(join(scratch, '.tmp/t'))).toBe(true)
+})
+
+test("a sandboxed PATH keeps the person's toolchains and system folders, never their apps or other folders", async () => {
+  const home = join(root, 'home')
+  const bun = join(home, '.bun', 'bin')
+  const nvm = join(home, '.nvm', 'versions', 'node', 'v22', 'bin')
+  mkdirSync(bun, { recursive: true })
+  mkdirSync(nvm, { recursive: true })
+  const person = [
+    join(home, '.railway', 'bin'),
+    '/Applications/Little Snitch.app/Contents/Components',
+    bun,
+    join(home, 'Desktop', 'Myrmidon', 'node_modules', '.bin'),
+    nvm,
+    '/usr/bin',
+    '/bin',
+  ].join(':')
+  const path = sandboxPath(person, home).split(':')
+  // The person's order for what is kept, then the system folders it lacked.
+  expect(path.slice(0, 4)).toEqual([bun, nvm, '/usr/bin', '/bin'])
+  expect(path).toContain('/usr/sbin')
+  expect(path.join(':')).not.toContain('Little Snitch')
+  expect(path.join(':')).not.toContain('Desktop')
+  expect(path.join(':')).not.toContain('.railway')
+  // Every runtime agents are told about is still found.
+  const real = sandboxPath(process.env.PATH, homedir())
+  for (const runtime of RUNTIMES) expect(Bun.which(runtime, { PATH: real })).not.toBeNull()
+
+  // A confined command sees that PATH; full access keeps the person's.
+  const saved = process.env.PATH
+  process.env.PATH = `/Applications/Wireshark.app/Contents/MacOS:${saved}`
+  try {
+    const spec = { command: 'echo "$PATH"', cwd: root, writable: [root], timeoutMs: 10_000 }
+    const confined = await detectSandbox({ home }).run(spec)
+    expect(confined.code).toBe(0)
+    expect(confined.stdout).not.toContain('Wireshark')
+    expect((await unconfinedSandbox().run(spec)).stdout).toContain('Wireshark')
+  } finally {
+    process.env.PATH = saved
+  }
 })
 
 test('full access runs the command itself, with no sandbox around it; the default wraps it', () => {
