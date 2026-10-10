@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readdirSync } from 'node:fs'
 import { createServer, request } from 'node:http'
 import { connect, type Socket } from 'node:net'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { join, posix, win32 } from 'node:path'
 import type {
   Browser,
   CDPSession,
@@ -142,43 +142,63 @@ function freePort(): number {
   return port
 }
 
-/** Chrome, Chromium, or the Chromium omp downloaded, whichever is installed. */
-export function findChrome(): string | undefined {
-  const fixed = [
-    process.env.MYR_CHROME,
-    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-    '/Applications/Chromium.app/Contents/MacOS/Chromium',
+/**
+ * Where Chrome or Chromium is installed on `platform`, most likely first; on Windows, Edge (Chromium too, and always
+ * there) after them. Linux's snap and Flatpak launchers come after the distributions' own packages.
+ */
+export function chromeCandidates(
+  platform: NodeJS.Platform = process.platform,
+  env: Record<string, string | undefined> = process.env,
+  home: string = homedir(),
+): string[] {
+  if (platform === 'darwin')
+    return [
+      '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+      '/Applications/Chromium.app/Contents/MacOS/Chromium',
+    ]
+  if (platform === 'win32') {
+    const { join } = win32
+    const programs = [env.ProgramFiles, env['ProgramFiles(x86)'], env.LOCALAPPDATA].filter(
+      (d): d is string => !!d,
+    )
+    return [
+      ...programs.map((d) => join(d, 'Google', 'Chrome', 'Application', 'chrome.exe')),
+      ...(env.LOCALAPPDATA ? [join(env.LOCALAPPDATA, 'Chromium', 'Application', 'chrome.exe')] : []),
+      ...programs.map((d) => join(d, 'Microsoft', 'Edge', 'Application', 'msedge.exe')),
+    ]
+  }
+  return [
     '/usr/bin/google-chrome',
     '/usr/bin/google-chrome-stable',
     '/usr/bin/chromium',
     '/usr/bin/chromium-browser',
+    '/snap/bin/chromium',
+    '/var/lib/flatpak/exports/bin/com.google.Chrome',
+    '/var/lib/flatpak/exports/bin/org.chromium.Chromium',
+    posix.join(home, '.local/share/flatpak/exports/bin/com.google.Chrome'),
+    posix.join(home, '.local/share/flatpak/exports/bin/org.chromium.Chromium'),
   ]
-  for (const p of fixed) if (p && existsSync(p)) return p
+}
+
+/** The Chrome for Testing builds omp downloads, inside one build folder, for every system it has them for. */
+function managedChrome(build: string): string[] {
+  const app = ['Google Chrome for Testing.app', 'Contents', 'MacOS', 'Google Chrome for Testing']
+  return [
+    join(build, 'chrome-mac-arm64', ...app),
+    join(build, 'chrome-mac-x64', ...app),
+    join(build, 'chrome-linux64', 'chrome'),
+    join(build, 'chrome-win64', 'chrome.exe'),
+    join(build, 'chrome-win32', 'chrome.exe'),
+  ]
+}
+
+/** Chrome, Chromium, or the Chromium omp downloaded, whichever is installed. */
+export function findChrome(): string | undefined {
+  for (const p of [process.env.MYR_CHROME, ...chromeCandidates()]) if (p && existsSync(p)) return p
   const managed = join(homedir(), '.omp', 'puppeteer', 'chrome')
   if (!existsSync(managed)) return undefined
   for (const build of readdirSync(managed).sort().reverse()) {
-    const candidates = [
-      join(
-        managed,
-        build,
-        'chrome-mac-arm64',
-        'Google Chrome for Testing.app',
-        'Contents',
-        'MacOS',
-        'Google Chrome for Testing',
-      ),
-      join(
-        managed,
-        build,
-        'chrome-mac-x64',
-        'Google Chrome for Testing.app',
-        'Contents',
-        'MacOS',
-        'Google Chrome for Testing',
-      ),
-      join(managed, build, 'chrome-linux64', 'chrome'),
-    ]
-    const found = candidates.find((c) => existsSync(c))
+    const found = managedChrome(join(managed, build)).find((c) => existsSync(c))
     if (found) return found
   }
   return undefined
