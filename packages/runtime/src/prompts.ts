@@ -1081,6 +1081,44 @@ Reply with ONLY a JSON object: {"note": null} when there is nothing to send, or 
     summary: (text: string) => `(Summary of the work before this point) ${text}`,
   },
 
+  /**
+   * The page a chat is exported as (chat-export.ts). Whoever the person sends it to may not know Myrmidon, so it
+   * says what each part is.
+   */
+  exportPage: {
+    eyebrow: 'Myrmidon chat',
+    exported: (when: string) => `Exported ${when}`,
+    runs: (n: number) => `${n} run${n === 1 ? '' : 's'}`,
+    project: (name: string) => `in ${name}`,
+    forkOf: (title: string) => `Forked from “${title}”: it continues that conversation.`,
+    forkOfGone: 'Forked from a chat that has since been deleted.',
+    imported: (tool: string, title: string) => `Continues “${title}”, a session imported from ${tool}.`,
+    tools: { claude: 'Claude Code', codex: 'Codex' } as Record<string, string>,
+    run: (n: number) => `Run ${n}`,
+    status: {
+      created: 'starting',
+      running: 'running',
+      completed: 'done',
+      failed: 'failed',
+      stopped: 'stopped',
+    } as Record<string, string>,
+    you: 'You',
+    attached: (names: string) => `Attached: ${names}`,
+    crew: (n: number) => `Crew messages (${n})`,
+    crewTo: (from: string, to: string) => `${from} → ${to}`,
+    teamChat: 'team chat',
+    steps: (n: number, top: string) => `Tool steps: ${n}${top ? ` (${top})` : ''}`,
+    stepsFailed: (n: number) => `${n} failed`,
+    stepFailed: 'failed',
+    moreSteps: (n: number) => `and ${n} more`,
+    files: 'Files',
+    fileLeftOut: (size: string) => `${size}, not included in this page`,
+    noMessages: 'No messages in this run.',
+    footer:
+      'Exported from Myrmidon. Keys, tokens and passwords found in the text were replaced with “[… redacted]”; ' +
+      'large files are named but not included.',
+  },
+
   /** The one-line request that checks a model answers before a round relies on it. */
   probe: { system: 'Reply with OK.', message: 'ping' },
 

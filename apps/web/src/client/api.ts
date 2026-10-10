@@ -221,6 +221,13 @@ export async function importPluginUI(name: string): Promise<unknown> {
   }
 }
 
+/** A GET whose answer is text rather than JSON: a chat's HTML export. */
+export async function apiText(path: string): Promise<string> {
+  const res = await call(`${base}${path}`, { headers: auth })
+  if (!res.ok) throw failure(res.status, await errorOf(res))
+  return res.text()
+}
+
 export async function blobText(colony: string, hash: string): Promise<string> {
   const res = await call(`${base}/api/colonies/${colony}/blobs/${hash}`, {
     headers: auth,

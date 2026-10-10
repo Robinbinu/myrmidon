@@ -37,6 +37,7 @@ import {
   LifeBuoy,
   ListChecks,
   ListFilter,
+  ListTree,
   LockKeyhole,
   Mail,
   MessageSquareText,
@@ -56,6 +57,7 @@ import {
   SearchCheck,
   Server,
   ServerCog,
+  Share2,
   ShieldCheck,
   ShieldOff,
   ShieldPlus,
@@ -241,4 +243,8 @@ export const FEATURE_ICONS = {
   settingsSearch: TextSearch,
   /** Importing a Claude Code or Codex session into a new chat, and the imported transcript it starts from. */
   sessionImport: Import,
+  /** A chat's family: the chat it was forked from and the chats forked from it, as a tree (Show family). */
+  chatFamily: ListTree,
+  /** Sharing a chat as an encrypted file the person sends, with its key apart. */
+  shareFile: Share2,
 } as const

@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { SqliteLogStore } from '@myrmidon/core'
+import { BlobStore, type SqliteLogStore } from '@myrmidon/core'
 import {
   type AgentInfo,
   type ColonyId,
@@ -28,6 +28,7 @@ import {
 } from '@myrmidon/protocol'
 import type { BrowserHub } from './browser.ts'
 import { namingModel } from './catalog.ts'
+import { exportDoc, renderChatHtml } from './chat-export.ts'
 import { ChatIndex, type CrewMember, type IndexedRound, type MessageHit } from './chat-index.ts'
 import type { ChatPlace, ChatShelf } from './chat-shelf.ts'
 import { nameChat } from './chat-titles.ts'
@@ -1565,6 +1566,30 @@ export class ChatService {
       history: chat.history ?? '',
       ...(project ? { project: { ...project, permissions: projectLevelFrom(project.permissions) } } : {}),
     }
+  }
+
+  /** The chat as one self-contained HTML page (chat-export.ts), secrets redacted, with its title. */
+  async exportHtml(chatId: string): Promise<{ title: string; html: string }> {
+    const all = await this.list()
+    const chat = all.find((c) => c.chatId === chatId)
+    if (!chat) throw new Error('no such chat')
+    const parent = chat.forkOf ? all.find((c) => c.chatId === chat.forkOf) : undefined
+    const imported = chat.importOf ? this.options.imports?.get(chat.importOf) : undefined
+    const doc = await exportDoc(
+      {
+        title: chat.title,
+        rounds: chat.rounds,
+        ...(chat.project ? { project: chat.project.name } : {}),
+        ...(chat.forkOf ? { forkOf: parent?.title ?? null } : {}),
+        ...(imported ? { imported: { source: imported.source, title: imported.title } } : {}),
+      },
+      {
+        events: (colonyId) => this.store.read(colonyId as never),
+        blob: (colonyId, hash) =>
+          new BlobStore(join(this.store.colonyDir(colonyId as never), 'blobs')).get(hash),
+      },
+    )
+    return { title: chat.title, html: renderChatHtml(doc) }
   }
 
   /** Permanently deletes every round of a chat, stopping a running round first. Returns the deleted colony ids. */

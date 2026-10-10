@@ -2798,6 +2798,28 @@ export function startServer(options: ServeOptions): WebServer {
           return json({ ok: true, deleted })
         }),
       },
+      // The chat as one HTML page, for Export and for sealing into a share file in the page. Any device that sees the
+      // chat may read it (it holds what that device can already read, redacted further), so it is not `needsFull`.
+      // Sent as a download, sandboxed, so opening this address never renders a chat's text as a page of this origin.
+      '/api/chats/:chatId/export': {
+        GET: guard(async (req) => {
+          if (!options.chats) return json({ error: 'this server was started without the chat runtime' }, 503)
+          try {
+            const { html } = await options.chats.exportHtml(req.params.chatId ?? '')
+            return new Response(html, {
+              headers: {
+                'content-type': 'text/html; charset=utf-8',
+                'content-disposition': 'attachment; filename="chat.html"',
+                'content-security-policy': 'sandbox',
+                'cache-control': 'no-store',
+              },
+            })
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err)
+            return json({ error: message }, message === 'no such chat' ? 404 : 422)
+          }
+        }),
+      },
       '/api/chats/:chatId/resume': {
         POST: guard(async (req) => {
           if (!options.chats) return json({ error: 'this server was started without the chat runtime' }, 503)
