@@ -1,4 +1,5 @@
-# Proves Myrmidon builds and passes its suite on macOS, Linux and Windows. See docs/ci.md.
+# Proves Myrmidon builds and passes its suite on macOS; Linux and Windows run by hand until they are supported.
+# See docs/ci.md.
 name: CI
 
 on:
@@ -11,7 +12,7 @@ on:
       os:
         description: Which OS to run (all runs the whole matrix)
         type: choice
-        default: all
+        default: macos-latest
         options: [all, macos-latest, ubuntu-latest, windows-latest]
       tests:
         description: Only test files whose path contains one of these words (space-separated); empty runs all
@@ -41,8 +42,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # A manual run can pick one OS; inputs.os is a fixed choice, so it is safe to splice in.
-        os: ${{ fromJSON(inputs.os && inputs.os != 'all' && format('["{0}"]', inputs.os) || '["macos-latest","ubuntu-latest","windows-latest"]') }}
+        # Pushes and pull requests run macOS only: Linux and Windows are not supported yet (their GitHub issues track
+        # the gaps), so a manual run picks them. inputs.os is a fixed choice, so it is safe to splice in.
+        os: ${{ fromJSON(inputs.os == 'all' && '["macos-latest","ubuntu-latest","windows-latest"]' || inputs.os && format('["{0}"]', inputs.os) || '["macos-latest"]') }}
     steps:
       # Windows checks out CRLF by default, which breaks Biome's formatter check and byte-exact fixtures.
       - name: Keep LF line endings

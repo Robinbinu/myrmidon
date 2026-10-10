@@ -550,6 +550,9 @@ Open work, in the order it will be done:
       windows) runs typecheck and the full suite on every PR to main and push to develop. Windows sandbox: commands
       run inside WSL2 with bubblewrap when available, otherwise every command asks and Settings says why. Start
       from the cross-platform audit; fix blockers first.
+      - [ ] 2026-10-10: macOS first ("we will add full native support for linux and windows later add them as
+        issues lets build for mac"). CI runs macOS only on push and PR; Linux and Windows run by hand. Tracked in
+        GitHub #27 (Linux: #19-#21) and #28 (Windows: #22-#26).
       - [x] Windows pass 1 (`xp-windows-core`, merged 2026-10-10): sqlite handles, file-tool paths, rounds stall,
         worktrees, POSIX paths in settings, shell path, data folder, separators in text, terminal foreground,
         server.json after kill, process-tree tests.
