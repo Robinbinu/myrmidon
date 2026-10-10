@@ -71,6 +71,22 @@ export const BOOTSTRAP_MS = 60_000
 export const HUDDLE_MS = 90_000
 /** Failed final verifications before a round gives up. */
 export const MAX_VERIFY_ROUNDS = 3
+/**
+ * Goal mode (`/goal <condition>: <request>`, after omp's goal mode and `/loop --until`): a goal round checks its
+ * condition on every final answer and goes on while it fails, so it needs caps of its own. The round's spend and token
+ * limits (Settings → Crew & budget) apply as to any round.
+ */
+export const GOAL = {
+  /** Checks before the round gives up on the goal (omp's attempt cap): each failed one costs a full pass of work. */
+  maxChecks: 8,
+  /**
+   * The least time a goal round gets: working until a check passes outlasts one answer's wall. A longer wall set in
+   * Settings still applies.
+   */
+  wallMinutes: 120,
+  /** How long one run of the condition's command may take, like a project check. */
+  commandMs: 300_000,
+} as const
 
 // Prompts (prompt/lint.ts)
 

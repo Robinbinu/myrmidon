@@ -36,11 +36,13 @@ import { type Attachment, ColonyRun, RoundClosingError, type Runtime, SETTLE_MS 
 import type { ComputerHub } from './computer/driver.ts'
 import {
   CHAT_TITLE_ROUNDS,
+  GOAL,
   MAX_READ_FOLDERS,
   MAX_WORKERS,
   SKILL_REVIEW_CALLS,
   SUGGEST_CORPUS,
 } from './config.ts'
+import { parseGoal } from './goal.ts'
 import type { HookStore } from './hooks.ts'
 import type { ToolLibrary } from './made-tools.ts'
 import type { McpHub } from './mcp.ts'
@@ -122,6 +124,8 @@ export interface TeamConfig {
   readonly judgeModel: string
   /** The advisor's model (see advisor.ts); absent, the one in Settings → Crew & budget, if any. */
   readonly advisorModel?: string
+  /** Prewalk's carry-out model (ColonySpec.prewalk); absent, the one in Settings → Crew & budget, if any. */
+  readonly carryOutModel?: string
   readonly wallMinutes?: number
   /** Overrides how hard reasoning models think in work rounds (direct answers stay quick). */
   readonly thinking?: Thinking
@@ -141,6 +145,11 @@ export interface SendOptions {
   readonly attachments?: readonly Attachment[]
   /** Plan mode: the round presents its plan for approval before doing any work. */
   readonly planFirst?: boolean
+  /**
+   * Goal mode: the message is `<condition>: <request>` (see parseGoal), and the round goes on until the condition
+   * holds, its checks run out, or the person stops it (ColonySpec.goal). It starts a round of its own.
+   */
+  readonly goal?: boolean
   /** A new chat's project; later rounds stay in the chat's project. */
   readonly project?: string
   /** Fixes the size: an escalated round reruns its request at the tier its agent asked for. */
@@ -175,6 +184,7 @@ export function normalizeTeamConfig(raw: Record<string, unknown>): TeamConfig {
     ...(thinking ? { thinking } : {}),
     ...(raw.helpers === 'always' ? { helpers: 'always' as const } : {}),
     ...(str(raw.advisorModel) ? { advisorModel: str(raw.advisorModel) } : {}),
+    ...(str(raw.carryOutModel) ? { carryOutModel: str(raw.carryOutModel) } : {}),
   }
   if (raw.mode === 'orchestrated' || raw.mode === 'swarm') {
     const roster = (Array.isArray(raw.roster) ? raw.roster : [])
@@ -634,6 +644,7 @@ export class ChatService {
       delivery = 'steer',
       attachments = [],
       planFirst = false,
+      goal = false,
       voice = false,
       context,
       answers,
@@ -646,6 +657,8 @@ export class ChatService {
     await this._settle()
     const live = this._live.get(id)
     if (live && live.state().status === 'running') {
+      // Steering would drop the goal: its checks belong to the round it starts.
+      if (goal) throw new Error(prompts.chat.goalWhileRunning)
       try {
         // Their message steers a round someone else started: from now on it asks too, as if they had started it.
         if (options.askAll) await live.askForAll()
@@ -669,10 +682,12 @@ export class ChatService {
     const latestState = previous.at(-1)?.state
     const to = latestState ? addressedIn(message, latestState) : []
     // The lead starts at once and sizes the work itself (escalate); tests and reruns may fix the size instead.
-    const tier = to.length
+    const sized = to.length
       ? 'team'
       : (options.tier ??
         (config.helpers === 'always' ? 'team' : await (this.options.classify ?? leadFirst)(message, history)))
+    // A goal is worked toward with tools and checked: never a direct answer.
+    const tier = goal && sized === 'answer' ? 'solo' : sized
     const spec = this.buildSpec(id, message, config, previous, history, tier, to)
     if (spec.chat) Object.assign(spec.chat, extra)
     if (options.askAll) spec.askAll = true
@@ -700,6 +715,15 @@ export class ChatService {
     const memory = this.options.memory?.recall(project?.id) ?? []
     if (memory.length && spec.chat) spec.chat.memory = memoryLines(memory)
     if (planFirst && spec.tier !== 'answer') spec.planFirst = true
+    if (goal) {
+      spec.goal = {
+        ...parseGoal(message),
+        maxChecks: GOAL.maxChecks,
+        judge: config.judgeModel,
+        threshold: this.options.settings?.get().verification.threshold ?? 0.7,
+      }
+      spec.budget.wallMs = Math.max(spec.budget.wallMs, GOAL.wallMinutes * 60_000)
+    }
     const run: ColonyRun = new ColonyRun(this.runtime, spec, {
       resolver: this.options.resolver,
       ...(this.options.quietMs !== undefined ? { quietMs: this.options.quietMs } : {}),
@@ -1396,12 +1420,16 @@ export class ChatService {
       .filter((e) => e.type === 'agent/joined' && e.seq > start.seq)
       .map((e) => (e.payload as EventPayloads['agent/joined']).agent)
     const notes = this.options.settings?.get().instructions
+    // A lead that already handed off (prewalk) resumes on its carry-out model, and does not hand off again.
+    const handoff = events.findLast((e) => e.type === 'agent/handoff' && e.seq > start.seq)?.payload as
+      | EventPayloads['agent/handoff']
+      | undefined
     const agents = [...created.agents, ...joined].map((info) => {
       const note = (info.role === 'lead' ? notes?.lead : notes?.worker)?.trim()
       return this._asSpecialist({
         name: info.name,
         role: info.role,
-        model: info.model,
+        model: handoff?.agent === info.name ? handoff.model : info.model,
         ...(info.specialty ? { specialty: info.specialty } : {}),
         ...(note ? { instructions: note } : {}),
       })
@@ -1433,6 +1461,8 @@ export class ChatService {
       ...(askAll ? { askAll: true } : {}),
       ...(created.review ? { review: created.review } : {}),
       ...(created.tier ? { tier: created.tier } : {}),
+      ...(created.goal ? { goal: created.goal } : {}),
+      ...(created.prewalk && !handoff ? { prewalk: created.prewalk } : {}),
     }
   }
 
@@ -1666,6 +1696,12 @@ export class ChatService {
     const models = [...new Set([...roster.map((r) => r.model), config.leadModel])]
     // Every tier gets it: a direct answer that calls tools is watched as closely as a team's work.
     const advisor = config.advisorModel ?? s?.team.advisorModel
+    // Only a lead hands off, and only in a round with work to carry out; a lead already on it has nothing to switch.
+    const carryOut = config.carryOutModel ?? s?.team.carryOutModel
+    const prewalk =
+      carryOut && tier !== 'answer' && agents.some((a) => a.role === 'lead' && a.model !== carryOut)
+        ? carryOut
+        : undefined
     return {
       name: title(request),
       mission: history ? prompts.chat.mission(request, history) : request,
@@ -1700,6 +1736,7 @@ export class ChatService {
       tier,
       ...(config.thinking ? { thinking: config.thinking } : {}),
       ...(advisor ? { advisor } : {}),
+      ...(prewalk ? { prewalk } : {}),
       team: {
         mode: config.mode,
         maxWorkers: tier === 'team' && !swarm ? (kept.length || roster.length) + extra : 0,

@@ -90,6 +90,8 @@ type Item =
   | { seq: number; approval: Pending }
   | { seq: number; stream: string; live: LiveReply }
   | { seq: number; id: string; fallback: EventPayloads['agent/fallback'] }
+  | { seq: number; id: string; handoff: EventPayloads['agent/handoff'] }
+  | { seq: number; id: string; goal: EventPayloads['verifier/verdict'] }
 
 const enter = { initial: { opacity: 0, y: 10 }, animate: { opacity: 1, y: 0 }, transition: softSpring }
 
@@ -235,11 +237,17 @@ export function RoundView(props: {
     ),
     // A reply still being written sits where it began, after what was in the log by then.
     ...streaming.map(([agent, live]) => ({ seq: live.since + 0.5, stream: agent, live })),
-    // An agent that went on with a fallback model says so where it happened.
-    ...events.flatMap((e) =>
+    // An agent that went on with a fallback model, or handed off to its carry-out model (prewalk), says so where it
+    // happened; so does each check of a goal round's goal.
+    ...events.flatMap((e): Item[] =>
       e.type === 'agent/fallback'
         ? [{ seq: e.seq, id: e.id, fallback: e.payload as EventPayloads['agent/fallback'] }]
-        : [],
+        : e.type === 'agent/handoff'
+          ? [{ seq: e.seq, id: e.id, handoff: e.payload as EventPayloads['agent/handoff'] }]
+          : e.type === 'verifier/verdict' &&
+              (e.payload as EventPayloads['verifier/verdict']).target === 'goal'
+            ? [{ seq: e.seq, id: e.id, goal: e.payload as EventPayloads['verifier/verdict'] }]
+            : [],
     ),
   ].sort((a, b) => a.seq - b.seq)
   // The run card sits under the latest message sent mid-run, so what the colony did next reads in order.
@@ -301,6 +309,10 @@ export function RoundView(props: {
       message(i.message)
     ) : 'fallback' in i ? (
       <FallbackNote key={i.id} fallback={i.fallback} models={props.models} />
+    ) : 'handoff' in i ? (
+      <HandoffNote key={i.id} handoff={i.handoff} models={props.models} />
+    ) : 'goal' in i ? (
+      <GoalNote key={i.id} verdict={i.goal} goal={info?.goal?.condition} />
     ) : 'approval' in i ? (
       <Approval
         key={i.approval.id}
@@ -499,6 +511,37 @@ function FallbackNote(props: { fallback: EventPayloads['agent/fallback']; models
     >
       <FEATURE_ICONS.fallback className="size-3.5 shrink-0" />
       <span>{say(f.agent, name(f.previous), name(f.model))}</span>
+    </motion.p>
+  )
+}
+
+/** One quiet line in the round: prewalk handed the lead from the model it planned on to its carry-out model. */
+function HandoffNote(props: { handoff: EventPayloads['agent/handoff']; models: ModelOption[] }) {
+  const h = props.handoff
+  const name = (ref: string) => modelName(props.models.find((m) => m.ref === ref)?.name ?? ref)
+  return (
+    <motion.p {...enter} className="flex items-center gap-1.5 pl-11 text-callout text-muted">
+      <FEATURE_ICONS.prewalk className="size-3.5 shrink-0" />
+      <span>{copy.modelFailure.handedOff(h.agent, name(h.previous), name(h.model))}</span>
+    </motion.p>
+  )
+}
+
+/** One quiet line in the round for each check of a goal round's goal; the check's full result is its tooltip. */
+function GoalNote(props: { verdict: EventPayloads['verifier/verdict']; goal: string | undefined }) {
+  const v = props.verdict
+  const check = Number(v.verifierId.replace(/^goal#/, '')) || 1
+  const why = v.evidence.split('\n')[0] ?? ''
+  return (
+    <motion.p
+      {...enter}
+      title={v.evidence}
+      className={`flex items-center gap-1.5 pl-11 text-callout ${v.pass ? 'text-ok-ink' : 'text-muted'}`}
+    >
+      <FEATURE_ICONS.goal className="size-3.5 shrink-0" />
+      <span className="truncate">
+        {v.pass ? copy.goal.met(props.goal ?? '') : copy.goal.notMet(check, why)}
+      </span>
     </motion.p>
   )
 }

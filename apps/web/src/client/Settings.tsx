@@ -196,6 +196,8 @@ export interface ServerSettings {
     judgeModel?: string
     /** The advisor's model; absent means no advisor. */
     advisorModel?: string
+    /** Prewalk's carry-out model; absent means the lead keeps its own. */
+    carryOutModel?: string
     /** Models the lead, and the crew, go on with when theirs fails; absent from older servers. */
     leadFallbacks?: string[]
     workerFallbacks?: string[]
@@ -2204,13 +2206,37 @@ function TeamSection(props: {
         title={copy.settings.team.advisorTitle}
       />
       <Card className="mb-8">
-        <AdvisorModel
+        <OptionalModel
+          id="team.advisorModel"
           value={t.advisorModel}
           models={props.models}
+          choose={copy.settings.team.chooseAdvisor}
+          off={copy.settings.team.advisorOff}
           onChange={(advisorModel) =>
             props.update((s) => {
               const { advisorModel: _, ...team } = s.team
               return { ...s, team: advisorModel ? { ...team, advisorModel } : team }
+            })
+          }
+        />
+      </Card>
+      <SectionHeader
+        as="h3"
+        className="mb-2"
+        icon={<FEATURE_ICONS.prewalk className="size-4 text-muted" />}
+        title={copy.settings.team.prewalkTitle}
+      />
+      <Card className="mb-8">
+        <OptionalModel
+          id="team.carryOutModel"
+          value={t.carryOutModel}
+          models={props.models}
+          choose={copy.settings.team.chooseCarryOut}
+          off={copy.settings.team.carryOutOff}
+          onChange={(carryOutModel) =>
+            props.update((s) => {
+              const { carryOutModel: _, ...team } = s.team
+              return { ...s, team: carryOutModel ? { ...team, carryOutModel } : team }
             })
           }
         />
@@ -2274,24 +2300,28 @@ function TeamSection(props: {
   )
 }
 
-/** The advisor's model, or a picker to choose one while there is none (off, the default). */
-function AdvisorModel(props: {
+/** An optional model (the advisor's, prewalk's carry-out), or a picker to choose one while there is none (off). */
+function OptionalModel(props: {
+  id: 'team.advisorModel' | 'team.carryOutModel'
   value?: string
   models: ModelOption[]
+  /** The picker's label while there is none. */
+  choose: string
+  /** The label of the button that turns it off, naming the model. */
+  off(model: string): string
   onChange(v: string | undefined): void
 }) {
-  const t = copy.settings.team
   const ref = props.value
   const name = ref ? modelName(props.models.find((m) => m.ref === ref)?.name ?? ref) : ''
   return (
-    <SettingField id="team.advisorModel">
+    <SettingField id={props.id}>
       {ref ? (
         <span
           title={ref}
           className="inline-flex h-7 max-w-[260px] items-center gap-1 rounded-md border border-line bg-fill/60 pl-2 text-callout"
         >
           <span className="truncate">{name}</span>
-          <IconButton size="sm" label={t.advisorOff(name)} onClick={() => props.onChange(undefined)}>
+          <IconButton size="sm" label={props.off(name)} onClick={() => props.onChange(undefined)}>
             <X className="size-3.5" />
           </IconButton>
         </span>
@@ -2299,7 +2329,7 @@ function AdvisorModel(props: {
         <ModelPicker
           variant="compact"
           placement="down"
-          label={t.chooseAdvisor}
+          label={props.choose}
           value=""
           models={props.models}
           onChange={(next) => props.onChange(next)}

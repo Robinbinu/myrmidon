@@ -855,7 +855,8 @@ export function App() {
     chatId = activeChat,
     delivery: Delivery = 'steer',
     files: readonly File[] = [],
-    plan = false,
+    /** `plan`: plan mode (/plan); `goal`: goal mode (/goal), the text being `<condition>: <request>`. */
+    how: { plan?: boolean; goal?: boolean } = {},
     answers?: QuestionAnswers,
   ) => {
     if (!config) return
@@ -875,7 +876,8 @@ export function App() {
           config,
           chatId,
           delivery,
-          ...(plan ? { plan: true } : {}),
+          ...(how.plan ? { plan: true } : {}),
+          ...(how.goal ? { goal: true } : {}),
           ...(!chatId && newProject ? { project: newProject } : {}),
           ...(!chatId && forkOf ? { forkOf } : {}),
           ...(!chatId && newPermissions ? { permissions: newPermissions } : {}),
@@ -953,7 +955,9 @@ export function App() {
       case 'learn':
         return learn()
       case 'plan':
-        return send(arg, activeChat, 'steer', [], true)
+        return send(arg, activeChat, 'steer', [], { plan: true })
+      case 'goal':
+        return send(arg, activeChat, 'steer', [], { goal: true })
       case 'steer':
       case 'queue':
         if (!running) {
@@ -1649,7 +1653,7 @@ export function App() {
                             onOpenColony={setColonyModal}
                             onRetry={(t) => void send(t).catch(() => {})}
                             onLearn={() => void learn()}
-                            onAnswer={(t, a) => send(t, activeChat, 'steer', [], false, a)}
+                            onAnswer={(t, a) => send(t, activeChat, 'steer', [], {}, a)}
                             onResume={resume}
                             models={models}
                             sending={busy}

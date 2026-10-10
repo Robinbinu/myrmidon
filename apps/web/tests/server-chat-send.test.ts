@@ -97,3 +97,29 @@ test('an ordinary message is accepted: answering a question card is optional', a
   expect({ status: res.status, body: await res.json() }).toMatchObject({ status: 200 })
   expect(got).toEqual(['hello'])
 })
+
+test('a goal message (/goal) reaches the chat as goal mode, its condition kept in the text', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'myr-send-'))
+  homes.push(home)
+  const got: { text: string; options: unknown }[] = []
+  const chats = {
+    onStream: () => () => {},
+    send: async (text: string, _config: unknown, _chatId: unknown, options: unknown) => {
+      got.push({ text, options })
+      return {}
+    },
+  } as unknown as ChatService
+  const server = startServer({ home, port: 0, chats })
+  servers.push(server)
+  const res = await fetch(new URL('/api/chats', server.url.replace(/#.*$/, '')), {
+    method: 'POST',
+    headers: { authorization: `Bearer ${server.token}`, 'content-type': 'application/json' },
+    body: JSON.stringify({
+      text: 'until the tests pass: fix the parser',
+      goal: true,
+      config: { mode: 'orchestrated', leadModel: 'mock/lead', judgeModel: 'mock/lead' },
+    }),
+  })
+  expect(res.status).toBe(200)
+  expect(got[0]).toMatchObject({ text: 'until the tests pass: fix the parser', options: { goal: true } })
+})
