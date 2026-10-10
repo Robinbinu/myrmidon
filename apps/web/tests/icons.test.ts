@@ -50,7 +50,7 @@ afterAll(() => {
 })
 
 test('the lists that name features (Settings sections, who-can-use-what groups, workspace views, crew modes) use the registry', async () => {
-  const { SECTIONS } = await import('../src/client/Settings.tsx')
+  const { SECTIONS } = await import('../src/client/settings/pages.ts')
   const { ACCESS_INFO } = await import('../src/client/permissions/describe.ts')
   const { VIEWS } = await import('../src/client/chat/Workspace.tsx')
   const { MODES } = await import('../src/client/chat/Composer.tsx')

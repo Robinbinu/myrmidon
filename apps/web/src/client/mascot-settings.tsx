@@ -3,20 +3,12 @@ import { type ReactNode, useEffect, useMemo, useState } from 'react'
 import { crewFor } from './chat/hero-crew.ts'
 import { copy } from './copy.ts'
 import type { MascotLook, MascotPatch } from './mascot.ts'
+import { SettingField, setting, settingRow } from './settings/Setting.tsx'
 import { useSpecialists } from './specialists.ts'
 import { type Clip, IDLE_CLIPS } from './ui/clips.ts'
 import { FEATURE_ICONS } from './ui/icons.ts'
 import { BOW, FLOWER, inkOn, PixelFace, PixelSprite } from './ui/pixel.tsx'
-import {
-  Button,
-  Card,
-  CardRow,
-  Field,
-  SectionHeader,
-  Segmented,
-  Switch,
-  TextInput,
-} from './ui/primitives.tsx'
+import { Button, Card, Field, SectionHeader, Segmented, Switch, TextInput } from './ui/primitives.tsx'
 import { pacman } from './ui/shows.ts'
 import { playBlip } from './ui/sounds.ts'
 import { MASCOT_COLORS, MASCOT_IDLE, MASCOT_PREVIEW } from './ui-config.ts'
@@ -157,121 +149,110 @@ export function MascotBehaviour(props: { look: MascotLook; set(patch: MascotPatc
         t.liveliness,
         t.livelinessHint,
         <>
-          <CardRow>
-            <Field label={t.idle} inline>
-              <Segmented
-                id="mascot-idle"
-                value={look.idle}
-                options={(['off', 'rare', 'normal', 'often'] as const).map((v) => ({
-                  value: v,
-                  label: t.idleLevels[v],
-                }))}
-                onChange={(idle) => set({ idle })}
-              />
-            </Field>
-          </CardRow>
-          <CardRow>
+          <SettingField id="mascot.idle" inline>
+            <Segmented
+              id="mascot-idle"
+              value={look.idle}
+              options={(['off', 'rare', 'normal', 'often'] as const).map((v) => ({
+                value: v,
+                label: t.idleLevels[v],
+              }))}
+              onChange={(idle) => set({ idle })}
+            />
+          </SettingField>
+          <div {...settingRow('mascot.shows')} className="px-4 py-3">
             <Field label={t.shows}>
               <div className="flex flex-col gap-2.5">
-                {(['pacman', 'life', 'confetti', 'boot'] as const).map((show) => (
-                  <div key={show} className="flex items-center justify-between gap-4">
-                    <div className="min-w-0">
-                      <p className="text-body text-fg">{t.showNames[show]}</p>
-                      <p className="text-callout text-muted">{t.showHints[show]}</p>
+                {(['pacman', 'life', 'confetti', 'boot'] as const).map((show) => {
+                  const id = `mascot.show.${show}` as const
+                  return (
+                    <div key={show} {...settingRow(id)} className="flex items-center justify-between gap-4">
+                      <div className="min-w-0">
+                        <p className="text-body text-fg">{setting(id).label}</p>
+                        <p className="text-callout text-muted">{setting(id).help}</p>
+                      </div>
+                      <Switch
+                        checked={look.shows[show]}
+                        label={t.showNames[show]}
+                        onChange={(on) => set({ shows: { [show]: on } })}
+                      />
                     </div>
-                    <Switch
-                      checked={look.shows[show]}
-                      label={t.showNames[show]}
-                      onChange={(on) => set({ shows: { [show]: on } })}
-                    />
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             </Field>
-          </CardRow>
-          <CardRow>
-            <Field label={t.temper} hint={t.temperHints[look.temper]} inline>
-              <Segmented
-                id="mascot-temper"
-                value={look.temper}
-                options={(['calm', 'playful'] as const).map((v) => ({ value: v, label: t.tempers[v] }))}
-                onChange={(temper) => set({ temper })}
-              />
-            </Field>
-          </CardRow>
+          </div>
+          <SettingField id="mascot.temper" hint={t.temperHints[look.temper]} inline>
+            <Segmented
+              id="mascot-temper"
+              value={look.temper}
+              options={(['calm', 'playful'] as const).map((v) => ({ value: v, label: t.tempers[v] }))}
+              onChange={(temper) => set({ temper })}
+            />
+          </SettingField>
         </>,
       )}
       {group(
         t.crew,
         t.crewHint,
         <>
-          <CardRow>
-            <Field label={t.crewShow} inline>
-              <Switch
-                checked={look.crew.show}
-                label={t.crewShow}
-                onChange={(show) => set({ crew: { show } })}
-              />
-            </Field>
-          </CardRow>
+          <SettingField id="mascot.crew.show" inline>
+            <Switch
+              checked={look.crew.show}
+              label={t.crewShow}
+              onChange={(show) => set({ crew: { show } })}
+            />
+          </SettingField>
           {look.crew.show && (
             <>
-              <CardRow>
-                <Field label={t.crewCount} inline>
-                  <Segmented
-                    id="mascot-crew-count"
-                    value={String(look.crew.count)}
-                    options={['1', '2', '3', '4', '5', '6'].map((v) => ({ value: v, label: v }))}
-                    onChange={(n) => set({ crew: { count: Number(n) } })}
-                  />
-                </Field>
-              </CardRow>
-              <CardRow>
-                <Field label={t.crewNames} hint={sourceHint} inline>
-                  <Segmented
-                    id="mascot-crew-names"
-                    value={crewSource}
-                    options={(['minions', 'specialists', 'custom'] as const).map((v) => ({
-                      value: v,
-                      label: t.crewSources[v],
-                    }))}
-                    onChange={(source) => set({ crew: { names: source } })}
-                  />
-                </Field>
-              </CardRow>
+              <SettingField id="mascot.crew.count" inline>
+                <Segmented
+                  id="mascot-crew-count"
+                  value={String(look.crew.count)}
+                  options={['1', '2', '3', '4', '5', '6'].map((v) => ({ value: v, label: v }))}
+                  onChange={(n) => set({ crew: { count: Number(n) } })}
+                />
+              </SettingField>
+              <SettingField id="mascot.crew.names" hint={sourceHint} inline>
+                <Segmented
+                  id="mascot-crew-names"
+                  value={crewSource}
+                  options={(['minions', 'specialists', 'custom'] as const).map((v) => ({
+                    value: v,
+                    label: t.crewSources[v],
+                  }))}
+                  onChange={(source) => set({ crew: { names: source } })}
+                />
+              </SettingField>
               {look.crew.names === 'custom' && (
-                <CardRow>
-                  <Field label={t.crewCustom} inline>
-                    <TextInput
-                      value={names}
-                      placeholder={t.crewCustomPlaceholder}
-                      aria-label={t.crewCustom}
-                      onChange={(e) => {
-                        setNames(e.target.value)
-                        const list = e.target.value
-                          .split(',')
-                          .map((n) => n.trim().slice(0, 16))
-                          .filter(Boolean)
-                        set({ crew: { custom: [...new Set(list)].slice(0, 8) } })
-                      }}
-                      className="w-64"
-                    />
-                  </Field>
-                </CardRow>
-              )}
-              <CardRow>
-                <Field label={t.boldness} hint={t.boldnessHints[look.crew.boldness]} inline>
-                  <Segmented
-                    id="mascot-crew-boldness"
-                    value={look.crew.boldness}
-                    options={(['shy', 'curious', 'bold'] as const).map((v) => ({
-                      value: v,
-                      label: t.boldnessLevels[v],
-                    }))}
-                    onChange={(boldness) => set({ crew: { boldness } })}
+                <SettingField id="mascot.crew.custom" inline>
+                  <TextInput
+                    value={names}
+                    placeholder={t.crewCustomPlaceholder}
+                    aria-label={t.crewCustom}
+                    onChange={(e) => {
+                      setNames(e.target.value)
+                      const list = e.target.value
+                        .split(',')
+                        .map((n) => n.trim().slice(0, 16))
+                        .filter(Boolean)
+                      set({ crew: { custom: [...new Set(list)].slice(0, 8) } })
+                    }}
+                    className="w-64"
                   />
-                </Field>
-              </CardRow>
+                </SettingField>
+              )}
+              <SettingField id="mascot.crew.boldness" hint={t.boldnessHints[look.crew.boldness]} inline>
+                <Segmented
+                  id="mascot-crew-boldness"
+                  value={look.crew.boldness}
+                  options={(['shy', 'curious', 'bold'] as const).map((v) => ({
+                    value: v,
+                    label: t.boldnessLevels[v],
+                  }))}
+                  onChange={(boldness) => set({ crew: { boldness } })}
+                />
+              </SettingField>
             </>
           )}
         </>,
@@ -280,122 +261,104 @@ export function MascotBehaviour(props: { look: MascotLook; set(patch: MascotPatc
         t.display,
         t.displayHint,
         <>
-          <CardRow>
-            <Field label={t.dots} inline>
-              <Segmented
-                id="mascot-dots"
-                value={look.display.dots}
-                options={(['led', 'round', 'square'] as const).map((v) => ({
-                  value: v,
-                  label: t.dotShapes[v],
-                }))}
-                onChange={(dots) => set({ display: { dots } })}
-              />
-            </Field>
-          </CardRow>
-          <CardRow>
-            <Field label={t.grid} inline>
-              <Segmented
-                id="mascot-grid"
-                value={look.display.grid}
-                options={(['faint', 'tinted', 'off'] as const).map((v) => ({ value: v, label: t.grids[v] }))}
-                onChange={(grid) => set({ display: { grid } })}
-              />
-            </Field>
-          </CardRow>
-          <CardRow>
-            <Field label={t.glow} inline>
-              <Segmented
-                id="mascot-glow"
-                value={look.display.glow}
-                options={(['off', 'soft', 'strong'] as const).map((v) => ({ value: v, label: t.glows[v] }))}
-                onChange={(glow) => set({ display: { glow } })}
-              />
-            </Field>
-          </CardRow>
-          <CardRow>
-            <Field label={t.eyeColor} hint={t.eyeColorHints[look.display.eyeColor]} inline>
-              <Segmented
-                id="mascot-eye-color"
-                value={look.display.eyeColor}
-                options={(['own', 'theme'] as const).map((v) => ({ value: v, label: t.eyeColors[v] }))}
-                onChange={(eyeColor) => set({ display: { eyeColor } })}
-              />
-            </Field>
-          </CardRow>
-          <CardRow>
-            <Field label={t.size} inline>
-              <Segmented
-                id="mascot-size"
-                value={look.display.size}
-                options={(['small', 'medium', 'large'] as const).map((v) => ({
-                  value: v,
-                  label: t.sizes[v],
-                }))}
-                onChange={(size) => set({ display: { size } })}
-              />
-            </Field>
-          </CardRow>
+          <SettingField id="mascot.display.dots" inline>
+            <Segmented
+              id="mascot-dots"
+              value={look.display.dots}
+              options={(['led', 'round', 'square'] as const).map((v) => ({
+                value: v,
+                label: t.dotShapes[v],
+              }))}
+              onChange={(dots) => set({ display: { dots } })}
+            />
+          </SettingField>
+          <SettingField id="mascot.display.grid" inline>
+            <Segmented
+              id="mascot-grid"
+              value={look.display.grid}
+              options={(['faint', 'tinted', 'off'] as const).map((v) => ({ value: v, label: t.grids[v] }))}
+              onChange={(grid) => set({ display: { grid } })}
+            />
+          </SettingField>
+          <SettingField id="mascot.display.glow" inline>
+            <Segmented
+              id="mascot-glow"
+              value={look.display.glow}
+              options={(['off', 'soft', 'strong'] as const).map((v) => ({ value: v, label: t.glows[v] }))}
+              onChange={(glow) => set({ display: { glow } })}
+            />
+          </SettingField>
+          <SettingField id="mascot.display.eyeColor" hint={t.eyeColorHints[look.display.eyeColor]} inline>
+            <Segmented
+              id="mascot-eye-color"
+              value={look.display.eyeColor}
+              options={(['own', 'theme'] as const).map((v) => ({ value: v, label: t.eyeColors[v] }))}
+              onChange={(eyeColor) => set({ display: { eyeColor } })}
+            />
+          </SettingField>
+          <SettingField id="mascot.display.size" inline>
+            <Segmented
+              id="mascot-size"
+              value={look.display.size}
+              options={(['small', 'medium', 'large'] as const).map((v) => ({
+                value: v,
+                label: t.sizes[v],
+              }))}
+              onChange={(size) => set({ display: { size } })}
+            />
+          </SettingField>
         </>,
       )}
       {group(
         t.sounds,
         t.soundsHint,
         <>
-          <CardRow>
-            <Field label={t.soundsOn} inline>
-              <Switch
-                checked={look.sounds.enabled}
-                label={t.soundsOn}
-                onChange={(enabled) => set({ sounds: { enabled } })}
-              />
-            </Field>
-          </CardRow>
+          <SettingField id="mascot.sounds.enabled" inline>
+            <Switch
+              checked={look.sounds.enabled}
+              label={t.soundsOn}
+              onChange={(enabled) => set({ sounds: { enabled } })}
+            />
+          </SettingField>
           {look.sounds.enabled && (
             <>
-              <CardRow>
-                <Field label={t.soundReactions} inline>
-                  <Switch
-                    checked={look.sounds.reactions}
-                    label={t.soundReactions}
-                    onChange={(reactions) => set({ sounds: { reactions } })}
+              <SettingField id="mascot.sounds.reactions" inline>
+                <Switch
+                  checked={look.sounds.reactions}
+                  label={t.soundReactions}
+                  onChange={(reactions) => set({ sounds: { reactions } })}
+                />
+              </SettingField>
+              <SettingField id="mascot.sounds.typing" inline>
+                <Switch
+                  checked={look.sounds.typing}
+                  label={t.soundTyping}
+                  onChange={(typing) => set({ sounds: { typing } })}
+                />
+              </SettingField>
+              <SettingField id="mascot.sounds.volume" inline>
+                <div className="flex items-center gap-2">
+                  <Segmented
+                    id="mascot-volume"
+                    value={look.sounds.volume}
+                    options={(['quiet', 'normal', 'loud'] as const).map((v) => ({
+                      value: v,
+                      label: t.volumes[v],
+                    }))}
+                    onChange={(volume) => {
+                      set({ sounds: { volume } })
+                      playBlip('up', volume)
+                    }}
                   />
-                </Field>
-              </CardRow>
-              <CardRow>
-                <Field label={t.soundTyping} inline>
-                  <Switch
-                    checked={look.sounds.typing}
-                    label={t.soundTyping}
-                    onChange={(typing) => set({ sounds: { typing } })}
-                  />
-                </Field>
-              </CardRow>
-              <CardRow>
-                <Field label={t.volume} inline>
-                  <div className="flex items-center gap-2">
-                    <Segmented
-                      id="mascot-volume"
-                      value={look.sounds.volume}
-                      options={(['quiet', 'normal', 'loud'] as const).map((v) => ({
-                        value: v,
-                        label: t.volumes[v],
-                      }))}
-                      onChange={(volume) => {
-                        set({ sounds: { volume } })
-                        playBlip('up', volume)
-                      }}
-                    />
-                    <Button
-                      size="sm"
-                      icon={<FEATURE_ICONS.mascotSounds className="size-3.5" />}
-                      onClick={() => playBlip('up', look.sounds.volume)}
-                    >
-                      {t.testSound}
-                    </Button>
-                  </div>
-                </Field>
-              </CardRow>
+                  <Button
+                    size="sm"
+                    icon={<FEATURE_ICONS.mascotSounds className="size-3.5" />}
+                    onClick={() => playBlip('up', look.sounds.volume)}
+                  >
+                    {t.testSound}
+                  </Button>
+                </div>
+              </SettingField>
             </>
           )}
         </>,

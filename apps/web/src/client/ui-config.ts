@@ -380,6 +380,27 @@ export const GATEWAY_POLL_MS = 30_000
  */
 export const SETTINGS_NAV_COLLAPSE_PX = 1100
 
+/** Focuses Settings' search field while Settings is open; ⌘K stays the app's command menu everywhere. */
+export const SETTINGS_SEARCH_COMBO = 'mod+f'
+
+/** Settings search: how it ranks, how many results it lists, and how a chosen setting is found and shown. */
+export const SETTINGS_SEARCH = {
+  /** Results listed at most; the best come first. */
+  limit: 40,
+  /** A query word this long or longer may be misspelt by one letter (two from `twoTyposFrom`). */
+  oneTypoFrom: 4,
+  twoTyposFrom: 8,
+  /**
+   * How long a chosen setting's row is looked for while its page loads its data, and how often; once the row it is
+   * under is on screen, only `fallbackMs` before that row is shown instead.
+   */
+  findMs: 2500,
+  fallbackMs: 700,
+  findEveryMs: 50,
+  /** How long the row it jumped to stays highlighted (matches the setting-found animation in styles.css). */
+  highlightMs: 1800,
+} as const
+
 /**
  * A two-step remove ignores its second step for this long after the first, so a double-click or a held Enter that
  * arms it cannot also confirm it.
