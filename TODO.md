@@ -557,6 +557,14 @@ Open work, in the order it will be done:
       4. Autoresearch: an experiment loop on its own branch, measured and kept or dropped (omp autoresearch).
       5. SSH remote hosts agents can work on (omp ssh).
       6. Telemetry export over OTLP (omp telemetry-export-otlp); plus a security-scan tool (omp security-scan).
+12z. - [ ] **Contain the omp dependency** (asked 2026-10-10: "we are heavily dependent on omp and omp keeps updating")
+      — pinned exactly today (18.8.7; 18.8.8 out), but 33 files outside packages/runtime/src/omp/ import omp, ~20 of
+      them omp internals (session stores, computer supervisor, eval worker, marketplace fetcher…). Do, after the 12y
+      branches and xp-windows-core merge: (1) one boundary — every @oh-my-pi import through packages/runtime/src/omp/
+      with our own names/types, and a lint check that fails on @oh-my-pi imports elsewhere; (2) contract tests on that
+      boundary for each omp area we use; (3) a weekly CI job that bumps omp on a branch, runs the 3-OS suite and opens
+      a PR with omp's changelog; (4) vendor small internal pieces (MIT, with provenance); (5) list internals to ask
+      upstream to export.
 12l. - [x] **Full access, no sandbox** (asked 2026-10-09, like Hermes) — global switch in Settings → Tools (default on)
       and a per-project Full access; lifts the command sandbox, file-path limits and the private-address rule; approvals
       still apply; channel members and read-only projects stay sandboxed. Left: Windows (unconfined commands still use
