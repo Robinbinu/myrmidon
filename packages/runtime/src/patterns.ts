@@ -412,10 +412,20 @@ export function kickoff(spec: ColonySpec, state: ColonyState, remembers = false,
   const from = state.rounds.at(-1)?.startSeq ?? 0
   const attached = state.chatMessages.find((m) => m.from === 'user' && m.seq >= from)?.attachments
   const plan = spec.planFirst ? prompts.kickoff.planFirst : ''
+  const goal = spec.goal
+    ? prompts.kickoff.goal({
+        condition: spec.goal.condition,
+        check: spec.goal.check,
+        max: spec.goal.maxChecks,
+      })
+    : ''
+  // Only the lead hands off (ColonyRun._handOff), so only the lead is told to plan for it.
+  const lead = spec.agents.find((a) => a.name === agent)?.role === 'lead'
+  const prewalk = spec.prewalk && lead ? prompts.kickoff.prewalk(spec.prewalk) : ''
   const context = spec.chat.context ? prompts.chat.context(spec.chat.context) : ''
   const spoken = spec.chat.voice ? prompts.chat.spoken : ''
   const changed = agent && spec.chat.accessNotices?.[agent] ? `${spec.chat.accessNotices[agent]}\n\n` : ''
-  const request = `${history}${changed}${context}[user] ${spec.chat.request}${attachedNote(attached)}${spoken}${plan}`
+  const request = `${history}${changed}${context}[user] ${spec.chat.request}${attachedNote(attached)}${spoken}${plan}${goal}${prewalk}`
   if (spec.tier === 'answer') return request
   const files = Object.keys(state.artifacts).filter((f) => !attached?.includes(f))
   const carried = files.length > 0 ? prompts.kickoff.carried(files) : ''

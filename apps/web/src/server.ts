@@ -362,6 +362,8 @@ const sendSchema = Schema.object({
   chatId: Schema.string().pattern(/^chat-[a-z0-9-]{1,40}$/),
   delivery: Schema.union(['steer', 'queue']),
   plan: Schema.boolean(),
+  // Goal mode: the text is `<condition>: <request>`, and the round goes on until the condition holds.
+  goal: Schema.boolean(),
   project: Schema.string().pattern(/^[a-z0-9-]{1,80}$/),
   // A new chat that continues another's conversation (Fork in the chat list).
   forkOf: Schema.string().pattern(/^chat-[a-z0-9-]{1,40}$/),
@@ -2435,6 +2437,7 @@ export function startServer(options: ServeOptions): WebServer {
               ...(body.delivery ? { delivery: body.delivery } : {}),
               attachments,
               planFirst: body.plan === true,
+              ...(body.goal ? { goal: true } : {}),
               ...(body.project ? { project: body.project } : {}),
               ...(body.forkOf && !body.chatId ? { forkOf: body.forkOf } : {}),
               ...(calls ? { context: calls.context } : {}),

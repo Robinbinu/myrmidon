@@ -394,6 +394,18 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
         })
         break
       }
+      case 'agent/handoff': {
+        const p = e.payload as EventPayloads['agent/handoff']
+        out.push({
+          ...base,
+          kind: 'team',
+          agent: p.agent,
+          lead: copy.steps.handedOffTo,
+          strong: p.model.split('/').pop() ?? p.model,
+          tail: copy.steps.handedOffFrom(p.previous.split('/').pop()),
+        })
+        break
+      }
       case 'agent/fallback': {
         const p = e.payload as EventPayloads['agent/fallback']
         out.push({
@@ -426,6 +438,17 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
       }
       case 'verifier/verdict': {
         const p = e.payload as EventPayloads['verifier/verdict']
+        // Goal mode's checks of the goal (goal#1, goal#2, …), each a step of its own.
+        if (p.target === 'goal') {
+          out.push({
+            ...base,
+            kind: p.pass ? 'verdict' : 'error',
+            agent: 'judge',
+            lead: p.pass ? copy.steps.goalMet : copy.steps.goalNotMet(p.verifierId.replace(/^goal#/, '')),
+            tail: p.pass ? undefined : cut(p.evidence, 160),
+          })
+          break
+        }
         // A round nobody reviews records its delivery as a verdict; no judge looked at it.
         if (p.target !== 'colony' || p.verifierId === DELIVERED_VERIFIER) break
         out.push({

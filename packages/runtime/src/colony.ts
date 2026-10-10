@@ -181,6 +181,13 @@ export interface RunOptions {
   readonly hooks?: HookStore
 }
 
+/**
+ * Prewalk's hand-off points: the lead's first change to the work (a file edit or write, or a task for the crew) means
+ * the plan is made. Like omp's, read-only steps and shell commands (often just looking) do not count.
+ */
+const PREWALK_AFTER = new Set(['fs_write', 'fs_edit', 'ast_edit', 'create_task'])
+/** Tools that answer or ask the person: calling one is not work toward a goal (see `_workedSince`). */
+const ANSWERING = new Set(['reply_user', 'reply_person', 'ask_user'])
 const isComputerTool = (tool: string) => (COMPUTER_TOOL_NAMES as readonly string[]).includes(tool)
 
 /**
@@ -280,6 +287,12 @@ export class ColonyRun implements ColonyHost {
   private readonly _afterBatch = new Map<string, (() => void)[]>()
   private readonly _idleSince = new Map<string, number>()
   private _failedVerifications = 0
+  /** Goal mode: checks of the goal so far, the log position of the latest, and whether one is running. */
+  private _goalChecks = 0
+  private _goalCheckedAt = 0
+  private _goalRunning = false
+  /** Prewalk hands off once a round: set when the lead has switched to the carry-out model (or could not). */
+  private _handedOff = false
   private _speakerOwesAnswer = false
   private _bootstrapAt = 0
   private _bootstrapped = 1
@@ -1160,6 +1173,8 @@ export class ColonyRun implements ColonyHost {
       ...(this.spec.review ? { review: this.spec.review } : {}),
       ...(this.fullAccess ? { fullAccess: true } : {}),
       ...(this.computer ? { computerUse: true } : {}),
+      ...(this.spec.goal ? { goal: this.spec.goal } : {}),
+      ...(this.spec.prewalk ? { prewalk: this.spec.prewalk } : {}),
       access: this.access(),
     }
   }
@@ -1858,8 +1873,12 @@ export class ColonyRun implements ColonyHost {
     return prompts.colony.chatClosing
   }
 
-  /** A chat round's final answer verifies itself: no judge completes it outright, otherwise the judge runs. */
+  /**
+   * A chat round's final answer verifies itself: no judge completes it outright, otherwise the judge runs. In goal
+   * mode the goal's condition is checked first, and the answer goes on to its review only once the goal holds.
+   */
   private async _verifyFinalAnswer(by: string) {
+    if (this.spec.goal && !this._settling && !(await this._goalHolds(by, this.spec.goal))) return
     if (this.spec.acceptance.length === 0 || this.spec.review === 'off' || this.spec.review === 'auto') {
       // Winding down, the round has its delivered verdict already, and nobody reviews this answer either.
       if (this._settling) return
@@ -1918,6 +1937,100 @@ export class ColonyRun implements ColonyHost {
       trigger: 'verdict',
       text: prompts.colony.fixFinalAnswer(report),
     })
+  }
+
+  /**
+   * Goal mode (after omp's goal mode and `/loop --until`): checks the goal on a final answer. While it fails, whoever
+   * answered hears the result and keeps working; the round stops once the checks run out, when nothing was done since
+   * the last check (omp's no-progress stop), or when the condition cannot be checked at all. The person's Stop ends it
+   * like any round. True when the goal holds.
+   */
+  private async _goalHolds(by: string, goal: NonNullable<ColonySpec['goal']>): Promise<boolean> {
+    // A check already running answers for this answer too, as a running review does.
+    if (this._goalRunning) return false
+    this._goalRunning = true
+    // Counted before anything is awaited: a round whose speaker has signed off must not close as quiet meanwhile.
+    this._verifying += 1
+    // The answer it signed off with does not meet the goal, so the sign-off no longer holds (a quick check can come
+    // back before that turn has even ended), and an earlier result it has not read yet is stale.
+    const keepGoing = (text: string) => {
+      this._reopen()
+      const agent = this._agents.get(by)
+      agent?.reopen('goal')
+      agent?.notify({ trigger: 'goal', text })
+      return false
+    }
+    try {
+      const conflicts = await this._mergeWorktrees()
+      if (conflicts) return keepGoing(prompts.colony.notVerified(conflicts))
+      const since = this._goalCheckedAt
+      const check = ++this._goalChecks
+      const outcome = await this._verifier.verifyGoal(goal, check, by)
+      this._goalCheckedAt = this._state.lastSeq
+      if (this._state.status !== 'running') return false
+      if (outcome.pass) return true
+      const stop = outcome.broken
+        ? prompts.colony.goalBroken(outcome.evidence.split('\n')[0] ?? '')
+        : check >= goal.maxChecks
+          ? prompts.colony.goalCapped(check)
+          : check > 1 && !(await this._workedSince(since))
+            ? prompts.colony.goalStalled
+            : undefined
+      if (stop) {
+        void this.stop(stop)
+        return false
+      }
+      return keepGoing(
+        prompts.colony.goalNotMet({
+          condition: goal.condition,
+          check,
+          max: goal.maxChecks,
+          report: outcome.evidence,
+        }),
+      )
+    } finally {
+      this._goalRunning = false
+      this._verifying -= 1
+    }
+  }
+
+  /**
+   * Prewalk (after omp's prewalk): the lead planned on its own model; at its first change it switches, once, to the
+   * cheaper carry-out model, its conversation intact, from its next step. Logged as `agent/handoff` and shown in the
+   * chat. In plan mode the lead changes nothing before the person approves the plan, so the switch follows approval.
+   * A carry-out model that cannot be used (signed out, removed) leaves the lead on its own model.
+   */
+  private async _handOff(name: string, after: string, target: string) {
+    const agent = this._agents.get(name)
+    if (agent?.spec.role !== 'lead' || this._handedOff) return
+    this._handedOff = true
+    const previous = agent.spec.model
+    if (previous === target || this._state.status !== 'running') return
+    try {
+      await this.resolver.requireCredentials(target)
+    } catch (err) {
+      console.warn(
+        `prewalk: staying on ${previous}: ${target} is not usable: ${err instanceof Error ? err.message : err}`,
+      )
+      return
+    }
+    agent.switchModel(target)
+    await this.append({
+      type: 'agent/handoff',
+      actor: SYSTEM,
+      payload: { agent: name, model: target, previous, after },
+    })
+    this._wake(name, prompts.colony.prewalkHandoff(target), 'prewalk')
+  }
+
+  /** Whether any agent did something (a tool call other than answering or asking) after log position `since`. */
+  private async _workedSince(since: number): Promise<boolean> {
+    return (await this.log.read(this.id)).some(
+      (e) =>
+        e.seq > since &&
+        e.type === 'tool/call' &&
+        !ANSWERING.has((e.payload as EventPayloads['tool/call']).tool),
+    )
   }
 
   batchEnded(agent: string): void {
@@ -2095,6 +2208,12 @@ export class ColonyRun implements ColonyHost {
             ),
           )
         }
+        break
+      }
+      case 'tool/result': {
+        const p = e.payload as EventPayloads['tool/result']
+        if (p.ok && this.spec.prewalk && !this._handedOff && PREWALK_AFTER.has(p.tool))
+          void this._handOff(p.agent, p.tool, this.spec.prewalk)
         break
       }
       case 'agent/turn':

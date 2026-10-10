@@ -8,6 +8,19 @@ import type {
   RoundAccess,
 } from './permissions.ts'
 
+/**
+ * Goal mode (`/goal <condition>: <request>`): the round goes on until `condition` holds, checked on each final answer
+ * (after omp's goal mode and `/loop --until`). `checks`: the project's own checks pass; `command`: the command exits 0;
+ * `judge`: the reviewer (`judge`, passing at `threshold`) finds the condition holds. At most `maxChecks` checks.
+ */
+export interface RoundGoal {
+  condition: string
+  check: { kind: 'checks' } | { kind: 'command'; run: string } | { kind: 'judge' }
+  maxChecks: number
+  judge: string
+  threshold: number
+}
+
 export type AgentStatus = 'provisioning' | 'ready' | 'working' | 'idle' | 'completed' | 'stopped' | 'failed'
 export type ColonyStatus = 'created' | 'running' | 'completed' | 'stopped' | 'failed'
 export type TaskStatus = 'pending' | 'in_progress' | 'submitted' | 'verified' | 'rejected' | 'deleted'
@@ -218,6 +231,13 @@ export interface EventPayloads {
     fullAccess?: boolean
     /** Agents may see and control the person's Mac (computer use); never set alongside `askAll`. */
     computerUse?: boolean
+    /** Goal mode: the round goes on until this holds (see `RoundGoal`). */
+    goal?: RoundGoal
+    /**
+     * Prewalk: the lead plans on its own model, then hands off once to this cheaper one to carry the plan out, at its
+     * first change (a file edit or a task); `agent/handoff` logs the switch.
+     */
+    prewalk?: string
     /** What the round's agents may do as it starts, to tell them what changed next time (see `RoundAccess`). */
     access?: RoundAccess
   }
@@ -429,6 +449,11 @@ export interface EventPayloads {
     kind: 'refusal' | 'error'
     message: string
   }
+  /**
+   * Prewalk: the lead planned on `previous` and, at its first change (`after`: the tool, e.g. fs_edit or create_task),
+   * handed off once to the cheaper `model` it carries the plan out on, its conversation intact.
+   */
+  'agent/handoff': { agent: string; model: string; previous: string; after: string }
   /**
    * The advisor (Settings → Crew & budget) read an agent's latest steps, saw a concrete problem, and steered the agent
    * with `note`, which it reads at its next step. Silent reviews are not logged.

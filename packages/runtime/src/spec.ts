@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { Schema } from '@myrmidon/core'
-import type { PermissionLevels, ProjectPermissions } from '@myrmidon/protocol'
+import type { PermissionLevels, ProjectPermissions, RoundGoal } from '@myrmidon/protocol'
 
 export type AcceptanceCheck =
   | {
@@ -119,6 +119,16 @@ export interface ColonySpec {
   thinking?: 'low' | 'medium' | 'high'
   /** Plan mode: present the plan for approval (ask_user) before any work. */
   planFirst?: boolean
+  /**
+   * Goal mode: each final answer is checked against the goal's condition, and the round goes on while it fails, up to
+   * its cap (see `RoundGoal`, ColonyRun._goalHolds).
+   */
+  goal?: RoundGoal
+  /**
+   * Prewalk: the lead plans on its own (strong) model, then hands off once to this cheaper model to carry the plan out,
+   * at its first change (ColonyRun._handOff). Taken from the team config or settings when a round starts.
+   */
+  prewalk?: string
 }
 
 /** `answer`: one agent replies directly; `solo`: one agent with every tool; `team`: the configured team. */

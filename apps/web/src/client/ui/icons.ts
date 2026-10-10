@@ -23,10 +23,12 @@ import {
   FishingHook,
   FolderKey,
   FolderTree,
+  Footprints,
   Gavel,
   GitBranch,
   Glasses,
   Globe,
+  Goal,
   GraduationCap,
   Keyboard,
   KeyRound,
@@ -122,6 +124,10 @@ export const FEATURE_ICONS = {
   fallback: LifeBuoy,
   /** The advisor: the model that watches agents' steps and sends one a note (Settings → Crew & budget, its notes). */
   advisor: Glasses,
+  /** Prewalk: the lead plans, then hands off to its carry-out model (Settings → Crew & budget, the round's line). */
+  prewalk: Footprints,
+  /** Goal mode: a round that keeps working until its goal holds (`/goal`, each check's line in the round). */
+  goal: Goal,
   /** Models removed from pickers, listed under Hidden models in Settings → Models to restore. */
   hiddenModels: EyeOff,
   /** Providers and their keys. */
