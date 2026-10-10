@@ -13,9 +13,13 @@ on:
         type: choice
         default: all
         options: [all, macos-latest, ubuntu-latest, windows-latest]
+      tests:
+        description: Only test files whose path contains one of these words (space-separated); empty runs all
+        type: string
+        default: ''
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.ref }}-${{ inputs.os || 'all' }}
   cancel-in-progress: true
 
 permissions:
@@ -37,14 +41,16 @@ jobs:
         if: runner.os == 'Windows'
         run: git config --global core.autocrlf false
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.14
 
-      - name: Cache Bun packages and the Electrobun toolchain
-        uses: actions/cache@v4
+      # Restore and save are split so a failing test run still keeps the cache for the next one.
+      - name: Restore Bun packages and the Electrobun toolchain
+        id: cache
+        uses: actions/cache/restore@v6
         with:
           path: |
             ~/.bun/install/cache
@@ -55,10 +61,19 @@ jobs:
       - run: bun install --frozen-lockfile
 
       - if: ${{ !cancelled() }}
-        run: bun run typecheck
+        run: bun run desktop:typecheck
+
+      - name: Save Bun packages and the Electrobun toolchain
+        if: ${{ !cancelled() && steps.cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            ~/.bun/install/cache
+            ~/.hutch/npm
+          key: ${{ runner.os }}-${{ runner.arch }}-bun-${{ hashFiles('bun.lock') }}
 
       - if: ${{ !cancelled() }}
-        run: bun run desktop:typecheck
+        run: bun run typecheck
 
       - if: ${{ !cancelled() }}
         run: bun run lint
@@ -74,4 +89,8 @@ jobs:
 
       - name: Test
         if: ${{ !cancelled() }}
-        run: bun test --timeout 30000
+        shell: bash
+        env:
+          TESTS: ${{ inputs.tests }}
+        # TESTS is deliberately unquoted: it is a list of path filters.
+        run: bun test --timeout 30000 $TESTS

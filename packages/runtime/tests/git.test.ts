@@ -58,6 +58,9 @@ test('status, working changes, history and a commit read from the project’s ow
 
 test('stage, unstage, discard and commit act only on the given project paths', async () => {
   sh('init', '-q', '-b', 'main')
+  // Commits made from the Git panel are the person's own, so they need the identity a person's git has (CI has none).
+  sh('config', 'user.name', 'Ada')
+  sh('config', 'user.email', 'ada@x')
   writeFileSync(join(dir, 'a.ts'), 'one\n')
   sh('add', '-A')
   sh('commit', '-qm', 'First commit')
