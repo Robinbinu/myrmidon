@@ -164,6 +164,10 @@ export function needsFull(method: string, path: string): boolean {
   // Skills and schedules are managed in Settings; a schedule can also deliver to a channel. Stream rules steer every
   // agent, as hooks do.
   if (write && /^\/api\/(settings|plugins|mcp|hooks|skills|schedules|rules)(\/|$)/.test(path)) return true
+  // Installing plugins and skills, the marketplaces and registry they come from: what runs as the person, and
+  // requests this gateway makes to the internet for them, reading included.
+  if (/^\/api\/(plugin-installs|plugin-marketplaces|skill-installs|skill-registry)(\/|$)/.test(path))
+    return true
   // Taking back apps a chat may control on the person's Mac is a permission change, as are a chat's preset or rules
   // and the folders it may read (approving a step, and remembering it for that chat, stays open: see the approvals
   // route).
