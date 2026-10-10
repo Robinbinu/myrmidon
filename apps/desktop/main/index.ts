@@ -1,6 +1,7 @@
 /**
  * The Myrmidon desktop app's main process (Electrobun, on Bun): it starts or finds the Myrmidon server, shows its
- * dashboard in a native window with macOS chrome and an app menu, and answers the page's bridge requests.
+ * dashboard in a native window with the platform's chrome and an app menu, and answers the page's bridge requests.
+ * What differs between macOS, Linux and Windows is decided in src/platform.ts.
  */
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -22,9 +23,10 @@ import {
   replyScript,
   shortcutScript,
 } from '../src/bridge.ts'
-import { COMPUTER_STOP_KEYS, TITLEBAR_INSET_PX, WINDOW_BUTTONS, WINDOW_SIZE } from '../src/config.ts'
+import { COMPUTER_STOP_KEYS, WINDOW_SIZE } from '../src/config.ts'
 import { desktopCopy } from '../src/copy.ts'
 import { setDockBadge } from '../src/dock.ts'
+import { asPlatform, executableName, menuFor, windowChrome } from '../src/platform.ts'
 import {
   freePort,
   loopbackOrigin,
@@ -35,6 +37,8 @@ import {
 } from '../src/server.ts'
 
 const t = desktopCopy
+const platform = asPlatform(process.platform)
+const chrome = windowChrome(platform)
 const home = myrmidonHome()
 const existing = await runningServer(home)
 const port = existing ? undefined : freePort()
@@ -47,10 +51,10 @@ const win = new BrowserWindow({
   // A server to start shows a loading page meanwhile; it loads asynchronously, so the dashboard waits for it below.
   ...(existing ? { url: existing.pageUrl } : { html: loadingPage() }),
   frame: { ...WINDOW_SIZE },
-  titleBarStyle: 'hiddenInset',
-  preload: preloadScript({ origin, secret, titlebarInsetPx: TITLEBAR_INSET_PX }),
+  titleBarStyle: chrome.titleBarStyle,
+  preload: preloadScript({ origin, secret, titlebarInsetPx: chrome.titlebarInsetPx }),
 })
-win.setWindowButtonPosition(WINDOW_BUTTONS.x, WINDOW_BUTTONS.y)
+if (chrome.buttons) win.setWindowButtonPosition(chrome.buttons.x, chrome.buttons.y)
 
 const run = (script: string) => win.webview.executeJavascript(script)
 
@@ -160,7 +164,7 @@ serverReady.then(
 /** The CLI to run `serve` with: the repository's source in development, the bundled executable in a built app. */
 function serverCommand(): { command: string[]; cwd?: string } {
   if (BuildConfig.getSync().isPackaged)
-    return { command: [join(PATHS.RESOURCES_FOLDER, 'app', 'sidecar', 'myrmidon')] }
+    return { command: [join(PATHS.RESOURCES_FOLDER, 'app', 'sidecar', executableName('myrmidon', platform))] }
   // Set by electrobun.config.ts at build time. Run from the repository so its bunfig.toml builds the dashboard's CSS.
   const repo = process.env.MYRMIDON_DESKTOP_REPO
   if (!repo) throw new Error('MYRMIDON_DESKTOP_REPO is not set')
@@ -169,7 +173,7 @@ function serverCommand(): { command: string[]; cwd?: string } {
 
 function menu(): ApplicationMenuItemConfig[] {
   const m = t.menu
-  return [
+  return menuFor(platform, [
     {
       label: t.appName,
       submenu: [
@@ -222,7 +226,7 @@ function menu(): ApplicationMenuItemConfig[] {
       label: m.window,
       submenu: [{ role: 'minimize' }, { role: 'zoom' }, { type: 'separator' }, { role: 'bringAllToFront' }],
     },
-  ]
+  ]) as ApplicationMenuItemConfig[]
 }
 
 /** What the window shows until the server answers: the app's background and one line, draggable like a title bar. */
