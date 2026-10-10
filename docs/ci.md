@@ -56,7 +56,7 @@ which are not gaps. `removeTempDir` and `expectOwnerOnly` keep cleanup and the p
 
 | Gap | Tests | What has to change |
 | --- | --- | --- |
-| `bwrapHiddenFolders` | read-access: *cannot read the home, other chats or keys…*; full-access: *with the sandbox off a chat runs commands…* | bubblewrap hides a folder with an empty, writable tmpfs, so `ls` there and writes into it succeed (into a throwaway layer) where macOS denies them (`sandbox.ts` `bwrapMounts`) |
+| `devtoolsPortOnLinux` | sandbox: *cannot reach a guarded loopback port…* | bubblewrap cannot filter ports, so sandboxed commands still reach the managed Chrome's DevTools port (every tab and its cookies). A network namespace per command would also cut them off from the dev servers they start and the browser loads, and slirp4netns or pasta (to give it the network back) are missing on most desktops; DevTools over a pipe needs a Bun that does not double-close it |
 
 ### Pending on Windows
 
