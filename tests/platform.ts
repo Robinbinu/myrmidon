@@ -13,9 +13,6 @@ export const GAPS = {
   bwrapHiddenFolders:
     'bubblewrap hides a folder with an empty writable tmpfs, so listing it or writing into it succeeds (into a ' +
     'throwaway layer) where macOS denies it (sandbox.ts bwrapMounts)',
-  voiceWarmupRace:
-    'a voice call whose page closed while the engines warmed up still greets once they are ready, so the next ' +
-    'call in the chat is spoken twice (apps/web voice gateway; seen on Linux every run)',
   sqliteHandles:
     'SQLite stores close with db.close() while prepared statements live (core sqlite-store.ts), so the file stays ' +
     'open until GC: on Windows deleting a chat fails with EBUSY (deleteColony) and test folders stay busy; ' +

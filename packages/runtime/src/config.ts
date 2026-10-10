@@ -867,6 +867,16 @@ export const VOICE_TRANSCRIPT_DAYS = 30
 /** How often a running gateway drops transcripts older than that. */
 export const VOICE_TRANSCRIPT_PRUNE_MS = 24 * 60 * 60_000
 /**
+ * A call's greeting (voice/greeting.ts): at most VOICE_GREETING_WORDS words, never one of the person's last
+ * VOICE_GREETING_RECENT lines. A chat's title is said only when it has at most VOICE_GREETING_TITLE_WORDS words and
+ * VOICE_GREETING_TITLE_CHARS characters; a call within VOICE_GREETING_AGAIN_MS of the last one opens with "again".
+ */
+export const VOICE_GREETING_WORDS = 25
+export const VOICE_GREETING_RECENT = 5
+export const VOICE_GREETING_TITLE_WORDS = 4
+export const VOICE_GREETING_TITLE_CHARS = 32
+export const VOICE_GREETING_AGAIN_MS = 15 * 60_000
+/**
  * Cloud voice providers (voice/providers.ts). A streaming speech to text is asked for the words of a turn once it ends,
  * and given VOICE_STT_FINISH_MS to send them before the turn falls back to a batch transcription. Speech that streams
  * in is passed on in pieces of at least VOICE_TTS_CHUNK_MS (a provider's body arrives in small parts). A request to a
