@@ -36,8 +36,14 @@ export const GAPS = {
     'Windows port (a test-side change, using processes.ts to list trees)',
   fileToolPathsOnWindows:
     'file tools refuse files inside scratch or the project on Windows ("path is outside your scratch directory: ' +
-    'notes.txt"): most likely the path is resolved with realpathSync.native to long names (C:\\Users\\runneradmin) ' +
-    'but compared with roots kept as given, in 8.3 short form from %TEMP% (C:\\Users\\RUNNER~1) (read-access.ts)',
+    'notes.txt"): roots come from realpathSync, which keeps 8.3 short names (C:\\Users\\RUNNER~1, as %TEMP% ' +
+    'has them), while the path checked comes from realpathSync.native, with long ones (C:\\Users\\runneradmin) ' +
+    '(workspace.ts:59 against read-access.ts realOrNone; projects.ts, skills.ts and instructions.ts mix them too)',
+  settingsPosixPaths:
+    "Settings' sandbox.read folders must match /^(~$|~\\/|\\/)/, so no Windows folder can be listed (settings.ts)",
+  timeoutStopOnWindows:
+    'a full-access command past its timeout is not stopped on Windows: run() does not return for the whole sleep ' +
+    '(sandbox.ts runLeashed, leash.ts)',
   windowsRoundsStall:
     'chat rounds that wait on approval cards, crew messages or a resume never reach their expected state on Windows ' +
     '(colony did not reach the expected state, 25 s); cause not yet isolated, possibly the file-tool refusals above',
