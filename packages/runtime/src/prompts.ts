@@ -918,6 +918,14 @@ ${roster}`,
     summaryHeader:
       '[Summary of your earlier work in this round. The full conversation is kept in the log; this replaces it to fit ' +
       'your context window.]',
+    /** Heads snapcompact's archive of the older part, whose own reading guide follows. */
+    archiveHeader:
+      '[Your earlier work in this round, archived to fit your context window. The full conversation is kept in the log.]',
+    /** Stands in for a bulky tool result shake elided; the round log keeps its text (cut when long), not its images. */
+    shaken: (tool: string, tokens: number, images: number) =>
+      `[${tool} output elided to fit your context window (~${tokens} tokens${images ? `, ${images} image${images === 1 ? '' : 's'}` : ''}). ` +
+      `The round log keeps its text: read_log(tool: "${tool}") finds the call and read_log(entry: n) shows it. Or ` +
+      'redo it: read the file again, re-run the command, fetch the page or take the screenshot again.]',
     /** What the summary must keep, on top of the summarizer's own format (after Qwen Code's compaction). */
     focus:
       'This agent works in a team round in Myrmidon. Keep, word for word, every message from the person ([user]) and ' +

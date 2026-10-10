@@ -354,12 +354,17 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
       }
       case 'agent/compacted': {
         const p = e.payload as EventPayloads['agent/compacted']
+        const method = p.methods?.at(-1) ?? 'summary'
+        const kTokens = Math.round(p.tokens / 1000)
         out.push({
           ...base,
           kind: 'think',
           agent: p.agent,
-          lead: copy.steps.compacted,
-          tail: copy.steps.compactedTail(p.messages, Math.round(p.tokens / 1000)),
+          lead: copy.steps.compacted[method],
+          tail:
+            method === 'shake'
+              ? copy.steps.shakenTail(p.elided ?? 0, kTokens)
+              : copy.steps.compactedTail(p.messages, kTokens),
         })
         break
       }

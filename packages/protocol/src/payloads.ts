@@ -12,6 +12,11 @@ export type AgentStatus = 'provisioning' | 'ready' | 'working' | 'idle' | 'compl
 export type ColonyStatus = 'created' | 'running' | 'completed' | 'stopped' | 'failed'
 export type TaskStatus = 'pending' | 'in_progress' | 'submitted' | 'verified' | 'rejected' | 'deleted'
 /**
+ * How an agent's context was made to fit its model's window: `shake` elided old bulky tool output, `snapcompact`
+ * archived the older part as text images a vision model reads, `summary` had a model summarize it.
+ */
+export type CompactionMethod = 'shake' | 'snapcompact' | 'summary'
+/**
  * A project's permissions: its level of the permission model (a preset, or "use global" when absent, its rules and
  * who may use what), and the folders beyond the project that sandboxed agents may read in its chats (never write;
  * `~` or absolute). See permissions.ts.
@@ -366,8 +371,23 @@ export interface EventPayloads {
   }
   /** Something a plugin put in the log (ctx.events.emit), for the UI and other plugins. */
   'plugin/event': { plugin: string; type: string; data: Record<string, unknown> }
-  /** An agent's context neared its model's window: its older messages were summarized for the model. */
-  'agent/compacted': { agent: string; messages: number; tokens: number; summaryChars: number }
+  /**
+   * An agent's context neared its model's window and was made to fit. `methods` ran in order, each because the ones
+   * before it left the context too big; the last settled it (logs from before there were methods hold `summary`).
+   * `messages` are folded into a summary or archive so far, `elided` the tool results shaken this time, `frames` the
+   * archive's images.
+   */
+  'agent/compacted': {
+    agent: string
+    messages: number
+    tokens: number
+    summaryChars: number
+    methods: CompactionMethod[]
+    elided: number
+    frames: number
+    /** The estimated context size after the pass. */
+    tokensAfter?: number
+  }
   /**
    * The prompt an agent starts with, by section: each section's key, the version of its words and a hash of what it
    * rendered, so two runs can be compared by what their agents were told. `totalTokens` is a rough size.

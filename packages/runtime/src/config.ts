@@ -1,3 +1,5 @@
+import type { CompactionMethod } from '@myrmidon/protocol'
+
 /**
  * The runtime's tunable limits, timeouts and retry counts, in one place so they can be read and changed together.
  * Some texts state a value too (an error saying "over 64 KB", say); change those with it.
@@ -19,6 +21,27 @@ export const KEEP_TURNS = 4
 /** The recent part kept word for word: this share of the usable window, at least `KEEP_MIN` tokens. */
 export const KEEP_SHARE = 0.25
 export const KEEP_MIN = 2_000
+/**
+ * How a context over the threshold is made to fit, cheapest first (after omp's `compaction.methodOrder`): each method
+ * runs only when the ones before it left the context over the threshold. `shake` elides old bulky tool output, which
+ * the round log keeps; `snapcompact` archives the older part as dense text images, without a model call, for models
+ * that read images (others skip it); `summary` has a model summarize it, and always fits.
+ */
+export const COMPACTION_ORDER: readonly CompactionMethod[] = ['shake', 'snapcompact', 'summary']
+/**
+ * A method settles a pass only if it leaves the context under this share of the threshold, so the next call does not
+ * cross it again at once and redo the work (omp's recovery band).
+ */
+export const COMPACTION_SETTLED = 0.8
+/** Tool results shake leaves alone below this size (text and images): small ones often carry the step's outcome. */
+export const SHAKE_MIN_TOKENS = 250
+/**
+ * Shake skips a pass that frees less than this share of the threshold (at most omp's 4k tokens), since every elision
+ * also invalidates the provider's cached prompt from that message on.
+ */
+export const SHAKE_MIN_SHARE = 0.05
+/** Tool output shake keeps: skill instructions the agent is following, and read_log, which reads elided output back. */
+export const SHAKE_KEPT_TOOLS: readonly string[] = ['use_skill', 'read_log']
 
 // Rounds (colony.ts)
 
