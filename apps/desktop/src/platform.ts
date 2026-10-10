@@ -48,6 +48,10 @@ export function windowChrome(platform: Platform): {
     : { titleBarStyle: 'default', titlebarInsetPx: 0 }
 }
 
+/** The toolbar's room for the window buttons now: none in full screen, where macOS hides the traffic lights. */
+export const titlebarInset = (chrome: { titlebarInsetPx: number }, fullScreen: boolean): number =>
+  fullScreen ? 0 : chrome.titlebarInsetPx
+
 /** Menu roles only AppKit has (hiding apps, bringing all windows forward); elsewhere they would be dead items. */
 const MAC_ONLY_ROLES = new Set(['hide', 'hideOthers', 'showAll', 'bringAllToFront'])
 
