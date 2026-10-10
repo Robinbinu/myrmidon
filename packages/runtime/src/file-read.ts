@@ -213,7 +213,7 @@ async function readArchive(path: string, name: string, entry?: string): Promise<
 /**
  * Opens a database for reading without writing beside it: no journal or WAL sidecar files appear in the person's
  * folder. A WAL database whose sidecars are missing opens immutable (as the file stands on disk): read-only it cannot
- * open on macOS and Linux, and on Windows it would create them.
+ * open on macOS and Linux, and on Windows it would create them, so there it opens immutable from the start.
  */
 async function openReadOnly(path: string): Promise<Database> {
   const { Database } = await import('bun:sqlite')
@@ -229,7 +229,8 @@ async function openReadOnly(path: string): Promise<Database> {
     }
   }
   const immutable = () => ready(new Database(`${pathToFileURL(path).href}?immutable=1`, { readonly: true }))
-  if (walWithoutSidecar(path)) return immutable()
+  // Windows would open it read-only, creating the sidecars; macOS and Linux refuse, and fall back below.
+  if (process.platform === 'win32' && walWithoutSidecar(path)) return immutable()
   try {
     return ready(new Database(path, { readonly: true }))
   } catch {
