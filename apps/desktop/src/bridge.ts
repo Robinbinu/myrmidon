@@ -92,6 +92,11 @@ export function replyScript(
   return `window.__myrmidonDesktopReply?.(${JSON.stringify(id)}, ${JSON.stringify(result.ok)}, ${JSON.stringify(value)})`
 }
 
+/** Sets the toolbar's room for the window buttons, on the dashboard only (the page the preload marked). */
+export function insetScript(px: number): string {
+  return `(() => { const root = document.documentElement; if (root.dataset.shell === 'desktop') root.style.setProperty('--titlebar-inset', ${JSON.stringify(`${px}px`)}) })()`
+}
+
 /** Runs the page's handler for a shortcut (`mod+n`), as an app-menu item does. */
 export function shortcutScript(combo: string): string {
   return `window.dispatchEvent(new CustomEvent(${JSON.stringify(DESKTOP_SHORTCUT_EVENT)}, { detail: ${JSON.stringify(combo)} }))`
