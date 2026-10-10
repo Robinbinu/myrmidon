@@ -56,7 +56,7 @@ export class ColonyWorkspace {
   scratch(agent: string): string {
     const dir = join(this.scratchRoot, agent)
     mkdirSync(dir, { recursive: true })
-    return realpathSync(dir)
+    return realpathSync.native(dir)
   }
 
   /** Where an agent's shell starts and its file tools work: its worktree, the project, or its scratch directory. */
@@ -149,7 +149,7 @@ export class ColonyWorkspace {
     const target = isAbsolute(path) ? path : resolve(root, path)
     let probe = target
     while (!existsSync(probe)) probe = dirname(probe)
-    const real = join(realpathSync(probe), relative(probe, target))
+    const real = join(realpathSync.native(probe), relative(probe, target))
     if (real !== root && !real.startsWith(root + sep)) {
       throw new Error(`path escapes your scratch directory: ${path}`)
     }

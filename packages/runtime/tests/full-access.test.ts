@@ -28,7 +28,7 @@ let runtime: Runtime
 beforeEach(async () => {
   home = mkdtempSync(join(tmpdir(), 'myr-full-'))
   // A folder that is neither the project nor any agent's scratch: only full access reaches it.
-  outside = realpathSync(mkdtempSync(join(tmpdir(), 'myr-outside-')))
+  outside = realpathSync.native(mkdtempSync(join(tmpdir(), 'myr-outside-')))
   runtime = await bootRuntime(home)
 })
 
@@ -150,8 +150,8 @@ pendingOn(
 test('a project set to full access has it with the sandbox on; a read-only project never does', async () => {
   const settings = new SettingsStore(home)
   const projects = new ProjectStore(home)
-  const folder = realpathSync(mkdtempSync(join(tmpdir(), 'myr-full-project-')))
-  const viewing = realpathSync(mkdtempSync(join(tmpdir(), 'myr-read-project-')))
+  const folder = realpathSync.native(mkdtempSync(join(tmpdir(), 'myr-full-project-')))
+  const viewing = realpathSync.native(mkdtempSync(join(tmpdir(), 'myr-read-project-')))
   try {
     const full = projects.setPermissions(projects.add(folder).id, { mode: 'full', allow: [] })
     const readOnly = projects.setPermissions(projects.add(viewing).id, { mode: 'read-only', allow: [] })
@@ -228,7 +228,7 @@ pendingOn('win32', 'windowsRoundsStall')(
     // write in the project waits for the person.
     settings.set({ ...settings.get(), permissions: { preset: 'full', rules: [] } })
     const projects = new ProjectStore(home)
-    const folder = realpathSync(mkdtempSync(join(tmpdir(), 'myr-ask-project-')))
+    const folder = realpathSync.native(mkdtempSync(join(tmpdir(), 'myr-ask-project-')))
     try {
       const project = projects.setPermissions(projects.add(folder).id, { mode: 'ask', allow: [] })
       const careful = models([

@@ -55,7 +55,7 @@ let project: string
 let toolchain: string
 
 beforeEach(() => {
-  root = realpathSync(mkdtempSync(join(tmpdir(), 'myr-reads-')))
+  root = realpathSync.native(mkdtempSync(join(tmpdir(), 'myr-reads-')))
   home = join(root, 'home')
   data = join(home, '.myrmidon')
   colony = join(data, 'colonies', 'mine')
@@ -157,7 +157,7 @@ notOn('win32', 'macProfile')(
     expect(at(`(allow file-read* (subpath "${colony}"))`)).toBeGreaterThan(
       at(`(deny file-read* (subpath "${data}"))`),
     )
-    expect(at(`(allow file-read* (subpath "${realpathSync(join(home, '.bun'))}"))`)).toBeGreaterThan(0)
+    expect(at(`(allow file-read* (subpath "${realpathSync.native(join(home, '.bun'))}"))`)).toBeGreaterThan(0)
     expect(at(`(allow file-write* (subpath "${scratch}"))`)).toBeGreaterThan(at('(deny file-write*)'))
     // Folders above an open one can be looked up, not listed.
     expect(profile).toContain(`(literal "${home}")`)
@@ -207,7 +207,7 @@ notOn('win32', 'bwrapMounts')(
     expect(index(`bind ${project}`)).toBeGreaterThan(index(`ro-bind ${project}`))
     expect(index(`ro-bind ${colony}`)).toBeGreaterThan(index(`tmpfs ${data}`))
     expect(index(`bind ${scratch}`)).toBeGreaterThan(index(`ro-bind ${colony}`))
-    expect(index(`ro-bind ${realpathSync(join(home, '.bun'))}`)).toBeGreaterThan(0)
+    expect(index(`ro-bind ${realpathSync.native(join(home, '.bun'))}`)).toBeGreaterThan(0)
     // A hidden file is covered with /dev/null, not a tmpfs.
     writeFileSync(join(home, '.netrc'), 'machine x password y')
     expect(bwrapMounts({ ...confined(), hidden: [join(home, '.netrc')], readable: [home] }, home)).toEqual(
@@ -232,69 +232,66 @@ test.skipIf(detectSandbox().kind === 'none')(
   },
 )
 
-pendingOn('win32', 'fileToolPathsOnWindows')(
-  'file tools refuse what the sandbox hides, open what the person allowed, and reach anything with full access',
-  () => {
-    let reads: string[] = []
-    let unconfined = false
-    const ws = new ColonyWorkspace(colony, project, () => unconfined, {
-      dataDir: data,
-      home,
-      reads: () => reads,
-    })
-    const agent = 'lead'
-    expect(ws.resolveForRead(agent, 'README.md')).toBe(join(project, 'README.md'))
-    expect(() => ws.resolveForRead(agent, `${home}/.zshrc`)).toThrow('outside your project')
-    expect(() => ws.resolveForRead(agent, '~/.zshrc')).toThrow('request_read')
-    expect(() => ws.resolveForRead(agent, `${other}/events.txt`)).toThrow('outside your project')
-    // A link in the project that points at the keys does not reach them.
-    symlinkSync(join(home, '.ssh'), join(project, 'keys'))
-    expect(() => ws.resolveForRead(agent, 'keys/id_ed25519')).toThrow('outside your project')
+test('file tools refuse what the sandbox hides, open what the person allowed, and reach anything with full access', () => {
+  let reads: string[] = []
+  let unconfined = false
+  const ws = new ColonyWorkspace(colony, project, () => unconfined, {
+    dataDir: data,
+    home,
+    reads: () => reads,
+  })
+  const agent = 'lead'
+  expect(ws.resolveForRead(agent, 'README.md')).toBe(join(project, 'README.md'))
+  expect(() => ws.resolveForRead(agent, `${home}/.zshrc`)).toThrow('outside your project')
+  expect(() => ws.resolveForRead(agent, '~/.zshrc')).toThrow('request_read')
+  expect(() => ws.resolveForRead(agent, `${other}/events.txt`)).toThrow('outside your project')
+  // A link in the project that points at the keys does not reach them.
+  symlinkSync(join(home, '.ssh'), join(project, 'keys'))
+  expect(() => ws.resolveForRead(agent, 'keys/id_ed25519')).toThrow('outside your project')
 
-    reads = [join(home, 'notes')]
-    expect(ws.resolveForRead(agent, '~/notes/todo.md')).toBe(join(home, 'notes', 'todo.md'))
-    // Reading is not writing.
-    expect(() => ws.resolveInWorkdir(agent, `${home}/notes/todo.md`)).toThrow('outside your project')
+  reads = [join(home, 'notes')]
+  expect(ws.resolveForRead(agent, '~/notes/todo.md')).toBe(join(home, 'notes', 'todo.md'))
+  // Reading is not writing.
+  expect(() => ws.resolveInWorkdir(agent, `${home}/notes/todo.md`)).toThrow('outside your project')
 
-    reads = [home]
-    expect(ws.mayRead(agent, join(home, 'notes', 'todo.md'))).toBe(true)
-    expect(ws.mayRead(agent, join(home, '.ssh', 'id_ed25519'))).toBe(false)
-    // Shell startup files, other agents' sign-ins and app data are keys too.
-    for (const secret of [
-      '.zshrc',
-      '.zshenv',
-      '.bashrc',
-      '.bash_profile',
-      '.profile',
-      '.omp/agent/agent.db',
-      '.claude/.credentials.json',
-      '.claude.json',
-      '.codex/auth.json',
-      '.gemini/oauth_creds.json',
-      '.terraform.d/credentials.tfrc.json',
-      '.vault-token',
-      '.pgpass',
-      '.gem/credentials',
-      '.m2/settings.xml',
-      '.zsh_sessions/x.history',
-      '.python_history',
-      '.psql_history',
-      '.yarnrc.yml',
-      '.gradle/gradle.properties',
-      '.composer/auth.json',
-      ...SYSTEM_SECRETS,
-    ])
-      expect({ secret, read: ws.mayRead(agent, join(home, secret)) }).toEqual({ secret, read: false })
-    expect(ws.mayRead(agent, join(home, '.m2', 'repository', 'x.jar'))).toBe(true)
-    expect(ws.mayRead(agent, join(home, '.dotnet', 'dotnet'))).toBe(true)
-    expect(ws.mayRead(agent, join(other, 'events.txt'))).toBe(false)
-    expect(ws.confinement().hidden).toEqual(expect.arrayContaining([data, join(home, '.ssh')]))
+  reads = [home]
+  expect(ws.mayRead(agent, join(home, 'notes', 'todo.md'))).toBe(true)
+  expect(ws.mayRead(agent, join(home, '.ssh', 'id_ed25519'))).toBe(false)
+  // Shell startup files, other agents' sign-ins and app data are keys too.
+  for (const secret of [
+    '.zshrc',
+    '.zshenv',
+    '.bashrc',
+    '.bash_profile',
+    '.profile',
+    '.omp/agent/agent.db',
+    '.claude/.credentials.json',
+    '.claude.json',
+    '.codex/auth.json',
+    '.gemini/oauth_creds.json',
+    '.terraform.d/credentials.tfrc.json',
+    '.vault-token',
+    '.pgpass',
+    '.gem/credentials',
+    '.m2/settings.xml',
+    '.zsh_sessions/x.history',
+    '.python_history',
+    '.psql_history',
+    '.yarnrc.yml',
+    '.gradle/gradle.properties',
+    '.composer/auth.json',
+    ...SYSTEM_SECRETS,
+  ])
+    expect({ secret, read: ws.mayRead(agent, join(home, secret)) }).toEqual({ secret, read: false })
+  expect(ws.mayRead(agent, join(home, '.m2', 'repository', 'x.jar'))).toBe(true)
+  expect(ws.mayRead(agent, join(home, '.dotnet', 'dotnet'))).toBe(true)
+  expect(ws.mayRead(agent, join(other, 'events.txt'))).toBe(false)
+  expect(ws.confinement().hidden).toEqual(expect.arrayContaining([data, join(home, '.ssh')]))
 
-    reads = []
-    unconfined = true
-    expect(ws.resolveForRead(agent, `${home}/.zshrc`)).toBe(join(home, '.zshrc'))
-  },
-)
+  reads = []
+  unconfined = true
+  expect(ws.resolveForRead(agent, `${home}/.zshrc`)).toBe(join(home, '.zshrc'))
+})
 
 // --- The three levels, through real chats -------------------------------------------------------------------
 
@@ -412,8 +409,8 @@ pendingOn('win32', 'settingsPosixPaths')(
 
 test("a project's readable folders open for its chats only, and it can never name keys or other chats", async () => {
   await setUpChats()
-  const folder = realpathSync(mkdtempSync(join(tmpdir(), 'myr-reads-project-')))
-  const plain = realpathSync(mkdtempSync(join(tmpdir(), 'myr-reads-plain-')))
+  const folder = realpathSync.native(mkdtempSync(join(tmpdir(), 'myr-reads-project-')))
+  const plain = realpathSync.native(mkdtempSync(join(tmpdir(), 'myr-reads-plain-')))
   try {
     const settings = new SettingsStore(myr)
     const projects = new ProjectStore(myr)

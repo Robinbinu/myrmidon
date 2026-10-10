@@ -101,7 +101,7 @@ export class ProjectWorktrees {
     const top = await run(project, ['rev-parse', '--show-toplevel'])
     if (top.code !== 0) return undefined
     const prefix = (await git(project, ['rev-parse', '--show-prefix'])).trim()
-    return new ProjectWorktrees(realpathSync(top.out.trim()), prefix, root, colony)
+    return new ProjectWorktrees(realpathSync.native(top.out.trim()), prefix, root, colony)
   }
 
   get(agent: string): { workdir: string; branch: string } | undefined {
@@ -123,7 +123,7 @@ export class ProjectWorktrees {
       await git(this.top, ['worktree', 'add', '-q', '-B', branch, path, base])
       await git(this.top, ['update-ref', baseRef, base])
     }
-    const real = realpathSync(path)
+    const real = realpathSync.native(path)
     const links = this.linkDependencies(real)
     const tree: Tree = { agent, branch, path: real, workdir: join(real, this.prefix), baseRef, links }
     this._trees.set(agent, tree)

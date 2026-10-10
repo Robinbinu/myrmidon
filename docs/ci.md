@@ -63,13 +63,10 @@ which are not gaps. `expectOwnerOnly` checks a private file the way each system 
 
 | Gap | Tests | What has to change |
 | --- | --- | --- |
-| `fileToolPathsOnWindows` | colony: *grep and glob…*; read-access: *file tools refuse what the sandbox hides…*; chat: 6 (project chat, browser tabs/uploads, hooks, secret kept out of the log, fs_edit, browser flow) | roots come from `realpathSync` (8.3 short names such as `RUNNER~1`) while checked paths come from `realpathSync.native` (long names), so files inside scratch or the project are refused |
 | `windowsRoundsStall` | chat: 9 (@name, member writing into a round, preset chat, someone else's round ×2, stopped-and-resumed round, allow all file changes, per-tool rules, review cards); full-access: 2 | rounds waiting on cards, crew messages or a resume never reach their state (25 s); cause not isolated, possibly the file-tool refusals |
 | `worktreesOnWindows` | worktrees: 5; chat: *team workers in a git project…* | `git add` in a worker's worktree trips over the linked `node_modules` ("paths are ignored") |
 | `cuaDriverOnWindows` | computer: 14; server-computer: 1 | no Cua Driver on Windows: its manifest and daemon never answer, so computer tools fail |
 | `processTreeTests` | children: 11 | the test reads process trees with `ps` and drives sh/sleep/trap and signals; it needs a Windows port (test-side) |
-| `dataFolderOnWindows` | server-project-file: 2; projects: 1 | project file and git views (and `readProjectFile`) still serve `.myrmidon/credentials.json` and keys |
-| `osSeparatorsInText` | instructions: 1; skills: 1 | paths shown to agents use `\` on Windows |
 | `bunWindowsSockets` | channels-irc: 7 | Bun 1.3.14 on Windows crashes (segfault, or exit 127) in the IRC raw-socket tests, ending the whole run |
 | `windowsShellPath` | sandbox: *keeps HOME and TMPDIR in the agent scratch* | commands run in Git's `sh.exe` with a PATH lacking Git's `usr\bin`: `mkdir: command not found` |
 | `timeoutStopOnWindows` | sandbox: *a full-access command that runs too long is stopped* | `run()` does not return at its timeout on Windows |

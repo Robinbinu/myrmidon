@@ -138,7 +138,7 @@ export function pathRules(spec: PathSpec, home: string): PathRule[] {
       path,
       access: 'read' as const,
     })),
-    ...spec.writable.map((d) => ({ path: realpathSync(d), access: 'write' as const })),
+    ...spec.writable.map((d) => ({ path: realpathSync.native(d), access: 'write' as const })),
   ]
   const seen = new Set<string>()
   return rules

@@ -4,7 +4,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Context as LlmContext } from '@oh-my-pi/pi-ai'
 import { createMockModel, type MockContent } from '@oh-my-pi/pi-ai/providers/mock'
-import { pendingOn } from '../../../tests/platform.ts'
 import {
   bootRuntime,
   ColonyRun,
@@ -138,7 +137,7 @@ test('two reviews asked for at the same moment start only one', async () => {
   expect(asked).toHaveLength(2)
 })
 
-pendingOn('win32', 'fileToolPathsOnWindows')('grep and glob search the working directory', async () => {
+test('grep and glob search the working directory', async () => {
   const resolver = new ModelResolver()
   scripted(resolver, 'mock/searcher', [
     [
