@@ -72,3 +72,28 @@ test('an answer to a question card reaches the chat with the question it answers
   expect({ status: res.status, body: await res.json() }).toMatchObject({ status: 200 })
   expect(got[0]).toMatchObject({ answers: { seq: 42, picks: [{ picked: ['Full listing'] }] } })
 })
+
+test('an ordinary message is accepted: answering a question card is optional', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'myr-send-'))
+  homes.push(home)
+  const got: string[] = []
+  const chats = {
+    onStream: () => () => {},
+    send: async (text: string) => {
+      got.push(text)
+      return {}
+    },
+  } as unknown as ChatService
+  const server = startServer({ home, port: 0, chats })
+  servers.push(server)
+  const res = await fetch(new URL('/api/chats', server.url.replace(/#.*$/, '')), {
+    method: 'POST',
+    headers: { authorization: `Bearer ${server.token}`, 'content-type': 'application/json' },
+    body: JSON.stringify({
+      text: 'hello',
+      config: { mode: 'orchestrated', leadModel: 'mock/lead', judgeModel: 'mock/lead' },
+    }),
+  })
+  expect({ status: res.status, body: await res.json() }).toMatchObject({ status: 200 })
+  expect(got).toEqual(['hello'])
+})
