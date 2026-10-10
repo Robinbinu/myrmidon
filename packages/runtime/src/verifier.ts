@@ -506,7 +506,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 }
 
 /** Tools that change files; a project round that used any of them gets its checks run by the judge. */
-const EDITING = new Set(['fs_write', 'fs_edit', 'shell'])
+const EDITING = new Set(['fs_write', 'fs_edit', 'ast_edit', 'shell'])
 const SEVERITIES = ['blocker', 'major', 'minor'] as const
 
 /** The judge's findings, kept only when well formed and ordered most serious first. */

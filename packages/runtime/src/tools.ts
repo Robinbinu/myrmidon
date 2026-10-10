@@ -25,6 +25,7 @@ import {
 } from '@myrmidon/protocol'
 import type { AgentTool, AgentToolResult } from '@oh-my-pi/pi-agent-core'
 import { type Model, type } from '@oh-my-pi/pi-ai'
+import type { ServerConfig } from '@oh-my-pi/pi-coding-agent/lsp/types'
 import * as natives from '@oh-my-pi/pi-natives'
 import type { ElementHandle } from 'puppeteer-core'
 import chatDoc from '../docs/chat.md' with { type: 'text' }
@@ -50,6 +51,15 @@ import {
   watched,
 } from './browser.ts'
 import { clockTime, localDate } from './clock.ts'
+import {
+  astEdit,
+  astGrep,
+  type FileChange,
+  LSP_ACTIONS,
+  type LspScope,
+  lsp,
+  lspWrites,
+} from './code-intel.ts'
 import { desktopTool } from './computer/desktop.ts'
 import { DESKTOP_TOOL } from './computer/names.ts'
 import {
@@ -65,6 +75,7 @@ import {
   FIND_TOOLS_LIMIT,
   GLOB_LIMIT,
   GREP_LIMIT,
+  LSP_PROJECT_CHECK_MS,
   MAX_ARTIFACT_BYTES,
   MAX_READ_CHARS,
   MCP_FAILURE_LIMIT,
@@ -122,6 +133,9 @@ interface ToolDef {
   /** For a tool whose description depends on the round's configuration: what this agent is told instead. */
   readonly describe?: (facts: PromptFacts) => string
   readonly parameters: ReturnType<typeof type>
+  /** For a tool only some of whose calls change things (lsp's rename): this call's tier, which `tier` is the least of. */
+  // biome-ignore lint/suspicious/noExplicitAny: arguments are validated against `parameters` by the agent loop
+  readonly tierOf?: (args: any) => Tier
   // biome-ignore lint/suspicious/noExplicitAny: arguments are validated against `parameters` by the agent loop
   run(args: any, agent: string, host: ColonyHost): Promise<string | ToolOutput>
 }
@@ -419,8 +433,13 @@ function concurrencyOf(def: Pick<ToolDef, 'name' | 'tier'>): 'shared' | 'exclusi
   return def.tier === 'read' || IN_PARALLEL.has(def.name) ? 'shared' : 'exclusive'
 }
 
+/** A call's tier: the tool's own, or what this call does when that depends on its arguments. */
+function tierOf(def: Pick<ToolDef, 'tier' | 'tierOf'>, params: unknown): Tier {
+  return def.tierOf?.(params ?? {}) ?? def.tier
+}
+
 /** File tools that read from the working directory, which is the person's project in a chat that has one. */
-const PROJECT_READS = new Set(['fs_read', 'fs_list', 'grep', 'glob'])
+const PROJECT_READS = new Set(['fs_read', 'fs_list', 'grep', 'glob', 'ast_grep', 'lsp'])
 
 /**
  * Whether a call reads the person's project rather than the agent's own scratch. A round someone else started
@@ -440,8 +459,20 @@ function readsProject(host: ColonyHost, agent: string, tool: string, params: unk
   return target !== scratch && !target.startsWith(scratch + sep)
 }
 
-/** Tools that decide their own calls once they know what they would do (the file, the command, the proposal). */
-const GUARDED = new Set(['fs_write', 'fs_edit', 'shell', 'start_server', 'run_checks', 'propose'])
+/**
+ * Tools that decide their own calls once they know what they would do (the file, the command, the proposal): those of
+ * their calls that are not reads.
+ */
+const GUARDED = new Set([
+  'fs_write',
+  'fs_edit',
+  'ast_edit',
+  'lsp',
+  'shell',
+  'start_server',
+  'run_checks',
+  'propose',
+])
 
 /** Tools that reach the web, in the agent's own fetcher or browser. */
 const WEB_TOOL = (name: string) =>
@@ -599,15 +630,20 @@ async function guardProjectEdit(
       ? new Error(prompts.toolResults.readOnly(project?.name ?? 'this chat', shown))
       : denied(`changing ${shown}`, verdict)
   if (verdict.decision === 'allow') return unchanged
-  const decision = await host.reviewChange(agent, tool, `${tool === 'fs_edit' ? 'edit' : 'write'} ${shown}`, {
-    review: fileReview(
-      tool === 'fs_edit' ? prompts.reviewCard.edit(shown) : prompts.reviewCard.write(shown),
-      shown,
-      change,
-    ),
-    key: change.key,
-    permission: { call, verdict },
-  })
+  const decision = await host.reviewChange(
+    agent,
+    tool,
+    `${tool === 'fs_write' ? 'write' : 'edit'} ${shown}`,
+    {
+      review: fileReview(
+        tool === 'fs_write' ? prompts.reviewCard.write(shown) : prompts.reviewCard.edit(shown),
+        shown,
+        change,
+      ),
+      key: change.key,
+      permission: { call, verdict },
+    },
+  )
   if (!decision.approved) throw new Error(prompts.toolResults.declined(`changing ${shown}`, decision.note))
   const edited = decision.edits?.content
   return edited === undefined ? unchanged : { content: edited, edited: true }
@@ -659,6 +695,100 @@ async function guardProjectCommand(
   })
   if (!decision.approved) throw new Error(prompts.toolResults.declined('this command', decision.note))
   return decision.edits?.command ?? command
+}
+
+/**
+ * Several files changed by one call (ast_edit, lsp rename), each decided as fs_edit decides one: every file is
+ * approved before any is written, so a change turned down halfway leaves none behind. Returns the files the person
+ * rewrote.
+ */
+async function writeChanges(
+  host: ColonyHost,
+  agent: string,
+  tool: string,
+  key: string,
+  changes: readonly FileChange[],
+): Promise<string[]> {
+  const approved: { path: string; content: string; edited: boolean }[] = []
+  for (const c of changes)
+    approved.push({ path: c.path, ...(await guardProjectEdit(host, agent, tool, c.path, { ...c, key })) })
+  for (const a of approved) writeFileSync(a.path, a.content)
+  return approved.filter((a) => a.edited).map((a) => a.path)
+}
+
+/** POSIX shell quoting, for the command line a language server starts with inside the sandbox. */
+const shQuote = (word: string) => `'${word.replaceAll("'", `'\\''`)}'`
+
+/** Language servers a person was asked about once in a round, by agent and command line: one card per server. */
+const serversAsked = new WeakMap<ColonyHost, Set<string>>()
+
+/**
+ * A language server, started as the agent's commands are: the permission model decides it like a command (a project's
+ * own lsp.json can name any program), and in the OS sandbox it runs confined like `shell`, with the same environment.
+ * Started through omp's client, which needs the server's pipes, so the confinement wraps its command line.
+ */
+async function launchServer(host: ColonyHost, agent: string, server: ServerConfig): Promise<ServerConfig> {
+  if (host.sandbox.kind === 'none' && !host.unsafeNoSandbox) throw new Error(prompts.codeIntel.needsSandbox)
+  const argv = [server.resolvedCommand ?? server.command, ...(server.args ?? [])]
+  const line = argv.join(' ')
+  const asked = serversAsked.get(host) ?? new Set<string>()
+  serversAsked.set(host, asked)
+  const verdict = host.permit(agent, { tool: 'lsp', kind: 'command', command: line, readOnly: false })
+  if (verdict.decision === 'deny') throw denied(`starting ${line}`, verdict)
+  if (verdict.decision === 'ask' && !asked.has(`${agent}\0${line}`)) {
+    await guardProjectCommand(host, agent, 'lsp', line)
+    asked.add(`${agent}\0${line}`)
+  }
+  if (host.sandbox.kind !== 'sandbox-exec' && host.sandbox.kind !== 'bubblewrap') return server
+  const spec = {
+    command: '',
+    cwd: host.workspace.workdir(agent),
+    writable: writableFor(host, agent),
+    ...host.workspace.confinement(),
+  }
+  const env = Object.entries(host.sandbox.env(spec)).flatMap(([k, v]) =>
+    v === undefined ? [] : [`${k}=${v}`],
+  )
+  const confined = host.sandbox.argv({
+    ...spec,
+    command: `exec /usr/bin/env -i ${[...env, ...argv].map(shQuote).join(' ')}`,
+  })
+  const [program = '', ...args] = confined
+  return { ...server, command: program, resolvedCommand: program, args }
+}
+
+/** Where an agent's code tools work, as code-intel.ts sees it: its working directory, read access, and writes. */
+function codeScope(host: ColonyHost, agent: string, tool: string, params: unknown): LspScope {
+  const key = receiptKey(host, agent, tool, params)
+  return {
+    root: host.workspace.workdir(agent),
+    resolveRead: (path) => host.workspace.resolveForRead(agent, path),
+    mayRead: (path) => host.workspace.mayRead(agent, path),
+    mayWrite: (path) => {
+      try {
+        host.workspace.resolveInWorkdir(agent, path)
+        return true
+      } catch {
+        return false
+      }
+    },
+    write: (changes) => writeChanges(host, agent, tool, key, changes),
+    launch: (server) => launchServer(host, agent, server),
+    async check(command) {
+      if (host.sandbox.kind === 'none' && !host.unsafeNoSandbox)
+        throw new Error(prompts.codeIntel.needsSandbox)
+      const run = await guardProjectCommand(host, agent, tool, command)
+      const r = await host.sandbox.run({
+        command: run,
+        cwd: host.workspace.workdir(agent),
+        writable: writableFor(host, agent),
+        ...host.workspace.confinement(),
+        timeoutMs: LSP_PROJECT_CHECK_MS,
+      })
+      const tail = `${r.stdout}\n${r.stderr}`.trim().split('\n').slice(-80).join('\n')
+      return { ok: !r.timedOut && r.code === 0, output: r.timedOut ? `timed out\n${tail}` : tail }
+    },
+  }
 }
 
 /** Tools whose results are outside content an agent must treat as data, never as instructions. */
@@ -1642,6 +1772,57 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       const matches = readableMatches(host, agent, target, result.matches)
       if (matches.length === 0) return `No files match ${args.pattern}.`
       return matches.map((m) => relative(root, resolve(target, m.path)) || m.path).join('\n')
+    },
+  },
+  {
+    name: 'ast_grep',
+    tier: 'read',
+    description: prompts.tools.ast_grep.description(PLACE),
+    describe: (f) => prompts.tools.ast_grep.description(placeOf(f)),
+    parameters: type({
+      pattern: type('string').atLeastLength(1).describe(prompts.tools.ast_grep.params.pattern),
+      'path?': type('string').describe(prompts.tools.ast_grep.params.path),
+      'glob?': type('string').describe(prompts.tools.ast_grep.params.glob),
+      'lang?': type('string').describe(prompts.tools.ast_grep.params.lang),
+      'skip?': type('number').describe(prompts.tools.ast_grep.params.skip),
+    }),
+    async run(args, agent, host) {
+      return astGrep(codeScope(host, agent, 'ast_grep', args), args)
+    },
+  },
+  {
+    name: 'ast_edit',
+    tier: 'write',
+    description: prompts.tools.ast_edit.description(PLACE),
+    describe: (f) => prompts.tools.ast_edit.description(placeOf(f)),
+    parameters: type({
+      pattern: type('string').atLeastLength(1).describe(prompts.tools.ast_edit.params.pattern),
+      rewrite: type('string').describe(prompts.tools.ast_edit.params.rewrite),
+      'path?': type('string').describe(prompts.tools.ast_edit.params.path),
+      'glob?': type('string').describe(prompts.tools.ast_edit.params.glob),
+      'lang?': type('string').describe(prompts.tools.ast_edit.params.lang),
+      'preview?': type('boolean').describe(prompts.tools.ast_edit.params.preview),
+    }),
+    async run(args, agent, host) {
+      return astEdit(codeScope(host, agent, 'ast_edit', args), args)
+    },
+  },
+  {
+    name: 'lsp',
+    tier: 'read',
+    tierOf: (args) => (lspWrites(args) ? 'write' : 'read'),
+    description: prompts.tools.lsp.description(PLACE),
+    describe: (f) => prompts.tools.lsp.description(placeOf(f)),
+    parameters: type({
+      action: type.enumerated(...LSP_ACTIONS).describe(prompts.tools.lsp.params.action),
+      'path?': type('string').describe(prompts.tools.lsp.params.path),
+      'line?': type('number').describe(prompts.tools.lsp.params.line),
+      'symbol?': type('string').describe(prompts.tools.lsp.params.symbol),
+      'query?': type('string').describe(prompts.tools.lsp.params.query),
+      'newName?': type('string').describe(prompts.tools.lsp.params.newName),
+    }),
+    async run(args, agent, host) {
+      return lsp(codeScope(host, agent, 'lsp', args), args)
     },
   },
   {
@@ -3135,7 +3316,9 @@ function harnessTools(
         parameters: def.parameters,
         intent: 'omit',
         approval: def.tier,
-        concurrency: concurrencyOf(def),
+        concurrency: def.tierOf
+          ? (args: unknown) => concurrencyOf({ name: def.name, tier: tierOf(def, args) })
+          : concurrencyOf(def),
         async execute(callId: string, params: unknown): Promise<AgentToolResult> {
           const actor = agentActor(agent)
           await host.append({
@@ -3146,8 +3329,9 @@ function harnessTools(
           let output: string
           let images: ToolOutput['images'] = []
           let ok = true
+          const tier = tierOf(def, params)
           // Calls that write get receipts; commands may rightly run twice, and reads change nothing.
-          const key = def.tier === 'write' ? receiptKey(host, agent, def.name, params) : undefined
+          const key = tier === 'write' ? receiptKey(host, agent, def.name, params) : undefined
           const kept = key === undefined ? undefined : host.state().receipts[key]
           try {
             if (!allow.has(def.name)) throw new Error(`${def.name} is not allowed for ${agent}`)
@@ -3156,22 +3340,21 @@ function harnessTools(
             if (kept !== undefined) throw new AlreadyDone(kept)
             if (COPY_CHECKED.has(def.name)) await flagIfCopied(host, agent, def.name, params)
             // File changes, commands and proposals are decided where the change is known (guardProject*).
-            const edited = GUARDED.has(def.name)
-              ? false
-              : await askFirst(
-                  host,
-                  agent,
-                  def.name,
-                  params,
-                  callOf(host, agent, def.tier, def.name, params),
-                  key,
-                )
+            const edited =
+              GUARDED.has(def.name) && tier !== 'read'
+                ? false
+                : await askFirst(
+                    host,
+                    agent,
+                    def.name,
+                    params,
+                    callOf(host, agent, tier, def.name, params),
+                    key,
+                  )
             await host.beforeTool(agent, def.name, params)
             const run = () => def.run(params ?? {}, agent, host)
             const result =
-              def.tier === 'read' || IN_PARALLEL.has(def.name)
-                ? await run()
-                : await inCallOrder(host, agent, run)
+              tier === 'read' || IN_PARALLEL.has(def.name) ? await run() : await inCallOrder(host, agent, run)
             output = typeof result === 'string' ? result : result.text
             // The person's hooks speak for the harness: their note stays outside any untrusted-content block.
             const hookNote = await host.afterTool(agent, def.name, params, output)
