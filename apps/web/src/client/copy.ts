@@ -2058,6 +2058,7 @@ export const copy = {
       git: 'Git',
       shell: 'Terminal',
       computer: 'Computer',
+      browser: 'Browser',
       tasks: 'Tasks',
       team: 'Crew',
       mail: 'Mail',
@@ -2179,6 +2180,99 @@ export const copy = {
     /** Under the page while the person drives it; `paste` and `leave` are shortcuts such as ⌘V and ⌘. */
     controlHint: (agent: string, paste: string, leave: string) =>
       `Click and type in the page as usual; ${paste} pastes. ${leave} leaves the page. ${agent} waits until you hand it back.`,
+  },
+
+  /** The person's own browser in the workspace, with tabs, like Claude Code's browser pane. */
+  browser: {
+    tabsLabel: 'Browser tabs',
+    newTab: 'New tab',
+    newTabFull: (max: number) => `At most ${max} tabs can be open`,
+    closeTab: (title: string) => `Close ${title}`,
+    untitled: 'New tab',
+    /** A tab showing an HTML file opened from the person's computer. */
+    fileTab: (name: string) => `${name} (from your computer)`,
+    back: 'Back',
+    forward: 'Forward',
+    reload: 'Reload',
+    address: 'Address',
+    addressPlaceholder: 'Type an address, like localhost:3000',
+    options: 'Browser options',
+    maximise: 'Maximise',
+    restore: 'Restore',
+    pageLabel: (title: string) => `Page: ${title}`,
+    /** The field that carries the person's typing into the page. */
+    keyboardLabel: (title: string) => `Type into ${title}`,
+    connecting: 'Opening the page…',
+    unavailable: 'No browser on this Myrmidon',
+    unavailableBody:
+      'Install Google Chrome or Chromium on this computer, or set MYR_CHROME to one, then restart Myrmidon.',
+    /** Under the page while it has the keyboard; `paste` and `leave` are shortcuts such as ⌘V and ⌘. */
+    keyboardHint: (paste: string, leave: string) =>
+      `The page has the keyboard: ${paste} pastes into it and ${leave} leaves it.`,
+    /** What the address bar refused, by the server's reason. */
+    refused: {
+      scheme:
+        'Only web pages open here: file:, javascript: and chrome: addresses reach this computer’s files and internals.',
+      address: 'That isn’t a web address. Type one like example.com or localhost:3000.',
+      size: 'That file is too large to open here.',
+      full: 'Close a tab first: the browser has as many open as it can hold.',
+      missing: 'That tab was closed.',
+      private: 'Addresses on your local network (a router, another computer) don’t open in this browser.',
+    },
+    blocked: (site: string) =>
+      `${site} is a port on this computer that isn’t one of your allowed sites, so the browser didn’t open it.`,
+    /** A page itself (a link, a script, a redirect) tried to open a local address; `from` is its host. */
+    pageRefusedLocal: (from: string, site: string) =>
+      `${from || 'This page'} tried to open ${site}, a port on this computer that isn’t one of your allowed sites. If you meant to open it, type it in the address bar.`,
+    pageRefusedNetwork: (from: string, site: string) =>
+      `${from || 'This page'} tried to open ${site} on your local network, which this browser doesn’t open.`,
+    allowAndOpen: 'Allow and open',
+    allow: 'Allow',
+    menu: {
+      openOutside: 'Open in your browser',
+      copyUrl: 'Copy URL',
+      copied: 'URL copied',
+      screenshot: 'Save screenshot',
+      screenshotName: 'screenshot.png',
+      openFile: 'Open HTML file…',
+      openFileLabel: 'Choose an HTML file',
+      viewport: 'Viewport',
+      viewports: {
+        responsive: 'Responsive',
+        phone: 'Phone · 390 × 844',
+        tablet: 'Tablet · 820 × 1180',
+        desktop: 'Desktop · 1440 × 900',
+      },
+      linksHere: 'Open links in built-in browser',
+      linksHereDetail: 'Links in chats open in a tab here',
+      allowedSites: 'Manage allowed sites…',
+      cookies: 'Keep cookies',
+      cookieModes: {
+        quit: 'Until quit',
+        always: 'Always',
+        never: 'Never',
+      },
+      cookieDetail: {
+        quit: 'Forgotten when Myrmidon quits',
+        always: 'Kept across restarts in a file on this computer, which agents with full access could read',
+        never: 'Forgotten when you close the last tab',
+      },
+      clear: 'Clear browsing data',
+      clearConfirm: 'Yes, clear browsing data',
+      clearWarning: 'Signs you out of every site here.',
+      cleared: 'Browsing data cleared',
+    },
+    sites: {
+      title: 'Allowed sites',
+      body: 'Pages here reach the internet, this Myrmidon and its agent-built pages. Other servers on this computer open only once you allow their port. Agents’ browsers keep their own tabs and cookies. Agents with full access run as you and could still reach this browser, as could sandboxed agents on Linux, whose sandbox can’t shut out one port.',
+      empty: 'No other ports allowed yet.',
+      add: 'Add',
+      addLabel: 'Port or address on this computer',
+      addPlaceholder: 'localhost:3000',
+      invalid: 'Give a port on this computer, like 3000 or localhost:3000.',
+      remove: (site: string) => `Remove ${site}`,
+      back: 'Back to options',
+    },
   },
 
   app: {
