@@ -301,6 +301,10 @@ async function main() {
       if (!arg) throw new Error('usage: myrmidon run <colony.yaml>')
       return run(arg)
     case 'serve': {
+      // The desktop app names the server it starts with this (apps/desktop/src/server.ts), to tell its server.json
+      // from another server's for the same home. Taken out first, so nothing this server starts inherits it.
+      const launch = process.env.MYRMIDON_LAUNCH_ID
+      delete process.env.MYRMIDON_LAUNCH_ID
       const runtime = await bootRuntime(home)
       await recover(runtime)
       const settings = new SettingsStore(home)
@@ -395,6 +399,8 @@ async function main() {
         ...(values['preview-port'] ? { previewPort: Number(values['preview-port']) } : {}),
         ...(values['preview-url'] ? { previewUrl: values['preview-url'] } : {}),
         debug: values.debug,
+        // The desktop app stops the server it started this way: Windows has no SIGTERM for it to send.
+        onShutdown: () => void shutdown(),
       })
       console.log(`${c.bold('Myrmidon')} ${server.url}`)
       // Speech engines load in the background now, so the first call does not wait on them.
@@ -426,6 +432,7 @@ async function main() {
           url: server.url.replace(/#.*$/, ''),
           token: server.token,
           pid: process.pid,
+          ...(launch ? { launch } : {}),
           remote: server.remote,
           ...(server.publicUrl ? { publicUrl: server.publicUrl } : {}),
           ...(server.previewUrl ? { previewUrl: server.previewUrl } : {}),
@@ -434,17 +441,20 @@ async function main() {
           mode: 0o600,
         },
       )
-      const shutdown = async () => {
-        console.log(c.yellow('\nstopping running colonies…'))
-        rmSync(serverFile, { force: true })
-        await chats.stopAll()
-        await browser.close().catch(() => {})
-        await computer.stop().catch(() => {})
-        await mcp.close().catch(() => {})
-        await server.stop()
-        await runtime.dispose()
-        process.exit(0)
-      }
+      // Once, however many ways the stop arrives (the desktop app's request, then its signal if that is slow).
+      let stopping: Promise<void> | undefined
+      const shutdown = () =>
+        (stopping ??= (async () => {
+          console.log(c.yellow('\nstopping running colonies…'))
+          rmSync(serverFile, { force: true })
+          await chats.stopAll()
+          await browser.close().catch(() => {})
+          await computer.stop().catch(() => {})
+          await mcp.close().catch(() => {})
+          await server.stop()
+          await runtime.dispose()
+          process.exit(0)
+        })())
       process.on('SIGINT', shutdown)
       // systemd stops a service with SIGTERM.
       process.on('SIGTERM', shutdown)
