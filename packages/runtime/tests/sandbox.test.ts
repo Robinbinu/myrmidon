@@ -5,6 +5,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readdirSync,
+  readFileSync,
   realpathSync,
   rmSync,
   writeFileSync,
@@ -152,15 +153,20 @@ pendingOn('win32', 'timeoutStopOnWindows')(
   async () => {
     const marker = join(root, 'late')
     const started = Date.now()
+    const log = join(root, 'leash.log')
     const running = unconfinedSandbox().run({
       command: `(sleep 3 && touch "${marker}") & sleep 30`,
       cwd: root,
       writable: [root],
       timeoutMs: 500,
+      env: { MYR_LEASH_LOG: log },
     })
     const r = await Promise.race([running, Bun.sleep(10_000)])
-    // Says what is still running below this process when the command was not stopped.
-    if (!r) throw new Error(`not stopped: ${JSON.stringify(below(process.pid))}`)
+    // Says what is still running, and what the leash saw (leash.ts MYR_LEASH_LOG), when the command was not stopped.
+    if (!r)
+      throw new Error(
+        `not stopped: ${JSON.stringify(below(process.pid))}\n${existsSync(log) ? readFileSync(log, 'utf8') : 'no sweep'}`,
+      )
     expect(r.timedOut).toBe(true)
     expect(r.code).toBeNull()
     expect(Date.now() - started).toBeLessThan(10_000)

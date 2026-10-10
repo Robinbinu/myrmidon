@@ -84,7 +84,7 @@ function pathWith(bin: string): Record<string, string> {
 /** Starts the stand-in Myrmidon with one kind of child and waits until it says the child runs. */
 async function startParent(kind: string, dir: string, env: Record<string, string> = {}) {
   const parent = Bun.spawn([process.execPath, PARENT, kind, dir], {
-    env: { ...process.env, ...env },
+    env: { ...process.env, MYR_LEASH_LOG: join(dir, 'leash.log'), ...env },
     stdin: 'pipe',
     stdout: 'pipe',
     stderr: 'pipe',
@@ -113,9 +113,12 @@ async function orphansAfterKill(kind: string, env?: Record<string, string>) {
   parent.kill('SIGKILL')
   await parent.exited
   const left = await waitGone(children.filter((p) => !words.includes(p)))
-  // With their command lines, so a failure says what outlived the parent.
+  // With their command lines and what the leash saw (leash.ts MYR_LEASH_LOG), so a failure says what outlived the
+  // parent and why.
   const rows = processes()
-  return { children, left: left.map((p) => `${p} ${rows.get(p)?.command ?? ''}`), words }
+  const log = join(dir, 'leash.log')
+  const swept = left.length && existsSync(log) ? [readFileSync(log, 'utf8')] : []
+  return { children, left: [...left.map((p) => `${p} ${rows.get(p)?.command ?? ''}`), ...swept], words }
 }
 
 test('a leashed command and all it started stop when the parent is SIGKILLed, one ignoring SIGTERM too', async () => {
