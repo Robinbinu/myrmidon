@@ -11,7 +11,9 @@ files (`outputs`) it will produce.
   Objective, Deliverable, Approach, Done when, and Not in scope (see `working`).
 - `claim_task(id, revision)` — pass the revision you read; stale claims are refused, so two agents can never
   hold the same task.
-- `submit_task(id, revision, artifacts)` — the verifier checks the task and reports back.
+- `submit_task(id, revision, artifacts)` — the verifier checks the task and reports back. A task that names
+  `outputs` must submit them: submitting without one is refused at once, naming what is missing. A task with no
+  `outputs` (a finding, a decision, a reply) passes on its notes and messages.
 - `release_task` gives a task back; tasks held by an agent that went quiet are released automatically.
 - `reject_task(id, revision, reason)` — the lead (or a crewmate in a swarm) sends submitted or verified work back with
   a required reason; the owner is woken with it, claims the task again, and fixes exactly that.
