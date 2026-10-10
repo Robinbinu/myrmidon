@@ -17,10 +17,18 @@ export const RULE_DECISIONS: readonly RuleDecision[] = ['allow', 'ask', 'deny']
 /**
  * What a rule names. `tool`: a built-in, plugin or made tool by name. `edit`: `*`, every file change. `command`: a
  * command prefix (`bun test`), or `*` for every command. `mcp-server`: a server's name, or `*` for every MCP tool.
- * `mcp-tool`: one MCP tool's full name (`mcp__github_create_issue`).
+ * `mcp-tool`: one MCP tool's full name (`mcp__github_create_issue`). `ssh-host`: a remote host the person added
+ * (Settings → Tools → Remote hosts) by its name, or `*` for every host.
  */
-export type RuleKind = 'tool' | 'edit' | 'command' | 'mcp-server' | 'mcp-tool'
-export const RULE_KINDS: readonly RuleKind[] = ['tool', 'edit', 'command', 'mcp-server', 'mcp-tool']
+export type RuleKind = 'tool' | 'edit' | 'command' | 'mcp-server' | 'mcp-tool' | 'ssh-host'
+export const RULE_KINDS: readonly RuleKind[] = [
+  'tool',
+  'edit',
+  'command',
+  'mcp-server',
+  'mcp-tool',
+  'ssh-host',
+]
 
 /** Who a rule or a tool group applies to: the lead (the agent that speaks for the chat), or its crew. */
 export type AgentRole = 'lead' | 'crew'
@@ -35,7 +43,16 @@ export interface PermissionRule {
 }
 
 /** Groups of tools a role may be given or not ("who can use what"). */
-export type AccessGroup = 'files' | 'shell' | 'web' | 'browser' | 'mcp' | 'computer' | 'messaging' | 'plugins'
+export type AccessGroup =
+  | 'files'
+  | 'shell'
+  | 'web'
+  | 'browser'
+  | 'mcp'
+  | 'remote'
+  | 'computer'
+  | 'messaging'
+  | 'plugins'
 export const ACCESS_GROUPS: Readonly<Record<AccessGroup, readonly string[]>> = {
   files: [
     'fs_write',
@@ -57,6 +74,7 @@ export const ACCESS_GROUPS: Readonly<Record<AccessGroup, readonly string[]>> = {
     'eval',
     'debug',
     'run_checks',
+    'autoresearch',
     'start_server',
     'server_logs',
     'stop_server',
@@ -82,6 +100,8 @@ export const ACCESS_GROUPS: Readonly<Record<AccessGroup, readonly string[]>> = {
   ],
   // `mcp` stands for every tool of the connected MCP servers.
   mcp: ['mcp'],
+  // Commands and file reads on the person's remote hosts over SSH.
+  remote: ['ssh'],
   // Cua Driver's computer tool with the tools that open and list the apps it works in, and omp's desktop engine.
   computer: ['computer', 'open_app', 'list_apps', 'desktop'],
   messaging: ['message', 'create_group', 'update_group', 'append_note'],
@@ -95,6 +115,7 @@ export const LEAD_WORK_GROUPS: readonly AccessGroup[] = [
   'web',
   'browser',
   'mcp',
+  'remote',
   'computer',
 ]
 
@@ -122,9 +143,11 @@ export interface PermissionLevels {
  */
 export interface PermissionCall {
   readonly tool: string
-  readonly kind: 'read' | 'colony' | 'web' | 'edit' | 'command' | 'mcp' | 'proposal' | 'other'
+  readonly kind: 'read' | 'colony' | 'web' | 'edit' | 'command' | 'mcp' | 'ssh' | 'proposal' | 'other'
   readonly command?: string
   readonly mcp?: { readonly server: string; readonly readOnly: boolean }
+  /** A call on one of the person's remote hosts, by the name they gave it. */
+  readonly ssh?: { readonly host: string }
   readonly where?: 'project' | 'private' | 'outside'
   readonly edits?: boolean
   readonly readOnly?: boolean
@@ -186,6 +209,8 @@ export function ruleMatches(rule: PermissionRule, call: PermissionCall, role?: A
       return call.kind === 'mcp' && rule.target === call.tool
     case 'mcp-server':
       return call.kind === 'mcp' && !!call.mcp && (rule.target === '*' || rule.target === call.mcp.server)
+    case 'ssh-host':
+      return call.kind === 'ssh' && !!call.ssh && (rule.target === '*' || rule.target === call.ssh.host)
     case 'edit':
       return call.kind === 'edit' || (call.kind === 'proposal' && !!call.edits)
     case 'command':
@@ -250,6 +275,9 @@ export function presetDecision(preset: PermissionPreset, call: PermissionCall): 
       return 'ask'
     case 'mcp':
       return call.mcp?.readOnly || preset === 'full' ? 'allow' : 'ask'
+    // Another computer is outside every sandbox: only full access or a rule for the host lets a call run unasked.
+    case 'ssh':
+      return preset === 'full' ? 'allow' : 'ask'
     case 'edit': {
       if (call.where === 'private' || preset === 'full') return 'allow'
       if (preset === 'read-only') return 'deny'
@@ -266,7 +294,7 @@ export function presetDecision(preset: PermissionPreset, call: PermissionCall): 
 }
 
 /**
- * Whether a whole tool is denied to this role (by its name, its MCP server, or every MCP tool): such a tool is left
+ * Whether a whole tool is denied to this role (by its name, its MCP server, every MCP tool, or every remote host): such a tool is left
  * out of the agent's tools altogether, since no level could let it run.
  */
 export function toolHidden(
@@ -284,7 +312,8 @@ export function toolHidden(
           (r.kind === 'mcp-server' &&
             (r.target === '*'
               ? tool === 'mcp' || tool.startsWith('mcp__')
-              : server !== undefined && r.target === server))),
+              : server !== undefined && r.target === server)) ||
+          (r.kind === 'ssh-host' && r.target === '*' && tool === 'ssh')),
     ),
   )
 }
@@ -1442,7 +1471,7 @@ export interface PermissionOffer extends Omit<PermissionRule, 'decision'> {
 
 /**
  * What an approval card may remember for a call, most specific first: a command's prefixes then every command; an
- * MCP tool then its server; file changes; or the tool itself. A command offers its prefixes only when remembering them
+ * MCP tool then its server; a remote host; file changes; or the tool itself. A command offers its prefixes only when remembering them
  * all would cover it: it is simple, no part lacks a prefix it may be remembered by, and it is not a download run by a
  * shell.
  */
@@ -1468,6 +1497,8 @@ export function offersFor(call: PermissionCall): PermissionOffer[] {
         { kind: 'mcp-tool', target: call.tool },
         ...(call.mcp ? [{ kind: 'mcp-server' as const, target: call.mcp.server }] : []),
       ]
+    case 'ssh':
+      return call.ssh ? [{ kind: 'ssh-host', target: call.ssh.host }] : []
     case 'edit':
       return [{ kind: 'edit', target: '*' }]
     case 'proposal':

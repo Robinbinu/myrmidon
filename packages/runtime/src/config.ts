@@ -1365,3 +1365,56 @@ export const SHARE_MAX_GUESTS = 8
 export const SHARE_CODE_LENGTH = 12
 /** A guest's name, as they typed it: cut to this before anyone sees it. */
 export const SHARE_NAME_CHARS = 40
+
+// Remote hosts over SSH (ssh.ts)
+
+export const SSH = {
+  /** Hosts the person may add in Settings → Tools. */
+  maxHosts: 50,
+  /** How long a command runs when the agent names no time, and the longest it may name, in seconds. */
+  timeoutS: 60,
+  maxTimeoutS: 600,
+  /** Connecting (and starting the shared connection) gives up after this, so a dead host cannot hold a step. */
+  connectS: 10,
+  /** How long the shared connection stays open after its last use (OpenSSH's ControlPersist), in seconds. */
+  persistS: 600,
+  /** The most of a remote file one read brings back; the agent is told when a file is longer. */
+  readBytes: 256 * 1024,
+  /** Settings' Test button: the same probe with a short limit. */
+  testS: 15,
+  /** How long output is still read once ssh has exited, before a pipe something else holds is let go. */
+  drainMs: 500,
+} as const
+
+// Autoresearch (autoresearch.ts)
+
+/**
+ * The experiment loop on an agent's own branch (after omp's autoresearch): bounded by trials and by time, which never
+ * runs past the round's own wall.
+ */
+export const AUTORESEARCH = {
+  /** Trials when the agent names no number, and the most it may name. */
+  trials: 10,
+  maxTrials: 50,
+  /** How long the loop may run when the agent names no time, in minutes. */
+  minutes: 30,
+  /** The longest one run of the measure command may take. */
+  measureMs: 10 * 60_000,
+  /** Kept back from the round's deadline, so the agent can still finish and answer after the last trial. */
+  reserveMs: 2 * 60_000,
+  /** What a measure run's output shows the agent, from its end, where results are printed. */
+  outputChars: 4_000,
+} as const
+
+// Telemetry export over OTLP (telemetry.ts)
+
+export const TELEMETRY = {
+  /** What collectors see as the sender (OTel's service.name). */
+  serviceName: 'myrmidon',
+  /** The vault entry (with the model providers' keys) that holds the person's OTLP headers, e.g. an API key. */
+  headersId: 'otlp-headers',
+  /** One request to the collector gives up after this. */
+  timeoutMs: 10_000,
+  /** Spans one round sends at most; a longer round sends its first ones and says how many it left out. */
+  maxSpans: 5_000,
+} as const

@@ -45,6 +45,7 @@ import overviewDoc from '../docs/overview.md' with { type: 'text' }
 import pluginsDoc from '../docs/plugins.md' with { type: 'text' }
 import verificationDoc from '../docs/verification.md' with { type: 'text' }
 import workingDoc from '../docs/working.md' with { type: 'text' }
+import { better, type Experiment, experimentFrom, metricOf } from './autoresearch.ts'
 import {
   artifactOrigin,
   assertAgentControl,
@@ -81,6 +82,7 @@ import {
   OPEN_APP_TOOL,
 } from './computer/tool.ts'
 import {
+  AUTORESEARCH,
   FETCH_SHOWN_CHARS,
   FIND_TOOLS_LIMIT,
   GITHUB,
@@ -98,6 +100,7 @@ import {
   READ_LOG_RESULT_CHARS,
   REVIEW_MAX_CHARS,
   RULE_MAX_TEXT,
+  SSH,
   TTS_MAX_CHARS,
 } from './config.ts'
 import { DEBUG_ACTIONS, type DebugScope, debugReads, debugSessions } from './debugger.ts'
@@ -649,12 +652,15 @@ const GUARDED = new Set([
   'propose',
   'github',
   'debug',
+  'ssh',
+  'autoresearch',
 ])
 /**
  * Guarded tools whose reads are commands too, decided as the commands they run (the github tool's `gh pr view`): the
- * harness leaves all their calls to them, so a rule naming the tool is not asked about twice.
+ * harness leaves all their calls to them, so a rule naming the tool is not asked about twice. A read on a remote host
+ * is decided by its host's rules, like a command there.
  */
-const GUARDS_READS = new Set(['github'])
+const GUARDS_READS = new Set(['github', 'ssh', 'autoresearch'])
 
 /** Tools that reach the web, in the agent's own fetcher or browser. */
 const WEB_TOOL = (name: string) =>
@@ -939,6 +945,235 @@ async function writeChanges(
   return approved.filter((a) => a.edited).map((a) => a.path)
 }
 
+/**
+ * A call on one of the person's remote hosts, decided by the rules for that host (`ssh-host`) and the preset, which
+ * asks unless the round has full access. When it asks, the person sees the command (and may rewrite it) or the file.
+ * Returns the command to run.
+ */
+async function guardRemote(
+  host: ColonyHost,
+  agent: string,
+  name: string,
+  what: { command: string } | { read: string },
+): Promise<string> {
+  const line = 'command' in what ? what.command.trim() : what.read
+  const call: PermissionCall = {
+    tool: 'ssh',
+    kind: 'ssh',
+    ssh: { host: name },
+    ...('command' in what ? { command: line } : {}),
+    readOnly: false,
+  }
+  const verdict = host.permit(agent, call)
+  const shown = 'command' in what ? line : prompts.reviewCard.read(line)
+  if (verdict.decision === 'deny') throw denied(`${shown} on ${name}`, verdict)
+  if (verdict.decision === 'allow') return line
+  const decision = await host.reviewChange(
+    agent,
+    'ssh',
+    `${name}: ${line.length > 300 ? `${line.slice(0, 300)}…` : line}`,
+    {
+      review: {
+        kind: 'command',
+        title: prompts.reviewCard.ssh(name),
+        fields: [{ key: 'command', label: 'ssh', value: line, format: 'code', editable: 'command' in what }],
+      },
+      permission: { call, verdict },
+    },
+  )
+  if (!decision.approved) throw new Error(prompts.toolResults.declined(`${shown} on ${name}`, decision.note))
+  return decision.edits?.command ?? line
+}
+
+/** Each agent's experiment (autoresearch), as its log tells it; read from the log once per round and agent. */
+const experiments = new WeakMap<ColonyHost, Map<string, Experiment>>()
+
+async function experimentOf(host: ColonyHost, agent: string): Promise<Experiment | undefined> {
+  const byAgent = experiments.get(host) ?? new Map<string, Experiment>()
+  experiments.set(host, byAgent)
+  if (!byAgent.has(agent)) {
+    const found = experimentFrom(await host.log.read(host.id), agent)
+    if (found) byAgent.set(agent, found)
+  }
+  return byAgent.get(agent)
+}
+
+/**
+ * One run of an experiment's measure, in the agent's worktree and sandbox as shell runs a command, decided as a command
+ * each time (rules may change mid-round). A run that fails or prints no metric has none.
+ */
+async function measureOnce(
+  host: ColonyHost,
+  agent: string,
+  measure: string,
+  name: string | undefined,
+  until: number,
+): Promise<{ metric?: { name: string; value: number }; tail: string; ms: number }> {
+  const command = await guardProjectCommand(host, agent, 'autoresearch', measure)
+  const started = Date.now()
+  const r = await host.sandbox.run({
+    command,
+    cwd: host.workspace.workdir(agent),
+    writable: writableFor(host, agent),
+    ...host.workspace.confinement(),
+    timeoutMs: Math.max(1_000, Math.min(AUTORESEARCH.measureMs, until - started)),
+    env: { MYR_MIRROR: host.workspace.mirrorRoot },
+  })
+  const output = `${r.stdout}${r.stderr ? `\n${r.stderr}` : ''}`.trim()
+  const metric = r.code === 0 && !r.timedOut ? metricOf(r.stdout, name) : undefined
+  return {
+    ...(metric ? { metric } : {}),
+    tail: output.slice(-AUTORESEARCH.outputChars),
+    ms: Date.now() - started,
+  }
+}
+
+interface AutoresearchArgs {
+  action: 'start' | 'trial' | 'finish' | 'status'
+  measure?: string
+  metric?: string
+  direction?: 'lower' | 'higher'
+  trials?: number
+  minutes?: number
+  description?: string
+}
+
+/** The autoresearch tool: start, trial, finish or status of the agent's experiment loop (autoresearch.ts). */
+async function autoresearch(args: AutoresearchArgs, agent: string, host: ColonyHost): Promise<string> {
+  const t = prompts.autoresearch
+  const exp = await experimentOf(host, agent)
+  const live = exp && !exp.finished ? exp : undefined
+  const minutesLeft = (e: Experiment) => Math.max(0, Math.round((e.until - Date.now()) / 60_000))
+  const actor = agentActor(agent)
+  switch (args.action) {
+    case 'status':
+      if (!exp) throw new Error(t.none)
+      return t.status(exp.log.map((l) => t.line(l)))
+    case 'start': {
+      if (live) throw new Error(t.running(live.runs))
+      if (!args.measure?.trim()) throw new Error(t.needsMeasure)
+      if (host.sandbox.kind === 'none' && !host.unsafeNoSandbox) throw new Error(t.needsSandbox)
+      const roundEnd = (host.deadline() || Number.POSITIVE_INFINITY) - AUTORESEARCH.reserveMs
+      const until = Math.min(Date.now() + (args.minutes ?? AUTORESEARCH.minutes) * 60_000, roundEnd)
+      if (until <= Date.now()) throw new Error(t.noTime)
+      const tree = await host.experimentTree(agent)
+      const measure = args.measure.trim()
+      const base = await measureOnce(host, agent, measure, args.metric, until)
+      if (!base.metric) throw new Error(t.noMetric(args.metric, base.tail))
+      const trials = Math.min(
+        Math.max(1, Math.round(args.trials ?? AUTORESEARCH.trials)),
+        AUTORESEARCH.maxTrials,
+      )
+      const direction = args.direction ?? 'lower'
+      const started: EventPayloads['experiment/started'] = {
+        agent,
+        measure,
+        metric: base.metric.name,
+        direction,
+        trials,
+        until: new Date(until).toISOString(),
+        branch: tree.branch,
+      }
+      const baseline: EventPayloads['experiment/trial'] = {
+        agent,
+        trial: 0,
+        description: 'baseline',
+        outcome: 'baseline',
+        metric: base.metric.value,
+        best: base.metric.value,
+        ms: base.ms,
+      }
+      await host.append({ type: 'experiment/started', actor, payload: started })
+      await host.append({ type: 'experiment/trial', actor, payload: baseline })
+      experiments.get(host)?.set(agent, {
+        agent,
+        measure,
+        metric: base.metric.name,
+        direction,
+        trials,
+        until,
+        branch: tree.branch,
+        baseline: base.metric.value,
+        best: base.metric.value,
+        runs: 0,
+        kept: 0,
+        finished: false,
+        log: [baseline],
+      })
+      return t.started({
+        workdir: tree.workdir,
+        branch: tree.branch,
+        metric: base.metric.name,
+        value: base.metric.value,
+        direction,
+        trials,
+        minutes: Math.round((until - Date.now()) / 60_000),
+      })
+    }
+    case 'trial': {
+      if (!live) throw new Error(t.none)
+      const description = args.description?.trim()
+      if (!description) throw new Error(t.needsDescription)
+      if (live.runs >= live.trials) throw new Error(t.outOfTrials(live.trials))
+      if (Date.now() >= live.until) throw new Error(t.outOfTime)
+      const tree = await host.experimentTree(agent)
+      const run = await measureOnce(host, agent, live.measure, live.metric, live.until)
+      const n = live.runs + 1
+      const value = run.metric?.value
+      const improved =
+        value !== undefined && (live.best === undefined || better(value, live.best, live.direction))
+      const commit = improved ? await tree.keep(`autoresearch trial ${n}: ${description}`) : undefined
+      if (!improved) await tree.revert()
+      const outcome = value === undefined ? 'failed' : improved ? 'kept' : 'reverted'
+      if (improved) {
+        live.best = value
+        live.kept += 1
+      }
+      live.runs = n
+      const trial: EventPayloads['experiment/trial'] = {
+        agent,
+        trial: n,
+        description,
+        outcome,
+        ...(value === undefined ? {} : { metric: value }),
+        ...(live.best === undefined ? {} : { best: live.best }),
+        ...(commit ? { commit } : {}),
+        ms: run.ms,
+      }
+      live.log.push(trial)
+      await host.append({ type: 'experiment/trial', actor, payload: trial })
+      return t.trial({
+        trial: n,
+        outcome: t.outcomes[outcome],
+        ...(value === undefined ? {} : { metric: value }),
+        ...(live.best === undefined ? {} : { best: live.best }),
+        name: live.metric,
+        left: live.trials - n,
+        minutes: minutesLeft(live),
+        output: outcome === 'failed' ? run.tail : '',
+      })
+    }
+    case 'finish': {
+      if (!live) throw new Error(t.none)
+      const tree = await host.experimentTree(agent)
+      // Changes made since the last trial were never measured.
+      await tree.revert()
+      const files = await tree.finish()
+      live.finished = true
+      const finished: EventPayloads['experiment/finished'] = {
+        agent,
+        trials: live.runs,
+        kept: live.kept,
+        ...(live.baseline === undefined ? {} : { baseline: live.baseline }),
+        ...(live.best === undefined ? {} : { best: live.best }),
+        files,
+      }
+      await host.append({ type: 'experiment/finished', actor, payload: finished })
+      return t.finished({ ...finished, name: live.metric })
+    }
+  }
+}
+
 /** POSIX shell quoting, for the command line a language server starts with inside the sandbox. */
 const shQuote = (word: string) => `'${word.replaceAll("'", `'\\''`)}'`
 
@@ -1163,12 +1398,15 @@ const UNTRUSTED = new Set([
   'browser_eval',
   // Issues, pull requests, comments and CI logs are written by anyone who can open one.
   'github',
+  // Another computer's files and logs hold whatever was written to them.
+  'ssh',
 ])
 /** Tools whose command is checked against recent web content before it runs. */
-const COPY_CHECKED = new Set(['shell', 'start_server', 'eval'])
+const COPY_CHECKED = new Set(['shell', 'start_server', 'eval', 'ssh'])
 
 function untrustedSource(tool: string, params: unknown, output: string): string {
-  const args = (params ?? {}) as { url?: unknown; query?: unknown; op?: unknown }
+  const args = (params ?? {}) as { url?: unknown; query?: unknown; op?: unknown; host?: unknown }
+  if (tool === 'ssh' && typeof args.host === 'string') return `ssh ${args.host}`
   if (tool === 'web_fetch' && typeof args.url === 'string') return args.url
   if (tool === 'web_search' && typeof args.query === 'string') return `search: ${args.query}`
   if (tool === 'github' && typeof args.op === 'string') return `github ${args.op}`
@@ -3316,6 +3554,61 @@ export const TOOL_DEFS: readonly ToolDef[] = [
         args,
       )
       return clip(report)
+    },
+  },
+  {
+    name: 'autoresearch',
+    tier: 'exec',
+    tierOf: (args: { action?: unknown }) => (args.action === 'status' ? 'read' : 'exec'),
+    description: prompts.tools.autoresearch.description,
+    parameters: type({
+      action: type
+        .enumerated('start', 'trial', 'finish', 'status')
+        .describe(prompts.tools.autoresearch.params.action),
+      'measure?': type('string').describe(prompts.tools.autoresearch.params.measure),
+      'metric?': type('string').describe(prompts.tools.autoresearch.params.metric),
+      'direction?': type.enumerated('lower', 'higher').describe(prompts.tools.autoresearch.params.direction),
+      'trials?': type('number').describe(prompts.tools.autoresearch.params.trials),
+      'minutes?': type('number').describe(prompts.tools.autoresearch.params.minutes),
+      'description?': type('string').describe(prompts.tools.autoresearch.params.description),
+    }),
+    run: (args, agent, host) => autoresearch(args, agent, host),
+  },
+  {
+    name: 'ssh',
+    tier: 'read',
+    tierOf: (args: { command?: unknown }) => (args.command !== undefined ? 'exec' : 'read'),
+    description: prompts.tools.ssh.description([]),
+    describe: (f) => prompts.tools.ssh.description(f.access.remotes),
+    parameters: type({
+      host: type('string').describe(prompts.tools.ssh.params.host),
+      'command?': type('string').describe(prompts.tools.ssh.params.command),
+      'read?': type('string').describe(prompts.tools.ssh.params.read),
+      'timeoutSeconds?': type('number').describe(prompts.tools.ssh.params.timeoutSeconds),
+    }),
+    async run(args, agent, host) {
+      const remotes = host.remotes()
+      if (!remotes) throw new Error(prompts.remote.noHosts)
+      const target = remotes.hosts.find((h) => h.name === args.host)
+      if (!target)
+        throw new Error(
+          prompts.remote.unknownHost(
+            args.host,
+            remotes.hosts.map((h) => h.name),
+          ),
+        )
+      if ((args.command === undefined) === (args.read === undefined)) throw new Error(prompts.remote.oneOf)
+      if (!remotes.hub.available()) throw new Error(prompts.remote.noSsh)
+      const timeoutMs = Math.min(Math.max(1, args.timeoutSeconds ?? SSH.timeoutS), SSH.maxTimeoutS) * 1000
+      if (args.read !== undefined) {
+        const path = await guardRemote(host, agent, target.name, { read: args.read })
+        const file = await remotes.hub.read(target, path, SSH.readBytes, timeoutMs)
+        return clip(prompts.remote.file(target.name, path, file.text, file.truncated))
+      }
+      const command = await guardRemote(host, agent, target.name, { command: args.command })
+      const r = await remotes.hub.run(target, command, timeoutMs)
+      const status = r.timedOut ? prompts.remote.timedOut : prompts.remote.exit(r.code)
+      return clip(prompts.remote.result(target.name, status, r.stdout, r.stderr))
     },
   },
 ]

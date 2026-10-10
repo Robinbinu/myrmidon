@@ -221,6 +221,10 @@ export interface ServerSettings {
   sandbox?: { read?: string[]; readHome?: boolean }
   /** Computer use (agents on the person's Mac); absent from older servers. */
   computerUse?: { enabled: boolean; engine?: 'cua' | 'omp' }
+  /** Remote hosts agents reach over SSH; absent from older servers. */
+  ssh?: { hosts: SshHostSetting[] }
+  /** Telemetry export over OTLP; absent from older servers. */
+  telemetry?: { enabled: boolean; endpoint: string }
   /** Secrets reach model providers as placeholders; absent from older servers, which do not hide them. */
   privacy?: { hideSecrets: boolean }
   verification: { threshold: number; rubric?: string; reviewer: 'off' | 'auto' | 'always' }
@@ -261,6 +265,14 @@ export interface ServerSettings {
     /** Phone calls on the SMS channel's Twilio number; absent from older servers. */
     phone?: boolean
   }
+}
+
+/** A remote host as Settings keeps it: a name for agents and rules, and where ssh connects. */
+export interface SshHostSetting {
+  name: string
+  host: string
+  user?: string
+  port?: number
 }
 
 export interface SettingsResponse {
@@ -739,6 +751,7 @@ export function Settings(props: {
                     onChange={(permissions, immediate) => update((s) => ({ ...s, permissions }), immediate)}
                     tools={data.toolCatalog}
                     servers={data.mcpServers ?? []}
+                    hosts={(data.settings.ssh?.hosts ?? []).map((h) => h.name)}
                     sandbox={data.sandbox}
                     reads={
                       <>
@@ -1059,7 +1072,126 @@ function General(props: {
           </SettingField>
         )}
       </Card>
+      {props.data && <TelemetrySettings data={props.data} update={props.update} />}
     </>
+  )
+}
+
+/** Telemetry export over OTLP: the switch, the collector's address, its headers (kept in the vault) and a test. */
+function TelemetrySettings(props: {
+  data: SettingsResponse
+  update(p: (s: ServerSettings) => ServerSettings, immediate?: boolean): void
+}) {
+  const t = copy.settings.telemetry
+  const toast = useToast()
+  const telemetry = props.data.settings.telemetry ?? { enabled: false, endpoint: '' }
+  const [endpoint, setEndpoint] = useState(telemetry.endpoint)
+  const [headers, setHeaders] = useState('')
+  const [status, setStatus] = useState<{
+    headersSet?: boolean
+    last?: { at: string; ok: boolean; error?: string }
+  }>({})
+  const [busy, setBusy] = useState(false)
+  useEffect(() => {
+    api<typeof status>('/api/telemetry')
+      .then(setStatus)
+      .catch(() => setStatus({}))
+  }, [])
+  const valid = !endpoint.trim() || /^https?:\/\/\S+$/.test(endpoint.trim())
+  const saveHeaders = async (text: string) => {
+    setBusy(true)
+    try {
+      const r = text
+        ? await send<{ headersSet: boolean }>('PUT', '/api/telemetry/headers', { headers: text })
+        : await send<{ headersSet: boolean }>('DELETE', '/api/telemetry/headers')
+      setStatus((s) => ({ ...s, headersSet: r.headersSet }))
+      setHeaders('')
+      toast(text ? t.headersStored : t.headersRemoved, 'success')
+    } catch (err) {
+      toast(String((err as Error).message), 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+  const test = async () => {
+    setBusy(true)
+    try {
+      const r = await send<{ at: string; ok: boolean; error?: string }>('POST', '/api/telemetry/test')
+      setStatus((s) => ({ ...s, last: r }))
+      toast(r.ok ? t.testOk : t.testFailed(r.error ?? ''), r.ok ? 'success' : 'error')
+    } catch (err) {
+      toast(t.testFailed(String((err as Error).message)), 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div>
+      <SectionHeader
+        className="mb-2"
+        icon={<FEATURE_ICONS.telemetry className="size-4 text-muted" />}
+        title={t.title}
+        note={t.subtitle}
+      />
+      <Card>
+        <SettingField id="general.telemetry" inline>
+          <Switch
+            checked={telemetry.enabled}
+            label={t.enabled}
+            onChange={(v) => props.update((s) => ({ ...s, telemetry: { ...telemetry, enabled: v } }), true)}
+          />
+        </SettingField>
+        <SettingField id="general.telemetryEndpoint" {...(valid ? {} : { error: t.endpointInvalid })}>
+          <div className="flex items-center gap-2">
+            <TextInput
+              value={endpoint}
+              placeholder={t.endpointPlaceholder}
+              aria-label={t.endpoint}
+              onChange={(e) => {
+                const next = e.target.value
+                setEndpoint(next)
+                if (!next.trim() || /^https?:\/\/\S+$/.test(next.trim()))
+                  props.update((s) => ({ ...s, telemetry: { ...telemetry, endpoint: next.trim() } }))
+              }}
+              className="min-w-0 flex-1 font-mono"
+            />
+            <Button size="sm" disabled={busy || !telemetry.endpoint} onClick={() => void test()}>
+              {t.test}
+            </Button>
+          </div>
+          {status.last && (
+            <p className={cn('mt-1 text-small', status.last.ok ? 'text-muted' : 'text-bad-ink')}>
+              {t.last(new Date(status.last.at).toLocaleString(), status.last.ok, status.last.error)}
+            </p>
+          )}
+        </SettingField>
+        <SettingField id="general.telemetryHeaders" {...(status.headersSet ? { hint: t.headersSaved } : {})}>
+          <div className="flex items-center gap-2">
+            <TextInput
+              type="password"
+              value={headers}
+              placeholder={t.headersPlaceholder}
+              aria-label={t.headers}
+              autoComplete="off"
+              onChange={(e) => setHeaders(e.target.value)}
+              className="min-w-0 flex-1 font-mono"
+            />
+            <Button
+              size="sm"
+              disabled={busy || !headers.trim()}
+              onClick={() => void saveHeaders(headers.trim())}
+            >
+              {t.saveHeaders}
+            </Button>
+            {status.headersSet && (
+              <Button size="sm" variant="borderless" disabled={busy} onClick={() => void saveHeaders('')}>
+                {t.removeHeaders}
+              </Button>
+            )}
+          </div>
+        </SettingField>
+      </Card>
+    </div>
   )
 }
 
@@ -2573,6 +2705,7 @@ function ToolsSection(props: {
         </Button>
       </Banner>
       <McpServers />
+      <SshHosts data={props.data} update={props.update} />
       <div {...settingRow('tools.library')}>
         <SectionHeader
           className="mb-2 mt-8"
@@ -2863,6 +2996,181 @@ function McpServers() {
             </CardRow>
           ))
         )}
+      </Card>
+    </div>
+  )
+}
+
+/** An alias of ~/.ssh/config, with what the file says it reaches. */
+interface SshConfigHost {
+  name: string
+  hostName?: string
+  user?: string
+  port?: number
+}
+
+const SSH_HOST_NAME = /^[A-Za-z0-9_.-]{1,100}$/
+const NO_SSH_FORM = { name: '', host: '', user: '', port: '' }
+
+/** Where a host connects, as ssh would be told: user@host:port. */
+const sshTarget = (h: SshHostSetting) => `${h.user ? `${h.user}@` : ''}${h.host}${h.port ? `:${h.port}` : ''}`
+
+/** Remote hosts agents reach over SSH: the person's list with a test each, and a form to add one or one from ~/.ssh/config. */
+function SshHosts(props: {
+  data: SettingsResponse
+  update(p: (s: ServerSettings) => ServerSettings, immediate?: boolean): void
+}) {
+  const t = copy.settings.ssh
+  const toast = useToast()
+  const hosts = props.data.settings.ssh?.hosts ?? []
+  const [config, setConfig] = useState<SshConfigHost[]>([])
+  const [form, setForm] = useState(NO_SSH_FORM)
+  const [testing, setTesting] = useState<string>()
+
+  useEffect(() => {
+    api<{ hosts?: SshConfigHost[] }>('/api/ssh/config')
+      .then((r) => setConfig(r.hosts ?? []))
+      .catch(() => setConfig([]))
+  }, [])
+
+  const save = (next: SshHostSetting[]) => props.update((s) => ({ ...s, ssh: { hosts: next } }), true)
+  const name = form.name.trim()
+  const port = Number(form.port)
+  const add = () => {
+    if (!SSH_HOST_NAME.test(name)) return toast(t.badName, 'error')
+    if (hosts.some((h) => h.name === name)) return toast(t.exists(name), 'error')
+    save([
+      ...hosts,
+      {
+        name,
+        host: form.host.trim(),
+        ...(form.user.trim() ? { user: form.user.trim() } : {}),
+        ...(Number.isInteger(port) && port > 0 ? { port } : {}),
+      },
+    ])
+    toast(t.added(name), 'success')
+    setForm(NO_SSH_FORM)
+  }
+  const test = async (host: string) => {
+    setTesting(host)
+    try {
+      const r = await send<{ ok: boolean; error?: string }>('POST', '/api/ssh/test', { name: host })
+      toast(r.ok ? t.testOk(host) : t.testFailed(host, r.error ?? ''), r.ok ? 'success' : 'error')
+    } catch (err) {
+      toast(t.testFailed(host, String((err as Error).message)), 'error')
+    } finally {
+      setTesting(undefined)
+    }
+  }
+  const unused = config.filter((c) => !hosts.some((h) => h.name === c.name))
+
+  return (
+    <div {...settingRow('tools.ssh')}>
+      <SectionHeader
+        className="mb-2 mt-8"
+        icon={<FEATURE_ICONS.sshHosts className="size-4 text-muted" />}
+        title={t.title}
+        note={t.subtitle}
+      />
+      <Card>
+        {hosts.length === 0 ? (
+          <CardRow>
+            <span className="text-body text-muted">{t.empty}</span>
+          </CardRow>
+        ) : (
+          hosts.map((h) => (
+            <CardRow key={h.name}>
+              <div className="flex items-center gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="text-reading font-medium">{h.name}</div>
+                  <div className="truncate font-mono text-footnote text-muted" title={sshTarget(h)}>
+                    {sshTarget(h)}
+                  </div>
+                </div>
+                <Button
+                  size="sm"
+                  variant="borderless"
+                  loading={testing === h.name}
+                  disabled={testing !== undefined}
+                  onClick={() => void test(h.name)}
+                  aria-label={t.testLabel(h.name)}
+                >
+                  {t.test}
+                </Button>
+                <ConfirmButton
+                  icon
+                  label={t.remove(h.name)}
+                  confirm={t.confirmRemove}
+                  onConfirm={() => {
+                    save(hosts.filter((x) => x.name !== h.name))
+                    toast(t.removed(h.name), 'success')
+                  }}
+                />
+              </div>
+            </CardRow>
+          ))
+        )}
+        <CardRow {...settingRow('tools.sshAdd')}>
+          <div className="mb-2 text-reading font-medium">{setting('tools.sshAdd').label}</div>
+          {unused.length > 0 && (
+            <Field label={t.fromConfig}>
+              <Select
+                value=""
+                onChange={(e) => {
+                  const alias = e.target.value
+                  if (alias) setForm({ ...NO_SSH_FORM, name: alias, host: alias })
+                }}
+              >
+                <option value="">{t.fromConfigNone}</option>
+                {unused.map((c) => (
+                  <option key={c.name} value={c.name}>
+                    {c.hostName ? `${c.name} (${c.user ? `${c.user}@` : ''}${c.hostName})` : c.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          )}
+          <div className="mt-2 grid gap-3 sm:grid-cols-4">
+            <Field label={t.name}>
+              <TextInput
+                value={form.name}
+                placeholder="build-box"
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+              />
+            </Field>
+            <Field label={t.host}>
+              <TextInput
+                value={form.host}
+                placeholder="build.example.com"
+                onChange={(e) => setForm({ ...form, host: e.target.value })}
+                className="font-mono"
+              />
+            </Field>
+            <Field label={t.user}>
+              <TextInput
+                value={form.user}
+                placeholder="deploy"
+                onChange={(e) => setForm({ ...form, user: e.target.value })}
+              />
+            </Field>
+            <Field label={t.port}>
+              <TextInput
+                value={form.port}
+                placeholder="22"
+                inputMode="numeric"
+                onChange={(e) => setForm({ ...form, port: e.target.value.replace(/\D/g, '') })}
+              />
+            </Field>
+          </div>
+          <div className="mt-3 flex items-center gap-3">
+            <p className="min-w-0 flex-1 text-callout text-muted">
+              {setting('tools.sshAdd').help} {t.note} {t.rulesHint}
+            </p>
+            <Button size="sm" variant="primary" disabled={!name || !form.host.trim()} onClick={add}>
+              {t.add}
+            </Button>
+          </div>
+        </CardRow>
       </Card>
     </div>
   )

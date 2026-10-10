@@ -562,7 +562,7 @@ Open work, in the order it will be done:
         - Command timeout on Windows is only half fixed: `run()` returns at the timeout, but grandchildren Git
           Bash hands off through an exited parent (e.g. `sleep 30`) are not linked by parent PID and outlive the
           stop. Needs a Job Object per command.
-12y. - [ ] **omp features Myrmidon lacks** (asked 2026-10-10; reuse omp's modules where they fit):
+12y. - [x] **omp features Myrmidon lacks** (asked 2026-10-10; reuse omp's modules where they fit):
       1. Long-term memory engine: extraction from chats, recall / reflect / edit (omp hindsight, mnemopi). Done
          2026-10-10 (memory.ts, memory-review.ts): prompts carry every kept memory while they fit, then the newest
          preferences and the most relevant (BM25, freshness, MMR) with `recall` for the rest; a cheap model suggests
@@ -573,10 +573,13 @@ Open work, in the order it will be done:
       3. Live session sharing: another person joins a chat live (omp collab). Done: Share live… in a chat's menu
          makes a one-time invite (watch, or watch and write); guests see only that chat's conversation, write
          under their name with every outside step asking the person, and can be removed (chat-shares.ts).
-      4. Autoresearch: an experiment loop on its own branch, measured and kept or dropped (omp autoresearch).
-      5. SSH remote hosts agents can work on (omp ssh).
+      4. Autoresearch: an experiment loop on its own branch, measured and kept or dropped (omp autoresearch). Done:
+         the `autoresearch` tool (start, trial, finish, status) with `experiment/*` events in the log.
+      5. SSH remote hosts agents can work on (omp ssh). Done: Settings → Tools → Remote hosts, the `ssh` tool,
+         `ssh-host` rules and the Remote hosts group.
       6. Telemetry export over OTLP (omp telemetry-export-otlp); plus a security-scan tool (omp security-scan). Done:
-         security_scan (secrets by omp's credential shapes, dependencies by OSV.dev).
+         the OTLP export (Settings → General → Telemetry export) and security_scan (secrets by omp's credential
+         shapes, dependencies by OSV.dev).
 12z. - [ ] **Contain the omp dependency** (asked 2026-10-10: "we are heavily dependent on omp and omp keeps updating")
       — pinned exactly today (18.8.7; 18.8.8 out), but 33 files outside packages/runtime/src/omp/ import omp, ~20 of
       them omp internals (session stores, computer supervisor, eval worker, marketplace fetcher…). Do, after the 12y
