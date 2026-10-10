@@ -1230,6 +1230,9 @@ It is ${o.now.weekday}, ${o.now.date}, ${o.now.time} in their time zone (${o.now
     readOnly: (project: string, where: string) =>
       `${project} is read-only for agents: you can read it but not change ${where}. Put drafts in your scratch directory and describe the change instead.`,
     crewmateAnswer: (name: string, answer: string) => `${name} answered:\n${answer}`,
+    /** ask_crewmate to a name not on call; `onCall`: "name (role)" for each crewmate on call. */
+    noCrewmate: (name: string, onCall: readonly string[]) =>
+      `${name} is not one of your crewmates on call, and ask_crewmate never brings in someone new. On call: ${onCall.join(', ') || 'nobody'}. Ask one of them by name.`,
     /** submit_task for a task that names outputs, with none of them submitted. */
     outputsMissing: (id: string, outputs: readonly string[]) =>
       `${id} names outputs (${outputs.join(', ')}) and none were submitted, so review would reject it. Publish them with publish_artifact and submit them in artifacts, or release_task and tell the lead why you cannot`,
@@ -1589,7 +1592,8 @@ It is ${o.now.weekday}, ${o.now.date}, ${o.now.time} in their time zone (${o.now
     list_agents: {
       description:
         'List everyone in the round with their role, model, status (working, idle, stopped) and the task they hold. ' +
-        'Use it to see who is free before you assign or message; crewmates on call show once they have joined.',
+        'Use it to see who is free before you assign or message; crewmates on call show as "on call" until you ' +
+        'ask one, when it joins.',
     },
     // After Claude Code's TaskList ("prefer working on tasks in ID order").
     list_tasks: {
@@ -2050,7 +2054,8 @@ It is ${o.now.weekday}, ${o.now.date}, ${o.now.time} in their time zone (${o.now
     ask_crewmate: {
       description: (brief: string) =>
         "Give one of your crewmates on call a job and wait for its answer, which comes back as this call's result; " +
-        'several asked in one step work in parallel. Ask when a piece is independent of yours, needs a tool or ' +
+        'several asked in one step work in parallel. Only those on call can be asked: any other name is refused, ' +
+        'and nobody new joins. Ask when a piece is independent of yours, needs a tool or ' +
         'specialty you lack, or saves time in parallel. Do it yourself when it is small, faster to do than to ' +
         'explain, already open, or your next step waits on it; never ask one only to re-check what you can check. ' +
         'The crewmate sees only the job, so brief it like a task, shorter for a small job:\n' +
@@ -2061,7 +2066,7 @@ It is ${o.now.weekday}, ${o.now.date}, ${o.now.time} in their time zone (${o.now
         'Deliverable: a Markdown table (park, visitors, source URL) in your answer, under 150 words. Done when: every ' +
         'number links to the page it came from. Not yours: the write-up."',
       params: {
-        to: "The crewmate's name, as listed under Working with others",
+        to: 'The name of a crewmate on call, as listed under Working with others (or by list_agents)',
         job: 'The job, standing on its own, under the heads Goal, Context, Deliverable, Approach, Done when and Not yours',
       },
     },

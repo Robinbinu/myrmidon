@@ -1626,7 +1626,10 @@ export class ColonyRun implements ColonyHost {
     const called = here ?? onCall.find((c) => c.name.toLowerCase() === want)
     if (!called)
       throw new Error(
-        `no crewmate called ${name}; yours are: ${onCall.map((c) => c.name).join(', ') || 'none'}`,
+        prompts.toolResults.noCrewmate(
+          name,
+          onCall.map((c) => `${c.name} (${c.specialty ?? 'crewmate'})`),
+        ),
       )
     if (this._state.agents[called.name]?.dismissed) throw new Error(`${called.name} has left this round`)
     if (this._asked.has(called.name))
