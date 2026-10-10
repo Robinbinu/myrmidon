@@ -87,7 +87,7 @@ import {
 import { toolsFor } from './patterns.ts'
 import { presetOf } from './permissions.ts'
 import { adoptDraft, isOwnDraft, testPlugin, writeDraft } from './plugin-builder.ts'
-import type { ProjectCheck } from './project-context.ts'
+import { type ProjectCheck, scratchChecks } from './project-context.ts'
 import type { PromptFacts } from './prompt/facts.ts'
 import { type Place, prompts } from './prompts.ts'
 import { SANDBOX_DIRS } from './sandbox.ts'
@@ -2433,20 +2433,24 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     describe: (f) => prompts.tools.run_checks.description(f.access.fullAccess),
     parameters: type({ 'only?': type('string').describe(prompts.tools.run_checks.params.only) }),
     async run(args, agent, host) {
-      if (!host.project) throw new Error('run_checks works in project chats; use shell to run commands here')
       if (host.sandbox.kind === 'none' && !host.unsafeNoSandbox)
         throw new Error('run_checks needs the OS sandbox')
-      const all = host.project.checks
+      const cwd = host.workspace.workdir(agent)
+      // A project's checks are read once when the round starts; a scratch folder's change as the agent works.
+      const all = host.project?.checks ?? scratchChecks(cwd)
       const picked = pickChecks(all, args.only)
       if (picked.length === 0)
         throw new Error(
           args.only
-            ? `this project has no ${args.only} check; it has: ${all.map((c) => c.name).join(', ') || 'none'}`
-            : 'this project defines no checks (no scripts in package.json, no Cargo.toml, go.mod or pyproject); use shell',
+            ? prompts.toolResults.noSuchCheck(
+                args.only,
+                all.map((c) => c.name),
+                host.project !== undefined,
+              )
+            : prompts.toolResults.noChecks(host.project !== undefined),
         )
       // The checks are commands, decided as shell's are (the preset, command rules).
       await guardProjectCommand(host, agent, 'run_checks', picked.map((c) => c.command).join(' && '))
-      const cwd = host.workspace.workdir(agent)
       return clip((await runProjectChecks(host, cwd, writableFor(host, agent), picked)).report)
     },
   },
