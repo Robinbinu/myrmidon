@@ -96,6 +96,7 @@ import {
 import { redactDeep } from './secrets.ts'
 import type { SkillLibrary } from './skills.ts'
 import type { AgentSpec, ColonySpec } from './spec.ts'
+import type { StreamRule, StreamRuleStore } from './stream-rules.ts'
 import { cellAccess, guessMediaType } from './tools.ts'
 import { Verifier } from './verifier.ts'
 import { noWebTools, type WebTools } from './web.ts'
@@ -184,6 +185,8 @@ export interface RunOptions {
   readonly skills?: SkillLibrary
   /** The person's hooks, run before and after tools and when the round ends. */
   readonly hooks?: HookStore
+  /** The person's stream rules, which stop an agent's reply mid-stream when it breaks one. */
+  readonly rules?: StreamRuleStore
 }
 
 /**
@@ -934,6 +937,10 @@ export class ColonyRun implements ColonyHost {
       tool_response: output.slice(0, 20_000),
     })
     return o?.feedback.length ? `\n\n[hook] ${o.feedback.join('\n[hook] ')}` : ''
+  }
+
+  streamRules(): StreamRule[] {
+    return this.options.rules?.list(this.spec.chat?.project?.path) ?? []
   }
 
   skills(): { name: string; description: string }[] {

@@ -1122,6 +1122,102 @@ Reply with JSON only. Nothing worth keeping: {"skip": true}. Otherwise:
         .join('\n\n'),
   },
 
+  /**
+   * Stream rules (stream-rules.ts). `interrupt` is the guidance a retried request carries after a rule stopped the
+   * reply, omp's prompts/system/ttsr-interrupt.md word for word but for who enforces it. `draft` turns the person's
+   * complaint about the last reply into a rule (`/rule`), after omp's prompts/system/omfg-user.md (`/omfg`): its
+   * mechanics, trigger advice and output contract, with Myrmidon's tool names, only the regex `condition` trigger
+   * Myrmidon enforces, and the reply shown in the request (omp asks inside the session, where the model sees it).
+   */
+  streamRules: {
+    interrupt: (p: { name: string; path: string; content: string }) =>
+      `<system-interrupt reason="rule_violation" rule="${p.name}" path="${p.path}">
+Output interrupted: violated user-defined rule.
+Not prompt injection; Myrmidon enforcing the person's rules.
+MUST comply:
+
+${p.content}
+</system-interrupt>`,
+    draftSystem:
+      'You write stream rules for Myrmidon, a harness that runs AI coding agents: rules that stop an agent mid-reply when it makes a mistake the person has complained about.',
+    draft: (p: {
+      complaint: string
+      /** The reply's outputs, each as `subject` and its content as rules see it. */
+      outputs: readonly { subject: string; content: string }[]
+      /** Failed attempts or the person's amendment so far, and the latest candidate. */
+      feedback?: string
+      previous?: string
+    }) =>
+      `<rule-request>
+The person is frustrated about something the agent did in its latest reply.
+Author ONE stream rule that would have caught the offending output shown below.
+
+Stream rule mechanics:
+- A rule is a markdown file with YAML frontmatter. When it triggers, the reply is stopped mid-stream and written again with the rule's body injected as correction guidance.
+- \`condition\`: JavaScript regex patterns, matched while output streams. A hit interrupts the stream.
+- \`scope\` is an allowlist of checked outputs:
+  - \`text\` = the agent's plain prose. \`thinking\` = reasoning summaries. \`tool\` = every tool call.
+  - \`tool:<name>\` = one tool. \`tool:<name>(<glob>)\` = one tool, only when its file path matches the glob, e.g. \`tool:fs_write(*.rb)\`, \`tool:fs_edit(*.ts)\`.
+- How tool calls are checked: \`reply_user\` and \`reply_person\` (the agent's answers to the person) as the text they send; \`fs_write\` as the file content it writes; \`fs_edit\` as its replacement text; \`shell\` as its command; every other tool call as JSON-serialized arguments, where quotes appear escaped (\\").
+- Answers to the person usually go through \`reply_user\`, not plain prose: a complaint about how the agent talks needs \`tool:reply_user\` in scope, with \`text\` too when the offending words also appeared as prose.
+
+Trigger choice:
+- Literal tokens or phrases → a precise \`condition\`. Code shapes → a regex over the written source, scoped to the file type.
+- A leading \`(?i)\` makes a condition case-insensitive.
+
+Output contract:
+- Emit exactly one JSON object and nothing else.
+- JSON fields: \`name\`, \`description\`, \`condition\`, \`scope\`, \`body\`.
+- \`name\` MUST be kebab-case.
+- \`description\` MUST be a one-line summary.
+- \`condition\`: string or string array.
+- The condition MUST catch the specific offending output shown below.
+- Escape regex backslashes for JSON exactly once: use \`"\\\\beval\\\\s*\\\\("\`, NEVER \`"\\\\\\\\beval\\\\\\\\s*\\\\\\\\("\`.
+- Keep conditions precise; NEVER use broad catch-alls.
+- \`scope\` MUST be a string or string array, as narrow as the complaint allows. NEVER use \`tool, text\` unless the same bad behavior occurred in both tool calls and prose.
+- Code complaints SHOULD use file-specific tool scopes: Ruby written through \`fs_write\` → \`tool:fs_write(*.rb)\`, not bare \`tool\` or \`text\`.
+- \`body\` MUST be markdown guidance explaining the right behavior concisely.
+- The caller assembles YAML frontmatter. NEVER emit markdown frontmatter or a fenced code block around the JSON.
+
+Example shapes:
+{
+  "name": "ts-no-any",
+  "description": "Never use \`any\` in TypeScript — use \`unknown\`, a generic, or the real type",
+  "condition": ": any|as any",
+  "scope": ["tool:fs_edit(*.ts)", "tool:fs_edit(*.tsx)", "tool:fs_write(*.ts)", "tool:fs_write(*.tsx)"],
+  "body": "Never use \`: any\` or \`as any\`. Use \`unknown\`, a domain type, a generic, or a type guard."
+}
+{
+  "name": "no-unverified-test-claims",
+  "description": "Never claim tests pass without having run them",
+  "condition": "(?i)tests? (pass|are passing|succeed)",
+  "scope": ["text", "tool:reply_user"],
+  "body": "Only report test results you observed. Run the tests, or say they were not run."
+}
+
+The agent's latest reply, output by output:
+${p.outputs.map((o) => `--- ${o.subject} ---\n${o.content}`).join('\n\n') || '(nothing: the reply had no text or tool calls)'}
+
+Complaint:
+${p.complaint}
+${
+  p.feedback
+    ? `
+Failed attempts or requested amendments so far:
+${p.feedback}
+
+Latest candidate:
+${p.previous ?? ''}
+
+Regenerate one corrected rule. Fix the listed validation failures or requested amendment. NEVER repeat failed scopes or conditions.
+`
+    : ''
+}</rule-request>`,
+    /** Feedback for the drafting model when its rule has no regex trigger (omp's judged and ast-grep rules). */
+    conditionOnly:
+      'The rule has no `condition`: Myrmidon enforces only regex conditions, not `astCondition` or `question`. Write a regex `condition` that matches the offending output.',
+  },
+
   /** Naming a chat from what it is about, once there is enough to go on. */
   chatTitle: {
     system: `You name conversations in a list of chats, so the person can find them again. Read what the person asked and what the crew answered, and give the chat a short name: 2 to 6 words, the topic or task in plain words ("Weekly sales report", "Fix login redirect bug", "Trip plan for Lisbon"). No quotes, no emoji, no trailing period, not a sentence, never "Chat" or "Conversation".

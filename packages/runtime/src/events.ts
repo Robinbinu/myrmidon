@@ -251,6 +251,19 @@ const defs: EventTypeDefinition[] = [
     }),
   },
   {
+    type: 'rule/fired',
+    version: 1,
+    actors: ['system'],
+    schema: Schema.object({
+      agent: str(),
+      rule: str(),
+      description: Schema.string(),
+      source: oneOf('text', 'thinking', 'tool'),
+      tool: Schema.string(),
+      path: str(),
+    }),
+  },
+  {
     type: 'skill/used',
     version: 1,
     actors: ['agent'],

@@ -20,6 +20,7 @@ import type { PluginHost } from './plugin-host.ts'
 import type { ProjectContext } from './project-context.ts'
 import type { Sandbox } from './sandbox.ts'
 import type { ColonySpec } from './spec.ts'
+import type { StreamRule } from './stream-rules.ts'
 import type { WebTools } from './web.ts'
 import type { ColonyWorkspace } from './workspace.ts'
 
@@ -189,6 +190,8 @@ export interface ColonyHost {
   beforeTool(agent: string, tool: string, input: unknown): Promise<void>
   /** Runs the person's PostToolUse hooks; returns what they want the agent to know ('' for nothing). */
   afterTool(agent: string, tool: string, input: unknown, output: string): Promise<string>
+  /** The person's stream rules and the project's (stream-rules.ts), read afresh at each agent turn. */
+  streamRules?(): readonly StreamRule[]
   /** The skills agents may use in this colony (enabled ones, including its project's). */
   skills(): { name: string; description: string }[]
   /** A skill's instructions, or one of its files, for an agent (use_skill). */

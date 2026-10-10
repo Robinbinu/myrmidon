@@ -419,6 +419,18 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
         })
         break
       }
+      case 'rule/fired': {
+        const p = e.payload as EventPayloads['rule/fired']
+        out.push({
+          ...base,
+          kind: 'signal',
+          agent: p.agent,
+          lead: copy.steps.ruleStopped(p.rule),
+          tail: copy.rules.where(p.source, p.tool),
+          detail: copy.rules.stoppedTitle(p.description, p.path),
+        })
+        break
+      }
       case 'agent/advised': {
         const p = e.payload as EventPayloads['agent/advised']
         out.push({
