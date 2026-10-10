@@ -1343,6 +1343,8 @@ export const copy = {
     useFolder: 'Use this folder',
     path: { placeholder: '~/code/my-app', label: 'Folder path' },
     go: 'Open',
+    /** The Windows drives above the folder list. */
+    drives: 'Drives',
     empty: 'No sub-folders here.',
     added: (name: string) => `Added ${name}`,
     /** On the "Added" toast while a chat is open: that chat stays where it was. */
