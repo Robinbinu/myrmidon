@@ -22,6 +22,7 @@ import {
   Trash2,
   TriangleAlert,
   UnfoldVertical,
+  X,
 } from 'lucide-react'
 import { AnimatePresence, motion, useReducedMotionConfig } from 'motion/react'
 import { type ReactNode, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -47,13 +48,24 @@ import { formatSize } from './chat/Attachments.tsx'
 import { TeamSettings } from './chat/Composer.tsx'
 import { ToolLibraryList } from './chat/MadeTools.tsx'
 import { ModelPicker, windowLabel } from './chat/ModelPicker.tsx'
-import { usersOf, withoutModel } from './chat/model-list.ts'
+import { modelName, usersOf, withoutModel } from './chat/model-list.ts'
 import { SpecialistEditor } from './chat/SpecialistEditor.tsx'
 import { copy } from './copy.ts'
+import {
+  AddSkills,
+  type InstalledFromView,
+  InstalledLine,
+  InstallReview,
+  Marketplaces,
+  type PluginPreviewView,
+  type Review,
+  type SkillPreviewView,
+} from './installs.tsx'
 import { type MascotPatch, SETTINGS_SAVED, withMascotDefaults } from './mascot.ts'
 import { MascotBehaviour, MascotPreview, MiniMascot } from './mascot-settings.tsx'
 import type { CatalogTool } from './permissions/describe.ts'
 import { type GlobalPermissions, PermissionsPage } from './permissions/PermissionsPage.tsx'
+import { PlanLimits } from './plan-limits.tsx'
 import { PluginSlot, usePluginSlots } from './plugins.tsx'
 import {
   cronToRule,
@@ -139,6 +151,7 @@ import { useToast } from './ui/Toast.tsx'
 import {
   AGENT_MIN_WINDOW,
   MASCOT_COLORS,
+  MAX_FALLBACKS,
   SETTINGS_NAV_COLLAPSE_PX,
   SETTINGS_SEARCH_COMBO,
   SUGGEST_MODEL_POLL_MS,
@@ -191,6 +204,13 @@ export interface ServerSettings {
     leadModel?: string
     workerModel?: string
     judgeModel?: string
+    /** The advisor's model; absent means no advisor. */
+    advisorModel?: string
+    /** Prewalk's carry-out model; absent means the lead keeps its own. */
+    carryOutModel?: string
+    /** Models the lead, and the crew, go on with when theirs fails; absent from older servers. */
+    leadFallbacks?: string[]
+    workerFallbacks?: string[]
     wallMinutes: number
     maxTurns: number
     costUsd: number
@@ -200,10 +220,14 @@ export interface ServerSettings {
   sandbox?: { read?: string[]; readHome?: boolean }
   /** Computer use (agents on the person's Mac); absent from older servers. */
   computerUse?: { enabled: boolean; engine?: 'cua' | 'omp' }
+  /** Secrets reach model providers as placeholders; absent from older servers, which do not hide them. */
+  privacy?: { hideSecrets: boolean }
   verification: { threshold: number; rubric?: string; reviewer: 'off' | 'auto' | 'always' }
   instructions: { lead?: string; worker?: string }
   observer: { intervalSeconds: number }
   search: { provider: string }
+  /** The model generate_image uses (`provider/id`); none means the first that can. Absent from older servers. */
+  images?: { model?: string }
   models: { hidden: string[]; hiddenProviders: string[]; windows?: Record<string, number> }
   /** The global level of the permission model: the default preset, rules, who can use what. */
   permissions: GlobalPermissions
@@ -240,6 +264,8 @@ export interface SettingsResponse {
   settings: ServerSettings
   providers: ProviderInfo[]
   searchProviders: { id: string; label: string }[]
+  /** Image models generate_image can use now, best first; absent from older servers. */
+  imageModels?: string[]
   customApis: Api[]
   sandbox: string
   /** Paths of the person's keys and Myrmidon's data, as typed and in full: a readable folder that opens one is warned about. */
@@ -711,7 +737,12 @@ export function Settings(props: {
                     tools={data.toolCatalog}
                     servers={data.mcpServers ?? []}
                     sandbox={data.sandbox}
-                    reads={<SandboxReads data={data} update={update} />}
+                    reads={
+                      <>
+                        <SandboxReads data={data} update={update} />
+                        <HideSecrets data={data} update={update} />
+                      </>
+                    }
                     computerUse={data.settings.computerUse?.enabled === true}
                     onSetUpComputer={() => setSection('computer')}
                   />
@@ -1770,6 +1801,7 @@ export function Providers(props: {
       )}
 
       <SignIns onProviders={props.onProviders} />
+      {!props.embedded && <PlanLimits />}
 
       <div {...settingRow('providers.list')} className="mb-2 flex items-center justify-between">
         <SectionHeader
@@ -2164,6 +2196,65 @@ function TeamSection(props: {
           </Card>
         </>
       )}
+      <SectionHeader as="h3" className="mb-2" title={copy.settings.team.fallbacksTitle} />
+      <Card className="mb-8">
+        <FallbackModels
+          id="team.leadFallbacks"
+          value={t.leadFallbacks ?? []}
+          models={props.models}
+          onChange={(leadFallbacks) => props.update((s) => ({ ...s, team: { ...s.team, leadFallbacks } }))}
+        />
+        <FallbackModels
+          id="team.workerFallbacks"
+          value={t.workerFallbacks ?? []}
+          models={props.models}
+          onChange={(workerFallbacks) =>
+            props.update((s) => ({ ...s, team: { ...s.team, workerFallbacks } }))
+          }
+        />
+      </Card>
+      <SectionHeader
+        as="h3"
+        className="mb-2"
+        icon={<FEATURE_ICONS.advisor className="size-4 text-muted" />}
+        title={copy.settings.team.advisorTitle}
+      />
+      <Card className="mb-8">
+        <OptionalModel
+          id="team.advisorModel"
+          value={t.advisorModel}
+          models={props.models}
+          choose={copy.settings.team.chooseAdvisor}
+          off={copy.settings.team.advisorOff}
+          onChange={(advisorModel) =>
+            props.update((s) => {
+              const { advisorModel: _, ...team } = s.team
+              return { ...s, team: advisorModel ? { ...team, advisorModel } : team }
+            })
+          }
+        />
+      </Card>
+      <SectionHeader
+        as="h3"
+        className="mb-2"
+        icon={<FEATURE_ICONS.prewalk className="size-4 text-muted" />}
+        title={copy.settings.team.prewalkTitle}
+      />
+      <Card className="mb-8">
+        <OptionalModel
+          id="team.carryOutModel"
+          value={t.carryOutModel}
+          models={props.models}
+          choose={copy.settings.team.chooseCarryOut}
+          off={copy.settings.team.carryOutOff}
+          onChange={(carryOutModel) =>
+            props.update((s) => {
+              const { carryOutModel: _, ...team } = s.team
+              return { ...s, team: carryOutModel ? { ...team, carryOutModel } : team }
+            })
+          }
+        />
+      </Card>
       <SectionHeader as="h3" className="mb-2" title={copy.settings.team.limitsTitle} />
       <Card className="mb-8">
         <SettingField id="team.wallMinutes" inline>
@@ -2220,6 +2311,89 @@ function TeamSection(props: {
       </Card>
       <ReviewerSettings settings={props.data.settings} update={props.update} />
     </>
+  )
+}
+
+/** An optional model (the advisor's, prewalk's carry-out), or a picker to choose one while there is none (off). */
+function OptionalModel(props: {
+  id: 'team.advisorModel' | 'team.carryOutModel'
+  value?: string
+  models: ModelOption[]
+  /** The picker's label while there is none. */
+  choose: string
+  /** The label of the button that turns it off, naming the model. */
+  off(model: string): string
+  onChange(v: string | undefined): void
+}) {
+  const ref = props.value
+  const name = ref ? modelName(props.models.find((m) => m.ref === ref)?.name ?? ref) : ''
+  return (
+    <SettingField id={props.id}>
+      {ref ? (
+        <span
+          title={ref}
+          className="inline-flex h-7 max-w-[260px] items-center gap-1 rounded-md border border-line bg-fill/60 pl-2 text-callout"
+        >
+          <span className="truncate">{name}</span>
+          <IconButton size="sm" label={props.off(name)} onClick={() => props.onChange(undefined)}>
+            <X className="size-3.5" />
+          </IconButton>
+        </span>
+      ) : (
+        <ModelPicker
+          variant="compact"
+          placement="down"
+          label={props.choose}
+          value=""
+          models={props.models}
+          onChange={(next) => props.onChange(next)}
+        />
+      )}
+    </SettingField>
+  )
+}
+
+/** An ordered list of fallback models: each with its place and a remove button, then a picker to add one more. */
+function FallbackModels(props: {
+  id: 'team.leadFallbacks' | 'team.workerFallbacks'
+  value: readonly string[]
+  models: ModelOption[]
+  onChange(v: string[]): void
+}) {
+  const t = copy.settings.team
+  const name = (ref: string) => modelName(props.models.find((m) => m.ref === ref)?.name ?? ref)
+  return (
+    <SettingField id={props.id}>
+      <div className="flex flex-wrap items-center gap-1.5">
+        {props.value.map((ref, i) => (
+          <span
+            key={ref}
+            title={ref}
+            className="inline-flex h-7 max-w-[260px] items-center gap-1 rounded-md border border-line bg-fill/60 pl-2 text-callout"
+          >
+            <span className="tabular-nums text-muted">{i + 1}</span>
+            <span className="truncate">{name(ref)}</span>
+            <IconButton
+              size="sm"
+              label={t.removeFallback(name(ref))}
+              onClick={() => props.onChange(props.value.filter((r) => r !== ref))}
+            >
+              <X className="size-3.5" />
+            </IconButton>
+          </span>
+        ))}
+        {props.value.length < MAX_FALLBACKS && (
+          <ModelPicker
+            variant="compact"
+            placement="down"
+            label={t.addFallback}
+            value=""
+            models={props.models.filter((m) => !props.value.includes(m.ref))}
+            onChange={(ref) => props.onChange([...props.value, ref])}
+          />
+        )}
+      </div>
+    </SettingField>
   )
 }
 
@@ -2352,6 +2526,34 @@ function SandboxReads(props: {
   )
 }
 
+/** Whether secrets reach model providers as placeholders (the runtime's provider-secrets.ts). */
+function HideSecrets(props: {
+  data: SettingsResponse
+  update(p: (s: ServerSettings) => ServerSettings, immediate?: boolean): void
+}) {
+  const t = copy.settings.tools.secrets
+  const on = props.data.settings.privacy?.hideSecrets ?? true
+  return (
+    <>
+      <SectionHeader
+        className="mb-2"
+        icon={<FEATURE_ICONS.hiddenSecrets className="size-4 text-muted" />}
+        title={t.title}
+        note={t.subtitle}
+      />
+      <Card className="mb-6">
+        <SettingField id="permissions.hideSecrets" hint={on ? t.hideHint : t.offHint} inline>
+          <Switch
+            checked={on}
+            label={t.hide}
+            onChange={(v) => props.update((s) => ({ ...s, privacy: { hideSecrets: v } }), true)}
+          />
+        </SettingField>
+      </Card>
+    </>
+  )
+}
+
 function ToolsSection(props: {
   data: SettingsResponse
   update(p: (s: ServerSettings) => ServerSettings, immediate?: boolean): void
@@ -2394,6 +2596,46 @@ function ToolsSection(props: {
             {props.data.searchProviders.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.label}
+              </option>
+            ))}
+          </Select>
+        </SettingField>
+      </Card>
+      <ImageModelSetting data={props.data} update={props.update} />
+    </>
+  )
+}
+
+/** The model generate_image makes pictures with: Automatic, or one of those the person's providers can run. */
+function ImageModelSetting(props: {
+  data: SettingsResponse
+  update(p: (s: ServerSettings) => ServerSettings, immediate?: boolean): void
+}) {
+  const t = copy.settings.tools
+  const models = props.data.imageModels ?? []
+  const chosen = props.data.settings.images?.model
+  return (
+    <>
+      <SectionHeader
+        className="mb-2 mt-8"
+        icon={<FEATURE_ICONS.imageGeneration className="size-4 text-muted" />}
+        title={t.imageGeneration}
+      />
+      <Card>
+        <SettingField id="tools.imageModel" {...(models.length ? {} : { hint: t.imageModelNone })} inline>
+          <Select
+            value={chosen ?? ''}
+            onChange={(e) =>
+              props.update((s) => ({ ...s, images: e.target.value ? { model: e.target.value } : {} }), true)
+            }
+            aria-label={t.imageModel}
+            className="min-w-44"
+          >
+            <option value="">{t.imageAuto}</option>
+            {chosen && !models.includes(chosen) && <option value={chosen}>{t.imageGone(chosen)}</option>}
+            {models.map((ref) => (
+              <option key={ref} value={ref}>
+                {ref}
               </option>
             ))}
           </Select>
@@ -5008,6 +5250,8 @@ export interface SkillEntry {
   source: 'myrmidon' | 'claude' | 'plugin' | 'project'
   enabled: boolean
   curation?: { uses: number; lastUsed?: string; stale: boolean; kept: boolean }
+  /** Installed from the skills registry, a repository or a folder. */
+  installed?: InstalledFromView
 }
 
 interface SkillsResponse {
@@ -5041,6 +5285,8 @@ export interface PluginEntry {
   settings: Record<string, { type: 'string' | 'number' | 'boolean'; description?: string; secret?: boolean }>
   values: Record<string, string | number | boolean>
   status?: { loaded: boolean; error?: string; tools: string[]; log: string[] }
+  /** Where it was installed from, pinned to a version or commit. */
+  installed?: InstalledFromView
 }
 
 /** A plugin's settings, saved one field at a time when it loses focus (or a switch flips). */
@@ -5099,17 +5345,29 @@ function PluginsSection() {
   useEffect(() => {
     void load()
   }, [])
+  const [review, setReview] = useState<Review>()
+  const [updating, setUpdating] = useState<string>()
   const add = async () => {
     setAdding(true)
     try {
-      const r = await send<{ plugin: PluginEntry }>('POST', '/api/plugins', { source })
-      toast(copy.settings.plugins.added(r.plugin.name), 'success')
+      const r = await post<{ preview: PluginPreviewView }>('/api/plugins', { source })
+      setReview({ kind: 'plugin', preview: r.preview })
       setSource('')
-      await load()
     } catch (err) {
       toast((err as Error).message, 'error')
     } finally {
       setAdding(false)
+    }
+  }
+  const update = async (name: string) => {
+    setUpdating(name)
+    try {
+      const r = await post<{ preview: PluginPreviewView }>(`/api/plugins/${name}/update`, {})
+      setReview({ kind: 'plugin', preview: r.preview })
+    } catch (err) {
+      toast((err as Error).message, 'error')
+    } finally {
+      setUpdating(undefined)
     }
   }
   const [logOpen, setLogOpen] = useState<string>()
@@ -5235,11 +5493,26 @@ function PluginsSection() {
                         )}
                       </div>
                     ) : null}
-                    <p className="mt-1 truncate font-mono text-footnote text-muted" title={p.dir}>
-                      {p.dir}
-                    </p>
+                    {p.installed ? (
+                      <InstalledLine from={p.installed} label={copy.settings.plugins.from} />
+                    ) : (
+                      <p className="mt-1 truncate font-mono text-footnote text-muted" title={p.dir}>
+                        {p.dir}
+                      </p>
+                    )}
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
+                    {p.installed && (
+                      <Button
+                        size="sm"
+                        variant="borderless"
+                        loading={updating === p.name}
+                        disabled={!!updating}
+                        onClick={() => void update(p.name)}
+                      >
+                        {updating === p.name ? copy.settings.plugins.updating : copy.settings.plugins.update}
+                      </Button>
+                    )}
                     <ConfirmButton
                       label={copy.settings.plugins.remove}
                       confirm={copy.settings.plugins.confirmRemove}
@@ -5267,6 +5540,19 @@ function PluginsSection() {
           <p className="mt-2 text-small text-muted">{copy.settings.plugins.applies}</p>
         </>
       )}
+      <Marketplaces installed={data?.plugins.map((p) => p.name) ?? []} onReview={setReview} />
+      <AnimatePresence>
+        {review && (
+          <InstallReview
+            review={review}
+            onClose={() => setReview(undefined)}
+            onInstalled={() => {
+              setReview(undefined)
+              void load()
+            }}
+          />
+        )}
+      </AnimatePresence>
     </>
   )
 }
@@ -5313,6 +5599,19 @@ function SkillsSection() {
   const toast = useToast()
   const [data, setData] = useState<SkillsResponse>()
   const [proposed, setProposed] = useState<SkillProposalView[]>([])
+  const [review, setReview] = useState<Review>()
+  const [updating, setUpdating] = useState<string>()
+  const update = async (name: string) => {
+    setUpdating(name)
+    try {
+      const r = await post<{ preview: SkillPreviewView }>(`/api/skills/${name}/update`, {})
+      setReview({ kind: 'skill', preview: r.preview })
+    } catch (err) {
+      toast((err as Error).message, 'error')
+    } finally {
+      setUpdating(undefined)
+    }
+  }
   const load = () => {
     api<{ proposals: SkillProposalView[] }>('/api/skill-proposals')
       .then((r) => setProposed(r.proposals))
@@ -5338,6 +5637,7 @@ function SkillsSection() {
         {data?.retire &&
           ` ${copy.settings.skills.retireIntro(data.retire.staleDays, data.retire.archiveDays)}`}
       </PageHeader>
+      <AddSkills installed={data?.skills.map((s) => s.name) ?? []} onReview={setReview} />
       {proposed.length > 0 && (
         <div {...settingRow('skills.proposed')} className="mb-6 flex flex-col gap-3">
           <SectionHeader title={copy.settings.skills.proposed(proposed.length)} />
@@ -5377,6 +5677,7 @@ function SkillsSection() {
                     )}
                   </div>
                   <SkillDescription text={s.description} dir={s.dir} />
+                  {s.installed && <InstalledLine from={s.installed} label={copy.settings.skills.from} />}
                   {s.curation && (
                     <div className="mt-1 text-footnote text-muted">
                       {copy.settings.skills.uses(
@@ -5386,6 +5687,29 @@ function SkillsSection() {
                     </div>
                   )}
                 </div>
+                {s.installed && (
+                  <>
+                    <Button
+                      size="sm"
+                      variant="borderless"
+                      loading={updating === s.name}
+                      disabled={!!updating}
+                      onClick={() => void update(s.name)}
+                    >
+                      {copy.settings.skills.update}
+                    </Button>
+                    <ConfirmButton
+                      label={copy.settings.skills.remove}
+                      confirm={copy.settings.skills.confirmRemove}
+                      onConfirm={() =>
+                        void send('DELETE', `/api/skills/${s.name}`)
+                          .then(() => toast(copy.settings.skills.removed(s.name), 'success'))
+                          .then(load)
+                          .catch((err: Error) => toast(err.message, 'error'))
+                      }
+                    />
+                  </>
+                )}
                 {s.curation && (
                   <Button
                     size="sm"
@@ -5449,6 +5773,18 @@ function SkillsSection() {
           </Card>
         </div>
       )}
+      <AnimatePresence>
+        {review && (
+          <InstallReview
+            review={review}
+            onClose={() => setReview(undefined)}
+            onInstalled={() => {
+              setReview(undefined)
+              void load()
+            }}
+          />
+        )}
+      </AnimatePresence>
     </>
   )
 }

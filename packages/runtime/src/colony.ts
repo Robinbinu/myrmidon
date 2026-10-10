@@ -43,8 +43,11 @@ import {
   toolHidden,
   unreadMailFor,
 } from '@myrmidon/protocol'
+import { Advisor } from './advisor.ts'
 import { ColonyAgent, type ModelError } from './agent.ts'
 import type { BrowserHub } from './browser.ts'
+import { namingModel } from './catalog.ts'
+import { cellKernels } from './cells.ts'
 import type { ComputerHub } from './computer/driver.ts'
 import { COMPUTER_TOOL_NAMES } from './computer/names.ts'
 import {
@@ -65,10 +68,12 @@ import {
   WIND_DOWN_MESSAGES,
 } from './config.ts'
 import { registerColonyEvents } from './events.ts'
+import { chatJudge } from './find.ts'
 import { type HookEvent, type HookOutcome, type HookStore, hookToolInput, runHooks } from './hooks.ts'
 import { agentActor, type ColonyHost, type ReviewDecision, type TodoItem } from './host.ts'
 import type { ToolLibrary } from './made-tools.ts'
 import type { McpHub } from './mcp.ts'
+import type { MediaTools } from './media.ts'
 import type { MemoryStore } from './memory.ts'
 import { ModelResolver } from './models.ts'
 import { pickName } from './names.ts'
@@ -91,7 +96,8 @@ import {
 import { redactDeep } from './secrets.ts'
 import type { SkillLibrary } from './skills.ts'
 import type { AgentSpec, ColonySpec } from './spec.ts'
-import { guessMediaType } from './tools.ts'
+import type { StreamRule, StreamRuleStore } from './stream-rules.ts'
+import { cellAccess, guessMediaType } from './tools.ts'
 import { Verifier } from './verifier.ts'
 import { noWebTools, type WebTools } from './web.ts'
 import { ColonyWorkspace } from './workspace.ts'
@@ -152,6 +158,8 @@ export interface RunOptions {
   readonly resolver?: ModelResolver
   /** Search and fetch backends; defaults to keyless DuckDuckGo plus any search keys in the environment. */
   readonly web?: WebTools
+  /** Pictures and speech (generate_image, tts); without it those tools say they are not available here. */
+  readonly media?: MediaTools
   readonly sandbox?: Sandbox
   /** How long all agents may sit idle with empty inboxes before the colony is nudged. */
   readonly quietMs?: number
@@ -177,8 +185,17 @@ export interface RunOptions {
   readonly skills?: SkillLibrary
   /** The person's hooks, run before and after tools and when the round ends. */
   readonly hooks?: HookStore
+  /** The person's stream rules, which stop an agent's reply mid-stream when it breaks one. */
+  readonly rules?: StreamRuleStore
 }
 
+/**
+ * Prewalk's hand-off points: the lead's first change to the work (a file edit or write, or a task for the crew) means
+ * the plan is made. Like omp's, read-only steps and shell commands (often just looking) do not count.
+ */
+const PREWALK_AFTER = new Set(['fs_write', 'fs_edit', 'ast_edit', 'create_task'])
+/** Tools that answer or ask the person: calling one is not work toward a goal (see `_workedSince`). */
+const ANSWERING = new Set(['reply_user', 'reply_person', 'ask_user'])
 const isComputerTool = (tool: string) => (COMPUTER_TOOL_NAMES as readonly string[]).includes(tool)
 
 /**
@@ -230,12 +247,14 @@ export class ColonyRun implements ColonyHost {
   readonly unsafeNoSandbox: boolean
   readonly resolver: ModelResolver
   readonly web: WebTools
+  readonly media?: MediaTools
   readonly done: Promise<ColonyState>
 
   private _state: ColonyState
   private readonly _agents = new Map<string, ColonyAgent>()
   private readonly _verifier: Verifier
   private readonly _observer: FactualObserver
+  readonly advisor?: Advisor
   private readonly _timers: ReturnType<typeof setInterval>[] = []
   private _finish!: (s: ColonyState) => void
   private _deadline = 0
@@ -277,6 +296,12 @@ export class ColonyRun implements ColonyHost {
   private readonly _afterBatch = new Map<string, (() => void)[]>()
   private readonly _idleSince = new Map<string, number>()
   private _failedVerifications = 0
+  /** Goal mode: checks of the goal so far, the log position of the latest, and whether one is running. */
+  private _goalChecks = 0
+  private _goalCheckedAt = 0
+  private _goalRunning = false
+  /** Prewalk hands off once a round: set when the lead has switched to the carry-out model (or could not). */
+  private _handedOff = false
   private _speakerOwesAnswer = false
   private _bootstrapAt = 0
   private _bootstrapped = 1
@@ -327,9 +352,11 @@ export class ColonyRun implements ColonyHost {
     this.unsafeNoSandbox = options.unsafeNoSandbox ?? false
     this.resolver = options.resolver ?? new ModelResolver()
     this.web = options.web ?? noWebTools
+    if (options.media) this.media = options.media
     this._state = emptyColonyState(this.id)
     this._verifier = new Verifier(this, this.resolver)
     this._observer = new FactualObserver(this)
+    if (spec.advisor) this.advisor = new Advisor(this, this.resolver, spec.advisor)
     this.done = new Promise((resolve) => {
       this._finish = resolve
     })
@@ -364,6 +391,22 @@ export class ColonyRun implements ColonyHost {
 
   get browser() {
     return this.options.browser?.available ? this.options.browser : undefined
+  }
+
+  /**
+   * find's judge: a small yes-or-no job, so the cheapest model the person can use, else the agent's own. A model that
+   * no longer resolves leaves find to rank by words, which it says.
+   */
+  judge(agent: string) {
+    const model = this.spec.agents.find((a) => a.name === agent)?.model
+    if (!model) return undefined
+    const omp = this.resolver.omp
+    try {
+      return chatJudge(this.resolver, omp ? namingModel(omp, undefined, model) : model)
+    } catch (err) {
+      console.error(`[${agent}] find has no judge:`, err instanceof Error ? err.message : err)
+      return undefined
+    }
   }
 
   /**
@@ -782,10 +825,12 @@ export class ColonyRun implements ColonyHost {
    * Stops the servers started under looser rules than the round has now (full access since taken back, a project
    * since made read-only): a running process keeps the sandbox it started in. All are stopped and their agents told
    * before anything is awaited, so a second tightening finds nothing left to stop and an agent just interrupted hears
-   * of it in the turn that follows. A server still starting fails its start_server call instead.
+   * of it in the turn that follows. A server still starting fails its start_server call instead. Code cell runtimes
+   * started under looser rules stop too; their agents hear of it with their next cell.
    */
   private async _stopLooserServers() {
     const readOnly = presetOf(this.spec) === 'read-only'
+    cellKernels.stopLooser(this.id, cellAccess(this))
     const stopped: string[] = []
     const byAgent = new Map<string, string[]>()
     for (const [name, proc] of [...this._servers]) {
@@ -892,6 +937,10 @@ export class ColonyRun implements ColonyHost {
       tool_response: output.slice(0, 20_000),
     })
     return o?.feedback.length ? `\n\n[hook] ${o.feedback.join('\n[hook] ')}` : ''
+  }
+
+  streamRules(): StreamRule[] {
+    return this.options.rules?.list(this.spec.chat?.project?.path) ?? []
   }
 
   skills(): { name: string; description: string }[] {
@@ -1154,6 +1203,8 @@ export class ColonyRun implements ColonyHost {
       ...(this.spec.review ? { review: this.spec.review } : {}),
       ...(this.fullAccess ? { fullAccess: true } : {}),
       ...(this.computer ? { computerUse: true } : {}),
+      ...(this.spec.goal ? { goal: this.spec.goal } : {}),
+      ...(this.spec.prewalk ? { prewalk: this.spec.prewalk } : {}),
       access: this.access(),
     }
   }
@@ -1273,6 +1324,9 @@ export class ColonyRun implements ColonyHost {
     this._deadline = Date.now() + wallMs
     if (!resumedBecause) this._spentBefore = totals(this._state)
     this._bootstrapAt = Date.now()
+    // So the person can see which of their files the agents were told to follow, other tools' rules included.
+    const guide = this.project?.instructions
+    const rules = guide ? [...guide.files, ...guide.rules.map((r) => r.file)] : []
     const swarm = this.spec.team?.mode === 'swarm' && this.spec.tier === 'team' && this.spec.agents.length > 1
     const from = this._state.rounds.at(-1)?.startSeq ?? 0
     const planned =
@@ -1288,6 +1342,7 @@ export class ColonyRun implements ColonyHost {
         hostname: hostname(),
         ...(resumedBecause ? { resumed: true } : {}),
         ...(Object.keys(models).length ? { models } : {}),
+        ...(rules.length && !resumedBecause ? { rules } : {}),
       },
     })
     if (resumedBecause) await this._wakeAfterResume(resumedBecause)
@@ -1640,6 +1695,7 @@ export class ColonyRun implements ColonyHost {
     if (this._state.agents[name]?.dismissed) throw new Error(`${name} was already dismissed`)
     await this.append({ type: 'agent/dismissed', actor: SYSTEM, payload: { agent: name, by, reason } })
     this._agents.get(name)?.stop()
+    cellKernels.close(this.id, name)
     const held = Object.values(this._state.tasks).filter(
       (t) => t.status === 'in_progress' && t.owner === name,
     )
@@ -1847,8 +1903,12 @@ export class ColonyRun implements ColonyHost {
     return prompts.colony.chatClosing
   }
 
-  /** A chat round's final answer verifies itself: no judge completes it outright, otherwise the judge runs. */
+  /**
+   * A chat round's final answer verifies itself: no judge completes it outright, otherwise the judge runs. In goal
+   * mode the goal's condition is checked first, and the answer goes on to its review only once the goal holds.
+   */
   private async _verifyFinalAnswer(by: string) {
+    if (this.spec.goal && !this._settling && !(await this._goalHolds(by, this.spec.goal))) return
     if (this.spec.acceptance.length === 0 || this.spec.review === 'off' || this.spec.review === 'auto') {
       // Winding down, the round has its delivered verdict already, and nobody reviews this answer either.
       if (this._settling) return
@@ -1907,6 +1967,100 @@ export class ColonyRun implements ColonyHost {
       trigger: 'verdict',
       text: prompts.colony.fixFinalAnswer(report),
     })
+  }
+
+  /**
+   * Goal mode (after omp's goal mode and `/loop --until`): checks the goal on a final answer. While it fails, whoever
+   * answered hears the result and keeps working; the round stops once the checks run out, when nothing was done since
+   * the last check (omp's no-progress stop), or when the condition cannot be checked at all. The person's Stop ends it
+   * like any round. True when the goal holds.
+   */
+  private async _goalHolds(by: string, goal: NonNullable<ColonySpec['goal']>): Promise<boolean> {
+    // A check already running answers for this answer too, as a running review does.
+    if (this._goalRunning) return false
+    this._goalRunning = true
+    // Counted before anything is awaited: a round whose speaker has signed off must not close as quiet meanwhile.
+    this._verifying += 1
+    // The answer it signed off with does not meet the goal, so the sign-off no longer holds (a quick check can come
+    // back before that turn has even ended), and an earlier result it has not read yet is stale.
+    const keepGoing = (text: string) => {
+      this._reopen()
+      const agent = this._agents.get(by)
+      agent?.reopen('goal')
+      agent?.notify({ trigger: 'goal', text })
+      return false
+    }
+    try {
+      const conflicts = await this._mergeWorktrees()
+      if (conflicts) return keepGoing(prompts.colony.notVerified(conflicts))
+      const since = this._goalCheckedAt
+      const check = ++this._goalChecks
+      const outcome = await this._verifier.verifyGoal(goal, check, by)
+      this._goalCheckedAt = this._state.lastSeq
+      if (this._state.status !== 'running') return false
+      if (outcome.pass) return true
+      const stop = outcome.broken
+        ? prompts.colony.goalBroken(outcome.evidence.split('\n')[0] ?? '')
+        : check >= goal.maxChecks
+          ? prompts.colony.goalCapped(check)
+          : check > 1 && !(await this._workedSince(since))
+            ? prompts.colony.goalStalled
+            : undefined
+      if (stop) {
+        void this.stop(stop)
+        return false
+      }
+      return keepGoing(
+        prompts.colony.goalNotMet({
+          condition: goal.condition,
+          check,
+          max: goal.maxChecks,
+          report: outcome.evidence,
+        }),
+      )
+    } finally {
+      this._goalRunning = false
+      this._verifying -= 1
+    }
+  }
+
+  /**
+   * Prewalk (after omp's prewalk): the lead planned on its own model; at its first change it switches, once, to the
+   * cheaper carry-out model, its conversation intact, from its next step. Logged as `agent/handoff` and shown in the
+   * chat. In plan mode the lead changes nothing before the person approves the plan, so the switch follows approval.
+   * A carry-out model that cannot be used (signed out, removed) leaves the lead on its own model.
+   */
+  private async _handOff(name: string, after: string, target: string) {
+    const agent = this._agents.get(name)
+    if (agent?.spec.role !== 'lead' || this._handedOff) return
+    this._handedOff = true
+    const previous = agent.spec.model
+    if (previous === target || this._state.status !== 'running') return
+    try {
+      await this.resolver.requireCredentials(target)
+    } catch (err) {
+      console.warn(
+        `prewalk: staying on ${previous}: ${target} is not usable: ${err instanceof Error ? err.message : err}`,
+      )
+      return
+    }
+    agent.switchModel(target)
+    await this.append({
+      type: 'agent/handoff',
+      actor: SYSTEM,
+      payload: { agent: name, model: target, previous, after },
+    })
+    this._wake(name, prompts.colony.prewalkHandoff(target), 'prewalk')
+  }
+
+  /** Whether any agent did something (a tool call other than answering or asking) after log position `since`. */
+  private async _workedSince(since: number): Promise<boolean> {
+    return (await this.log.read(this.id)).some(
+      (e) =>
+        e.seq > since &&
+        e.type === 'tool/call' &&
+        !ANSWERING.has((e.payload as EventPayloads['tool/call']).tool),
+    )
   }
 
   batchEnded(agent: string): void {
@@ -2086,6 +2240,14 @@ export class ColonyRun implements ColonyHost {
         }
         break
       }
+      case 'tool/result': {
+        const p = e.payload as EventPayloads['tool/result']
+        if (p.ok && this.spec.prewalk && !this._handedOff && PREWALK_AFTER.has(p.tool))
+          void this._handOff(p.agent, p.tool, this.spec.prewalk)
+        // A tool that pays for a model call itself (generate_image) spends from the same budget.
+        if (p.usage) this._checkBudget()
+        break
+      }
       case 'agent/turn':
       case 'llm/response': {
         // Fallback for wakes held past a batch: release them when the creator speaks again or ends its turn.
@@ -2104,17 +2266,22 @@ export class ColonyRun implements ColonyHost {
           }
           break
         }
-        const { costUsd, tokens } = this.spec.budget
-        const spent = this.spent()
-        if (costUsd !== undefined && spent.cost >= costUsd)
-          void this.stop(prompts.colony.spendLimit(spent.cost, costUsd))
-        else if (tokens !== undefined && spent.tokens >= tokens)
-          void this.stop(prompts.colony.tokenLimit(spent.tokens, tokens))
+        this._checkBudget()
         break
       }
     }
     if (e.type === 'artifact/versioned' || e.type === 'note/appended' || e.type === 'board/posted')
       this._scheduleMirror()
+  }
+
+  /** Stops the round once what it spent reaches its money or token limit. */
+  private _checkBudget() {
+    const { costUsd, tokens } = this.spec.budget
+    const spent = this.spent()
+    if (costUsd !== undefined && spent.cost >= costUsd)
+      void this.stop(prompts.colony.spendLimit(spent.cost, costUsd))
+    else if (tokens !== undefined && spent.tokens >= tokens)
+      void this.stop(prompts.colony.tokenLimit(spent.tokens, tokens))
   }
 
   /** Wakes whoever should hear about a task: its assignee, or idle teammates for a new unassigned task. */
@@ -2489,6 +2656,8 @@ export class ColonyRun implements ColonyHost {
     }).catch((err) => console.error('Stop hooks failed:', err))
     for (const name of [...this._servers.keys()])
       await this.stopServer(name, 'the round ended').catch(() => {})
+    // Code cells' state lasts a round, not a chat: each round's runtimes stop with it.
+    cellKernels.close(this.id)
     for (const { agent, kept } of (await this._worktrees?.close()) ?? [])
       await this.append({ type: 'worktree/closed', actor: SYSTEM, payload: { agent, kept } }).catch(() => {})
     for (const agent of [...this._logins.keys()]) await this.finishLogin(agent, 'stopped').catch(() => false)

@@ -193,6 +193,18 @@ export async function blobImage(colony: string, hash: string): Promise<string> {
   return URL.createObjectURL(blob)
 }
 
+/**
+ * A sound stored with a chat (speech an agent made) as an object URL for <audio src>, fetched with the auth header.
+ * The server serves it as audio only if its bytes are WAV, MP3, Ogg or FLAC; anything else is refused here.
+ */
+export async function blobAudio(colony: string, hash: string): Promise<string> {
+  const res = await call(`${base}/api/colonies/${colony}/blobs/${hash}?as=audio`, { headers: auth })
+  if (!res.ok) throw failure(res.status)
+  const blob = await res.blob()
+  if (!blob.type.startsWith('audio/')) throw new ApiError(copy.artifactViewer.mediaFailed)
+  return URL.createObjectURL(blob)
+}
+
 /** A plugin's built UI, imported from an object URL so the token stays in the header, never in a URL. */
 export async function importPluginUI(name: string): Promise<unknown> {
   // A plugin's screen runs as part of this page, with this machine's access; one from another gateway opens there.
@@ -564,6 +576,46 @@ export interface ChatSummary {
   group?: string
   /** The chat it was forked from. */
   forkOf?: string
+  /** The imported Claude Code or Codex session it continues. */
+  importOf?: string
+}
+
+export type ImportSource = 'claude' | 'codex'
+
+/** Another tool's session on the server's machine, as the import list shows it. */
+export interface ImportableSession {
+  source: ImportSource
+  id: string
+  cwd: string
+  title?: string
+  preview?: string
+  updatedAt: string
+  messages?: number
+  bytes: number
+  project?: { id: string; name: string }
+}
+
+/** One message of an imported conversation. */
+export interface ImportedTurn {
+  role: 'user' | 'assistant' | 'tool' | 'summary'
+  text: string
+  tool?: string
+  result?: string
+  error?: boolean
+}
+
+/** An imported session a new chat starts from (redacted and clipped on the server). */
+export interface ImportedSession {
+  id: string
+  source: ImportSource
+  sourceId: string
+  title: string
+  cwd: string
+  project?: { id: string; name: string }
+  updatedAt: string
+  importedAt: string
+  turns: ImportedTurn[]
+  omitted: number
 }
 
 /** A section of the chat list the person named. */

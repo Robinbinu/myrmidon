@@ -144,15 +144,16 @@ export class PairingCodes {
 
 /**
  * Requests a `chat` device may not make: the terminal, the person's own browser, keys and providers, Settings and permission changes, plugins,
- * MCP servers, hooks, browsing the server's folders or a project's files, git actions on projects, managing devices,
- * other gateways, and channels.
+ * MCP servers, hooks, saving stream rules, browsing the server's folders or a project's files, git actions on projects,
+ * managing devices, other gateways, and channels, and listing or importing Claude Code and Codex sessions (that reads
+ * those tools' folders).
  */
 export function needsFull(method: string, path: string): boolean {
   const write = method !== 'GET' && method !== 'HEAD'
   // Other gateways, reached through this one: a chats-only device must not borrow this hub's access to them.
   if (path.startsWith('/gw/')) return true
   if (
-    /^\/api\/(terminal|browser|credentials|providers|logins|devices|gateways|channels|import-omp|folders|mcp-reload|setup)(\/|$)/.test(
+    /^\/api\/(terminal|browser|credentials|providers|logins|devices|gateways|channels|import-omp|import-sessions|folders|mcp-reload|setup)(\/|$)/.test(
       path,
     )
   )
@@ -160,8 +161,13 @@ export function needsFull(method: string, path: string): boolean {
   if (/^\/api\/projects\/[^/]+\/(permissions|git\/(?!changes|diff|commits)[^/]+)$/.test(path)) return true
   // Browsing a project's files reaches every file in it (`.env` and other keys included), not just what a chat changed.
   if (/^\/api\/projects\/[^/]+\/(file|tree|find)$/.test(path)) return true
-  // Skills and schedules are managed in Settings; a schedule can also deliver to a channel.
-  if (write && /^\/api\/(settings|plugins|mcp|hooks|skills|schedules)(\/|$)/.test(path)) return true
+  // Skills and schedules are managed in Settings; a schedule can also deliver to a channel. Stream rules steer every
+  // agent, as hooks do.
+  if (write && /^\/api\/(settings|plugins|mcp|hooks|skills|schedules|rules)(\/|$)/.test(path)) return true
+  // Installing plugins and skills, the marketplaces and registry they come from: what runs as the person, and
+  // requests this gateway makes to the internet for them, reading included.
+  if (/^\/api\/(plugin-installs|plugin-marketplaces|skill-installs|skill-registry)(\/|$)/.test(path))
+    return true
   // Taking back apps a chat may control on the person's Mac is a permission change, as are a chat's preset or rules
   // and the folders it may read (approving a step, and remembering it for that chat, stays open: see the approvals
   // route).

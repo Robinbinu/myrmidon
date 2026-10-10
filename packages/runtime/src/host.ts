@@ -10,13 +10,17 @@ import type {
   Review,
 } from '@myrmidon/protocol'
 import type { AgentTool } from '@oh-my-pi/pi-agent-core'
+import type { Judge } from '@oh-my-pi/pi-ai'
+import type { Advisor } from './advisor.ts'
 import type { ModelError } from './agent.ts'
 import type { BrowserHub } from './browser.ts'
 import type { ComputerHub } from './computer/driver.ts'
+import type { MediaTools } from './media.ts'
 import type { PluginHost } from './plugin-host.ts'
 import type { ProjectContext } from './project-context.ts'
 import type { Sandbox } from './sandbox.ts'
 import type { ColonySpec } from './spec.ts'
+import type { StreamRule } from './stream-rules.ts'
 import type { WebTools } from './web.ts'
 import type { ColonyWorkspace } from './workspace.ts'
 
@@ -64,6 +68,8 @@ export interface ColonyHost {
    */
   closing?(agent: string): string | undefined
   batchEnded(agent: string): void
+  /** The round's advisor, when it has one: agents show it their steps that called tools. */
+  readonly advisor?: Advisor
   /** An agent's model failed for good (a refusal, or an error that retries did not fix): pause for the person. */
   modelFailed(agent: string, model: string, error: ModelError): Promise<void>
   /** An agent's working checklist (update_todo), kept in view and checked when it stops. */
@@ -72,6 +78,13 @@ export interface ColonyHost {
   huddling(): boolean
   /** Search and page fetching for agents. */
   readonly web: WebTools
+  /**
+   * The model that judges find's names and passages for this agent: the cheapest the person can use, as chat titles
+   * pick one. Absent (tests, bare hosts), find ranks by words alone.
+   */
+  judge?(agent: string): Judge | undefined
+  /** Pictures and speech for agents (generate_image, tts); absent in runs without the model runtime. */
+  readonly media?: MediaTools
   /** Tools of the connected MCP servers, offered to agents allowed `mcp`. */
   mcpTools(): AgentTool[]
   /** The MCP server marks this tool read-only (it changes nothing), so by default it runs without asking. */
@@ -177,6 +190,8 @@ export interface ColonyHost {
   beforeTool(agent: string, tool: string, input: unknown): Promise<void>
   /** Runs the person's PostToolUse hooks; returns what they want the agent to know ('' for nothing). */
   afterTool(agent: string, tool: string, input: unknown, output: string): Promise<string>
+  /** The person's stream rules and the project's (stream-rules.ts), read afresh at each agent turn. */
+  streamRules?(): readonly StreamRule[]
   /** The skills agents may use in this colony (enabled ones, including its project's). */
   skills(): { name: string; description: string }[]
   /** A skill's instructions, or one of its files, for an agent (use_skill). */

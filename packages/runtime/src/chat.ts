@@ -36,14 +36,17 @@ import { type Attachment, ColonyRun, RoundClosingError, type Runtime, SETTLE_MS 
 import type { ComputerHub } from './computer/driver.ts'
 import {
   CHAT_TITLE_ROUNDS,
+  GOAL,
   MAX_READ_FOLDERS,
   MAX_WORKERS,
   SKILL_REVIEW_CALLS,
   SUGGEST_CORPUS,
 } from './config.ts'
+import { parseGoal } from './goal.ts'
 import type { HookStore } from './hooks.ts'
 import type { ToolLibrary } from './made-tools.ts'
 import type { McpHub } from './mcp.ts'
+import type { MediaTools } from './media.ts'
 import { type MemoryStore, memoryLines } from './memory.ts'
 import type { ModelResolver } from './models.ts'
 import { pickName } from './names.ts'
@@ -52,6 +55,8 @@ import type { PluginHost } from './plugin-host.ts'
 import type { ProjectStore } from './projects.ts'
 import { prompts } from './prompts.ts'
 import { chatsAt, grantCovers, keysAt, readFolder, realPath, secretAt } from './read-access.ts'
+import { checkRuleFile, draftStreamRule, type RuleDraft, roundOutputs } from './rule-draft.ts'
+import { importedConversation, type SessionImports } from './session-import.ts'
 import type { SettingsStore } from './settings.ts'
 import {
   reviewRound,
@@ -63,9 +68,18 @@ import {
 import type { SkillLibrary } from './skills.ts'
 import type { AcceptanceCheck, AgentSpec, ColonySpec, Tier } from './spec.ts'
 import { type SpecialistStore, specialistAgent } from './specialists.ts'
+import type { StreamRuleScope, StreamRuleStore } from './stream-rules.ts'
 import type { WebTools } from './web.ts'
 
 /** One round of a chat: the colony it ran in, its place in that colony's log, and the colony's state. */
+/** Saving a stream rule over one of the same name, which the person has not said to replace. */
+export class RuleExistsError extends Error {
+  constructor(readonly rule: string) {
+    super(`a rule named ${rule} already exists`)
+    this.name = 'RuleExistsError'
+  }
+}
+
 interface RoundRef {
   readonly id: string
   readonly round: RoundInfo
@@ -79,9 +93,10 @@ function keptTeam(previous: readonly RoundRef[], mode: TeamConfig['mode']): Agen
   if (!last) return []
   // A colony that served several rounds holds every agent it ever had: keep the ones of this kind of team.
   const role = swarm ? 'peer' : 'worker'
+  // One that fell back comes back on the model it was set up with: the fallback was for that model's failure.
   return Object.values(last.state.agents)
     .filter((a) => a.info.role === role && !a.dismissed && a.status !== 'failed')
-    .map((a) => a.info)
+    .map((a) => (a.fellBackFrom ? { ...a.info, model: a.fellBackFrom } : a.info))
 }
 
 /**
@@ -119,6 +134,10 @@ export interface TeamConfig {
   /** Orchestrated only: how many more specialists the lead may add. */
   readonly extraWorkers?: number
   readonly judgeModel: string
+  /** The advisor's model (see advisor.ts); absent, the one in Settings → Crew & budget, if any. */
+  readonly advisorModel?: string
+  /** Prewalk's carry-out model (ColonySpec.prewalk); absent, the one in Settings → Crew & budget, if any. */
+  readonly carryOutModel?: string
   readonly wallMinutes?: number
   /** Overrides how hard reasoning models think in work rounds (direct answers stay quick). */
   readonly thinking?: Thinking
@@ -138,6 +157,11 @@ export interface SendOptions {
   readonly attachments?: readonly Attachment[]
   /** Plan mode: the round presents its plan for approval before doing any work. */
   readonly planFirst?: boolean
+  /**
+   * Goal mode: the message is `<condition>: <request>` (see parseGoal), and the round goes on until the condition
+   * holds, its checks run out, or the person stops it (ColonySpec.goal). It starts a round of its own.
+   */
+  readonly goal?: boolean
   /** A new chat's project; later rounds stay in the chat's project. */
   readonly project?: string
   /** Fixes the size: an escalated round reruns its request at the tier its agent asked for. */
@@ -157,6 +181,8 @@ export interface SendOptions {
   readonly answers?: QuestionAnswers
   /** A new chat forked from this one: its first round starts from that chat's conversation and project. */
   readonly forkOf?: string
+  /** A new chat continuing an imported Claude Code or Codex session: its first round starts from that conversation. */
+  readonly importOf?: string
 }
 
 /** Accepts the current team config or the older `{ mode: 'auto' | 'manual', workers, workerModel }` shape. */
@@ -171,6 +197,8 @@ export function normalizeTeamConfig(raw: Record<string, unknown>): TeamConfig {
     ...(typeof raw.wallMinutes === 'number' ? { wallMinutes: raw.wallMinutes } : {}),
     ...(thinking ? { thinking } : {}),
     ...(raw.helpers === 'always' ? { helpers: 'always' as const } : {}),
+    ...(str(raw.advisorModel) ? { advisorModel: str(raw.advisorModel) } : {}),
+    ...(str(raw.carryOutModel) ? { carryOutModel: str(raw.carryOutModel) } : {}),
   }
   if (raw.mode === 'orchestrated' || raw.mode === 'swarm') {
     const roster = (Array.isArray(raw.roster) ? raw.roster : [])
@@ -246,6 +274,8 @@ export interface ChatSummary {
   readonly archivedAt?: string
   readonly group?: string
   readonly forkOf?: string
+  /** The imported Claude Code or Codex session it continues (see SessionImports). */
+  readonly importOf?: string
 }
 
 /** The earlier rounds of a chat as `User:` / `Colony:` pairs, for agents that were not in them. */
@@ -294,6 +324,8 @@ export class ChatService {
       unsafeNoSandbox?: boolean
       settings?: SettingsStore
       web?: WebTools
+      /** Pictures and speech for agents (generate_image, tts). */
+      media?: MediaTools
       /** Fixes a new round's size; by default every round starts with the lead alone (see `leadFirst`). */
       classify?: Classify
       /** MCP servers whose tools colonies may use. */
@@ -314,6 +346,8 @@ export class ChatService {
       skills?: SkillLibrary
       /** The person's hooks around tools and round ends. */
       hooks?: HookStore
+      /** The person's stream rules, kept to by every round's agents and added to with `/rule`. */
+      rules?: StreamRuleStore
       /** Project folders chats can work in. */
       projects?: ProjectStore
       /** Agents the person defined once and brings back. */
@@ -324,6 +358,8 @@ export class ChatService {
       quietMs?: number
       /** Where the person filed each chat (pins, archive, groups, forks). */
       shelf?: ChatShelf
+      /** Claude Code and Codex sessions imported to start new chats from. */
+      imports?: SessionImports
     },
   ) {}
 
@@ -410,6 +446,59 @@ export class ChatService {
       actor: { kind: 'user', id: 'user' },
       payload: { id, kept: keep },
     })
+  }
+
+  /**
+   * The person complained about a chat's last reply (`/rule`): the lead's model drafts a stream rule that would have
+   * stopped it, checked against what the latest round's agents wrote. `amend`: a change asked for to an earlier draft.
+   */
+  async draftRule(
+    chatId: string,
+    complaint: string,
+    amend?: { previous: string; change: string },
+  ): Promise<RuleDraft> {
+    const latest = (await this.rounds(chatId)).at(-1)
+    if (!latest) throw new Error('no such chat')
+    const agents = Object.values(latest.state.agents)
+    const model = (agents.find((a) => a.info.role === 'lead') ?? agents[0])?.info.model
+    if (!model) throw new Error('this chat has no reply to make a rule from')
+    const events = await this.store.read(latest.id as never)
+    const cwd = this._chatProject(latest.state) ?? this.store.colonyDir(latest.id as never)
+    return draftStreamRule({
+      resolver: this.options.resolver,
+      model,
+      complaint,
+      outputs: roundOutputs(events, latest.round.startSeq, cwd),
+      ...(amend ? { amend } : {}),
+    })
+  }
+
+  /**
+   * Saves a stream rule the person confirmed: theirs, for every chat, or in the chat's project. An existing rule of
+   * the name is replaced only when `replace` says so. Returns where it went; agents keep to it from their next turn.
+   */
+  async saveRule(input: {
+    name: string
+    text: string
+    where: StreamRuleScope
+    chatId?: string
+    replace?: boolean
+  }): Promise<{ name: string; path: string }> {
+    const rules = this.options.rules
+    if (!rules) throw new Error('stream rules are not set up on this server')
+    const rule = checkRuleFile(input.name, input.text)
+    const latest = input.chatId ? (await this.rounds(input.chatId)).at(-1) : undefined
+    const project = latest ? this._chatProject(latest.state) : undefined
+    if (input.where === 'project' && !project) throw new Error('this chat has no project to save the rule in')
+    if (!input.replace && rules.target(rule.name, input.where, project).exists)
+      throw new RuleExistsError(rule.name)
+    return { name: rule.name, path: rules.write(rule.name, input.text, input.where, project) }
+  }
+
+  /** The project folder a round's chat works in, if any. */
+  private _chatProject(state: ColonyState): string | undefined {
+    const id = state.chat?.project?.id
+    return (id ? this.options.projects?.get(id)?.path : undefined) ?? state.chat?.project?.path
   }
 
   /**
@@ -635,6 +724,7 @@ export class ChatService {
       delivery = 'steer',
       attachments = [],
       planFirst = false,
+      goal = false,
       voice = false,
       context,
       answers,
@@ -647,6 +737,8 @@ export class ChatService {
     await this._settle()
     const live = this._live.get(id)
     if (live && live.state().status === 'running') {
+      // Steering would drop the goal: its checks belong to the round it starts.
+      if (goal) throw new Error(prompts.chat.goalWhileRunning)
       try {
         // Their message steers a round someone else started: from now on it asks too, as if they had started it.
         if (options.askAll) await live.askForAll()
@@ -665,15 +757,27 @@ export class ChatService {
     const source = !previous.length && options.forkOf ? await this.rounds(options.forkOf) : []
     if (options.forkOf && !previous.length && !source.length) throw new Error('the chat to fork is gone')
     if (source.length && options.forkOf) this.options.shelf?.fork(id, options.forkOf)
-    const history = conversation(previous.length ? previous : source)
+    // An imported session's first round starts from its conversation (the composer picks the project holding its folder).
+    const imported =
+      !previous.length && !source.length && options.importOf
+        ? this.options.imports?.get(options.importOf)
+        : undefined
+    if (options.importOf && !previous.length && !source.length && !imported)
+      throw new Error('the imported session is gone')
+    if (imported) this.options.shelf?.imported(id, imported.id)
+    const history = imported
+      ? importedConversation(imported)
+      : conversation(previous.length ? previous : source)
     // Written to crew members directly (@name): the round starts with them, and they answer.
     const latestState = previous.at(-1)?.state
     const to = latestState ? addressedIn(message, latestState) : []
     // The lead starts at once and sizes the work itself (escalate); tests and reruns may fix the size instead.
-    const tier = to.length
+    const sized = to.length
       ? 'team'
       : (options.tier ??
         (config.helpers === 'always' ? 'team' : await (this.options.classify ?? leadFirst)(message, history)))
+    // A goal is worked toward with tools and checked: never a direct answer.
+    const tier = goal && sized === 'answer' ? 'solo' : sized
     const spec = this.buildSpec(id, message, config, previous, history, tier, to)
     if (spec.chat) Object.assign(spec.chat, extra)
     if (options.askAll) spec.askAll = true
@@ -696,13 +800,25 @@ export class ChatService {
     const reads = this._reads(project, spec.askAll)
     if (reads.length) spec.reads = reads
     if (this._computerUse(spec.askAll)) spec.computerUse = true
+    const fallbacks = this._fallbacks()
+    if (fallbacks) spec.fallbacks = fallbacks
     const memory = this.options.memory?.recall(project?.id) ?? []
     if (memory.length && spec.chat) spec.chat.memory = memoryLines(memory)
     if (planFirst && spec.tier !== 'answer') spec.planFirst = true
+    if (goal) {
+      spec.goal = {
+        ...parseGoal(message),
+        maxChecks: GOAL.maxChecks,
+        judge: config.judgeModel,
+        threshold: this.options.settings?.get().verification.threshold ?? 0.7,
+      }
+      spec.budget.wallMs = Math.max(spec.budget.wallMs, GOAL.wallMinutes * 60_000)
+    }
     const run: ColonyRun = new ColonyRun(this.runtime, spec, {
       resolver: this.options.resolver,
       ...(this.options.quietMs !== undefined ? { quietMs: this.options.quietMs } : {}),
       ...(this.options.web ? { web: this.options.web } : {}),
+      ...(this.options.media ? { media: this.options.media } : {}),
       ...(this.options.unsafeNoSandbox ? { unsafeNoSandbox: true } : {}),
       ...(this.options.mcp ? { mcp: this.options.mcp } : {}),
       ...(this.options.plugins ? { plugins: this.options.plugins } : {}),
@@ -713,6 +829,7 @@ export class ChatService {
       ...(this.options.computer ? { computer: this.options.computer } : {}),
       ...(this.options.skills ? { skills: this.options.skills } : {}),
       ...(this.options.hooks ? { hooks: this.options.hooks } : {}),
+      ...(this.options.rules ? { rules: this.options.rules } : {}),
       ...(this.options.memory ? { memory: this.options.memory } : {}),
       // A chat's follow-ups continue its colony: same log, files, notes and agents' conversations.
       ...(latest ? { resumeId: latest.id as ColonyId } : {}),
@@ -1109,6 +1226,15 @@ export class ChatService {
     return !askAll && !!hub?.enabled && hub.supported
   }
 
+  /** The models agents go on with when theirs fails, from Settings → Crew & budget; none set leaves them out. */
+  private _fallbacks(): ColonySpec['fallbacks'] {
+    const team = this.options.settings?.get().team
+    const lead = team?.leadFallbacks ?? []
+    const workers = team?.workerFallbacks ?? []
+    if (!lead.length && !workers.length) return undefined
+    return { ...(lead.length ? { lead } : {}), ...(workers.length ? { workers } : {}) }
+  }
+
   private _project(
     id: string | undefined,
     required = true,
@@ -1302,6 +1428,10 @@ export class ChatService {
     const reads = this._reads(fresh ?? project, spec.askAll)
     if (reads.length) spec.reads = reads
     if (this._computerUse(spec.askAll)) spec.computerUse = true
+    const fallbacks = this._fallbacks()
+    if (fallbacks) spec.fallbacks = fallbacks
+    const advisor = this.options.settings?.get().team.advisorModel
+    if (advisor) spec.advisor = advisor
     const models: Record<string, string> = {}
     if (model) {
       this.options.resolver.resolve(model)
@@ -1321,6 +1451,7 @@ export class ChatService {
       resumeId: last.id as ColonyId,
       ...(this.options.quietMs !== undefined ? { quietMs: this.options.quietMs } : {}),
       ...(this.options.web ? { web: this.options.web } : {}),
+      ...(this.options.media ? { media: this.options.media } : {}),
       ...(this.options.unsafeNoSandbox ? { unsafeNoSandbox: true } : {}),
       ...(this.options.mcp ? { mcp: this.options.mcp } : {}),
       ...(this.options.plugins ? { plugins: this.options.plugins } : {}),
@@ -1331,6 +1462,7 @@ export class ChatService {
       ...(this.options.computer ? { computer: this.options.computer } : {}),
       ...(this.options.skills ? { skills: this.options.skills } : {}),
       ...(this.options.hooks ? { hooks: this.options.hooks } : {}),
+      ...(this.options.rules ? { rules: this.options.rules } : {}),
     })
     this._live.set(chatId, run)
     this._own(run)
@@ -1384,12 +1516,16 @@ export class ChatService {
       .filter((e) => e.type === 'agent/joined' && e.seq > start.seq)
       .map((e) => (e.payload as EventPayloads['agent/joined']).agent)
     const notes = this.options.settings?.get().instructions
+    // A lead that already handed off (prewalk) resumes on its carry-out model, and does not hand off again.
+    const handoff = events.findLast((e) => e.type === 'agent/handoff' && e.seq > start.seq)?.payload as
+      | EventPayloads['agent/handoff']
+      | undefined
     const agents = [...created.agents, ...joined].map((info) => {
       const note = (info.role === 'lead' ? notes?.lead : notes?.worker)?.trim()
       return this._asSpecialist({
         name: info.name,
         role: info.role,
-        model: info.model,
+        model: handoff?.agent === info.name ? handoff.model : info.model,
         ...(info.specialty ? { specialty: info.specialty } : {}),
         ...(note ? { instructions: note } : {}),
       })
@@ -1421,6 +1557,8 @@ export class ChatService {
       ...(askAll ? { askAll: true } : {}),
       ...(created.review ? { review: created.review } : {}),
       ...(created.tier ? { tier: created.tier } : {}),
+      ...(created.goal ? { goal: created.goal } : {}),
+      ...(created.prewalk && !handoff ? { prewalk: created.prewalk } : {}),
     }
   }
 
@@ -1453,6 +1591,9 @@ export class ChatService {
         this.store.deleteColony(id as never)
         this.index.forget(id)
       }
+      // The imported conversation it started from goes with it: it is a copy of another tool's transcript.
+      const importOf = this.options.shelf?.place(chatId).importOf
+      if (importOf) this.options.imports?.remove(importOf)
       this.options.shelf?.forget([chatId])
       return ids
     } finally {
@@ -1573,7 +1714,7 @@ export class ChatService {
       kept.push({
         name,
         role: info.role,
-        model: info.model,
+        model: known[name]?.fellBackFrom ?? info.model,
         ...(info.specialty ? { specialty: info.specialty } : {}),
         ...(info.focus ? { focus: info.focus } : {}),
       })
@@ -1652,6 +1793,14 @@ export class ChatService {
       ...(s?.team.tokens ? { tokens: s.team.tokens } : {}),
     }
     const models = [...new Set([...roster.map((r) => r.model), config.leadModel])]
+    // Every tier gets it: a direct answer that calls tools is watched as closely as a team's work.
+    const advisor = config.advisorModel ?? s?.team.advisorModel
+    // Only a lead hands off, and only in a round with work to carry out; a lead already on it has nothing to switch.
+    const carryOut = config.carryOutModel ?? s?.team.carryOutModel
+    const prewalk =
+      carryOut && tier !== 'answer' && agents.some((a) => a.role === 'lead' && a.model !== carryOut)
+        ? carryOut
+        : undefined
     return {
       name: title(request),
       mission: history ? prompts.chat.mission(request, history) : request,
@@ -1685,6 +1834,8 @@ export class ChatService {
       },
       tier,
       ...(config.thinking ? { thinking: config.thinking } : {}),
+      ...(advisor ? { advisor } : {}),
+      ...(prewalk ? { prewalk } : {}),
       team: {
         mode: config.mode,
         maxWorkers: tier === 'team' && !swarm ? (kept.length || roster.length) + extra : 0,

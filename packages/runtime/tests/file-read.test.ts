@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { deflateSync } from 'node:zlib'
 import { encodeArchive } from '@oh-my-pi/pi-utils/ar'
 import { READ_SQL_MAX_ROWS } from '../src/config.ts'
-import { readFileAs } from '../src/file-read.ts'
+import { looksBinary, readFileAs } from '../src/file-read.ts'
 import type { ColonyHost } from '../src/host.ts'
 import { TOOL_DEFS } from '../src/tools.ts'
 
@@ -275,4 +275,14 @@ test('fs_read returns an image as a picture, shrunk to what vision models take',
   expect(result.images).toHaveLength(1)
   expect(result.images[0]?.mimeType).toStartWith('image/')
   expect(Buffer.from(result.images[0]?.data ?? '', 'base64').length).toBeLessThan(500 * 1024)
+})
+
+test('a text file that is not UTF-8 is still read as text, its odd bytes replaced; NUL bytes mean binary', async () => {
+  // "café\n" in Latin-1: é is the single byte 0xE9, which is not valid UTF-8.
+  writeFileSync(at('latin1.txt'), new Uint8Array([0x63, 0x61, 0x66, 0xe9, 0x0a]))
+  const read = await readFileAs(at('latin1.txt'), 'latin1.txt')
+  expect(read.text).toBe('caf\uFFFD\n')
+  expect(looksBinary(new Uint8Array([0x61, 0, 0x62]))).toBe(true)
+  expect(looksBinary(new TextEncoder().encode('\x1b[32mgreen\x1b[0m\tok\r\n'))).toBe(false)
+  expect(looksBinary(new Uint8Array([1, 2, 3, 4, 0x61]))).toBe(true)
 })

@@ -8,13 +8,14 @@ import { compact, useCopy } from '../ui/hooks.ts'
 import { FEATURE_ICONS } from '../ui/icons.ts'
 import { Button, cn, Select, Skeleton, Tabs, tabPanel } from '../ui/primitives.tsx'
 import { Sheet } from '../ui/Sheet.tsx'
+import { mediaOf, useMediaUrl } from './Attachments.tsx'
 import { Markdown } from './Markdown.tsx'
 
 type View = 'code' | 'preview' | 'diff'
 
 /**
  * File viewer for one artifact: source with line numbers, a live preview for HTML or rendered Markdown, and
- * a diff against the previous version.
+ * a diff against the previous version; a picture or a sound is shown or played.
  */
 export function ArtifactViewer(props: {
   colonyId: string
@@ -27,7 +28,9 @@ export function ArtifactViewer(props: {
   const previous = selected ? props.versions.find((v) => v.version === selected.parentVersion) : undefined
   const isHtml = selected?.mediaType === 'text/html'
   const isMarkdown = selected?.mediaType === 'text/markdown' || /\.(md|markdown)$/i.test(props.name)
-  const [view, setView] = useState<View>(isHtml || isMarkdown ? 'preview' : 'code')
+  const media = mediaOf(selected?.mediaType)
+  const mediaUrl = useMediaUrl(props.colonyId, selected?.blob, media)
+  const [view, setView] = useState<View>(isHtml || isMarkdown || media ? 'preview' : 'code')
   const [text, setText] = useState<string>()
   const [prev, setPrev] = useState<string>()
   const [preview, setPreview] = useState<string>()
@@ -38,7 +41,8 @@ export function ArtifactViewer(props: {
   const blob = selected?.blob
   const prevBlob = previous?.blob
   useEffect(() => {
-    if (!blob) return
+    // Pictures and sound are not read as text.
+    if (!blob || media) return
     let cancelled = false
     setText(undefined)
     Promise.all([blobText(props.colonyId, blob), prevBlob ? blobText(props.colonyId, prevBlob) : undefined])
@@ -51,7 +55,7 @@ export function ArtifactViewer(props: {
     return () => {
       cancelled = true
     }
-  }, [props.colonyId, blob, prevBlob])
+  }, [props.colonyId, blob, prevBlob, media])
 
   useEffect(() => {
     if (isHtml)
@@ -62,61 +66,72 @@ export function ArtifactViewer(props: {
   }, [isHtml, props.colonyId, props.name])
 
   const download = () => {
+    const file = props.name.split('/').pop() ?? copy.artifactViewer.downloadName
+    if (media) {
+      if (!mediaUrl) return
+      const a = document.createElement('a')
+      a.href = mediaUrl
+      a.download = file
+      a.click()
+      return
+    }
     if (text === undefined) return
     const url = URL.createObjectURL(new Blob([text], { type: selected?.mediaType ?? 'text/plain' }))
     const a = document.createElement('a')
     a.href = url
-    a.download = props.name.split('/').pop() ?? copy.artifactViewer.downloadName
+    a.download = file
     a.click()
     URL.revokeObjectURL(url)
   }
 
-  const tabs = [
-    ...(isHtml
-      ? [
-          {
-            value: 'preview' as const,
-            label: (
-              <>
-                <Monitor className="size-3.5" /> {copy.artifactViewer.tabs.preview}
-              </>
-            ),
-          },
-        ]
-      : isMarkdown
-        ? [
-            {
-              value: 'preview' as const,
-              label: (
-                <>
-                  <BookOpen className="size-3.5" /> {copy.artifactViewer.tabs.rendered}
-                </>
-              ),
-            },
-          ]
-        : []),
-    {
-      value: 'code' as const,
-      label: (
-        <>
-          <FEATURE_ICONS.files className="size-3.5" />{' '}
-          {isMarkdown ? copy.artifactViewer.tabs.source : copy.artifactViewer.tabs.code}
-        </>
-      ),
-    },
-    ...(previous
-      ? [
-          {
-            value: 'diff' as const,
-            label: (
-              <>
-                <GitCompare className="size-3.5" /> {copy.artifactViewer.tabs.changesFrom(previous.version)}
-              </>
-            ),
-          },
-        ]
-      : []),
-  ]
+  const previewTab = {
+    value: 'preview' as const,
+    label: (
+      <>
+        <Monitor className="size-3.5" /> {copy.artifactViewer.tabs.preview}
+      </>
+    ),
+  }
+  const tabs = media
+    ? [previewTab]
+    : [
+        ...(isHtml
+          ? [previewTab]
+          : isMarkdown
+            ? [
+                {
+                  value: 'preview' as const,
+                  label: (
+                    <>
+                      <BookOpen className="size-3.5" /> {copy.artifactViewer.tabs.rendered}
+                    </>
+                  ),
+                },
+              ]
+            : []),
+        {
+          value: 'code' as const,
+          label: (
+            <>
+              <FEATURE_ICONS.files className="size-3.5" />{' '}
+              {isMarkdown ? copy.artifactViewer.tabs.source : copy.artifactViewer.tabs.code}
+            </>
+          ),
+        },
+        ...(previous
+          ? [
+              {
+                value: 'diff' as const,
+                label: (
+                  <>
+                    <GitCompare className="size-3.5" />{' '}
+                    {copy.artifactViewer.tabs.changesFrom(previous.version)}
+                  </>
+                ),
+              },
+            ]
+          : []),
+      ]
 
   return (
     <Sheet
@@ -154,7 +169,7 @@ export function ArtifactViewer(props: {
           <Button
             size="sm"
             onClick={download}
-            disabled={text === undefined}
+            disabled={media ? !mediaUrl : text === undefined}
             icon={<Download className="size-3.5" />}
           >
             {copy.artifactViewer.download}
@@ -186,7 +201,20 @@ export function ArtifactViewer(props: {
             {copy.artifactViewer.noPreview}
           </div>
         )}
-        {view === 'preview' && preview ? (
+        {media ? (
+          <div className="grid min-h-[40vh] flex-1 place-items-center bg-surface-2 p-6">
+            {mediaUrl === null ? (
+              <p className="text-callout text-muted">{copy.artifactViewer.mediaFailed}</p>
+            ) : mediaUrl === undefined ? (
+              <Skeleton className="size-48" />
+            ) : media === 'image' ? (
+              <img src={mediaUrl} alt={props.name} className="max-h-[75vh] max-w-full object-contain" />
+            ) : (
+              // biome-ignore lint/a11y/useMediaCaption: speech an agent made from text; the text is in the chat
+              <audio controls src={mediaUrl} className="w-full max-w-xl" />
+            )}
+          </div>
+        ) : view === 'preview' && preview ? (
           <iframe
             className="min-h-[60vh] w-full flex-1 border-0 bg-white"
             src={preview}

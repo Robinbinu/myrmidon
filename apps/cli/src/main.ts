@@ -16,6 +16,7 @@ import {
   roundSlice,
 } from '@myrmidon/protocol'
 import {
+  addKnownSecrets,
   alive,
   BrowserHub,
   bootOmp,
@@ -27,12 +28,14 @@ import {
   ComputerHub,
   ContextWindows,
   detectSandbox,
+  guardSecrets,
   HookStore,
   importFromOmp,
   loadColonySpec,
   McpHub,
   MemoryStore,
   ModelResolver,
+  ompMediaTools,
   ompWebTools,
   ownerOnly,
   PluginHost,
@@ -41,15 +44,19 @@ import {
   type Runtime,
   recoverOrphans,
   ScheduleStore,
+  SessionImports,
   SettingsStore,
   SkillLibrary,
   SkillProposalStore,
   SpecialistStore,
+  StreamRuleStore,
   ToolLibrary,
+  type VoiceFiles,
 } from '@myrmidon/runtime'
 import { startServer } from '@myrmidon/web'
 import { channels } from './channels.ts'
 import { setupCopy } from './copy.ts'
+import { plugins, skills } from './installs.ts'
 import { type Call, doctor, key, login, model, type ServerInfo, setup } from './setup.ts'
 import { shutdownSignals } from './shutdown.ts'
 import { style, terminal } from './terminal.ts'
@@ -72,9 +79,16 @@ Usage:
   myrmidon channels [<channel> [on|off|set <name> <value>] | approve <channel> <code> | revoke <channel> <who>]
                Talk to your agents from Telegram and more: set a channel up (secrets hidden or piped), approve
                people, and choose who may write (set dm|groups|mention|per-person|allow|stream)
+  myrmidon plugins [add <source> | update <name> | remove <name> | marketplaces [add|refresh|remove …]]
+               Install plugins from a folder, repository URL, npm:<package> or <plugin>@<marketplace>; you
+               review what runs before anything is installed
+  myrmidon skills [search [query] | add <@scope/name | repository URL> | update <name> | remove <name>]
+               Search omp's skills registry and install skills, after the same review
   myrmidon ask "<request>" [--chat ID] [--project ID] [--wait]
                Send a request to the running server (from \`serve\`); --wait prints the final answer
   myrmidon import-omp          Copy an existing omp setup (keys, logins, models.yml) from ~/.omp
+  myrmidon import-session [ID "<message>"] [--project ID]
+               List your Claude Code and Codex sessions; with an ID and a message, continue that session as a new chat
   myrmidon ls
   myrmidon events <colony-id> [--json]
   myrmidon export <colony-id> [--out file.jsonl]
@@ -238,11 +252,20 @@ async function run(path: string) {
   const sandbox = detectSandbox()
   const omp = await bootOmp(home)
   const settings = new SettingsStore(home)
+  // As `serve` does (apps/web/src/server.ts): secrets reach model providers as placeholders unless the person said no.
+  const hide = settings.get().privacy.hideSecrets
+  guardSecrets({ enabled: () => hide, keyFile: join(home, 'secret-placeholder.key') })
+  addKnownSecrets(() => omp.secretValues())
   const colony = new ColonyRun(runtime, spec, {
     unsafeNoSandbox: values['unsafe-no-sandbox'],
     sandbox,
     resolver: new ModelResolver(omp, contextWindows(settings)),
     web: ompWebTools(omp, () => settings.get().search.provider),
+    media: ompMediaTools({
+      images: omp,
+      imageModel: () => settings.get().images.model,
+      voice: () => undefined,
+    }),
   })
   const delivered = new Set<string>()
   runtime.ctx.on('log/appended', (id, events) => {
@@ -352,17 +375,27 @@ async function main() {
           : console.log(c.dim(`skills archived (unused for a while): ${archived.join(', ')}`)),
       )
       const hooks = new HookStore(home, () => plugins.hooks())
+      const rules = new StreamRuleStore(home)
       const checkpoints = new Checkpoints(join(home, 'checkpoints'))
       // A server that fails to start is reported in Settings; it must not keep Myrmidon from starting.
       void mcp
         .start()
         .catch((err) => console.error(c.yellow(`MCP: ${err instanceof Error ? err.message : err}`)))
       const shelf = new ChatShelf(home)
+      const imports = new SessionImports(home, { projects })
+      // The voice engines belong to the server, which starts after the chats: tts finds them once it is up.
+      let voice: VoiceFiles | undefined
       const chats = new ChatService(runtime, {
         resolver,
         shelf,
+        imports,
         settings,
         web: ompWebTools(omp, () => settings.get().search.provider),
+        media: ompMediaTools({
+          images: omp,
+          imageModel: () => settings.get().images.model,
+          voice: () => voice,
+        }),
         unsafeNoSandbox: values['unsafe-no-sandbox'],
         mcp,
         browser,
@@ -375,6 +408,7 @@ async function main() {
         memory,
         skills,
         hooks,
+        rules,
         plugins: pluginHost,
       })
       const server = startServer({
@@ -398,6 +432,7 @@ async function main() {
         pluginHost,
         schedules: new ScheduleStore(home),
         shelf,
+        imports,
         sandboxKind: sandbox.kind,
         noAuth: values.dev,
         ...(values.host ? { host: values.host } : {}),
@@ -409,6 +444,7 @@ async function main() {
         // The desktop app stops the server it started this way: Windows has no SIGTERM for it to send.
         onShutdown: () => void shutdown(),
       })
+      voice = server.voice
       console.log(`${c.bold('Myrmidon')} ${server.url}`)
       // Speech engines load in the background now, so the first call does not wait on them.
       void server.warmVoice()
@@ -487,6 +523,10 @@ async function main() {
       return model((await runningServer()).call, terminal(), arg)
     case 'channels':
       return channels((await runningServer()).call, terminal(), positionals.slice(1))
+    case 'plugins':
+      return plugins((await runningServer()).call, terminal(), positionals.slice(1))
+    case 'skills':
+      return skills((await runningServer()).call, terminal(), positionals.slice(1))
     case 'doctor': {
       const server = await runningServer().catch(() => undefined)
       const problems = await withScratch((scratch) =>
@@ -501,6 +541,8 @@ async function main() {
       if (report.skipped.length) console.log(c.dim(`not found: ${report.skipped.join(', ')}`))
       return
     }
+    case 'import-session':
+      return importSession(arg, positionals[2])
     case 'ls': {
       await recoverOnly()
       const store = new SqliteLogStore(home)
@@ -601,6 +643,34 @@ async function pair() {
 }
 
 /** Sends a request to the running server, like typing it in the composer; with --wait, prints the answer. */
+/** Lists other tools' sessions (read here, no server needed), or continues one as a new chat on the running server. */
+async function importSession(id: string | undefined, request: string | undefined) {
+  const sessions = await new SessionImports(home, { projects: new ProjectStore(home) }).list()
+  if (!id) {
+    if (!sessions.length) return console.log('No Claude Code or Codex sessions found.')
+    for (const s of sessions.slice(0, 30))
+      console.log(
+        `${c.dim(s.updatedAt.slice(0, 16).replace('T', ' '))}  ${(s.source === 'claude' ? 'Claude Code' : 'Codex').padEnd(11)}  ${s.id}  ${s.title ?? s.preview ?? ''}${c.dim(`  ${s.cwd}`)}`,
+      )
+    return console.log(c.dim('Continue one: myrmidon import-session <id> "<message>"'))
+  }
+  if (!request?.trim()) throw new Error('usage: myrmidon import-session <id> "<message>" [--project ID]')
+  const found = sessions.find((s) => s.id === id)
+  if (!found) throw new Error(`no Claude Code or Codex session ${id}`)
+  const { call } = await runningServer()
+  const imported = await call<{ id: string; project?: { id: string } }>('POST', '/api/import-sessions', {
+    source: found.source,
+    id,
+  })
+  const project = values.project ?? imported.project?.id
+  const sent = await call<{ chatId: string }>('POST', '/api/chats', {
+    text: request,
+    importOf: imported.id,
+    ...(project ? { project } : {}),
+  })
+  console.log(`${c.green('sent')} chat ${sent.chatId}`)
+}
+
 async function ask(request: string | undefined) {
   if (!request?.trim()) throw new Error('usage: myrmidon ask "<request>" [--chat ID] [--project ID] [--wait]')
   const { call } = await runningServer()

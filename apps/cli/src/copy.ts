@@ -162,4 +162,38 @@ export const setupCopy = {
     summary: (problems: number) =>
       problems ? `${problems} ${problems === 1 ? 'thing needs' : 'things need'} attention.` : 'All good.',
   },
+
+  installs: {
+    pluginsUsage:
+      'usage: myrmidon plugins [add <folder|git URL|npm:pkg|plugin@marketplace> | update <name> | remove <name> | marketplaces [add <owner/repo|git URL> | refresh <name> | remove <name>]]',
+    skillsUsage:
+      'usage: myrmidon skills [search [query] | add <@scope/name|git URL> | update <name> | remove <name>]',
+    notInteractive:
+      'installing asks you to confirm what it shows, and nothing is typing here: run it in a terminal, or use Settings',
+    noPlugins: 'no plugins yet: `myrmidon plugins add <source>`',
+    noMarketplaces: 'no marketplaces yet: `myrmidon plugins marketplaces add <owner/repo>`',
+    noSkills: 'nothing installed from a registry or repository yet: `myrmidon skills add <@scope/name>`',
+    noHits: 'nothing in the registry matches',
+    fetching: (what: string) => `Fetching ${what}…`,
+    review: 'About to install:',
+    reviewUpdate: 'About to update:',
+    from: 'from',
+    version: 'version',
+    pinned: 'pinned',
+    replaces: 'replaces',
+    runs: 'runs as you:',
+    code: (entry: string) => `server code ${entry}`,
+    ui: 'screens in the app',
+    hooks: (n: number) => `${n} hook${n === 1 ? '' : 's'}`,
+    servers: (names: string[]) => `MCP servers ${names.join(', ')}`,
+    nothingRuns: 'nothing runs: only skills and commands',
+    scripts: (files: string[]) => `scripts an agent can run: ${files.join(', ')}`,
+    dependencies: (names: string[]) => `npm packages it needs (scripts off): ${names.join(', ')}`,
+    confirm: 'Install it? Type yes to install',
+    cancelled: 'Not installed.',
+    installed: (what: string) => `Installed ${what}`,
+    removed: (name: string) => `Removed ${name}`,
+    added: (name: string, n: number) => `Added marketplace ${name} (${n} plugins)`,
+    refreshed: (name: string) => `Refreshed ${name}`,
+  },
 }

@@ -56,6 +56,9 @@ const FILE_ACTIONS: Record<string, string> = {
   fs_list: 'list',
   glob: 'list',
   grep: 'search',
+  find: 'search',
+  ast_grep: 'search',
+  ast_edit: 'edit',
   browser_upload: 'upload',
 }
 

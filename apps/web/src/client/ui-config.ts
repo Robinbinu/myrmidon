@@ -415,6 +415,8 @@ export const MASCOT_SOUNDS = {
 export const THEME_IMPORT = { maxBytes: 512_000, maxName: 60 } as const
 /** Imported themes kept at once; the gateway keeps as many (MAX_IMPORTED_THEMES in packages/runtime). */
 export const MAX_IMPORTED_THEMES = 12
+/** Fallback models the lead, and the crew, may each have; the gateway keeps as many (MAX_FALLBACKS in packages/runtime). */
+export const MAX_FALLBACKS = 5
 
 /* ------------------------------------------------------------------ connection */
 
@@ -468,6 +470,12 @@ export const PRESET_SETTLE_MS = 700
  * arms it cannot also confirm it.
  */
 export const CONFIRM_ARM_DELAY_MS = 400
+
+/**
+ * How often Settings → Models & providers and the composer ask again how close each account is to its plan's limits.
+ * The gateway reuses one read for a minute (PROVIDER_USAGE_CACHE_MS), so asking more often shows nothing newer.
+ */
+export const PLAN_LIMITS_POLL_MS = 2 * 60_000
 
 /** How often the page asks the gateway how it is doing (the indicator, badges, request notifications). */
 export const STATUS_POLL_MS = 10_000
@@ -639,3 +647,12 @@ export const SUGGEST_MODEL_DEBOUNCE_MS = 120
 export const SUGGEST_MODEL_POLL_MS = 1_000
 /** About how big the next-word model's download is, for Settings search's text; the row shows the server's figure. */
 export const SUGGEST_MODEL_MB = 15
+
+/* ------------------------------------------------------------------ importing sessions */
+
+/**
+ * Import a session: how many of a project's sessions the list shows before "Show all" (search shows every match), and
+ * how much of a tool's result an imported transcript shows under its call (the import keeps a little more).
+ */
+export const IMPORT_SHOWN_PER_PROJECT = 5
+export const IMPORT_RESULT_CHARS = 240

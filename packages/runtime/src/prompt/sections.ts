@@ -1,4 +1,5 @@
 import { clockMinutes, localDate } from '../clock.ts'
+import { RULES_MAX_LISTED } from '../config.ts'
 import { prompts } from '../prompts.ts'
 import { type CrewInfo, has, type PromptFacts, type ToolGroup } from './facts.ts'
 import { FAMILY_BLOCKS } from './families.ts'
@@ -364,6 +365,13 @@ function skillLine(s: { name: string; description: string }): string {
   return `- ${s.name}: ${first.length > 160 ? `${first.slice(0, 157)}…` : first}`
 }
 
+/** A project rule as one line: its name, what it is for, and the file that holds it, after omp's <domain-rules>. */
+function ruleLine(r: PromptFacts['context']['rules'][number]): string {
+  const about =
+    r.description && r.description.length > 160 ? `${r.description.slice(0, 157)}…` : r.description
+  return prompts.system.context.ruleLine(r.name, r.file, r.globs ?? [], about)
+}
+
 type Rule = Omit<Section, 'heading' | 'version'> & { version?: number }
 const under = (heading: HeadingKey, rules: Rule[]): Section[] =>
   rules.map((r) => ({ version: 1, ...r, heading }))
@@ -420,6 +428,11 @@ export const SECTIONS: readonly Section[] = [
         say.safety.irreversible(has(f, 'ask_user') ? say.safety.askPerson : say.safety.askNobody),
     },
     { key: 'credentials', guard: () => true, render: (f) => say.safety.credentials(has(f, 'request_login')) },
+    {
+      key: 'secret-placeholders',
+      guard: (f) => f.access.secretsHidden === true,
+      render: () => say.safety.placeholders,
+    },
     {
       key: 'sandbox',
       version: 2,
@@ -578,6 +591,7 @@ export const SECTIONS: readonly Section[] = [
       guard: (f) =>
         f.agent.instructions !== undefined ||
         f.context.instructions !== undefined ||
+        f.context.rules.length > 0 ||
         f.context.memory.length > 0 ||
         f.context.skills.length > 0,
       render: () => say.context.note,
@@ -597,6 +611,16 @@ export const SECTIONS: readonly Section[] = [
       key: 'nested',
       guard: (f) => f.context.nested.length > 0,
       render: (f) => say.context.nested(f.context.nested),
+    },
+    {
+      key: 'rulebook',
+      guard: (f) => f.context.rules.length > 0,
+      render: (f) =>
+        say.context.rules(
+          f.context.rules.slice(0, RULES_MAX_LISTED).map(ruleLine),
+          f.context.rules.length - RULES_MAX_LISTED,
+          has(f, 'fs_read'),
+        ),
     },
     {
       key: 'memory',

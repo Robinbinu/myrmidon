@@ -9,6 +9,7 @@ import type {
   NoteSection,
   QuestionAnswers,
   QuestionChoice,
+  RoundGoal,
   SignalKind,
   TaskSnapshot,
 } from './payloads.ts'
@@ -27,6 +28,11 @@ export interface AgentView {
   lastSeq: number
   /** The lead dismissed this worker; later rounds of the chat leave it out. */
   dismissed?: boolean
+  /**
+   * The model this agent was set up with, while it works on a fallback after that one failed: a later round, or a
+   * resume, starts it on this one again.
+   */
+  fellBackFrom?: string
 }
 
 /** One round of a chat colony: a request and the work that answered it, as a range of the log. */
@@ -35,6 +41,8 @@ export interface RoundInfo {
   readonly request: string
   readonly tier?: EventPayloads['colony/created']['tier']
   readonly swarm: boolean
+  /** Goal mode: the condition the round's work is checked against until it holds. */
+  readonly goal?: RoundGoal
   /** The round's first event (colony/created or round/started). */
   readonly startSeq: number
   readonly startedAt: string
@@ -243,6 +251,7 @@ function roundOf(p: EventPayloads['colony/created'], event: MyrEvent): RoundInfo
     request: p.chat?.request ?? p.mission,
     ...(p.tier ? { tier: p.tier } : {}),
     swarm: p.team?.mode === 'swarm' && p.tier === 'team',
+    ...(p.goal ? { goal: p.goal } : {}),
     startSeq: event.seq,
     startedAt: event.time,
     status: 'created',
@@ -472,7 +481,30 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
     case 'agent/model': {
       const p = event.payload as EventPayloads['agent/model']
       const view = state.agents[p.agent]
-      if (view) view.info = { ...view.info, model: p.model }
+      if (view) {
+        view.info = { ...view.info, model: p.model }
+        // The person's choice is the agent's model now, not a stand-in for the one it fell back from.
+        delete view.fellBackFrom
+      }
+      break
+    }
+    case 'agent/handoff': {
+      const p = event.payload as EventPayloads['agent/handoff']
+      const view = state.agents[p.agent]
+      // The carry-out model is the agent's own now, as a model the person picked would be.
+      if (view) {
+        view.info = { ...view.info, model: p.model }
+        delete view.fellBackFrom
+      }
+      break
+    }
+    case 'agent/fallback': {
+      const p = event.payload as EventPayloads['agent/fallback']
+      const view = state.agents[p.agent]
+      if (view) {
+        view.fellBackFrom ??= p.previous
+        view.info = { ...view.info, model: p.model }
+      }
       break
     }
     case 'agent/dismissed': {
@@ -561,6 +593,11 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
         delete round.endSeq
         delete round.endedAt
       }
+      // A resumed round starts its agents on the models they were set up with, or the ones it was resumed on.
+      for (const view of Object.values(state.agents)) {
+        if (view.fellBackFrom) view.info = { ...view.info, model: view.fellBackFrom }
+        delete view.fellBackFrom
+      }
       for (const [name, model] of Object.entries(p.models ?? {})) {
         const view = state.agents[name]
         if (view) view.info = { ...view.info, model }
@@ -594,8 +631,10 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
       state.checkpoints = {}
       for (const info of p.agents) {
         const view = state.agents[info.name]
-        if (view) view.info = info
-        else
+        if (view) {
+          view.info = info
+          delete view.fellBackFrom
+        } else
           state.agents[info.name] = {
             info,
             status: 'provisioning',
@@ -658,6 +697,16 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
         if (p.usage?.cost === undefined) view.costKnown = false
         else view.cost += p.usage.cost
         view.lastSeq = event.seq
+      }
+      break
+    }
+    case 'tool/result': {
+      const p = event.payload as EventPayloads['tool/result']
+      const view = state.agents[p.agent]
+      // A tool's own spend is added when known; one that reports none leaves the agent's cost as it was.
+      if (view && p.usage) {
+        view.tokens += p.usage.totalTokens
+        if (p.usage.cost !== undefined) view.cost += p.usage.cost
       }
       break
     }

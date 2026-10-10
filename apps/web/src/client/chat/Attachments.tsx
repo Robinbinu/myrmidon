@@ -11,7 +11,7 @@ import {
 } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useState } from 'react'
-import { blobImage } from '../api.ts'
+import { blobAudio, blobImage } from '../api.ts'
 import { copy } from '../copy.ts'
 import { cn } from '../ui/primitives.tsx'
 import { Sheet } from '../ui/Sheet.tsx'
@@ -210,14 +210,29 @@ export interface SentFile {
   readonly size?: number
 }
 
-/** A picture stored with the chat, fetched with the page's access (never a token in the address). */
-function useStoredPicture(colonyId: string, blob: string | undefined): string | undefined | null {
+/** Files shown as what they are rather than as text: pictures a browser draws by itself (never SVG), and sound. */
+export function mediaOf(mediaType: string | undefined): 'image' | 'audio' | undefined {
+  if (PICTURE.test(mediaType ?? '')) return 'image'
+  if (mediaType?.startsWith('audio/')) return 'audio'
+  return undefined
+}
+
+/**
+ * A picture or sound stored with the chat as an object URL, fetched with the page's access (never a token in the
+ * address); null when it cannot be shown. Let go once it is not shown.
+ */
+export function useMediaUrl(
+  colonyId: string,
+  blob: string | undefined,
+  kind: 'image' | 'audio' | undefined = 'image',
+): string | undefined | null {
   const [url, setUrl] = useState<string | null>()
   useEffect(() => {
-    if (!blob) return
+    if (!blob || !kind) return
     let made: string | undefined
     let live = true
-    blobImage(colonyId, blob).then(
+    setUrl(undefined)
+    ;(kind === 'image' ? blobImage : blobAudio)(colonyId, blob).then(
       (u) => {
         made = u
         if (live) setUrl(u)
@@ -229,7 +244,7 @@ function useStoredPicture(colonyId: string, blob: string | undefined): string | 
       live = false
       if (made) URL.revokeObjectURL(made)
     }
-  }, [colonyId, blob])
+  }, [colonyId, blob, kind])
   return url
 }
 
@@ -239,7 +254,7 @@ function StoredThumb(props: {
   single: boolean
   onOpen(url: string): void
 }) {
-  const url = useStoredPicture(props.colonyId, props.file.blob)
+  const url = useMediaUrl(props.colonyId, props.file.blob)
   const name = props.file.name.replace(/^uploads\//, '')
   // Not a picture after all (or gone): shown as a file instead.
   if (url === null) return <FileCard name={name} {...(props.file.size ? { size: props.file.size } : {})} />
@@ -320,5 +335,63 @@ export function SentFiles(props: {
         )}
       </AnimatePresence>
     </>
+  )
+}
+
+/** A sound the crew made, as a player with its name. */
+function MadeSound(props: { colonyId: string; file: SentFile; onOpen(): void }) {
+  const url = useMediaUrl(props.colonyId, props.file.blob, 'audio')
+  if (url === null)
+    return <FileCard name={props.file.name} mediaType={props.file.mediaType} onOpen={props.onOpen} />
+  return (
+    <span className="flex w-[min(100%,360px)] flex-col gap-1 rounded-xl border border-line bg-surface p-2">
+      <button
+        type="button"
+        onClick={props.onOpen}
+        title={copy.attachments.open(props.file.name)}
+        className="truncate text-left text-callout font-medium text-fg hover:underline"
+      >
+        {props.file.name}
+      </button>
+      {url ? (
+        // biome-ignore lint/a11y/useMediaCaption: speech an agent made from text it wrote in the chat
+        <audio controls src={url} className="h-9 w-full" />
+      ) : (
+        <span className="block h-9 animate-pulse rounded-lg bg-surface-2" />
+      )}
+    </span>
+  )
+}
+
+/**
+ * Pictures and sound the crew made (generate_image, tts), shown where the chat shows its files: pictures as a grid
+ * that opens each in the file viewer, sound as players.
+ */
+export function MadeMedia(props: {
+  colonyId: string
+  files: readonly SentFile[]
+  onOpen(name: string): void
+}) {
+  const pictures = props.files.filter((f) => mediaOf(f.mediaType) === 'image')
+  const sounds = props.files.filter((f) => mediaOf(f.mediaType) === 'audio')
+  return (
+    <div className="flex flex-col gap-2">
+      {pictures.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {pictures.map((f) => (
+            <StoredThumb
+              key={f.name}
+              colonyId={props.colonyId}
+              file={f}
+              single={pictures.length === 1}
+              onOpen={() => props.onOpen(f.name)}
+            />
+          ))}
+        </div>
+      )}
+      {sounds.map((f) => (
+        <MadeSound key={f.name} colonyId={props.colonyId} file={f} onOpen={() => props.onOpen(f.name)} />
+      ))}
+    </div>
   )
 }

@@ -62,6 +62,8 @@ export function ModelPicker(props: {
   /** Models with a smaller known window can't be chosen here; `minReason` says why. */
   minWindow?: number
   minReason?: string
+  /** The chosen model's provider is near or at its plan's limit (see plan-limits.tsx): the chip says so. */
+  limitNotice?: string
 }) {
   const variant = props.variant ?? 'field'
   const [open, setOpen] = useState(false)
@@ -168,6 +170,12 @@ export function ModelPicker(props: {
             <span className="truncate">
               {current ? modelName(current.name) : props.value || copy.modelPicker.choose}
             </span>
+            {props.limitNotice && (
+              <span title={props.limitNotice} className="shrink-0 text-warn-ink">
+                <FEATURE_ICONS.planLimits aria-hidden className="size-3.5" />
+                <span className="sr-only">{props.limitNotice}</span>
+              </span>
+            )}
             <ChevronDown className="size-3.5 shrink-0 text-muted" />
           </>
         ) : variant === 'compact' ? (

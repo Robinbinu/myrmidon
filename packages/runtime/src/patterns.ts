@@ -42,18 +42,32 @@ const BUILD = [
   'fs_list',
   'grep',
   'glob',
+  'find',
+  'ast_grep',
+  'ast_edit',
+  'lsp',
   'request_read',
   'shell',
+  'eval',
   'run_checks',
   'start_server',
   'server_logs',
   'stop_server',
   'create_tool',
+  'github',
   ...BROWSER,
   'mcp',
   ...ACCESS_GROUPS.computer,
 ]
 const USER = ['reply_user', 'check_in', 'ask_user', 'remember']
+/** Structural search and rewrite, and language servers: loaded on demand, as omp marks them discoverable. */
+const CODE_INTEL = ['ast_grep', 'ast_edit', 'lsp']
+/** Code cells whose state lasts the round: loaded on demand, as omp marks its eval discoverable. */
+const CELLS = ['eval']
+/** Pictures and speech, published like files: loaded on demand, as omp marks generate_image and tts discoverable. */
+const MEDIA = ['generate_image', 'tts']
+/** Delivering files to the person: written ones, and pictures and speech made for them. */
+const PUBLISH = ['publish_artifact', ...MEDIA]
 /** For the agent that speaks: features of Myrmidon itself are built as plugins the person switches on. */
 const PLUGIN = ['create_plugin', 'test_plugin', 'propose_plugin']
 
@@ -90,9 +104,13 @@ function baseRoleTools(spec: ColonySpec, agent: AgentSpec): string[] {
         // "What's on my screen", "check this in Notes": only when the person switched computer use on.
         ...ACCESS_GROUPS.computer,
         // In a project, quick questions are often about its code: reading it needs no team.
-        ...(spec.chat.project ? ['fs_read', 'fs_list', 'grep', 'glob', 'request_read'] : []),
+        ...(spec.chat.project
+          ? ['fs_read', 'fs_list', 'grep', 'glob', 'find', 'ast_grep', 'request_read']
+          : []),
         'list_artifacts',
         'read_artifact',
+        // "Draw me…", "read this aloud": the picture or the sound is the answer.
+        ...MEDIA,
         'read_docs',
         'use_skill',
         'mcp',
@@ -103,14 +121,14 @@ function baseRoleTools(spec: ColonySpec, agent: AgentSpec): string[] {
     const plugin = speaksForColony(spec, agent) ? PLUGIN : []
     // A crewmate the lead asked for a piece of work: it works and answers the lead, never the person.
     if (spec.tier === 'solo' && agent.role === 'worker')
-      return [...READ, 'message', 'append_note', 'publish_artifact', ...BUILD]
+      return [...READ, 'message', 'append_note', ...PUBLISH, ...BUILD]
     const crewmates =
       spec.tier === 'solo' && isLead(spec, agent) && spec.team?.crewmates?.length ? ['ask_crewmate'] : []
     if (spec.tier !== 'team' || spec.agents.length === 1)
       return [
         ...READ,
         'append_note',
-        'publish_artifact',
+        ...PUBLISH,
         ...BUILD,
         ...USER,
         ...crewmates,
@@ -125,7 +143,7 @@ function baseRoleTools(spec: ColonySpec, agent: AgentSpec): string[] {
         'create_task',
         'reject_task',
         ...HOLD,
-        'publish_artifact',
+        ...PUBLISH,
         ...BUILD,
         ...USER,
         'reply_person',
@@ -148,7 +166,7 @@ function baseRoleTools(spec: ColonySpec, agent: AgentSpec): string[] {
         'assign_task',
         'reject_task',
         // It assigns tasks and never holds one, so it has no claim, release or submit.
-        'publish_artifact',
+        ...PUBLISH,
         ...USER,
         ...review,
         ...plugin,
@@ -157,9 +175,9 @@ function baseRoleTools(spec: ColonySpec, agent: AgentSpec): string[] {
       ]
     }
     // A worker speaks to the person only when they wrote to it directly (@name).
-    return [...READ, ...TALK, ...HOLD, 'publish_artifact', ...BUILD, 'reply_person']
+    return [...READ, ...TALK, ...HOLD, ...PUBLISH, ...BUILD, 'reply_person']
   }
-  const work = ['publish_artifact', ...BUILD]
+  const work = [...PUBLISH, ...BUILD]
   if (isLead(spec, agent))
     return [...READ, ...TALK, 'create_task', 'reject_task', ...HOLD, ...work, 'request_final_verification']
   if (spec.pattern === 'lead-workers') return [...READ, ...TALK, ...HOLD, ...work]
@@ -168,10 +186,11 @@ function baseRoleTools(spec: ColonySpec, agent: AgentSpec): string[] {
 
 /**
  * Tools an agent loads when it needs them (find_tools) instead of carrying their definitions in every model call:
- * the browser, dev servers, tool making, the person's MCP servers, made tools, and rarely used lookups. Anything
- * not listed here is always loaded.
+ * the browser, dev servers, tool making, GitHub (omp marks it discoverable), the person's MCP servers, made tools,
+ * and rarely used lookups. Anything not listed here is always loaded.
  */
 const ON_DEMAND = new Set([
+  'github',
   'request_login',
   'start_server',
   'server_logs',
@@ -179,6 +198,9 @@ const ON_DEMAND = new Set([
   'create_tool',
   'read_log',
   'read_docs',
+  ...CODE_INTEL,
+  ...CELLS,
+  ...MEDIA,
   ...ACCESS_GROUPS.computer,
   ...PLUGIN,
 ])
@@ -193,7 +215,7 @@ export function withCompanions(names: readonly string[]): string[] {
 
 /**
  * On-demand tools a request plainly calls for, loaded from the start so the agent does not spend a step asking:
- * a URL or web page means the browser, a dev server means the server tools.
+ * a URL or web page means the browser, a dev server means the server tools, a pull request or CI means github.
  */
 export function preloaded(request: string, names: readonly string[]): string[] {
   const browser =
@@ -202,6 +224,26 @@ export function preloaded(request: string, names: readonly string[]): string[] {
     )
   const server = /\bdev server|\blocalhost\b|\bserve it\b|\bstart (the )?(app|server)\b/i.test(request)
   const plugin = /\bplugin|\bmyrmidon\b/i.test(request)
+  const code =
+    /\b(renam\w*|refactor\w*|codemod|references?|call ?sites?|callers|go ?to ?definition|type errors?|diagnostics|ast[ -]grep)\b/i.test(
+      request,
+    )
+  const cells =
+    /\b(repl|notebook|jupyter|pandas|numpy|dataframes?|data ?analysis|analy[sz]e (the )?data|crunch|interactive(ly)?)\b/i.test(
+      request,
+    )
+  const github =
+    /\bgithub\b|\bpull requests?\b|\bPRs?\b|\bPR ?#?\d+|\bissue ?#\d+|\bCI\b|\bworkflow runs?\b|\bactions? runs?\b/i.test(
+      request,
+    )
+  const picture =
+    /\b(draw|paint|sketch|illustrat\w*|logos?|pictures?|photos?|posters?|wallpapers?|avatars?|(generate|make|create|design|edit)\b[^.]{0,30}\b(images?|icons?|banners?|art(work)?))\b/i.test(
+      request,
+    )
+  const speech =
+    /\b(aloud|read (it|this|that) out|narrat\w*|voice-?overs?|text[ -]to[ -]speech|tts|audio (file|version|clip)|pronounc\w*)\b/i.test(
+      request,
+    )
   const computer =
     /\b(my (mac|screen|desktop|computer)|on (my|the) screen|desktop app|native app|the app\b|open (the )?\w+ app|finder|system settings|simulator|xcode|computer use)\b/i.test(
       request,
@@ -211,6 +253,11 @@ export function preloaded(request: string, names: readonly string[]): string[] {
       (browser && (n.startsWith('browser_') || n === 'request_login')) ||
       (server && ['start_server', 'server_logs', 'stop_server'].includes(n)) ||
       (plugin && (PLUGIN.includes(n) || n === 'read_docs')) ||
+      (code && CODE_INTEL.includes(n)) ||
+      (cells && CELLS.includes(n)) ||
+      (github && n === 'github') ||
+      (picture && n === 'generate_image') ||
+      (speech && n === 'tts') ||
       (computer && ACCESS_GROUPS.computer.includes(n)),
   )
 }
@@ -278,6 +325,8 @@ export interface Environment {
   readonly skills?: readonly { name: string; description: string }[]
   /** Sections the person's plugins add for this agent. */
   readonly plugins?: readonly string[]
+  /** Secrets reach the model as placeholders (Settings → Permissions; provider-secrets.ts). */
+  readonly secretsHidden?: boolean
 }
 
 type Effort = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
@@ -390,10 +439,20 @@ export function kickoff(spec: ColonySpec, state: ColonyState, remembers = false,
   const from = state.rounds.at(-1)?.startSeq ?? 0
   const attached = state.chatMessages.find((m) => m.from === 'user' && m.seq >= from)?.attachments
   const plan = spec.planFirst ? prompts.kickoff.planFirst : ''
+  const goal = spec.goal
+    ? prompts.kickoff.goal({
+        condition: spec.goal.condition,
+        check: spec.goal.check,
+        max: spec.goal.maxChecks,
+      })
+    : ''
+  // Only the lead hands off (ColonyRun._handOff), so only the lead is told to plan for it.
+  const lead = spec.agents.find((a) => a.name === agent)?.role === 'lead'
+  const prewalk = spec.prewalk && lead ? prompts.kickoff.prewalk(spec.prewalk) : ''
   const context = spec.chat.context ? prompts.chat.context(spec.chat.context) : ''
   const spoken = spec.chat.voice ? prompts.chat.spoken : ''
   const changed = agent && spec.chat.accessNotices?.[agent] ? `${spec.chat.accessNotices[agent]}\n\n` : ''
-  const request = `${history}${changed}${context}[user] ${spec.chat.request}${attachedNote(attached)}${spoken}${plan}`
+  const request = `${history}${changed}${context}[user] ${spec.chat.request}${attachedNote(attached)}${spoken}${plan}${goal}${prewalk}`
   if (spec.tier === 'answer') return request
   const files = Object.keys(state.artifacts).filter((f) => !attached?.includes(f))
   const carried = files.length > 0 ? prompts.kickoff.carried(files) : ''

@@ -14,7 +14,15 @@ import { getModelPricingStatus } from '@oh-my-pi/pi-catalog'
 import { ContextCompactor } from './compaction.ts'
 import { ANTHROPIC_MEMBERS, anthropicToolsetPayload, computerProtocol } from './computer/actions.ts'
 import { COMPUTER_TOOL, computerMember } from './computer/tool.ts'
-import { KEEP_TURNS, MODEL_RETRIES, QUIET_KEPT, TRANSIENT_STATUS, TURN_TIMEOUT_MS } from './config.ts'
+import {
+  FALLBACK_COOLDOWN_MS,
+  KEEP_TURNS,
+  MODEL_RETRIES,
+  QUIET_KEPT,
+  STREAM_RULE_RETRIES,
+  TRANSIENT_STATUS,
+  TURN_TIMEOUT_MS,
+} from './config.ts'
 import { agentActor, type ColonyHost } from './host.ts'
 import { type ModelResolver, withOllamaContext } from './models.ts'
 import {
@@ -30,8 +38,10 @@ import {
 import { type AssembledPrompt, assemble } from './prompt/assemble.ts'
 import { factsFor, type PromptFacts } from './prompt/facts.ts'
 import { prompts } from './prompts.ts'
+import { hideInContext, restoreSecrets, secretsHidden } from './provider-secrets.ts'
 import { redactDeep } from './secrets.ts'
 import type { AgentSpec } from './spec.ts'
+import { rulesFor, StreamRuleGuard } from './stream-rules.ts'
 import { buildAgentTools, matchTools } from './tools.ts'
 import { noWebTools } from './web.ts'
 
@@ -71,6 +81,10 @@ export class ColonyAgent {
   private _stream?: StreamFn
   /** The model the latest call streamed with: a reply is priced by it, even if the agent switched model meanwhile. */
   private _streamedWith?: Model
+  /** The model this agent was set up with, or the person last switched it to: its fallbacks stand in for it. */
+  private _primary: string
+  /** When each model this agent fell back from failed; it is not tried again until FALLBACK_COOLDOWN_MS has passed. */
+  private readonly _failedAt = new Map<string, number>()
   private readonly _compactor = new ContextCompactor({
     model: () => this._agent.state.model,
     summarizers: () => this._earlierModels(),
@@ -96,6 +110,8 @@ export class ColonyAgent {
   /** What this agent's prompt and tool descriptions were built from, and the prompt itself. */
   private readonly _facts: PromptFacts
   private readonly _prompt: AssembledPrompt
+  /** The person's stream rules, enforced on this agent's model calls; each stop is logged as `rule/fired`. */
+  private readonly _rules: StreamRuleGuard
 
   constructor(
     readonly spec: AgentSpec,
@@ -109,6 +125,7 @@ export class ColonyAgent {
     const history = options.compact ? compactTranscript(restored) : restored
     this.restored = history.length
     const resolved = resolver.resolve(spec.model)
+    this._primary = spec.model
     this._stream = resolved.streamFn
     this._facts = factsFor(host.spec, spec, {
       sandbox: host.sandbox.kind,
@@ -122,8 +139,29 @@ export class ColonyAgent {
       scratch: host.workspace.scratch(spec.name),
       skills: host.skills(),
       plugins: host.pluginPrompts(speaksForColony(host.spec, spec) ? 'lead' : 'worker'),
+      secretsHidden: secretsHidden(),
     })
     this._prompt = assemble(this._facts)
+    this._rules = new StreamRuleGuard({
+      retries: STREAM_RULE_RETRIES,
+      cwd: () => host.workspace.workdir(spec.name),
+      ...(host.spec.chat?.project?.path ? { project: host.spec.chat.project.path } : {}),
+      onFire: (fire) =>
+        void host
+          .append({
+            type: 'rule/fired',
+            actor: SYS,
+            payload: {
+              agent: spec.name,
+              rule: fire.rule.name,
+              ...(fire.rule.description ? { description: fire.rule.description } : {}),
+              source: fire.source,
+              ...(fire.tool ? { tool: fire.tool } : {}),
+              path: fire.path,
+            },
+          })
+          .catch((err) => console.error(`[${spec.name}] failed to log a stream rule:`, err)),
+    })
     const tools = buildAgentTools(spec.name, this._facts.tools.names, host, this._model, this._facts)
     for (const name of preloaded(
       host.spec.chat?.request ?? host.spec.mission,
@@ -158,15 +196,23 @@ export class ColonyAgent {
       // a mid-round model switch reach models that bring their own stream too.
       // On-demand tools stay callable but are left out of the request until loaded (find_tools), so their
       // definitions do not ride along in every model call.
-      streamFn: (model, context, options) => {
+      // The person's stream rules wrap the call, so a reply they stop is sent again through the same hiding.
+      streamFn: this._rules.wrap((model, context, options) => {
         this._streamedWith = model
         const tools = context.tools?.filter((t) => this._shown(t.name))
+        // Here, the one place every model call of the agent loop passes, so no request leaves with a secret in it.
         return (this._stream ?? streamSimple)(
           model,
-          tools ? { ...context, tools } : context,
+          hideInContext(tools ? { ...context, tools } : context),
           withComputerToolset(model, tools, withOllamaContext(model, options)),
         )
-      },
+      }),
+      // Only the arguments the tool runs with: the conversation keeps the placeholder the model wrote.
+      transformToolCallArguments: (args, tool) =>
+        restoreSecrets(tool, args, {
+          inside: (path) => host.workspace.keepsInside(spec.name, path),
+          confined: !host.fullAccess && host.sandbox.kind !== 'none',
+        }),
     })
     this._agent.subscribe((e) => this._onEvent(e))
     // A signed-off agent stops before its next model call; aborting once pi has sent it would bill a request and
@@ -182,8 +228,17 @@ export class ColonyAgent {
     return this.spec.name
   }
 
-  /** Moves this agent to another model from its next step on; its conversation so far carries over. */
+  /**
+   * Moves this agent to another model from its next step on, as the person chose; its conversation so far carries
+   * over, and its fallbacks now stand in for this model.
+   */
   switchModel(ref: string) {
+    this._use(ref)
+    this._primary = ref
+    this._failedAt.delete(ref)
+  }
+
+  private _use(ref: string) {
     const resolved = this.resolver.resolve(ref)
     this._agent.setModel(resolved.model)
     this._stream = resolved.streamFn
@@ -258,16 +313,39 @@ export class ColonyAgent {
       this._quiet.splice(0, Math.max(0, this._quiet.length - QUIET_KEPT))
       return
     }
-    if (this.working) {
-      this._stamp = Math.max(Date.now(), this._stamp + 1)
-      const message = { role: 'user' as const, content: render([item]), timestamp: this._stamp }
-      this._unread.set(message.timestamp, item)
-      if (item.queue) this._agent.followUp(message)
-      else this._agent.steer(message)
-      return
-    }
+    if (this.working) return this._inject(item)
     this.inbox.push(item)
     this._wake?.()
+  }
+
+  /** Puts `item` before the working agent: read at its next step, or with `queue` once its current work is done. */
+  private _inject(item: InboxItem) {
+    this._stamp = Math.max(Date.now(), this._stamp + 1)
+    const message = { role: 'user' as const, content: render([item]), timestamp: this._stamp }
+    this._unread.set(message.timestamp, item)
+    if (item.queue) this._agent.followUp(message)
+    else this._agent.steer(message)
+  }
+
+  /**
+   * Shows a step that called tools to the round's advisor, which reviews it beside the agent's next model call; the
+   * agent never waits on it.
+   */
+  private _showAdvisor(toolResults: number) {
+    const advisor = this.host.advisor
+    if (!advisor || toolResults === 0 || this._stopped || this._endAfterStep) return
+    void advisor.stepEnded(this.spec, this._agent.state.messages, (note) => this._advised(note))
+  }
+
+  /**
+   * The advisor's note: read at the agent's next step while it works. Otherwise, or once it has signed off, it waits
+   * quietly for whatever wakes the agent next: advice alone is no reason to start a turn or reopen a finished one.
+   */
+  private _advised(note: string) {
+    if (this._stopped) return
+    const item: InboxItem = { text: prompts.advisor.note(note), trigger: 'advisor', quiet: true }
+    if (this.working && !this._endAfterStep) this._inject(item)
+    else this.notify(item)
   }
 
   stop() {
@@ -356,6 +434,9 @@ export class ColonyAgent {
     })
     await this._status('working')
     await this._markDelivered(items)
+    this._rules.newTurn(
+      rulesFor(this.host.streamRules?.() ?? [], this.name, speaksForColony(this.host.spec, this.spec)),
+    )
     const timer = setTimeout(() => this._agent.abort('turn timeout'), TURN_TIMEOUT_MS)
     const from = this._agent.state.messages.length
     try {
@@ -405,11 +486,14 @@ export class ColonyAgent {
   /**
    * A failed model reply never stays in the agent's context: it is removed, and the turn either continues after a
    * short wait (transient failures), continues once more after folding the context (the provider said it was too
-   * long), or stops so the person can choose another model. Returns true if it stopped.
+   * long), continues on the next of the person's fallback models (anything else, or a transient failure the waits did
+   * not clear), or stops so the person can choose another model. Returns true if it stopped.
    */
   private async _recover(): Promise<boolean> {
     let compacted = false
-    for (let attempt = 0; ; attempt++) {
+    // Retries count per model: one the agent fell back to gets its own.
+    let attempt = 0
+    for (;;) {
       const last = this._agent.state.messages.at(-1) as AssistantMessage | undefined
       if (last?.role !== 'assistant' || last.stopReason !== 'error' || this._stopped) return false
       this._agent.popMessage()
@@ -431,6 +515,12 @@ export class ColonyAgent {
       const error = classifyModelError(last)
       if (error.transient && attempt < MODEL_RETRIES) {
         await Bun.sleep(2_000 * 2 ** attempt)
+        attempt += 1
+        await this._agent.continue()
+        continue
+      }
+      if (await this._fallBack(error)) {
+        attempt = 0
         await this._agent.continue()
         continue
       }
@@ -438,6 +528,44 @@ export class ColonyAgent {
       await this.host.modelFailed(this.name, this.spec.model, error)
       return true
     }
+  }
+
+  /**
+   * After this agent's model failed with `error`, moves it to the next of the person's fallback models (Settings →
+   * Crew & budget): the model it was set up with once that has had time to recover, then the fallbacks in order,
+   * skipping any that failed lately or have no credentials. Logs the move; false when there is none to move to.
+   * Overflows never come here (folding the context is their remedy), nor a stop or an interrupt (not failures).
+   */
+  private async _fallBack(error: ModelError): Promise<boolean> {
+    const chain = this.host.spec.fallbacks?.[this.spec.role === 'lead' ? 'lead' : 'workers'] ?? []
+    if (chain.length === 0 || this._stopped) return false
+    const now = Date.now()
+    const from = this.spec.model
+    this._failedAt.set(from, now)
+    for (const ref of new Set([this._primary, ...chain])) {
+      const failed = this._failedAt.get(ref)
+      if (ref === from || (failed !== undefined && now - failed < FALLBACK_COOLDOWN_MS)) continue
+      try {
+        await this.resolver.requireCredentials(ref)
+      } catch {
+        // Removed from the provider list, or signed out: the next one may still answer.
+        continue
+      }
+      this._use(ref)
+      await this.host.append({
+        type: 'agent/fallback',
+        actor: SYS,
+        payload: {
+          agent: this.name,
+          model: ref,
+          previous: from,
+          kind: error.kind === 'refusal' ? 'refusal' : 'error',
+          message: error.message.slice(0, 2_000),
+        },
+      })
+      return true
+    }
+    return false
   }
 
   /**
@@ -553,7 +681,8 @@ export class ColonyAgent {
     for (const m of left) {
       const item = this._unread.get(m.timestamp)
       this._unread.delete(m.timestamp)
-      if (item) this.inbox.push(item)
+      // A quiet one (the advisor's note) waits for the next wake rather than being one.
+      if (item) (item.quiet ? this._quiet : this.inbox).push(item)
     }
   }
 
@@ -621,6 +750,7 @@ export class ColonyAgent {
     }
     if (e.type === 'turn_end') {
       this.host.batchEnded(this.name)
+      this._showAdvisor(e.toolResults.length)
       return
     }
     if (e.type !== 'message_end' || e.message.role !== 'assistant') return

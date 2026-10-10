@@ -8,9 +8,40 @@ import type {
   RoundAccess,
 } from './permissions.ts'
 
+/**
+ * Goal mode (`/goal <condition>: <request>`): the round goes on until `condition` holds, checked on each final answer
+ * (after omp's goal mode and `/loop --until`). `checks`: the project's own checks pass; `command`: the command exits 0;
+ * `judge`: the reviewer (`judge`, passing at `threshold`) finds the condition holds. At most `maxChecks` checks.
+ */
+export interface RoundGoal {
+  condition: string
+  check: { kind: 'checks' } | { kind: 'command'; run: string } | { kind: 'judge' }
+  maxChecks: number
+  judge: string
+  threshold: number
+}
+
 export type AgentStatus = 'provisioning' | 'ready' | 'working' | 'idle' | 'completed' | 'stopped' | 'failed'
 export type ColonyStatus = 'created' | 'running' | 'completed' | 'stopped' | 'failed'
 export type TaskStatus = 'pending' | 'in_progress' | 'submitted' | 'verified' | 'rejected' | 'deleted'
+/**
+ * How an agent's context was made to fit its model's window: `shake` elided old bulky tool output, `snapcompact`
+ * archived the older part as text images a vision model reads, `summary` had a model summarize it.
+ */
+export type CompactionMethod = 'shake' | 'snapcompact' | 'summary'
+/**
+ * What the advisor saw go wrong in an agent's steps: it worked on the wrong thing, went on past a failed call, repeated
+ * itself, left its task, was about to do something destructive nobody asked for, or called work done unchecked.
+ */
+export const ADVICE_KINDS = [
+  'wrong-target',
+  'ignored-error',
+  'looping',
+  'off-task',
+  'unsafe',
+  'unverified',
+] as const
+export type AdviceKind = (typeof ADVICE_KINDS)[number]
 /**
  * A project's permissions: its level of the permission model (a preset, or "use global" when absent, its rules and
  * who may use what), and the folders beyond the project that sandboxed agents may read in its chats (never write;
@@ -200,6 +231,13 @@ export interface EventPayloads {
     fullAccess?: boolean
     /** Agents may see and control the person's Mac (computer use); never set alongside `askAll`. */
     computerUse?: boolean
+    /** Goal mode: the round goes on until this holds (see `RoundGoal`). */
+    goal?: RoundGoal
+    /**
+     * Prewalk: the lead plans on its own model, then hands off once to this cheaper one to carry the plan out, at its
+     * first change (a file edit or a task); `agent/handoff` logs the switch.
+     */
+    prewalk?: string
     /** What the round's agents may do as it starts, to tell them what changed next time (see `RoundAccess`). */
     access?: RoundAccess
   }
@@ -213,6 +251,11 @@ export interface EventPayloads {
     resumed?: boolean
     /** Agents switched to another model on resume (agent → model). */
     models?: Record<string, string>
+    /**
+     * The project's instruction and rule files the round's agents were given (AGENTS.md, .cursor/rules/…), relative to
+     * the project; absent when it has none, and on a resume, which reads the same files again.
+     */
+    rules?: string[]
   }
   'colony/stopped': { reason: string }
   /**
@@ -241,6 +284,19 @@ export interface EventPayloads {
     update?: { description: string; body: string }
   }
   'skill/decided': { id: string; kept: boolean }
+  /**
+   * One of the person's stream rules stopped an agent's reply as the model wrote it: `source` says what matched (its
+   * prose, its reasoning, or a call to `tool`), and the request went again with the rule's guidance. `path` is the
+   * rule's file, relative to the project or the home folder.
+   */
+  'rule/fired': {
+    agent: string
+    rule: string
+    description?: string
+    source: 'text' | 'thinking' | 'tool'
+    tool?: string
+    path: string
+  }
   /**
    * One of the person's hooks ran. `outcome`: `blocked` stopped the tool, `asked` sent it to the person,
    * `feedback` told the agent something after the tool, `failed` means the hook itself errored.
@@ -366,8 +422,23 @@ export interface EventPayloads {
   }
   /** Something a plugin put in the log (ctx.events.emit), for the UI and other plugins. */
   'plugin/event': { plugin: string; type: string; data: Record<string, unknown> }
-  /** An agent's context neared its model's window: its older messages were summarized for the model. */
-  'agent/compacted': { agent: string; messages: number; tokens: number; summaryChars: number }
+  /**
+   * An agent's context neared its model's window and was made to fit. `methods` ran in order, each because the ones
+   * before it left the context too big; the last settled it (logs from before there were methods hold `summary`).
+   * `messages` are folded into a summary or archive so far, `elided` the tool results shaken this time, `frames` the
+   * archive's images.
+   */
+  'agent/compacted': {
+    agent: string
+    messages: number
+    tokens: number
+    summaryChars: number
+    methods: CompactionMethod[]
+    elided: number
+    frames: number
+    /** The estimated context size after the pass. */
+    tokensAfter?: number
+  }
   /**
    * The prompt an agent starts with, by section: each section's key, the version of its words and a hash of what it
    * rendered, so two runs can be compared by what their agents were told. `totalTokens` is a rough size.
@@ -380,6 +451,27 @@ export interface EventPayloads {
   }
   /** The person switched a running agent to another model; it takes effect on the agent's next step. */
   'agent/model': { agent: string; model: string; previous: string }
+  /**
+   * An agent's model failed in a way another model could get past, so it went on with the next of the person's
+   * fallback models (Settings → Crew & budget), its conversation intact: `previous` failed with `message`.
+   */
+  'agent/fallback': {
+    agent: string
+    model: string
+    previous: string
+    kind: 'refusal' | 'error'
+    message: string
+  }
+  /**
+   * Prewalk: the lead planned on `previous` and, at its first change (`after`: the tool, e.g. fs_edit or create_task),
+   * handed off once to the cheaper `model` it carries the plan out on, its conversation intact.
+   */
+  'agent/handoff': { agent: string; model: string; previous: string; after: string }
+  /**
+   * The advisor (Settings → Crew & budget) read an agent's latest steps, saw a concrete problem, and steered the agent
+   * with `note`, which it reads at its next step. Silent reviews are not logged.
+   */
+  'agent/advised': { agent: string; model: string; note: string; kind?: AdviceKind }
   /**
    * An agent made a tool the colony can call: a script that reads its inputs as JSON from `MYR_INPUT` and prints
    * its result. `library` marks one loaded from the person's tool library rather than made in this colony.
@@ -451,7 +543,18 @@ export interface EventPayloads {
   }
   /** `readOnly`: an MCP tool its server marks read-only, so the call changes nothing. */
   'tool/call': { agent: string; callId: string; tool: string; args: unknown; readOnly?: boolean }
-  'tool/result': { agent: string; callId: string; tool: string; ok: boolean; output: string }
+  /**
+   * `usage`: what a tool that calls a paid model itself (generate_image) spent, counted with the agent's model calls
+   * against the round's budget.
+   */
+  'tool/result': {
+    agent: string
+    callId: string
+    tool: string
+    ok: boolean
+    output: string
+    usage?: UsageInfo
+  }
   /** A message in the team chat, which everyone on the crew is in; `replyTo` is the number (seq) it answers. */
   'board/posted': { agent: string; text: string; mentions: string[]; replyTo?: number }
   'note/appended': { agent: string; text: string; corrects?: EventId; section?: NoteSection }
