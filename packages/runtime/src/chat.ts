@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { BlobStore, type SqliteLogStore } from '@myrmidon/core'
 import {
   type AgentInfo,
+  type Budget,
   type ColonyId,
   type ColonyState,
   type ColonyStatus,
@@ -27,6 +28,19 @@ import {
   withRule,
 } from '@myrmidon/protocol'
 import type { BrowserHub } from './browser.ts'
+import {
+  BudgetExceededError,
+  type Caps,
+  hasTotals,
+  monthOf,
+  normalizeBudget,
+  runCap,
+  runLimit,
+  type SpendEntry,
+  type Spent,
+  spentFor,
+  totalReached,
+} from './budgets.ts'
 import { defaultModelRef, namingModel } from './catalog.ts'
 import { exportDoc, renderChatHtml } from './chat-export.ts'
 import { ChatIndex, type CrewMember, type IndexedRound, type MessageHit } from './chat-index.ts'
@@ -36,6 +50,7 @@ import type { Checkpoints } from './checkpoints.ts'
 import { type Attachment, ColonyRun, RoundClosingError, type Runtime, SETTLE_MS } from './colony.ts'
 import type { ComputerHub } from './computer/driver.ts'
 import {
+  BUDGET_CHECK_MS,
   CHAT_TITLE_ROUNDS,
   GOAL,
   MAX_READ_FOLDERS,
@@ -190,6 +205,8 @@ export interface SendOptions {
   readonly askAll?: boolean
   /** A new chat's own permission level (its preset, rules), chosen before its first message. */
   readonly permissions?: unknown
+  /** A new chat's own spend caps (budgets.ts), set before its first message. */
+  readonly budget?: unknown
   /** The message answers a question card: which one, and what was picked (the card shows it). */
   readonly answers?: QuestionAnswers
   /** A new chat forked from this one: its first round starts from that chat's conversation and project. */
@@ -289,7 +306,14 @@ export interface ChatSummary {
   readonly forkOf?: string
   /** The imported Claude Code or Codex session it continues (see SessionImports). */
   readonly importOf?: string
+  /** The chat's own spend caps, when the person set any (budgets.ts). */
+  readonly budget?: Budget
+  /** What the chat has spent over all its rounds, in USD; absent while nothing priced was spent. */
+  readonly spent?: number
 }
+
+/** Nothing spent toward any running total: what a chat with none set is checked against. */
+const NOTHING_SPENT: Spent = { chat: 0, project: 0, month: 0 }
 
 /** The earlier rounds of a chat as `User:` / `Colony:` pairs, for agents that were not in them. */
 function conversation(previous: readonly RoundRef[]): string {
@@ -377,6 +401,8 @@ export class ChatService {
       imports?: SessionImports
       /** Keeps the computer awake while rounds run, when the person turned that on. */
       keepAwake?: KeepAwake
+      /** The time now, which says the calendar month spend counts toward (budgets.ts); tests move it. */
+      now?: () => Date
     },
   ) {}
 
@@ -649,6 +675,7 @@ export class ChatService {
       const last = list.at(-1)
       const first = list[0]
       if (!last || !first) continue
+      const spent = list.reduce((n, r) => n + (r.cost ?? 0), 0)
       const renamed = list
         .map((r) => r.title)
         .filter((t) => t !== undefined)
@@ -670,6 +697,8 @@ export class ChatService {
         ...(last.reads?.length ? { reads: last.reads } : {}),
         ...(last.fullAccess ? { fullAccess: true } : {}),
         ...(last.computerApps?.length ? { computerApps: last.computerApps } : {}),
+        ...(last.budget ? { budget: last.budget } : {}),
+        ...(spent > 0 ? { spent } : {}),
         ...this.options.shelf?.place(chatId),
         rounds: list.map((r) => ({
           colonyId: r.colonyId,
@@ -775,7 +804,6 @@ export class ChatService {
     // A fork's first round starts from the chat it came from: that conversation, in that chat's project.
     const source = !previous.length && options.forkOf ? await this.rounds(options.forkOf) : []
     if (options.forkOf && !previous.length && !source.length) throw new Error('the chat to fork is gone')
-    if (source.length && options.forkOf) this.options.shelf?.fork(id, options.forkOf)
     // An imported session's first round starts from its conversation (the composer picks the project holding its folder).
     const imported =
       !previous.length && !source.length && options.importOf
@@ -783,7 +811,6 @@ export class ChatService {
         : undefined
     if (options.importOf && !previous.length && !source.length && !imported)
       throw new Error('the imported session is gone')
-    if (imported) this.options.shelf?.imported(id, imported.id)
     const history = imported
       ? importedConversation(imported)
       : conversation(previous.length ? previous : source)
@@ -811,6 +838,16 @@ export class ChatService {
         })
       : this._project(options.project)
     if (project && spec.chat) spec.chat.project = project
+    // A new run needs every running total it counts toward to have something left; its limit is the least left.
+    const ownBudget = !latest && options.budget !== undefined ? normalizeBudget(options.budget) : undefined
+    const caps = this._caps(project?.id, latest ? latest.state.chatBudget : ownBudget)
+    const spent = hasTotals(caps) ? await this._spent(id, project?.id) : NOTHING_SPENT
+    const hit = totalReached(caps, spent)
+    if (hit) throw new BudgetExceededError(hit)
+    const perRun = runCap(caps)?.usd
+    spec.budget = { ...spec.budget, ...runLimit(perRun, caps, spent) }
+    if (source.length && options.forkOf) this.options.shelf?.fork(id, options.forkOf)
+    if (imported) this.options.shelf?.imported(id, imported.id)
     const own = !latest && options.permissions !== undefined ? normalizeLevel(options.permissions) : undefined
     spec.permissions = own
       ? { ...this._levels(project, undefined), chat: own }
@@ -863,6 +900,8 @@ export class ChatService {
     run.beforeStart(async () => {
       if (own)
         await run.append({ type: 'chat/permissions', actor: { kind: 'user', id: 'user' }, payload: own })
+      if (ownBudget && Object.keys(ownBudget).length)
+        await run.append({ type: 'chat/budget', actor: { kind: 'user', id: 'user' }, payload: ownBudget })
       await this._checkpoint(run.id, project, 'start', `before: ${message}`, spec.chat?.round)
       const escalated = latest?.round.escalated
       if (escalated)
@@ -898,8 +937,10 @@ export class ChatService {
           },
         })
     })
+    this._runCaps.set(run, perRun)
     this._live.set(id, run)
     this._own(run)
+    this._watchSpend()
     try {
       await (latest ? run.continueRound() : run.start())
     } catch (err) {
@@ -1227,6 +1268,124 @@ export class ChatService {
     else await this.runtime.ctx.log.appendOne(latest.id as never, draft)
     await this.permissionsChanged()
     return next
+  }
+
+  /**
+   * Sets a chat's own spend caps (budgets.ts), recorded in its latest round's log like its permissions, so they follow
+   * the chat into later rounds and runs started from a channel. A running round is held to them at once.
+   */
+  async setChatBudget(chatId: string, budget: unknown): Promise<Budget> {
+    const latest = (await this.rounds(chatId)).at(-1)
+    if (!latest) throw new Error('no such chat')
+    const next = normalizeBudget(budget)
+    const draft = { type: 'chat/budget', actor: { kind: 'user', id: 'user' }, payload: next } as const
+    const live = this._live.get(chatId)
+    if (live?.id === latest.id) await live.append(draft)
+    else await this.runtime.ctx.log.appendOne(latest.id as never, draft)
+    await this.budgetsChanged()
+    return next
+  }
+
+  /** What has been spent this calendar month, by everyone and in each project, for the budget controls. */
+  async spend(): Promise<{ month: string; total: number; projects: Record<string, number> }> {
+    await this._settle()
+    const month = monthOf(this._now())
+    const projects: Record<string, number> = {}
+    let total = 0
+    for (const e of await this._entries()) {
+      if (!e.startedAt || monthOf(e.startedAt) !== month) continue
+      total += e.cost
+      if (e.projectId) projects[e.projectId] = (projects[e.projectId] ?? 0) + e.cost
+    }
+    return { month, total, projects }
+  }
+
+  /**
+   * Holds running rounds to the running totals as they are now: one whose total is used up (by itself or a round
+   * spending toward the same total at the same time) stops, and the others' limits follow what is left. Called when
+   * the person changes a cap, and while rounds spend (`_watchSpend`). A round's own per-run cap stays as it started.
+   */
+  async budgetsChanged(): Promise<void> {
+    let entries: SpendEntry[] | undefined
+    for (const [chatId, run] of this._live) {
+      if (run.state().status !== 'running') continue
+      const projectId = run.spec.chat?.project?.id
+      const caps = this._caps(projectId, run.state().chatBudget)
+      if (!hasTotals(caps) && !run.spec.budget.total) continue
+      entries ??= await this._entries()
+      const spent = spentFor(entries, { chatId, projectId }, this._now())
+      const hit = totalReached(caps, spent)
+      if (hit) await run.stop(prompts.colony.totalLimit(hit.scope, hit.spent, hit.cap))
+      else this._limit(run, caps, spent)
+    }
+  }
+
+  /** The per-run cap each round started with, which later changes to a cap leave as it was. */
+  private readonly _runCaps = new WeakMap<ColonyRun, number | undefined>()
+
+  /** Sets a running round's spend limit from what its running totals have left now. */
+  private _limit(run: ColonyRun, caps: Caps, spent: Spent) {
+    const { costUsd: _cost, total: _total, ...budget } = run.spec.budget
+    run.spec.budget = { ...budget, ...runLimit(this._runCaps.get(run), caps, spent, run.spent().cost) }
+  }
+
+  /** The caps a chat runs under: the person's global ones (Settings → Crew & budget), its project's and its own. */
+  private _caps(projectId: string | undefined, chat: Budget | undefined): Caps {
+    const team = this.options.settings?.get().team
+    const project = projectId ? this.options.projects?.get(projectId)?.budget : undefined
+    return {
+      global: {
+        ...(team?.costUsd ? { runUsd: team.costUsd } : {}),
+        ...(team?.monthlyUsd ? { totalUsd: team.monthlyUsd } : {}),
+      },
+      ...(project ? { project } : {}),
+      ...(chat ? { chat } : {}),
+    }
+  }
+
+  /** Every chat round's spend, from the chat index (running rounds as they are now). */
+  private async _entries(): Promise<SpendEntry[]> {
+    return (await this.index.rounds(this._liveState)).map((r) => ({
+      chatId: r.chatId,
+      cost: r.cost ?? 0,
+      ...(r.project ? { projectId: r.project.id } : {}),
+      ...(r.createdAt ? { startedAt: r.createdAt } : {}),
+    }))
+  }
+
+  private async _spent(chatId: string, projectId: string | undefined): Promise<Spent> {
+    return spentFor(await this._entries(), { chatId, projectId }, this._now())
+  }
+
+  private _now(): Date {
+    return this.options.now?.() ?? new Date()
+  }
+
+  private _spendCheck?: ReturnType<typeof setTimeout>
+  private _watching = false
+
+  /**
+   * While rounds run, checks them against the running totals at most every BUDGET_CHECK_MS as they spend: each round
+   * is capped at what its totals had left when it started, so this catches rounds that share a total and spend at once.
+   */
+  private _watchSpend() {
+    if (this._watching) return
+    this._watching = true
+    const off = this.runtime.ctx.on('log/appended', (colonyId, events) => {
+      if (this._spendCheck || !events.some((e) => e.type === 'llm/response' || e.type === 'tool/result'))
+        return
+      if (![...this._live.values()].some((r) => r.id === colonyId)) return
+      this._spendCheck = setTimeout(() => {
+        this._spendCheck = undefined
+        this.budgetsChanged().catch((err) =>
+          console.error(`checking budgets failed: ${err instanceof Error ? err.message : err}`),
+        )
+      }, BUDGET_CHECK_MS)
+    })
+    this.runtime.ctx.effect(() => () => {
+      off()
+      clearTimeout(this._spendCheck)
+    })
   }
 
   /**
@@ -1598,6 +1757,15 @@ export class ChatService {
     if (fallbacks) spec.fallbacks = fallbacks
     const advisor = this.options.settings?.get().team.advisorModel
     if (advisor) spec.advisor = advisor
+    // Caps as they are now, as the person may have raised the one that stopped it. The colony gives a resumed round
+    // back at least half its per-run limit; what running totals have left applies once it has counted that.
+    const caps = this._caps((fresh ?? project)?.id, last.state.chatBudget)
+    const spent = hasTotals(caps) ? await this._spent(chatId, (fresh ?? project)?.id) : NOTHING_SPENT
+    const hit = totalReached(caps, spent)
+    if (hit) throw new BudgetExceededError(hit)
+    const perRun = runCap(caps)?.usd
+    const { costUsd: _cost, total: _total, ...budget } = spec.budget
+    spec.budget = { ...budget, ...(perRun ? { costUsd: perRun } : {}) }
     const models: Record<string, string> = {}
     if (model) {
       this.options.resolver.resolve(model)
@@ -1631,8 +1799,10 @@ export class ChatService {
       ...(this.options.hooks ? { hooks: this.options.hooks } : {}),
       ...(this.options.rules ? { rules: this.options.rules } : {}),
     })
+    this._runCaps.set(run, perRun)
     this._live.set(chatId, run)
     this._own(run)
+    this._watchSpend()
     try {
       await run.resume(
         model
@@ -1645,6 +1815,7 @@ export class ChatService {
       this._release(run)
       throw err
     }
+    if (hasTotals(caps)) this._limit(run, caps, spent)
     this._wrapUp(
       run.done.finally(() => {
         this._release(run)
@@ -1979,10 +2150,8 @@ export class ChatService {
     // answers are not reviewed, other final answers always are.
     const review = s?.verification.reviewer
     const wallMs = Math.round((config.wallMinutes ?? s?.team.wallMinutes ?? 30) * 60_000)
-    const limits = {
-      ...(s?.team.costUsd ? { costUsd: s.team.costUsd } : {}),
-      ...(s?.team.tokens ? { tokens: s.team.tokens } : {}),
-    }
+    // The spend limit is set once the chat's project is known, from every level's caps (deliver, budgets.ts).
+    const limits = s?.team.tokens ? { tokens: s.team.tokens } : {}
     const models = [...new Set([...roster.map((r) => r.model), config.leadModel])]
     // Every tier gets it: a direct answer that calls tools is watched as closely as a team's work.
     const advisor = config.advisorModel ?? s?.team.advisorModel

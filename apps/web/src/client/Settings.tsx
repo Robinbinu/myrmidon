@@ -32,6 +32,7 @@ import {
   api,
   GATEWAYS_CHANGED,
   type GatewayInfo,
+  getSpend,
   hubSend,
   listGateways,
   type ModelOption,
@@ -155,6 +156,7 @@ import { matchCombo } from './ui/shortcuts.ts'
 import { useToast } from './ui/Toast.tsx'
 import {
   AGENT_MIN_WINDOW,
+  BUDGET_MAX_USD,
   CREATOR_LINKS,
   MASCOT_COLORS,
   MAX_FALLBACKS,
@@ -224,6 +226,8 @@ export interface ServerSettings {
     maxTurns: number
     costUsd: number
     tokens: number
+    /** The most every chat together may spend in a calendar month; 0 or absent (older servers) means no cap. */
+    monthlyUsd?: number
   }
   /** Folders sandboxed agents may also read, in every chat. Full access is the global preset. */
   sandbox?: { read?: string[]; readHome?: boolean }
@@ -2341,6 +2345,12 @@ function TeamSection(props: {
   onConfig(c: TeamConfig): void
 }) {
   const t = props.data.settings.team
+  const [monthSpent, setMonthSpent] = useState<number>()
+  useEffect(() => {
+    getSpend()
+      .then((s) => setMonthSpent(s.total))
+      .catch(() => setMonthSpent(undefined))
+  }, [])
   return (
     <>
       <PageHeader title={copy.settings.team.title}>{copy.settings.team.intro}</PageHeader>
@@ -2493,6 +2503,33 @@ function TeamSection(props: {
             max={600}
             suffix={copy.settings.team.units.seconds}
             onChange={(v) => props.update((s) => ({ ...s, observer: { intervalSeconds: v } }))}
+          />
+        </SettingField>
+      </Card>
+      <SectionHeader
+        as="h3"
+        className="mb-2"
+        icon={<FEATURE_ICONS.budget className="size-4 text-muted" />}
+        title={copy.settings.team.monthlyTitle}
+      />
+      <Card className="mb-8">
+        <SettingField
+          id="team.monthlyUsd"
+          inline
+          hint={
+            monthSpent === undefined
+              ? copy.settings.team.monthlyLimitHint
+              : `${copy.budget.monthSpent(monthSpent, t.monthlyUsd)}. ${copy.settings.team.monthlyLimitHint}`
+          }
+        >
+          <NumberField
+            label={copy.settings.team.monthlyLimit}
+            value={t.monthlyUsd ?? 0}
+            min={0}
+            max={BUDGET_MAX_USD}
+            suffix={copy.settings.team.units.dollars}
+            wide
+            onChange={(v) => props.update((s) => ({ ...s, team: { ...s.team, monthlyUsd: v } }))}
           />
         </SettingField>
       </Card>

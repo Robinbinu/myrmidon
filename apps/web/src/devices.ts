@@ -158,7 +158,9 @@ export function needsFull(method: string, path: string): boolean {
     )
   )
     return true
-  if (/^\/api\/projects\/[^/]+\/(permissions|git\/(?!changes|diff|commits)[^/]+)$/.test(path)) return true
+  // A project's budget caps the person's spend, as its permissions limit what agents may do.
+  if (/^\/api\/projects\/[^/]+\/(permissions|budget|git\/(?!changes|diff|commits)[^/]+)$/.test(path))
+    return true
   // Browsing a project's files reaches every file in it (`.env` and other keys included), not just what a chat changed.
   if (/^\/api\/projects\/[^/]+\/(file|tree|find)$/.test(path)) return true
   // Letting someone else into a chat (Share live), seeing who is in, and taking them out.
@@ -172,8 +174,8 @@ export function needsFull(method: string, path: string): boolean {
     return true
   // Taking back apps a chat may control on the person's Mac is a permission change, as are a chat's preset or rules
   // and the folders it may read (approving a step, and remembering it for that chat, stays open: see the approvals
-  // route).
-  if (write && /^\/api\/chats\/[^/]+\/(computer-apps|permissions|readable)$/.test(path)) return true
+  // route), and so is raising what a chat may spend.
+  if (write && /^\/api\/chats\/[^/]+\/(computer-apps|permissions|readable|budget)$/.test(path)) return true
   // Installing the computer-use driver and asking for its grants; Stop stays open to every device, as a safety stop.
   if (write && /^\/api\/computer\/(install|grants|restart)(\/|$)/.test(path)) return true
   // Installing speech engines, keys and samples, and phoning someone; calling (a GET that upgrades) stays open.

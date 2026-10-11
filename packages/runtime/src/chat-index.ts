@@ -3,6 +3,7 @@ import { statSync } from 'node:fs'
 import { join } from 'node:path'
 import type { SqliteLogStore } from '@myrmidon/core'
 import {
+  type Budget,
   type ColonyState,
   type ColonyStatus,
   type ComputerApp,
@@ -42,6 +43,10 @@ export interface IndexedRound {
   readonly fullAccess?: boolean
   /** On a chat's latest round: apps on the person's Mac they let agents use in this chat. */
   readonly computerApps?: readonly ComputerApp[]
+  /** What the round spent (RoundInfo.cost); absent in rows from before rounds counted it. */
+  readonly cost?: number
+  /** On a chat's latest round: the chat's own spend caps, when the person set any. */
+  readonly budget?: Budget
 }
 
 /** A chat with a message that matches a search, and the words around the match. */
@@ -134,10 +139,13 @@ export class ChatIndex {
         // Rows written before chats ran in one colony hold a single round.
         const data = row.data ? (JSON.parse(row.data) as IndexedRound | IndexedRound[]) : []
         const list = Array.isArray(data) ? data : [data]
-        // Rows from before the crew and model failures were indexed are read again once, and rows holding chat
-        // grants from before the permission model, so they show as the chat's rules.
+        // Rows from before the crew, model failures and spend were indexed are read again once, and rows holding
+        // chat grants from before the permission model, so they show as the chat's rules.
         const last = list.at(-1) as (IndexedRound & { grants?: unknown }) | undefined
-        if (list.length === 0 || (last?.crew && last.failed !== undefined && last.grants === undefined)) {
+        if (
+          list.length === 0 ||
+          (last?.crew && last.failed !== undefined && last.grants === undefined && last.cost !== undefined)
+        ) {
           out.push(...list)
           continue
         }
@@ -307,6 +315,7 @@ function summarize(colonyId: string, s: ColonyState): IndexedRound[] {
     createdAt: r.startedAt,
     ...(r.endedAt ? { endedAt: r.endedAt } : {}),
     swarm: r.swarm,
+    cost: r.cost,
     ...(r === last && cause.awaiting ? { awaiting: true } : {}),
     ...(r === last && r.status === 'running' && Object.values(s.approvals).some((a) => !a.decided)
       ? { approving: true }
@@ -326,6 +335,7 @@ function summarize(colonyId: string, s: ColonyState): IndexedRound[] {
           ...(s.chatReads?.length ? { reads: s.chatReads } : {}),
           ...(s.fullAccess ? { fullAccess: true } : {}),
           ...(s.computerApps?.length ? { computerApps: s.computerApps } : {}),
+          ...(s.chatBudget && Object.keys(s.chatBudget).length ? { budget: s.chatBudget } : {}),
         }
       : {}),
     ...(chat.project ? { project: { id: chat.project.id, name: chat.project.name } } : {}),

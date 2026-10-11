@@ -1,4 +1,11 @@
-import type { ColonyMetrics, MyrEvent, PermissionLevel, ProjectPermissions } from '@myrmidon/protocol'
+import type {
+  Budget,
+  BudgetScope,
+  ColonyMetrics,
+  MyrEvent,
+  PermissionLevel,
+  ProjectPermissions,
+} from '@myrmidon/protocol'
 import { copy } from './copy.ts'
 import { STREAM_RETRY_MAX_MS, STREAM_RETRY_MS } from './ui-config.ts'
 
@@ -585,6 +592,10 @@ export interface ChatSummary {
   forkOf?: string
   /** The imported Claude Code or Codex session it continues. */
   importOf?: string
+  /** The chat's own spend caps, when any are set. */
+  budget?: Budget
+  /** What the chat has spent over all its runs, in USD; absent while nothing priced was spent. */
+  spent?: number
 }
 
 export type ImportSource = 'claude' | 'codex'
@@ -648,6 +659,36 @@ export interface Project {
    * project its chats' sandboxed agents may read. Absent from servers before the permission model.
    */
   permissions?: ProjectPermissions
+  /** Its own spend caps: per run, and for each calendar month of its chats. */
+  budget?: Budget
+}
+
+/** A running total that refused a run (the server's BudgetExceededError): which one, spent and cap. */
+export interface BudgetHit {
+  scope: BudgetScope
+  spent: number
+  cap: number
+}
+
+/** What has been spent this calendar month (`YYYY-MM`), by every chat and in each project. */
+export interface MonthSpend {
+  month: string
+  total: number
+  projects: Record<string, number>
+}
+
+export const getSpend = () => api<MonthSpend>('/api/spend')
+
+export const setChatBudget = (chatId: string, budget: Budget) =>
+  send<{ budget: Budget }>('PUT', `/api/chats/${chatId}/budget`, budget)
+
+export const setProjectBudget = (projectId: string, budget: Budget) =>
+  send<{ project: Project; projects: Project[] }>('PUT', `/api/projects/${projectId}/budget`, budget)
+
+/** The running total a refused send or resume ran into, when that is why it was refused. */
+export function budgetHit(err: unknown): BudgetHit | undefined {
+  const hit = err instanceof ApiError ? err.body?.budget : undefined
+  return hit && typeof hit === 'object' ? (hit as BudgetHit) : undefined
 }
 
 /**
