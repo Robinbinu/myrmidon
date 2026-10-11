@@ -46,6 +46,19 @@ if (os === 'macos')
     }
   }
 
+// The leash that stops the server with the app (packages/runtime/src/leashed.ts) is read beside the app's code.
+// Electrobun's bundler leaves leashed.ts's text import of it as a file to load at run time, so without this copy an
+// app that has to start its own server fails with "Module not found …/app/bun/leash.ts".
+if (!wrapper) {
+  if (!existsSync(bundle)) throw new Error(desktopCopy.build.bundleMissing(bundle))
+  const code = join(app.resources(bundle), 'app', 'bun')
+  mkdirSync(code, { recursive: true })
+  copyFileSync(
+    join(import.meta.dir, '..', '..', '..', 'packages', 'runtime', 'src', 'leash.ts'),
+    join(code, 'leash.ts'),
+  )
+}
+
 // Into the app itself, before it is wrapped (a stable build's self-extracting wrapper carries it inside).
 if (channel !== 'dev' && !wrapper) {
   if (!existsSync(bundle)) throw new Error(desktopCopy.build.bundleMissing(bundle))
@@ -53,7 +66,8 @@ if (channel !== 'dev' && !wrapper) {
 }
 
 // Last, so the signature covers every edit above: the app before it is packed, then the wrapper that carries it.
-if (os === 'macos' && channel !== 'dev' && !(config.build.mac as { codesign?: boolean }).codesign) signAdHoc(wrapper ?? bundle)
+if (os === 'macos' && channel !== 'dev' && !(config.build.mac as { codesign?: boolean }).codesign)
+  signAdHoc(wrapper ?? bundle)
 
 function signAdHoc(path: string) {
   for (const args of [
