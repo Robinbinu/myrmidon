@@ -1,3 +1,4 @@
+import { ModelMark } from '../components/Brand.tsx'
 import { Icon } from '../components/Icon.tsx'
 import { Crewmate } from '../components/Ui.tsx'
 import { C, CREW, type CrewName, FONT, MONO } from '../theme.ts'
@@ -62,14 +63,17 @@ function Picker() {
           >
             <span
               style={{
-                width: 110,
+                width: 150,
                 fontFamily: MONO,
                 fontSize: 15,
                 letterSpacing: '0.04em',
                 color: p.on ? C.wink : C.label3,
               }}
             >
-              {p.provider}
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10, color: C.label }}>
+                <ModelMark model={p.provider} size={26} />
+                <span style={{ color: p.on ? C.wink : C.label3 }}>{p.provider}</span>
+              </span>
             </span>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 20, fontWeight: 600, color: C.label }}>{p.model}</div>
@@ -107,6 +111,7 @@ function Limits() {
         {WINDOWS.map(([who, win, left, reset]) => (
           <div key={who + win} style={{ height: 68, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 10 }}>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+              <ModelMark model={who} size={24} style={{ alignSelf: 'center', color: C.label }} />
               <span style={{ fontSize: 19, fontWeight: 620 }}>{who}</span>
               <span style={{ fontSize: 17, color: C.label3 }}>· {win}</span>
               <span style={{ flex: 1 }} />
@@ -174,7 +179,7 @@ function PerAgent() {
                 boxShadow: `inset 0 0 0 1px ${C.separatorStrong}`,
               }}
             >
-              <Icon name="sparkle" size={17} color={C.wink} />
+              <ModelMark model={model} size={24} />
               {model}
               <span style={{ color: C.label4, fontWeight: 450 }}>· {provider}</span>
             </span>

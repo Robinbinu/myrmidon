@@ -1,45 +1,51 @@
 import type { CSSProperties, ReactNode } from 'react'
-import { C, FONT } from '../theme.ts'
+import { RADIUS, SHADOW, SPACE } from '../design.ts'
+import { C } from '../theme.ts'
+import { T } from './Text.tsx'
 
-/** A generic phone: a dark bezel with an island, a status bar, and whatever screen it is given. */
-export function Phone(props: { width?: number; children: ReactNode; style?: CSSProperties; screenBg?: string }) {
-  const w = props.width ?? 410
-  const h = w * 2.06
-  const bezel = w * 0.03
+export const PHONE_W = 440
+export const PHONE_H = Math.round(PHONE_W * 2.06)
+const BEZEL = 13
+/** The screen's inner size; screens lay themselves out in it. */
+export const SCREEN_W = PHONE_W - BEZEL * 2
+export const SCREEN_H = PHONE_H - BEZEL * 2
+/** Where the status bar ends and an app's content can start. */
+export const SCREEN_TOP = 64
+
+/** Alex's phone: a dark bezel with an island, a status bar, and whatever screen it is given. */
+export function Phone(props: { children: ReactNode; style?: CSSProperties; screenBg?: string }) {
   return (
     <div
       style={{
-        width: w,
-        height: h,
-        borderRadius: w * 0.16,
-        padding: bezel,
+        width: PHONE_W,
+        height: PHONE_H,
+        borderRadius: 70,
+        padding: BEZEL,
         background: 'linear-gradient(145deg, #2c2c32 0%, #121215 40%, #1d1d22 100%)',
-        boxShadow:
-          '0 0 0 1px rgba(255,255,255,0.12), inset 0 0 0 1.5px rgba(255,255,255,0.06), 0 60px 120px -30px rgba(0,0,0,0.95), 0 30px 50px -30px rgba(0,0,0,0.9)',
+        boxShadow: `0 0 0 1px rgba(255,255,255,0.12), inset 0 0 0 1.5px rgba(255,255,255,0.06), ${SHADOW.lg}`,
         ...props.style,
       }}
     >
       <div
+        data-box=""
         style={{
           position: 'relative',
           width: '100%',
           height: '100%',
-          borderRadius: w * 0.135,
+          borderRadius: 58,
           overflow: 'hidden',
           background: props.screenBg ?? '#0a0a0c',
-          fontFamily: FONT,
-          color: C.label,
         }}
       >
         <div
           style={{
             position: 'absolute',
-            top: w * 0.028,
+            top: 12,
             left: '50%',
-            width: w * 0.3,
-            height: w * 0.085,
-            marginLeft: -w * 0.15,
-            borderRadius: 99,
+            width: 124,
+            height: 36,
+            marginLeft: -62,
+            borderRadius: RADIUS.pill,
             background: '#000',
             zIndex: 5,
           }}
@@ -47,27 +53,29 @@ export function Phone(props: { width?: number; children: ReactNode; style?: CSSP
         <div
           style={{
             position: 'absolute',
-            top: w * 0.04,
-            left: w * 0.09,
-            right: w * 0.08,
+            top: 16,
+            left: SPACE[8] + SPACE[3],
+            right: SPACE[8],
+            height: 28,
             display: 'flex',
             justifyContent: 'space-between',
-            fontSize: w * 0.04,
-            fontWeight: 650,
+            alignItems: 'center',
             zIndex: 4,
           }}
         >
-          <span>9:41</span>
-          <span style={{ display: 'flex', gap: w * 0.012, alignItems: 'center' }}>
+          <T role="label" weight="semibold">
+            23:12
+          </T>
+          <span style={{ display: 'flex', gap: 3, alignItems: 'flex-end' }}>
             {[0.45, 0.6, 0.8, 1].map((b) => (
-              <span key={b} style={{ width: w * 0.008, height: w * 0.03 * b, background: C.label, borderRadius: 2 }} />
+              <span key={b} style={{ width: 4, height: 13 * b, background: C.label, borderRadius: 1 }} />
             ))}
             <span
               style={{
-                marginLeft: w * 0.02,
-                width: w * 0.062,
-                height: w * 0.03,
-                borderRadius: w * 0.008,
+                marginLeft: SPACE[2],
+                width: 26,
+                height: 13,
+                borderRadius: 4,
                 boxShadow: `inset 0 0 0 1.5px ${C.label3}`,
                 padding: 2,
                 display: 'flex',
