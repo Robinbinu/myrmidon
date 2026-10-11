@@ -58,7 +58,7 @@ export function viewOf(facts: PromptFacts, kickoff = ''): PromptView {
     kickoff: `${assembled.kickoffPrefix}${kickoff}`,
     tools: facts.tools.names.flatMap((name) => {
       const description = toolDescription(name, facts) ?? computerToolSpec(name)?.description
-      const parameters = toolParameters(name)
+      const parameters = toolParameters(name, facts)
       return description === undefined ? [] : [{ name, description, ...(parameters ? { parameters } : {}) }]
     }),
     paths: [facts.access.project?.path, facts.access.worktree?.path].filter((p): p is string => !!p),

@@ -2,7 +2,7 @@ import { afterAll, beforeAll, expect, test } from 'bun:test'
 import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { CELL_WORKER_COMMAND } from '../../../packages/runtime/src/config.ts'
+import { CELL_WORKER_COMMAND, EMBEDDED_SHELL_COMMAND } from '../../../packages/runtime/src/config.ts'
 import { KITTEN_WORKER_COMMAND } from '../../../packages/runtime/src/voice/tts.ts'
 import { asPlatform, executableName } from '../src/platform.ts'
 
@@ -73,4 +73,16 @@ test('the compiled server carries the JavaScript cell runtime, and it runs a cel
   expect(frames.map((f) => f.type)).toContain('ready')
   expect(frames.find((f) => f.type === 'text')?.chunk).toBe('42\n')
   expect(frames.find((f) => f.type === 'result')?.ok).toBe(true)
+}, 60_000)
+
+test('the compiled server carries the built-in bash Windows without Git Bash runs commands in', () => {
+  const run = Bun.spawnSync([bin, EMBEDDED_SHELL_COMMAND, 'echo hi | tr a-z A-Z; echo err >&2; exit 5'], {
+    cwd: dir,
+    stdin: 'ignore',
+    stdout: 'pipe',
+    stderr: 'pipe',
+  })
+  expect(run.stdout.toString().trim()).toBe('HI')
+  expect(run.stderr.toString().trim()).toBe('err')
+  expect(run.exitCode).toBe(5)
 }, 60_000)

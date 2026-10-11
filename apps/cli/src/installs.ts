@@ -1,3 +1,6 @@
+import { existsSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { type SkillScan, scanSkill } from '@myrmidon/runtime'
 import { setupCopy } from './copy.ts'
 import type { Call, Terminal } from './setup.ts'
 
@@ -20,7 +23,26 @@ interface Preview {
   dependencies?: string[]
   scripts?: string[]
   warnings?: string[]
+  scan?: SkillScan
   replaces?: { version?: string; commit?: string }
+}
+
+/** `--force`: install what the skill scan blocks, after the same typed yes. */
+export interface InstallOptions {
+  force?: boolean
+}
+
+/** A scan's findings, worst first, each with where it is and why it matters. */
+function printScan(term: Terminal, scan: SkillScan, indent = '  ') {
+  const s = term.style
+  const tone = { critical: s.red, high: s.yellow, medium: s.dim, low: s.dim } as const
+  for (const f of scan.findings) {
+    term.print(
+      `${indent}${tone[f.severity](f.severity.padEnd(8))} ${f.line ? `${f.file}:${f.line}` : f.file}  ${f.why}`,
+    )
+    if (f.excerpt) term.print(`${indent}         ${s.dim(f.excerpt)}`)
+  }
+  if (scan.skippedFiles) term.print(`${indent}${s.dim(t.scanSkipped(scan.skippedFiles))}`)
 }
 
 /** `plugin@marketplace`, as Claude Code names a marketplace plugin. */
@@ -30,7 +52,13 @@ const MARKET_PLUGIN = /^([a-z0-9][a-z0-9.-]*)@([a-z0-9][a-z0-9.-]*)$/i
  * Shows what a fetch holds and asks for a typed yes, as Settings shows its review: an install never happens from a
  * pipe or a script, only from a person at the terminal. A no drops the fetched copy.
  */
-async function confirmInstall(call: Call, term: Terminal, kind: 'plugin' | 'skill', p: Preview) {
+async function confirmInstall(
+  call: Call,
+  term: Terminal,
+  kind: 'plugin' | 'skill',
+  p: Preview,
+  opts: InstallOptions = {},
+) {
   const s = term.style
   const names =
     kind === 'plugin'
@@ -55,13 +83,24 @@ async function confirmInstall(call: Call, term: Terminal, kind: 'plugin' | 'skil
   term.print(`  ${s.dim(t.runs)} ${runs.length ? s.yellow(runs.join('; ')) : t.nothingRuns}`)
   if (p.dependencies?.length) term.print(`  ${t.dependencies(p.dependencies)}`)
   for (const w of p.warnings ?? []) term.print(`  ${s.yellow(w)}`)
-  const answer = (await term.ask(`${t.confirm}: `)).trim().toLowerCase()
+  const blocked = p.scan?.verdict === 'block'
+  if (p.scan) {
+    term.print(`  ${s.dim(t.scan)} ${t.verdict[p.scan.verdict]}`)
+    printScan(term, p.scan, '    ')
+    term.print(`  ${s.dim(t.advisory)}`)
+  }
+  if (blocked && !opts.force) {
+    await call('DELETE', `/api/${kind}-installs/${p.id}`).catch(() => {})
+    term.print(s.red(t.blocked))
+    return
+  }
+  const answer = (await term.ask(`${blocked ? t.confirmAnyway : t.confirm}: `)).trim().toLowerCase()
   if (answer !== 'yes' && answer !== 'y') {
     await call('DELETE', `/api/${kind}-installs/${p.id}`).catch(() => {})
     term.print(t.cancelled)
     return
   }
-  await call('POST', `/api/${kind}-installs/${p.id}`, {})
+  await call('POST', `/api/${kind}-installs/${p.id}`, blocked ? { override: true } : {})
   term.print(s.green(t.installed(names)))
 }
 
@@ -70,7 +109,12 @@ function needsPerson(term: Terminal) {
 }
 
 /** `myrmidon plugins …`: list, install (after the review), update, remove, and the marketplaces they come from. */
-export async function plugins(call: Call, term: Terminal, args: string[]): Promise<void> {
+export async function plugins(
+  call: Call,
+  term: Terminal,
+  args: string[],
+  opts: InstallOptions = {},
+): Promise<void> {
   const [verb, arg, extra] = args
   const s = term.style
   if (!verb || verb === 'ls') {
@@ -101,7 +145,7 @@ export async function plugins(call: Call, term: Terminal, args: string[]): Promi
     const market = MARKET_PLUGIN.exec(arg)
     const body = market ? { plugin: market[1], marketplace: market[2] } : { source: arg }
     const { preview } = await call<{ preview: Preview }>('POST', '/api/plugins', body)
-    return confirmInstall(call, term, 'plugin', preview)
+    return confirmInstall(call, term, 'plugin', preview, opts)
   }
   if (verb === 'update' && arg) {
     needsPerson(term)
@@ -111,7 +155,7 @@ export async function plugins(call: Call, term: Terminal, args: string[]): Promi
       `/api/plugins/${encodeURIComponent(arg)}/update`,
       {},
     )
-    return confirmInstall(call, term, 'plugin', preview)
+    return confirmInstall(call, term, 'plugin', preview, opts)
   }
   if (verb === 'remove' && arg) {
     await call('DELETE', `/api/plugins/${encodeURIComponent(arg)}`)
@@ -150,8 +194,43 @@ export async function plugins(call: Call, term: Terminal, args: string[]): Promi
   throw new Error(t.pluginsUsage)
 }
 
-/** `myrmidon skills …`: search omp's skills registry, install (after the review), update and remove. */
-export async function skills(call: Call, term: Terminal, args: string[]): Promise<void> {
+/**
+ * `myrmidon skills scan [name|folder]`: the skill scanner's findings for a folder on disk (read here, no server
+ * needed), one skill by name, or every skill. The exit code is 1 when a scan blocks, so a script can stop on it.
+ */
+async function scanSkills(call: Call, term: Terminal, arg: string) {
+  const s = term.style
+  const scans: { name: string; scan?: SkillScan; held?: boolean }[] = []
+  if (arg && existsSync(arg)) scans.push({ name: arg, scan: scanSkill(resolve(arg)) })
+  else {
+    const { skills } = await call<{ skills: { name: string; scan?: SkillScan; held?: boolean }[] }>(
+      'GET',
+      '/api/skills',
+    )
+    const chosen = arg ? skills.filter((x) => x.name === arg) : skills
+    if (arg && !chosen.length) throw new Error(t.noSuchSkill(arg))
+    scans.push(...chosen)
+  }
+  for (const { name, scan, held } of scans) {
+    if (!scan) {
+      term.print(`${s.bold(name)} ${s.dim(t.notScanned)}`)
+      continue
+    }
+    const verdict = scan.verdict === 'block' ? s.red : scan.verdict === 'warn' ? s.yellow : s.green
+    term.print(`${s.bold(name)} ${verdict(t.verdict[scan.verdict])}${held ? ` ${s.red(t.held)}` : ''}`)
+    printScan(term, scan)
+  }
+  term.print(s.dim(t.advisory))
+  if (scans.some((x) => x.scan?.verdict === 'block')) process.exitCode = 1
+}
+
+/** `myrmidon skills …`: search omp's skills registry, install (after the review), update, remove and scan. */
+export async function skills(
+  call: Call,
+  term: Terminal,
+  args: string[],
+  opts: InstallOptions = {},
+): Promise<void> {
   const [verb, ...rest] = args
   const arg = rest.join(' ')
   const s = term.style
@@ -180,7 +259,7 @@ export async function skills(call: Call, term: Terminal, args: string[]): Promis
     needsPerson(term)
     term.print(s.dim(t.fetching(arg)))
     const { preview } = await call<{ preview: Preview }>('POST', '/api/skill-installs', { source: arg })
-    return confirmInstall(call, term, 'skill', preview)
+    return confirmInstall(call, term, 'skill', preview, opts)
   }
   if (verb === 'update' && arg) {
     needsPerson(term)
@@ -190,11 +269,12 @@ export async function skills(call: Call, term: Terminal, args: string[]): Promis
       `/api/skills/${encodeURIComponent(arg)}/update`,
       {},
     )
-    return confirmInstall(call, term, 'skill', preview)
+    return confirmInstall(call, term, 'skill', preview, opts)
   }
   if (verb === 'remove' && arg) {
     await call('DELETE', `/api/skills/${encodeURIComponent(arg)}`)
     return term.print(t.removed(arg))
   }
+  if (verb === 'scan') return scanSkills(call, term, arg)
   throw new Error(t.skillsUsage)
 }

@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { type ProjectInstructions, readProjectInstructions } from './instructions.ts'
+import { vcsIsPureJj } from './omp/natives.ts'
 import { SKIP_DIRS } from './workspace.ts'
 
 /**
@@ -159,7 +160,8 @@ export function projectGit(root: string): ProjectGit | undefined {
       return undefined
     }
   }
-  if (git('rev-parse', '--is-inside-work-tree')?.trim() !== 'true') return undefined
+  // A Jujutsu workspace inside a git checkout: git would describe the outer repository.
+  if (vcsIsPureJj(root) || git('rev-parse', '--is-inside-work-tree')?.trim() !== 'true') return undefined
   const branch = git('branch', '--show-current')?.trim()
   const changed = (git('status', '--porcelain') ?? '').split('\n').filter(Boolean).length
   // A repository without commits has no log yet.

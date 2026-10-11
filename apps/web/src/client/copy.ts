@@ -455,6 +455,7 @@ export const copy = {
     followedRules: (n: number) => `Following the project's ${n === 1 ? 'rule file' : `${n} rule files`}:`,
     proposedMemory: 'Proposed to remember:',
     ownBranch: 'Works on its own branch',
+    ownCopy: 'Works on its own copy of the project',
     merged: (n: number) => `Merged ${n} file${n === 1 ? '' : 's'} into the project`,
     onMac: (app: string) => `On your Mac, in ${app}:`,
     computerSetup: 'Computer use needs setting up:',
@@ -3153,10 +3154,23 @@ export const copy = {
           'done',
         ],
         chatNames: ['chat title', 'titles', 'rename chats', 'naming'],
+        keepAwake: ['sleep', 'caffeinate', 'awake', 'power', 'battery', 'idle', 'lid', 'amphetamine'],
+        smallModel: [
+          'cheap model',
+          'naming model',
+          'title model',
+          'apple',
+          'on-device',
+          'local',
+          'offline',
+          'free',
+        ],
+        meaning: ['embeddings', 'embedding model', 'semantic', 'vector', 'synonyms', 'similar meaning'],
         suggest: ['autocomplete', 'autocompletion', 'ghost text', 'predict', 'predictions', 'typing'],
         setup: ['onboarding', 'first run', 'wizard', 'get started', 'welcome'],
         shortcuts: ['shortcut', 'keyboard', 'hotkey', 'hotkeys', 'keys', 'keybindings', 'key bindings'],
         dataFolder: ['data directory', 'home folder', 'where files are', 'storage', 'myrmidon folder'],
+        shell: ['bash', 'sh', 'git bash', 'powershell', 'command line', 'windows shell'],
         theme: [
           'theme',
           'dark mode',
@@ -3345,6 +3359,9 @@ export const copy = {
         `When nothing you wrote before fits, a small language model (Pythia-14M) guesses the next word. A ${mb} MB download, once; it runs on the computer Myrmidon runs on and sends nothing anywhere.`,
       suggestModelDownloading: (mb: number) => `Downloading the ${mb} MB model…`,
       suggestModelFailed: (error: string) => `The model could not be downloaded: ${error}`,
+      keepAwake: 'Keep the computer awake during runs',
+      keepAwakeHint:
+        'Off by default. While a run is working, the computer does not go to sleep when left idle; once no run is working, it sleeps as usual. The screen may still turn off.',
       setup: 'Setup assistant',
       setupHint: 'Go through the first-run steps again: models, crew, project, voice and the rest.',
       runSetup: 'Run setup again',
@@ -3563,6 +3580,12 @@ export const copy = {
         'The lead plans on its own model, then hands off once to this cheaper one to carry the plan out: at its first change (a file edit or a task), after you approve the plan in plan mode. Off by default. The chat shows the hand-off.',
       chooseCarryOut: 'Choose a model',
       carryOutOff: (model: string) => `Turn off prewalk (${model})`,
+      smallTitle: 'Small jobs',
+      small: 'Small jobs model',
+      smallHint:
+        'Names chats and suggests memories. Automatic by default: the cheapest model you can use. On a Mac with Apple Intelligence, Apple’s on-device model is in the list: free, and it works offline.',
+      chooseSmall: 'Choose a model',
+      smallOff: (model: string) => `Back to the cheapest model (${model})`,
     },
     tools: {
       title: 'Tools',
@@ -4459,6 +4482,30 @@ export const copy = {
       remove: 'Remove',
       confirmRemove: 'Yes, remove skill',
       removed: (name: string) => `Removed ${name}`,
+      /** A skill whose scan blocks it, not offered to agents until the person allows it. */
+      held: 'held',
+      heldHint: 'Its scan found something critical, so agents are not offered it until you allow it.',
+      allowedBadge: 'allowed',
+      allowedHint: 'Its scan found something critical, and you allowed it as it is now.',
+      flagged: 'flagged',
+      flaggedHint: 'Its scan found things worth a look.',
+      findings: (n: number) => `Scan findings (${n})`,
+      allow: 'Allow…',
+      confirmAllow: 'Yes, let agents use it',
+      allowWarning: 'Only if you trust where it comes from: agents follow what it says.',
+      allowed: (name: string) => `Agents can use ${name}`,
+    },
+    /** What the skill scanner found, in an install's review and under a skill in Settings → Skills. */
+    skillScan: {
+      title: 'Skill scan',
+      clean: (files: number) => `Nothing worrying in ${files === 1 ? 'its 1 file' : `its ${files} files`}.`,
+      warn: 'It found things worth a look.',
+      block: 'It found something critical. Install it only if you trust where it comes from.',
+      severity: { critical: 'critical', high: 'high', medium: 'medium', low: 'low' },
+      lesser: (n: number) => `${n} lesser finding${n === 1 ? '' : 's'}`,
+      skipped: (n: number) => `${n} file${n === 1 ? '' : 's'} not read: binary, media or too large.`,
+      at: (file: string, line: number) => (line ? `${file}:${line}` : file),
+      advisory: 'A scan can miss things; the sandbox and your approvals still apply.',
     },
     /** The review shown before a plugin or skill is installed. */
     installReview: {
@@ -4489,6 +4536,12 @@ export const copy = {
       update: 'Update',
       installing: 'Installing…',
       cancel: 'Cancel',
+      /** Installing what the scan flagged takes a second click; what it blocks, an explicit "anyway". */
+      confirmFlagged: 'Yes, install it',
+      flaggedWarning: 'Read what the scan found first.',
+      installAnyway: 'Install anyway…',
+      confirmAnyway: 'Yes, install anyway',
+      anywayWarning: 'The scan found something critical. Agents will be able to use it.',
     },
     memory: {
       kinds: {
@@ -4530,6 +4583,12 @@ export const copy = {
       waitingTitle: 'Waiting for you',
       tidy: 'Tidy up',
       tidyHint: 'Suggest merging memories that repeat or went stale. Each suggestion waits for you.',
+      meaning: 'Recall by meaning',
+      meaningHint:
+        'Off by default: recall finds memories that share words with the request, free and offline. With an embedding model, it also finds ones that mean the same in other words. Each memory is embedded once and each request once more, as paid calls to that model’s provider.',
+      meaningOff: 'Off (match words)',
+      meaningNone: 'Needs an OpenAI or OpenRouter key in Models & providers.',
+      meaningGone: (ref: string) => `${ref} (not available now)`,
       tidying: 'Tidying up…',
       tidied: (n: number) => (n === 1 ? '1 suggestion to look at' : `${n} suggestions to look at`),
       tidiedNone: 'Nothing to tidy up',
@@ -4575,6 +4634,9 @@ export const copy = {
       providersReady: 'Providers ready',
       providersReadyHint: 'Through oh-my-pi’s provider code, built into Myrmidon.',
       sandbox: 'Sandbox',
+      shell: 'Command shell',
+      shellHint:
+        'What agents’ commands and hooks run in: sh on macOS and Linux. On Windows, Git Bash when it is installed; otherwise Myrmidon’s built-in bash (common Unix tools included, nothing to install), which runs outside any sandbox. Install Git for Windows to use Git Bash instead.',
       eventLog:
         'Every run is recorded and checkpointed, so project changes can be rewound. Licensed under Apache-2.0.',
       builtOn: 'Built on oh-my-pi (providers, search, readers), pi-agent-core, and Cordis.',

@@ -60,7 +60,9 @@ import {
   Marketplaces,
   type PluginPreviewView,
   type Review,
+  ScanFindings,
   type SkillPreviewView,
+  type SkillScanView,
 } from './installs.tsx'
 import { type MascotPatch, SETTINGS_SAVED, withMascotDefaults } from './mascot.ts'
 import { MascotBehaviour, MascotPreview, MiniMascot } from './mascot-settings.tsx'
@@ -209,6 +211,8 @@ export interface ServerSettings {
     advisorModel?: string
     /** Prewalk's carry-out model; absent means the lead keeps its own. */
     carryOutModel?: string
+    /** The model naming chats and suggesting memories; absent means the cheapest one. */
+    smallModel?: string
     /** Models the lead, and the crew, go on with when theirs fails; absent from older servers. */
     leadFallbacks?: string[]
     workerFallbacks?: string[]
@@ -237,8 +241,10 @@ export interface ServerSettings {
   /** The global level of the permission model: the default preset, rules, who can use what. */
   permissions: GlobalPermissions
   profile?: { name?: string; greeting: 'model' | 'rules'; titles?: 'model' | 'first-message' }
-  /** Memory suggestions after chats; absent from older servers. */
-  memory?: { suggest: boolean }
+  /** Memory suggestions after chats, and recall by meaning with an embedding model; absent from older servers. */
+  memory?: { suggest: boolean; embeddingModel?: string }
+  /** Keep the computer awake while runs work; absent from older servers. */
+  power?: { keepAwake: boolean }
   mascot?: MascotPatch
   /** VS Code themes the person imported; absent from older servers. */
   appearance?: { imported: ImportedTheme[] }
@@ -281,8 +287,12 @@ export interface SettingsResponse {
   searchProviders: { id: string; label: string }[]
   /** Image models generate_image can use now, best first; absent from older servers. */
   imageModels?: string[]
+  /** Embedding models recall by meaning can use now, cheapest first; absent from older servers. */
+  embeddingModels?: string[]
   customApis: Api[]
   sandbox: string
+  /** The shell commands run in (shell.ts); absent from older servers. */
+  shell?: string
   /** Paths of the person's keys and Myrmidon's data, as typed and in full: a readable folder that opens one is warned about. */
   guardedReads?: string[]
   home: string
@@ -766,7 +776,13 @@ export function Settings(props: {
                 {section === 'instructions' && data && (
                   <InstructionsSection settings={data.settings} update={update} />
                 )}
-                {section === 'memory' && <MemorySection settings={data?.settings} update={update} />}
+                {section === 'memory' && (
+                  <MemorySection
+                    settings={data?.settings}
+                    embeddingModels={data?.embeddingModels ?? []}
+                    update={update}
+                  />
+                )}
                 {section === 'skills' && <SkillsSection />}
                 {section === 'plugins' && <PluginsSection />}
                 {section === 'hooks' && <HooksSection onDirty={setHooksDirty} />}
@@ -1050,6 +1066,15 @@ function General(props: {
                   true,
                 )
               }
+            />
+          </SettingField>
+        )}
+        {props.data && (
+          <SettingField id="general.keepAwake" inline>
+            <Switch
+              checked={props.data.settings.power?.keepAwake ?? false}
+              label={copy.settings.general.keepAwake}
+              onChange={(keepAwake) => props.update((s) => ({ ...s, power: { keepAwake } }), true)}
             />
           </SettingField>
         )}
@@ -2390,6 +2415,27 @@ function TeamSection(props: {
           }
         />
       </Card>
+      <SectionHeader
+        as="h3"
+        className="mb-2"
+        icon={<FEATURE_ICONS.smallJobs className="size-4 text-muted" />}
+        title={copy.settings.team.smallTitle}
+      />
+      <Card className="mb-8">
+        <OptionalModel
+          id="team.smallModel"
+          value={t.smallModel}
+          models={props.models}
+          choose={copy.settings.team.chooseSmall}
+          off={copy.settings.team.smallOff}
+          onChange={(smallModel) =>
+            props.update((s) => {
+              const { smallModel: _, ...team } = s.team
+              return { ...s, team: smallModel ? { ...team, smallModel } : team }
+            })
+          }
+        />
+      </Card>
       <SectionHeader as="h3" className="mb-2" title={copy.settings.team.limitsTitle} />
       <Card className="mb-8">
         <SettingField id="team.wallMinutes" inline>
@@ -2449,9 +2495,12 @@ function TeamSection(props: {
   )
 }
 
-/** An optional model (the advisor's, prewalk's carry-out), or a picker to choose one while there is none (off). */
+/**
+ * An optional model (the advisor's, prewalk's carry-out, small jobs'), or a picker to choose one while there is none
+ * (off, or automatic).
+ */
 function OptionalModel(props: {
-  id: 'team.advisorModel' | 'team.carryOutModel'
+  id: 'team.advisorModel' | 'team.carryOutModel' | 'team.smallModel'
   value?: string
   models: ModelOption[]
   /** The picker's label while there is none. */
@@ -2778,6 +2827,43 @@ function ImageModelSetting(props: {
         </SettingField>
       </Card>
     </>
+  )
+}
+
+/** The embedding model recall by meaning uses: off (words only, the default), or one the person's providers can run. */
+function EmbeddingModelSetting(props: {
+  models: string[]
+  chosen?: string | undefined
+  update(p: (s: ServerSettings) => ServerSettings, immediate?: boolean): void
+}) {
+  const t = copy.settings.memory
+  const { models, chosen } = props
+  return (
+    <SettingField
+      id="memory.embeddingModel"
+      {...(models.length || chosen ? {} : { hint: t.meaningNone })}
+      inline
+    >
+      <Select
+        value={chosen ?? ''}
+        onChange={(e) =>
+          props.update((s) => {
+            const { embeddingModel: _, ...memory } = s.memory ?? { suggest: true }
+            return { ...s, memory: e.target.value ? { ...memory, embeddingModel: e.target.value } : memory }
+          }, true)
+        }
+        aria-label={t.meaning}
+        className="min-w-44"
+      >
+        <option value="">{t.meaningOff}</option>
+        {chosen && !models.includes(chosen) && <option value={chosen}>{t.meaningGone(chosen)}</option>}
+        {models.map((ref) => (
+          <option key={ref} value={ref}>
+            {ref}
+          </option>
+        ))}
+      </Select>
+    </SettingField>
   )
 }
 
@@ -5563,6 +5649,10 @@ export interface SkillEntry {
   curation?: { uses: number; lastUsed?: string; stale: boolean; kept: boolean }
   /** Installed from the skills registry, a repository or a folder. */
   installed?: InstalledFromView
+  /** What the skill scanner found; a gateway older than the scanner sends neither. */
+  scan?: SkillScanView
+  /** Its scan blocks it and the person has not allowed it: agents are not offered it. */
+  held?: boolean
 }
 
 interface SkillsResponse {
@@ -5986,9 +6076,37 @@ function SkillsSection() {
                         <Badge tone="warn">{copy.settings.skills.stale}</Badge>
                       </span>
                     )}
+                    {s.held ? (
+                      <span title={copy.settings.skills.heldHint}>
+                        <Badge tone="bad">{copy.settings.skills.held}</Badge>
+                      </span>
+                    ) : s.scan?.verdict === 'block' ? (
+                      <span title={copy.settings.skills.allowedHint}>
+                        <Badge tone="warn">{copy.settings.skills.allowedBadge}</Badge>
+                      </span>
+                    ) : (
+                      s.scan?.verdict === 'warn' && (
+                        <span title={copy.settings.skills.flaggedHint}>
+                          <Badge tone="warn">{copy.settings.skills.flagged}</Badge>
+                        </span>
+                      )
+                    )}
                   </div>
                   <SkillDescription text={s.description} dir={s.dir} />
                   {s.installed && <InstalledLine from={s.installed} label={copy.settings.skills.from} />}
+                  {s.held && (
+                    <p className="mt-1 text-callout text-bad-ink">{copy.settings.skills.heldHint}</p>
+                  )}
+                  {!!s.scan?.findings.length && (
+                    <details className="mt-1 text-callout" open={s.held}>
+                      <summary className="cursor-default text-muted">
+                        {copy.settings.skills.findings(s.scan.findings.length)}
+                      </summary>
+                      <div className="mt-2">
+                        <ScanFindings scan={s.scan} verdictLine={false} />
+                      </div>
+                    </details>
+                  )}
                   {s.curation && (
                     <div className="mt-1 text-footnote text-muted">
                       {copy.settings.skills.uses(
@@ -6037,8 +6155,22 @@ function SkillsSection() {
                     {s.curation.kept ? copy.settings.skills.kept : copy.settings.skills.keep}
                   </Button>
                 )}
+                {s.held && (
+                  <ConfirmButton
+                    label={copy.settings.skills.allow}
+                    confirm={copy.settings.skills.confirmAllow}
+                    warning={copy.settings.skills.allowWarning}
+                    onConfirm={() =>
+                      void send('PUT', `/api/skills/${s.name}`, { enabled: true, allow: true })
+                        .then(() => toast(copy.settings.skills.allowed(s.name), 'success'))
+                        .then(load)
+                        .catch((err: Error) => toast(err.message, 'error'))
+                    }
+                  />
+                )}
                 <Switch
-                  checked={s.enabled}
+                  checked={s.enabled && !s.held}
+                  disabled={s.held}
                   label={copy.settings.skills.canUse(s.name)}
                   onChange={(enabled) =>
                     void send('PUT', `/api/skills/${s.name}`, { enabled })
@@ -6130,6 +6262,8 @@ function memoryMatches(m: MemoryEntry, query: string): boolean {
  */
 function MemorySection(props: {
   settings?: ServerSettings | undefined
+  /** Embedding models recall by meaning can use now. */
+  embeddingModels: string[]
   update(p: (s: ServerSettings) => ServerSettings, immediate?: boolean): void
 }) {
   const toast = useToast()
@@ -6197,9 +6331,16 @@ function MemorySection(props: {
             <Switch
               checked={suggest}
               label={t.suggest}
-              onChange={(v) => props.update((s) => ({ ...s, memory: { suggest: v } }), true)}
+              onChange={(v) => props.update((s) => ({ ...s, memory: { ...s.memory, suggest: v } }), true)}
             />
           </SettingField>
+        )}
+        {props.settings && (
+          <EmbeddingModelSetting
+            models={props.embeddingModels}
+            update={props.update}
+            chosen={props.settings.memory?.embeddingModel}
+          />
         )}
         <CardRow {...settingRow('memory.tidy')}>
           <div className="flex items-center gap-3">
@@ -6487,6 +6628,9 @@ function About({ data }: { data?: SettingsResponse }) {
         </SettingField>
         <SettingField id="general.sandbox" inline>
           <span className="font-mono text-callout text-muted">{data?.sandbox ?? '…'}</span>
+        </SettingField>
+        <SettingField id="general.shell" inline>
+          <span className="font-mono text-callout text-muted">{data?.shell ?? '…'}</span>
         </SettingField>
         <CardRow>
           <p className="text-callout text-muted">{copy.settings.about.eventLog}</p>

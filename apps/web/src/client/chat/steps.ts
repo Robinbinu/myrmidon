@@ -120,8 +120,9 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
             lead: edit ? copy.steps.edited : copy.steps.wrote,
             strong: file,
             file,
+            // A hashline edit names line numbers, so what it changed comes with its result.
             change: edit
-              ? { before: String(args.old ?? ''), after: String(args.new ?? '') }
+              ? (p.change ?? { before: String(args.old ?? ''), after: String(args.new ?? '') })
               : { after: String(args.content ?? '') },
           })
         }
@@ -291,7 +292,11 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
       }
       case 'worktree/created': {
         const p = e.payload as EventPayloads['worktree/created']
-        out.push({ ...base, kind: 'file', agent: p.agent, lead: copy.steps.ownBranch, strong: p.branch })
+        out.push(
+          p.branch
+            ? { ...base, kind: 'file', agent: p.agent, lead: copy.steps.ownBranch, strong: p.branch }
+            : { ...base, kind: 'file', agent: p.agent, lead: copy.steps.ownCopy },
+        )
         break
       }
       case 'worktree/merged': {

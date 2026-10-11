@@ -30,6 +30,13 @@ export function assertArtifactName(name: string): string {
   return name
 }
 
+/** An agent's own place in the project: a git worktree on `branch`, or (`copy`) a clone of a folder outside git. */
+export interface Isolation {
+  readonly workdir: string
+  readonly branch: string
+  readonly copy?: true
+}
+
 /**
  * On-disk layout of one colony: scratch directories per agent plus a read-only mirror. With a project, agents
  * work in the project folder instead (shared by the team) and keep their scratch for private files.
@@ -37,7 +44,7 @@ export function assertArtifactName(name: string): string {
 export class ColonyWorkspace {
   readonly scratchRoot: string
   readonly mirrorRoot: string
-  private readonly _isolated = new Map<string, { workdir: string; branch: string }>()
+  private readonly _isolated = new Map<string, Isolation>()
 
   constructor(
     readonly colonyDir: string,
@@ -65,7 +72,7 @@ export class ColonyWorkspace {
   }
 
   /** Points an agent at its own git worktree of the project instead of the shared folder. */
-  isolate(agent: string, tree: { workdir: string; branch: string }) {
+  isolate(agent: string, tree: Isolation) {
     this._isolated.set(agent, tree)
   }
 
@@ -75,7 +82,7 @@ export class ColonyWorkspace {
   }
 
   /** The agent's worktree, if it has one. */
-  isolation(agent: string): { workdir: string; branch: string } | undefined {
+  isolation(agent: string): Isolation | undefined {
     return this._isolated.get(agent)
   }
 

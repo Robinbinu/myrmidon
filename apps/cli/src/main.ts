@@ -27,12 +27,15 @@ import {
   ColonyRun,
   ComputerHub,
   ContextWindows,
+  claimServerHome,
   detectSandbox,
   guardSecrets,
   HookStore,
   importFromOmp,
+  KeepAwake,
   loadColonySpec,
   McpHub,
+  MeaningRecall,
   MemoryStore,
   ModelResolver,
   ompMediaTools,
@@ -83,9 +86,10 @@ Usage:
                people, and choose who may write (set dm|groups|mention|per-person|allow|stream)
   myrmidon plugins [add <source> | update <name> | remove <name> | marketplaces [add|refresh|remove …]]
                Install plugins from a folder, repository URL, npm:<package> or <plugin>@<marketplace>; you
-               review what runs before anything is installed
-  myrmidon skills [search [query] | add <@scope/name | repository URL> | update <name> | remove <name>]
-               Search omp's skills registry and install skills, after the same review
+               review what runs before anything is installed (--force: one whose skills the scan blocks)
+  myrmidon skills [search [query] | add <@scope/name | repository URL> | update <name> | remove <name> | scan [name|folder]]
+               Search omp's skills registry and install skills, after the same review and a skill scan; one the
+               scan blocks installs only with --force. scan prints what the scan finds (exit 1 when it blocks)
   myrmidon ask "<request>" [--chat ID] [--project ID] [--wait]
                Send a request to the running server (from \`serve\`); --wait prints the final answer
   myrmidon import-omp          Copy an existing omp setup (keys, logins, models.yml) from ~/.omp
@@ -122,6 +126,7 @@ const { values, positionals } = parseArgs({
     chat: { type: 'string' },
     project: { type: 'string' },
     wait: { type: 'boolean', default: false },
+    force: { type: 'boolean', default: false },
     help: { type: 'boolean', short: 'h', default: false },
   },
 })
@@ -334,6 +339,8 @@ async function main() {
       // from another server's for the same home. Taken out first, so nothing this server starts inherits it.
       const launch = process.env.MYRMIDON_LAUNCH_ID
       delete process.env.MYRMIDON_LAUNCH_ID
+      // Before anything opens the home's stores and logs, which a second server would share (server-lock.ts).
+      if (!claimServerHome(home)) throw new Error(setupCopy.serverRunning(home))
       const runtime = await bootRuntime(home)
       await recover(runtime)
       const settings = new SettingsStore(home)
@@ -376,7 +383,16 @@ async function main() {
       const specialists = new SpecialistStore(home)
       const skillProposals = new SkillProposalStore(home)
       const library = new ToolLibrary(join(home, 'tools'))
-      const memory = new MemoryStore(home)
+      // Recall matches by meaning too only once the person picks an embedding model (Settings → Memory).
+      const memory = new MemoryStore(
+        home,
+        new MeaningRecall(join(home, 'memory-vectors.json'), () => {
+          const model = settings.get().memory.embeddingModel
+          return model ? { model, embed: (texts, signal) => omp.embed(model, texts, signal) } : undefined
+        }),
+      )
+      const keepAwake = new KeepAwake(() => settings.get().power.keepAwake)
+      settings.onChange(() => keepAwake.sync())
       const skills = new SkillLibrary(home, undefined, () => plugins.skillRoots())
       // Learned skills nobody uses are retired to the archive; Settings → Skills restores them.
       skills.curateEvery((archived, err) =>
@@ -399,6 +415,7 @@ async function main() {
         resolver,
         shelf,
         imports,
+        keepAwake,
         settings,
         web: ompWebTools(omp, () => settings.get().search.provider),
         media: ompMediaTools({
@@ -540,9 +557,16 @@ async function main() {
     case 'channels':
       return channels((await runningServer()).call, terminal(), positionals.slice(1))
     case 'plugins':
-      return plugins((await runningServer()).call, terminal(), positionals.slice(1))
-    case 'skills':
-      return skills((await runningServer()).call, terminal(), positionals.slice(1))
+      return plugins((await runningServer()).call, terminal(), positionals.slice(1), { force: values.force })
+    case 'skills': {
+      // Scanning a folder needs no server, so it is reached only when a command asks it something.
+      let server: ReturnType<typeof runningServer> | undefined
+      const call: Call = async <T>(method: string, path: string, body?: unknown) => {
+        server ??= runningServer()
+        return (await server).call<T>(method, path, body)
+      }
+      return skills(call, terminal(), positionals.slice(1), { force: values.force })
+    }
     case 'doctor': {
       const server = await runningServer().catch(() => undefined)
       const problems = await withScratch((scratch) =>

@@ -27,13 +27,13 @@ import { FEATURE_ICONS } from '../ui/icons.ts'
 import { Popover } from '../ui/Popover.tsx'
 import { cn, SectionHeader, Segmented } from '../ui/primitives.tsx'
 import { useToast } from '../ui/Toast.tsx'
-import { MAX_FILE_BYTES, MAX_FILES, spring } from '../ui-config.ts'
+import { MAX_FILE_BYTES, MAX_FILES, spring, TEAM_PANEL_CLEARANCE_PX } from '../ui-config.ts'
 import { PendingFiles } from './Attachments.tsx'
 import { buildMenu, CommandMenu, type MenuModel, rememberCommand } from './CommandMenu.tsx'
 import { parseSlash, type SlashCommand } from './commands.ts'
 import { readDraft, saveDraft } from './drafts.ts'
 import { helperMode, helpersHint, helpersLabel, withHelperMode } from './helpers.ts'
-import { ModelPicker, PickerHost } from './ModelPicker.tsx'
+import { ModelPicker, PickerHost, visibleBounds } from './ModelPicker.tsx'
 import { withoutDatedAliases } from './model-list.ts'
 import { nextWord } from './suggest.ts'
 import { HelpersChip, HelpersEditor, ReviewChip, Row, TeamChip, ThinkingChip } from './TeamControls.tsx'
@@ -297,6 +297,14 @@ function mentionMenu(
   return items.length ? { items, label: copy.composer.mention.label } : undefined
 }
 
+/** The team panel's offset from the box (its `calc(100%+10px)`). */
+const TEAM_PANEL_GAP_PX = 10
+
+function panelPadding(el: HTMLElement): number {
+  const style = getComputedStyle(el)
+  return Number.parseFloat(style.paddingTop) + Number.parseFloat(style.paddingBottom)
+}
+
 export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Composer(props, ref) {
   const [text, setText] = useState(() => (props.draftKey ? readDraft(props.draftKey) : ''))
   // The box is mounted per chat, so the key never changes under a typed text.
@@ -343,6 +351,38 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const area = useRef<HTMLTextAreaElement>(null)
   const wrap = useRef<HTMLDivElement>(null)
   const teamPanel = useRef<HTMLDivElement>(null)
+  const teamBody = useRef<HTMLDivElement>(null)
+  // The team panel opens upward from the box, but when the box sits high (a new chat, a short window) the fully
+  // expanded panel would run under the top of the chat. Like the model lists, it then opens toward the larger room,
+  // and scrolls only past that room, since a scrolling panel clips the model lists that open from inside it.
+  const [teamRoom, setTeamRoom] = useState<{ down: boolean; max: number; scroll: boolean }>()
+  useLayoutEffect(() => {
+    const at = wrap.current
+    const body = teamBody.current
+    if (!showTeam || !at || !body) return
+    const fit = () => {
+      const box = at.getBoundingClientRect()
+      const bounds = visibleBounds(at)
+      const keep = TEAM_PANEL_GAP_PX + TEAM_PANEL_CLEARANCE_PX
+      const above = box.top - bounds.top - keep
+      const below = bounds.bottom - box.bottom - keep
+      const panel = teamPanel.current
+      const need =
+        body.scrollHeight + (panel ? panel.offsetHeight - panel.clientHeight + panelPadding(panel) : 0)
+      const down = need > above && below > above
+      const max = down ? below : above
+      setTeamRoom({ down, max, scroll: need > max })
+    }
+    fit()
+    const watch = new ResizeObserver(fit)
+    watch.observe(body)
+    window.addEventListener('resize', fit)
+    return () => {
+      watch.disconnect()
+      window.removeEventListener('resize', fit)
+    }
+  }, [showTeam])
+
   const { config } = props
   // omp names a model's provider as it names the account signed in for it (anthropic, openai-codex, …).
   const leadProvider =
@@ -547,22 +587,31 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
               onClose={() => setShowTeam(false)}
               within={wrap}
               box={teamPanel}
-              up
-              className="absolute bottom-[calc(100%+10px)] left-0 z-30 w-full origin-bottom rounded-2xl border border-line bg-surface p-4 shadow-pop"
+              up={!teamRoom?.down}
+              style={teamRoom?.scroll ? { maxHeight: teamRoom.max } : undefined}
+              className={cn(
+                'absolute left-0 z-30 w-full rounded-2xl border border-line bg-surface p-4 shadow-pop',
+                teamRoom?.down
+                  ? 'top-[calc(100%+10px)] origin-top'
+                  : 'bottom-[calc(100%+10px)] origin-bottom',
+                teamRoom?.scroll && 'overflow-y-auto overscroll-contain',
+              )}
             >
-              <div className="mb-3 flex items-baseline justify-between px-1">
-                <SectionHeader as="h3" title={copy.composer.teamHeading} />
-                <span className="text-footnote text-muted">{copy.composer.teamApplies}</span>
+              <div ref={teamBody}>
+                <div className="mb-3 flex items-baseline justify-between px-1">
+                  <SectionHeader as="h3" title={copy.composer.teamHeading} />
+                  <span className="text-footnote text-muted">{copy.composer.teamApplies}</span>
+                </div>
+                <PickerHost.Provider value={teamPanel}>
+                  <TeamSettings
+                    models={props.models}
+                    config={config}
+                    onConfig={props.onConfig}
+                    {...(review ? { review } : {})}
+                    onReview={changeReview}
+                  />
+                </PickerHost.Provider>
               </div>
-              <PickerHost.Provider value={teamPanel}>
-                <TeamSettings
-                  models={props.models}
-                  config={config}
-                  onConfig={props.onConfig}
-                  {...(review ? { review } : {})}
-                  onReview={changeReview}
-                />
-              </PickerHost.Provider>
             </Popover>
           )}
         </AnimatePresence>

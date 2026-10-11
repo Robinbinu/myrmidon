@@ -68,6 +68,7 @@ import {
   SETTLE_QUIET_MS,
   WIND_DOWN_MESSAGES,
 } from './config.ts'
+import { ProjectCopies } from './copies.ts'
 import { debugSessions } from './debugger.ts'
 import { registerColonyEvents } from './events.ts'
 import { chatJudge } from './find.ts'
@@ -337,8 +338,11 @@ export class ColonyRun implements ColonyHost {
   private readonly _todos = new Map<string, readonly TodoItem[]>()
   /** Folders the person allowed reading once (request_read): for this round only, never kept with the chat. */
   private readonly _readOnce = new Set<string>()
-  /** Opened on the first worker that needs a worktree; null once known not to be a git project. */
-  private _worktrees?: ProjectWorktrees | null
+  /**
+   * Opened on the first worker that needs a worktree: git worktrees for a git project, else copies (copies.ts) where
+   * this computer can clone the folder; null once known to have neither.
+   */
+  private _worktrees?: ProjectWorktrees | ProjectCopies | null
   /** Agents given a worktree for an experiment (autoresearch), who go back to the folder when it finishes. */
   private readonly _experimenting = new Set<string>()
 
@@ -353,11 +357,9 @@ export class ColonyRun implements ColonyHost {
     this.workspace = new ColonyWorkspace(dir, spec.chat?.project?.path, () => this.fullAccess, {
       dataDir: realPath(runtime.home),
       reads: () => this.extraReads(),
-      // Skills say their scripts run from their own folder, so the shell may read the enabled ones.
+      // Skills say their scripts run from their own folder, so the shell may read the ones agents are offered.
       commandReads: () =>
-        (this.options.skills?.list(this.spec.chat?.project?.path) ?? [])
-          .filter((s) => s.enabled)
-          .map((s) => s.dir),
+        (this.options.skills?.offered(this.spec.chat?.project?.path) ?? []).map((s) => s.dir),
     })
     const folder = spec.chat?.project?.path
     // Read once per round, so every agent works from the same rules even if a file changes mid-round.
@@ -965,9 +967,10 @@ export class ColonyRun implements ColonyHost {
   }
 
   skills(): { name: string; description: string }[] {
-    return (this.options.skills?.list(this.spec.chat?.project?.path) ?? [])
-      .filter((s) => s.enabled)
-      .map((s) => ({ name: s.name, description: s.description }))
+    return (this.options.skills?.offered(this.spec.chat?.project?.path) ?? []).map((s) => ({
+      name: s.name,
+      description: s.description,
+    }))
   }
 
   async useSkill(agent: string, name: string, file?: string): Promise<string> {
@@ -1512,10 +1515,10 @@ export class ColonyRun implements ColonyHost {
   }
 
   /** The kept memories best matching `query` that this chat may use, with the ids remember's `replaces` takes. */
-  recallMemory(query: string): string {
+  async recallMemory(query: string): Promise<string> {
     const store = this.options.memory
     if (!store) throw new Error('memory is not available in this run')
-    const found = store.search(query, RECALL_TOOL_COUNT, this.spec.chat?.project?.id)
+    const found = await store.searchFor(query, RECALL_TOOL_COUNT, this.spec.chat?.project?.id)
     if (!found.length) return prompts.colony.recallNone
     return prompts.colony.recalled(
       found.map((m) =>
@@ -1780,7 +1783,8 @@ export class ColonyRun implements ColonyHost {
   }
 
   /**
-   * Gives a coding worker of a team round its own git worktree, so parallel workers never edit the same files.
+   * Gives a coding worker of a team round its own git worktree (outside git, its own copy), so parallel workers never
+   * edit the same files.
    * The lead, single-agent rounds, and "ask" or read-only projects keep working in the folder itself.
    */
   private async _isolate(name: string) {
@@ -1790,12 +1794,17 @@ export class ColonyRun implements ColonyHost {
     if (presetOf(this.spec) !== 'auto' || this.spec.tier !== 'team' || isLead(this.spec, agent)) return
     if (!toolsFor(this.spec, agent).some((t) => t === 'fs_write' || t === 'fs_edit' || t === 'shell')) return
     try {
+      const root = join(this.workspace.colonyDir, 'worktrees')
       this._worktrees ??=
-        (await ProjectWorktrees.open(project.path, join(this.workspace.colonyDir, 'worktrees'), this.id)) ??
+        (await ProjectWorktrees.open(project.path, root, this.id)) ??
+        (await ProjectCopies.open(project.path, root)) ??
         null
       if (!this._worktrees) return
       const tree = await this._worktrees.create(name)
-      this.workspace.isolate(name, tree)
+      this.workspace.isolate(name, {
+        ...tree,
+        ...(this._worktrees instanceof ProjectCopies ? { copy: true } : {}),
+      })
       if (!this._state.worktrees[name])
         await this.append({
           type: 'worktree/created',
@@ -1818,7 +1827,8 @@ export class ColonyRun implements ColonyHost {
         (await ProjectWorktrees.open(project.path, join(this.workspace.colonyDir, 'worktrees'), this.id)) ??
         null
     const trees = this._worktrees
-    if (!trees) throw new Error(prompts.autoresearch.notGit(project.name))
+    // An experiment keeps and drops trials as commits on its branch: a copy has none.
+    if (!(trees instanceof ProjectWorktrees)) throw new Error(prompts.autoresearch.notGit(project.name))
     const tree = await trees.create(agent)
     if (!this.workspace.isolation(agent)) {
       this.workspace.isolate(agent, tree)

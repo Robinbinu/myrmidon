@@ -209,11 +209,11 @@ async function readArchive(path: string, name: string, entry?: string): Promise<
 
 /**
  * Opens a database for reading without writing beside it: no journal or WAL sidecar files appear in the person's
- * folder. A WAL database whose sidecars are missing opens immutable (as the file stands on disk): read-only it cannot
- * open on macOS and Linux, and on Windows it would create them, so there it opens immutable from the start.
+ * folder. A WAL database whose sidecars are missing opens immutable (as the file stands on disk) from the start:
+ * read-only, macOS's SQLite refuses it, and the SQLite Bun bundles on Linux and Windows opens it and creates both.
  */
 async function openReadOnly(path: string): Promise<Database> {
-  const { Database } = await import('bun:sqlite')
+  const { constants, Database } = await import('bun:sqlite')
   const ready = (db: Database) => {
     try {
       db.run('PRAGMA query_only = ON')
@@ -225,9 +225,15 @@ async function openReadOnly(path: string): Promise<Database> {
       throw err
     }
   }
-  const immutable = () => ready(new Database(`${pathToFileURL(path).href}?immutable=1`, { readonly: true }))
-  // Windows would open it read-only, creating the sidecars; macOS and Linux refuse, and fall back below.
-  if (process.platform === 'win32' && walWithoutSidecar(path)) return immutable()
+  // Only macOS's SQLite reads `file:` names as URIs unasked; without the flag, Bun's own takes it as a file name.
+  const immutable = () =>
+    ready(
+      new Database(
+        `${pathToFileURL(path).href}?immutable=1`,
+        constants.SQLITE_OPEN_READONLY | constants.SQLITE_OPEN_URI,
+      ),
+    )
+  if (walWithoutSidecar(path)) return immutable()
   try {
     return ready(new Database(path, { readonly: true }))
   } catch {

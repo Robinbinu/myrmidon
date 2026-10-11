@@ -34,6 +34,7 @@ import {
   Globe,
   Goal,
   GraduationCap,
+  HandHelping,
   ImagePlus,
   Import,
   Keyboard,
@@ -58,6 +59,7 @@ import {
   RectangleEllipsis,
   Rocket,
   SatelliteDish,
+  ScanSearch,
   ScreenShare,
   ScrollText,
   SearchCheck,
@@ -139,6 +141,8 @@ export const FEATURE_ICONS = {
   advisor: Glasses,
   /** Prewalk: the lead plans, then hands off to its carry-out model (Settings → Crew & budget, the round's line). */
   prewalk: Footprints,
+  /** Small jobs: the model that names chats and suggests memories (Settings → Crew & budget). */
+  smallJobs: HandHelping,
   /** Goal mode: a round that keeps working until its goal holds (`/goal`, each check's line in the round). */
   goal: Goal,
   /** Stream rules: the person's rules that stop a reply mid-stream (`/rule`, the line a stop leaves in the round). */
@@ -205,6 +209,8 @@ export const FEATURE_ICONS = {
   marketplaces: Store,
   /** omp's skills registry: searching it and installing a skill (Settings → Skills). */
   skillRegistry: PackageSearch,
+  /** The skill scanner's findings: in an install's review and under a flagged or held skill. */
+  skillScan: ScanSearch,
   /** Hooks: commands around every tool call. */
   hooks: FishingHook,
   /** Requests that run on a schedule. */

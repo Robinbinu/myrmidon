@@ -11,6 +11,7 @@ import {
   unlinkSync,
 } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
+import { vcsIsPureJj } from './omp/natives.ts'
 import { SKIP_DIRS } from './workspace.ts'
 
 /**
@@ -105,8 +106,12 @@ export class ProjectWorktrees {
     private readonly colony: string,
   ) {}
 
-  /** Undefined when the project is not inside a git repository. */
+  /**
+   * Undefined when the project is not inside a git repository, or is a Jujutsu workspace of its own (no colocated git)
+   * inside one: git would see the outer repository, and worktrees of that are not the project.
+   */
   static async open(project: string, root: string, colony: string): Promise<ProjectWorktrees | undefined> {
+    if (vcsIsPureJj(project)) return undefined
     const top = await run(project, ['rev-parse', '--show-toplevel'])
     if (top.code !== 0) return undefined
     const prefix = (await git(project, ['rev-parse', '--show-prefix'])).trim()
