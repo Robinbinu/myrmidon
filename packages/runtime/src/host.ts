@@ -234,7 +234,7 @@ export interface ColonyHost {
     },
   ): Promise<string>
   /** The person's kept memories best matching `query`, for this chat's scope (recall). */
-  recallMemory(query: string): string
+  recallMemory(query: string): string | Promise<string>
   /** Ends this round and has the chat rerun its request at a bigger tier, keeping the work so far. */
   escalate(by: string, to: 'solo' | 'team', reason: string): Promise<string>
 }

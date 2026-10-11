@@ -28,6 +28,7 @@ import {
   PAGE_EXCERPT,
   READ_LOG_RESULT_CHARS,
   READ_SQL_MAX_ROWS,
+  READ_SUMMARY_MIN_LINES,
   SERVER_START_MS,
   SNAPSHOT_CHARS,
   SSH,
@@ -1356,6 +1357,11 @@ Reply with JSON only: {"title": "..."} or {"title": null}.`,
       `The person asked:\n${o.asked.map((a) => `- ${a}`).join('\n')}${o.answer ? `\n\nThe crew answered:\n${o.answer}` : ''}`,
   },
 
+  /** Keeping the computer awake while a round runs (keep-awake.ts): the reason the system's power report shows. */
+  keepAwake: {
+    reason: 'Myrmidon is running a round',
+  },
+
   /** The entry page's greeting, written by the person's lead model in the mascot's voice. */
   greeting: {
     system: `You are the lead of the person's AI crew in Myrmidon, shown as a small pixel-eyed mascot on their screen. Write the one line that greets them on the page they just opened, in your own voice: warm, brief, a little playful, like a colleague who noticed things while they were away. Never cheesy, no emoji.
@@ -1860,6 +1866,22 @@ Reply with JSON only: {"lines": ["...", "...", "..."]}.`,
       `… lines ${next}-${total} not shown: fs_read with offset: ${next} reads on.`,
     readPastEnd: (offset: number, total: number) =>
       `offset ${offset} is past the end: the file has ${total} line${total === 1 ? '' : 's'}`,
+    /** Above a long source file's structure (read-summary.ts), when no [path#TAG] header stands there. */
+    readSummaryHead: (total: number) => `(structure of ${total} lines: bodies folded to …)`,
+    /** Below it: how many lines are folded and how to read one fold (omp's "re-read needed ranges" footer). */
+    readSummaryFoot: (folded: number, first: { start: number; end: number }) =>
+      `[${folded} lines folded; read the ranges you need with offset and limit, e.g. offset: ${first.start}, limit: ${first.end - first.start + 1}]`,
+    /** fs_write's note in hashline mode: the new file's header, so it can be edited by line without reading it back. */
+    hashlineWritten: (header: string) =>
+      `\n${header} is its header for fs_edit, its lines numbered from 1 as written.`,
+    hashlineNoHeader: (path: string) =>
+      `input must start with the [${path}#TAG] header from your latest fs_read of ${path} (read it first if you have not), then the operations`,
+    hashlineOneFile:
+      'one file per fs_edit call: send each file with its own header and operations in a call of its own',
+    hashlineOtherFile: (header: string, path: string) =>
+      `the header names ${header}, not ${path}: copy the header fs_read gave for ${path}`,
+    hashlineFileOps:
+      'fs_edit changes lines of a file; create one with fs_write, and delete or move one with the shell',
     /** What fs_read read a file that is not plain text as, above what it shows; `name` is the file or archive member. */
     readPdf: (name: string, pages: number, scanned: readonly number[]) =>
       `${name}: PDF, ${pages} page${pages === 1 ? '' : 's'}, as Markdown.${scanned.length ? ` Page${scanned.length === 1 ? '' : 's'} ${scanned.join(', ')} ${scanned.length === 1 ? 'has' : 'have'} no text layer (scanned or drawn), so ${scanned.length === 1 ? 'its' : 'their'} words may be missing here.` : ''}`,
@@ -2772,15 +2794,51 @@ Reply with JSON only: {"lines": ["...", "...", "..."]}.`,
         new: 'The text to put in its place (empty deletes the snippet)',
         all: 'true replaces every occurrence of old (default false: old must appear exactly once)',
       },
+      // After omp's hashline edit prompt (pi-edit's editDescription('hashline') and edit/hashline-compact.md), for
+      // the models omp gives it; without its REM/MV (fs_write and the shell create, delete and move files here).
+      anchored: {
+        description: (p: Place) =>
+          `Change lines of a file in ${place(p)} by the line numbers fs_read showed, instead of rewriting the whole ` +
+          'file. fs_read shows a file as a [path#TAG] header (TAG: 4 hex digits naming that version of the file) and ' +
+          'N:line rows. input starts with that header, copied from your latest fs_read of the file or from this ' +
+          "tool's last reply for it, then one or more operations, each on the file's line numbers as that header " +
+          'showed them (never shifted by the operations before it):\n' +
+          '- `PUT N.=M:` replaces lines N to M (`N.=N` for one line) with the + rows after it; `PUT N*:` replaces the ' +
+          'block (function, class, element) that opens on line N.\n' +
+          '- `PUT <N:` and `PUT >N:` insert before or after line N (`<1` at the top, `>$` at the end); `PUT >N*:` ' +
+          'inserts after the block opening on line N.\n' +
+          '- `CUT N.=M` and `CUT N*` delete lines or a block; `CUT N.=M @name` keeps them, and `PUT <N @name` (no ' +
+          'rows) pastes them elsewhere, to move code.\n' +
+          'Rows start with + and hold the new text exactly, indentation included; a lone + is a blank line, and a ' +
+          'line that itself starts with - or + is written +- or ++. Never send unchanged lines, - lines or context. ' +
+          'Keep ranges tight: split changes that are apart into separate operations, and never start or end one in ' +
+          'the middle of a statement or block. N* names the first line of a block of several lines (its decorator ' +
+          'or doc comment, if any), never its closing line. Change only lines you saw in full: … and folded rows ' +
+          'were not shown, so read that range first. Every edit changes the tag and can move line numbers: use the ' +
+          "header and rows in this tool's reply, or fs_read again. An edit whose tag no longer matches the file " +
+          '(something else changed it) is refused with the lines as they are now; read again and redo it, never ' +
+          'retry it unchanged. One file per call. To create a file use fs_write; to delete or move one, the shell.\n' +
+          'Example:\n[src/greet.py#A1B2]\nPUT 3.=3:\n+    print(f"Hello, {name}")\nPUT >$:\n+\n+greet("world")',
+        params: {
+          path: 'File path, relative to your working directory: the file the header names',
+          input: 'The [path#TAG] header from fs_read, then the operations, each followed by its + rows',
+        },
+      },
     },
     // After Qwen Code's read_file (offset/limit paging, truncation stated) and Claude Code's Read.
+    // The structure-first read of a long source file after omp's read (read.summarize).
     fs_read: {
-      description: (p: Place) =>
+      /** `anchors`: the agent edits with hashline anchors, so text comes back as fs_edit's [path#TAG] and N:line rows. */
+      description: (p: Place, anchors = false) =>
         `Read a file in ${place(p)}${p.where === 'scratch' ? '' : ', your scratch directory'}, or a folder the person opened for reading; a page ` +
         'web_fetch saved is read the same way, by the path it gave. Use it instead of cat, head, tail or sed -n in ' +
         `the shell. A file up to ${n(MAX_READ_CHARS)} characters comes back whole. A longer one, or a range you ask for with offset ` +
         'and limit, comes back as whole lines under a header naming the lines shown, ending with the offset that ' +
-        'reads on. To find which lines you need, grep first: it gives line numbers. Besides text it reads PDF, Word, ' +
+        `reads on. ${anchors ? 'Text comes back under a [path#TAG] header as N:line rows, the line numbers fs_edit takes. ' : ''}` +
+        `A source file of ${n(READ_SUMMARY_MIN_LINES)} lines or more, read without offset or limit, comes back as ` +
+        'its structure first: declarations and signatures kept, bodies folded to … with their line ranges; read ' +
+        'the ranges you need with offset and limit (offset 1 with no limit reads it from the top). To find which ' +
+        'lines you need, grep first: it gives line numbers. Besides text it reads PDF, Word, ' +
         'PowerPoint, Excel and EPUB files and Jupyter notebooks as text, images as pictures, an archive (zip, tar, 7z…) ' +
         'as the list of its files (entry reads one), and a SQLite database as its tables (sql queries it); other ' +
         'binary files it names but does not show.',

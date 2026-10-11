@@ -21,5 +21,6 @@ export {
   shouldCompact,
   Tokenizer,
   type ToolResultShakeRegion,
+  tokenizerEncodingForModel,
 } from '@oh-my-pi/pi-agent-core'
 export { estimateImageContentTokens } from '@oh-my-pi/pi-agent-core/image-tokens'
