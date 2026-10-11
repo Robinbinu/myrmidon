@@ -90,6 +90,7 @@ import {
   Users,
   UsersRound,
   Volume2,
+  Wallet,
   Waypoints,
   Workflow,
   Wrench,
@@ -150,6 +151,8 @@ export const FEATURE_ICONS = {
   prewalk: Footprints,
   /** Small jobs: the model that names chats and suggests memories (Settings → Crew & budget). */
   smallJobs: HandHelping,
+  /** Spend caps: a chat's (the composer's crew panel), a project's (its Budget sheet) and the monthly one in Settings. */
+  budget: Wallet,
   /** Goal mode: a round that keeps working until its goal holds (`/goal`, each check's line in the round). */
   goal: Goal,
   /** Stream rules: the person's rules that stop a reply mid-stream (`/rule`, the line a stop leaves in the round). */

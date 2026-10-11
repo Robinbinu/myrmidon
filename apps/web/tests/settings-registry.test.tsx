@@ -714,3 +714,37 @@ test('a result its page hides now shows the row it is under, and says how to rea
   )
   await view.unmount()
 })
+
+test('Crew & budget shows the monthly spend limit, off by default, with what was spent this month', async () => {
+  const server = fakeServer()
+  server.routes['/api/spend'] = { month: '2026-10', total: 3.456, projects: {} }
+  const saved: Record<string, unknown>[] = []
+  const serve = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = input instanceof Request ? input.url : String(input)
+    if (url.endsWith('/api/settings') && init?.method === 'PUT') saved.push(JSON.parse(String(init.body)))
+    return serve(input, init)
+  }) as typeof fetch
+  const { copy } = await import('../src/client/copy.ts')
+  const view = await showSettings('team')
+  const row = document.querySelector('[data-setting-id="team.monthlyUsd"]')
+  const field = row?.querySelector<HTMLInputElement>('input') ?? null
+  // A settings file from before the monthly cap has none: the field shows 0, no limit.
+  expect(field?.value).toBe('0')
+  expect(row?.textContent).toContain('$3.46 spent this month')
+  // The per-run limit is still there, as it was.
+  expect(document.querySelector('[data-setting-id="team.costUsd"] input')?.getAttribute('aria-label')).toBe(
+    copy.settings.team.spendLimit,
+  )
+  // Typed as React hears it here: react-dom listens for key presses on the focused field (live-share.test.tsx).
+  await act(async () => {
+    field?.focus()
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(field, '50')
+    field?.dispatchEvent(new Event('input', { bubbles: true }))
+    field?.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: '0' }))
+  })
+  // Settings save a moment after the last edit.
+  await act(async () => await Bun.sleep(600))
+  expect(saved.at(-1)?.team).toMatchObject({ monthlyUsd: 50, costUsd: 5 })
+  await view.unmount()
+})

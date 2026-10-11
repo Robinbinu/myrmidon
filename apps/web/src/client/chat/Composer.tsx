@@ -29,6 +29,7 @@ import { cn, SectionHeader, Segmented } from '../ui/primitives.tsx'
 import { useToast } from '../ui/Toast.tsx'
 import { MAX_FILE_BYTES, MAX_FILES, spring, TEAM_PANEL_CLEARANCE_PX } from '../ui-config.ts'
 import { PendingFiles } from './Attachments.tsx'
+import { ChatBudget } from './Budget.tsx'
 import { buildMenu, CommandMenu, type MenuModel, rememberCommand } from './CommandMenu.tsx'
 import { parseSlash, type SlashCommand } from './commands.ts'
 import { readDraft, saveDraft } from './drafts.ts'
@@ -91,6 +92,8 @@ export function TeamSettings(props: {
   /** The reviewer setting, when this panel may change it (it lives in the server's settings). */
   review?: ReviewMode
   onReview?(mode: ReviewMode): void
+  /** The chat's own spend caps, in the composer: not a default for every chat, so Settings leaves it out. */
+  budget?: ChatBudgetControl
 }) {
   const { config } = props
   const set = (patch: Partial<TeamConfig>) => props.onConfig({ ...config, ...patch })
@@ -217,13 +220,19 @@ export function TeamSettings(props: {
           </div>
         )}
       </div>
+      {props.budget && <ChatBudget {...props.budget} />}
     </div>
   )
 }
 
+/** A chat's own caps and what it spent, for its crew panel (Budget.tsx). */
+export type ChatBudgetControl = Parameters<typeof ChatBudget>[0]
+
 export interface ComposerHandle {
   focus(): void
   fill(text: string): void
+  /** Opens the crew panel, e.g. to raise the chat's budget after a run was refused. */
+  openCrew(): void
 }
 
 /**
@@ -266,6 +275,8 @@ interface ComposerProps {
   chatState?: { chat: boolean; resumable: boolean }
   /** Crew members the person can write to directly by typing @ and a name. */
   crew?: readonly CrewMember[]
+  /** The chat's own spend caps, shown in the crew panel (none on a device that may not change them). */
+  budget?: ChatBudgetControl
 }
 
 /** An @name being typed at the end of the message. */
@@ -423,6 +434,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       setText(t)
       requestAnimationFrame(() => area.current?.focus())
     },
+    openCrew: () => setShowTeam(true),
   }))
 
   const onTextChange = useRef(props.onTextChange)
@@ -609,6 +621,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                     onConfig={props.onConfig}
                     {...(review ? { review } : {})}
                     onReview={changeReview}
+                    {...(props.budget ? { budget: props.budget } : {})}
                   />
                 </PickerHost.Provider>
               </div>

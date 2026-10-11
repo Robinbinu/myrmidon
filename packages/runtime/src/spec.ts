@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { Schema } from '@myrmidon/core'
-import type { PermissionLevels, ProjectPermissions, RoundGoal } from '@myrmidon/protocol'
+import type { BudgetScope, PermissionLevels, ProjectPermissions, RoundGoal } from '@myrmidon/protocol'
 import type { SshHost } from './ssh.ts'
 
 export type AcceptanceCheck =
@@ -40,7 +40,14 @@ export interface ColonySpec {
   pattern: 'blackboard' | 'lead-workers'
   agents: AgentSpec[]
   acceptance: AcceptanceCheck[]
-  budget: { wallMs: number; costUsd?: number; tokens?: number; maxTurns: number }
+  /** `total`: a running total left this run less than its own cap, so `costUsd` is what is left of it (budgets.ts). */
+  budget: {
+    wallMs: number
+    costUsd?: number
+    tokens?: number
+    maxTurns: number
+    total?: { scope: BudgetScope; usd: number }
+  }
   observer: { intervalMs: number }
   /** Model used to review individual task submissions; omit to accept tasks whose artifacts exist. */
   taskJudge?: string

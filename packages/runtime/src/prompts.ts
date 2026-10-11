@@ -1,4 +1,10 @@
-import { type AccessChange, accessLoosened, type PermissionSource, type RoundGoal } from '@myrmidon/protocol'
+import {
+  type AccessChange,
+  accessLoosened,
+  type BudgetScope,
+  type PermissionSource,
+  type RoundGoal,
+} from '@myrmidon/protocol'
 import {
   AST_EDIT_MAX_FILES,
   AST_EDIT_MAX_REPLACEMENTS,
@@ -97,6 +103,15 @@ const PROJECT_RULES = `How to change the person's project:
 - Comments only for a why the code cannot say.
 - Changes you did not make are the person's: never modify, stage or revert them; if one touches a file you need, re-read it, and ask if it conflicts with the request.
 - Git: match the repository's commit style, stage only this change, and never push, rewrite history or switch branches unless asked.`
+
+/** Each running total's name, as the person reads it in a refusal or on a stopped run. */
+const BUDGET_NAMES: Record<BudgetScope, string> = {
+  chat: "this chat's budget",
+  project: "this project's monthly budget",
+  global: 'your monthly budget',
+}
+
+const capitalized = (text: string) => `${text.charAt(0).toUpperCase()}${text.slice(1)}`
 
 export const prompts = {
   /**
@@ -635,6 +650,12 @@ ${roster}`,
       `\n\nThe person attached ${names.join(', ')}; read them with read_artifact.`,
   },
 
+  /** Spend caps (budgets.ts): why a run cannot start, for the person. */
+  budget: {
+    refused: (scope: BudgetScope, spent: number, cap: number) =>
+      `${capitalized(BUDGET_NAMES[scope])} is used up: $${spent.toFixed(2)} of $${cap} spent. Raise it to start another run.`,
+  },
+
   /** Wake-ups, reminders and replies the colony sends its agents while a round runs. */
   colony: {
     huddleOver: (p: { why: string; proposals: string; snapshot: string }) =>
@@ -645,6 +666,9 @@ ${roster}`,
       `spend limit reached: $${spent.toFixed(2)} of $${limit} for this run`,
     tokenLimit: (used: number, limit: number) =>
       `token limit reached: ${used.toLocaleString('en-US')} of ${limit.toLocaleString('en-US')} for this run`,
+    /** A running total (budgets.ts) stopped the round; the person raises it to go on. */
+    totalLimit: (scope: BudgetScope, spent: number, cap: number) =>
+      `${BUDGET_NAMES[scope]} reached: $${spent.toFixed(2)} of $${cap} spent; raise it to go on`,
     unread: (lines: string) => `\n\nThe person said, and nobody has read it yet:\n${lines}`,
     resumedRestored: (reason: string) =>
       `This round was interrupted (${reason}) and has resumed. Your conversation so far is restored; here is where things stand now.`,
