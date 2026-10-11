@@ -1,0 +1,26 @@
+{
+  "name": "myrmidon-film",
+  "private": true,
+  "type": "module",
+  "description": "Myrmidon's launch film, made with Remotion. Kept out of the root workspaces.",
+  "scripts": {
+    "studio": "remotion studio",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "render": "remotion render Film out/film-master.mp4",
+    "deliver": "bash scripts/deliver.sh"
+  },
+  "dependencies": {
+    "@fontsource-variable/geist": "5.3.0",
+    "@fontsource-variable/geist-mono": "5.3.0",
+    "@remotion/bundler": "4.0.534",
+    "@remotion/cli": "4.0.534",
+    "@remotion/renderer": "4.0.534",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "remotion": "4.0.534"
+  },
+  "devDependencies": {
+    "@types/react": "19.3.0",
+    "typescript": "5.9.3"
+  }
+}

@@ -10,7 +10,8 @@
       "!**/.hutch",
       "!apps/desktop/build",
       "!apps/desktop/dist",
-      "!apps/desktop/artifacts"
+      "!apps/desktop/artifacts",
+      "!media/film"
     ]
   },
   "formatter": {
