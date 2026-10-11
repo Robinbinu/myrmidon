@@ -3,8 +3,12 @@
  * - macOS asks for the microphone (voice calls) with NSMicrophoneUsageDescription, which a dev build lacks and a
  *   release build has only in a generic wording;
  * - a release build carries the compiled Myrmidon server (scripts/build-sidecar.ts) in Resources/app/sidecar, on
- *   every platform (src/platform.ts appBundle says where Resources is).
+ *   every platform (src/platform.ts appBundle says where Resources is);
+ * - with no Developer ID (`mac.codesign` off), a macOS release bundle is signed ad hoc as a whole after those edits.
+ *   Electrobun only leaves its launcher linker-signed, so the bundle's signature covers none of its resources, and a
+ *   Mac that downloaded it calls it damaged; sealed, it is an unidentified developer's app that can be allowed.
  */
+import { spawnSync } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import config from '../electrobun.config.ts'
@@ -46,6 +50,21 @@ if (os === 'macos')
 if (channel !== 'dev' && !wrapper) {
   if (!existsSync(bundle)) throw new Error(desktopCopy.build.bundleMissing(bundle))
   copySidecar(app.resources(bundle))
+}
+
+// Last, so the signature covers every edit above: the app before it is packed, then the wrapper that carries it.
+if (os === 'macos' && channel !== 'dev' && !(config.build.mac as { codesign?: boolean }).codesign) signAdHoc(wrapper ?? bundle)
+
+function signAdHoc(path: string) {
+  for (const args of [
+    ['--force', '--deep', '--sign', '-', path],
+    ['--verify', '--deep', '--strict', path],
+  ]) {
+    const run = spawnSync('codesign', args, { stdio: 'inherit' })
+    if (run.status !== 0)
+      throw new Error(desktopCopy.build.commandFailed(`codesign ${args.join(' ')}`, run.status))
+  }
+  console.log(desktopCopy.build.signed(path))
 }
 
 function copySidecar(resources: string) {
