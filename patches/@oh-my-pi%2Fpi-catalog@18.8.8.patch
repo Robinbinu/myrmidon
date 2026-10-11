@@ -1,17 +1,42 @@
+diff --git a/node_modules/@oh-my-pi/pi-catalog/.bun-tag-c984eb3d770adaf1 b/.bun-tag-c984eb3d770adaf1
+new file mode 100644
+index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
 diff --git a/src/provider-models/openai-compat.ts b/src/provider-models/openai-compat.ts
-index b25c78aebb4dc247433511f33b7bf7b23478f57c..0e6f339d356cb2608823edffcc2bbbe97c2695a2 100644
+index b25c78aebb4dc247433511f33b7bf7b23478f57c..b4fa973ea738f00d01346e99cab19fae734a963d 100644
 --- a/src/provider-models/openai-compat.ts
 +++ b/src/provider-models/openai-compat.ts
-@@ -1215,7 +1215,11 @@ export interface GroqModelManagerConfig {
+@@ -1215,7 +1215,33 @@ export interface GroqModelManagerConfig {
  }
  
  export function groqModelManagerOptions(config?: GroqModelManagerConfig): ModelManagerOptions<"openai-completions"> {
 -	return createSimpleOpenAICompletionsOptions("groq", "https://api.groq.com/openai/v1", config);
-+	// Groq's /models lists exactly what it serves: retired bundled ids answer 400 `model_decommissioned`.
-+	return {
-+		...createSimpleOpenAICompletionsOptions("groq", "https://api.groq.com/openai/v1", config),
++	// Groq's /models lists exactly what the account can call; bundled ids it
++	// retired answer 400 `model_decommissioned`.
++	return createOpenAICompatibleModelManagerOptions({
++		api: "openai-completions",
++		providerId: "groq",
++		defaultBaseUrl: "https://api.groq.com/openai/v1",
++		config,
++		requireApiKey: true,
 +		dynamicModelsAuthoritative: true,
-+	};
++		filterModel: isGroqChatModel,
++		mapModel: mapWithBundledReference,
++	});
++}
++
++/**
++ * Groq's /models also lists speech (Orpheus: `output_modalities: ["speech"]`),
++ * transcription (Whisper: `["transcription"]`) and classifier models (Prompt
++ * Guard, which answers chat requests with 400 "text classification"). Only
++ * text-out models whose `supported_features` include `tools` take a chat turn.
++ * Prompt Guard 2 22M carries no `supported_features`, hence the id rule.
++ */
++function isGroqChatModel(entry: OpenAICompatibleModelRecord): boolean {
++	const output = entry.output_modalities;
++	if (Array.isArray(output) && !output.includes("text")) return false;
++	const features = entry.supported_features;
++	if (Array.isArray(features) && !features.includes("tools")) return false;
++	return !String(entry.id).includes("prompt-guard");
  }
  
  // ---------------------------------------------------------------------------
