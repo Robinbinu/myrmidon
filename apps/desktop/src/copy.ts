@@ -46,6 +46,8 @@ export const desktopCopy = {
       `${path} is not where Electrobun's build left the app: update src/platform.ts appBundle`,
     commandFailed: (command: string, code: number | null) => `\`${command}\` failed (exit code ${code})`,
     patched: (path: string) => `set the microphone usage description in ${path}`,
+    signed: (path: string) =>
+      `signed ${path} ad hoc (no Developer ID: macOS shows it as an unidentified developer's app)`,
     copied: (path: string) => `copied the Myrmidon server into ${path}`,
   },
 }
