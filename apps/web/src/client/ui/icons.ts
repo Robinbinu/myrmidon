@@ -58,6 +58,7 @@ import {
   RectangleEllipsis,
   Rocket,
   SatelliteDish,
+  ScanSearch,
   ScreenShare,
   ScrollText,
   SearchCheck,
@@ -205,6 +206,8 @@ export const FEATURE_ICONS = {
   marketplaces: Store,
   /** omp's skills registry: searching it and installing a skill (Settings → Skills). */
   skillRegistry: PackageSearch,
+  /** The skill scanner's findings: in an install's review and under a flagged or held skill. */
+  skillScan: ScanSearch,
   /** Hooks: commands around every tool call. */
   hooks: FishingHook,
   /** Requests that run on a schedule. */

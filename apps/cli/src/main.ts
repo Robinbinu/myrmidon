@@ -83,9 +83,10 @@ Usage:
                people, and choose who may write (set dm|groups|mention|per-person|allow|stream)
   myrmidon plugins [add <source> | update <name> | remove <name> | marketplaces [add|refresh|remove …]]
                Install plugins from a folder, repository URL, npm:<package> or <plugin>@<marketplace>; you
-               review what runs before anything is installed
-  myrmidon skills [search [query] | add <@scope/name | repository URL> | update <name> | remove <name>]
-               Search omp's skills registry and install skills, after the same review
+               review what runs before anything is installed (--force: one whose skills the scan blocks)
+  myrmidon skills [search [query] | add <@scope/name | repository URL> | update <name> | remove <name> | scan [name|folder]]
+               Search omp's skills registry and install skills, after the same review and a skill scan; one the
+               scan blocks installs only with --force. scan prints what the scan finds (exit 1 when it blocks)
   myrmidon ask "<request>" [--chat ID] [--project ID] [--wait]
                Send a request to the running server (from \`serve\`); --wait prints the final answer
   myrmidon import-omp          Copy an existing omp setup (keys, logins, models.yml) from ~/.omp
@@ -122,6 +123,7 @@ const { values, positionals } = parseArgs({
     chat: { type: 'string' },
     project: { type: 'string' },
     wait: { type: 'boolean', default: false },
+    force: { type: 'boolean', default: false },
     help: { type: 'boolean', short: 'h', default: false },
   },
 })
@@ -540,9 +542,16 @@ async function main() {
     case 'channels':
       return channels((await runningServer()).call, terminal(), positionals.slice(1))
     case 'plugins':
-      return plugins((await runningServer()).call, terminal(), positionals.slice(1))
-    case 'skills':
-      return skills((await runningServer()).call, terminal(), positionals.slice(1))
+      return plugins((await runningServer()).call, terminal(), positionals.slice(1), { force: values.force })
+    case 'skills': {
+      // Scanning a folder needs no server, so it is reached only when a command asks it something.
+      let server: ReturnType<typeof runningServer> | undefined
+      const call: Call = async <T>(method: string, path: string, body?: unknown) => {
+        server ??= runningServer()
+        return (await server).call<T>(method, path, body)
+      }
+      return skills(call, terminal(), positionals.slice(1), { force: values.force })
+    }
     case 'doctor': {
       const server = await runningServer().catch(() => undefined)
       const problems = await withScratch((scratch) =>

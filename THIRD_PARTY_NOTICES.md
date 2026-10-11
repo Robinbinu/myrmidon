@@ -56,6 +56,50 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ```
 
+## QwenPaw
+
+The skill scanner's rules in `packages/runtime/src/skill-scan.ts` port QwenPaw's skill_scanner signatures and default
+policy (https://github.com/agentscope-ai/QwenPaw, `src/qwenpaw/security/skill_scanner/`) to TypeScript, with their
+severities re-rated, Apache License 2.0:
+
+```
+Copyright 2025 The QwenPaw Authors
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+   http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+```
+
+## Cisco AI Defense skill-scanner
+
+The skill scanner's hidden Unicode checks (Unicode Tag Block ASCII smuggling, zero-width characters), its markdown
+image and link exfiltration rules and its credential harvesting phrases in `packages/runtime/src/skill-scan.ts` follow
+Cisco AI Defense's skill-scanner (https://github.com/cisco-ai-defense/skill-scanner), Apache License 2.0:
+
+```
+Copyright 2026 Cisco Systems, Inc. and its affiliates
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+   http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+```
+
 ## oh-my-pi (omp)
 
 The rule-file discovery in `packages/runtime/src/rule-files.ts` (which files each tool keeps rules in, how their

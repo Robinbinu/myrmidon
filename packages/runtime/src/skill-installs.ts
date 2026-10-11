@@ -23,12 +23,14 @@ import {
 } from './install-sources.ts'
 import { expandHome } from './read-access.ts'
 import { parseSkillSpec, resolveSkillVersion, SkillRegistryClient } from './skill-registry.ts'
-import { parseSkillFile } from './skills.ts'
+import { combineScans, refuseBlocked, type SkillScan, scanSkill } from './skill-scan.ts'
+import { allowSkills, parseSkillFile } from './skills.ts'
 
 /**
  * Installing skills into Myrmidon's skills folder from omp's skills registry (`@scope/name[@version]`), a git
  * repository, or a folder. As with plugins, a fetch is shown to the person first (which skills, from where, which
- * files can run) and installs only on their yes; scripts a skill ships are never run by installing it.
+ * files can run, what the skill scanner found) and installs only on their yes; scripts a skill ships are never run by
+ * installing it, and a skill the scan blocks installs only when they confirm it anyway.
  */
 
 export interface SkillPreview {
@@ -45,6 +47,8 @@ export interface SkillPreview {
   readonly scripts: readonly string[]
   /** Yanked or deprecated versions. */
   readonly warnings: readonly string[]
+  /** What the skill scanner found, across every skill it brings (files named from the fetched folder). */
+  readonly scan: SkillScan
   /** For an update: what is installed now. */
   readonly replaces?: InstallPin
   readonly expiresAt: string
@@ -56,6 +60,8 @@ interface Held {
   /** Each skill's folder inside the fetched content ('' for a skill at its root). */
   paths: Record<string, string>
   replaces: boolean
+  /** The scan hash of each skill whose scan blocks it, recorded as allowed if the person installs it anyway. */
+  blocked: Record<string, string>
 }
 
 /** What the person typed: a registry package, a git URL, or a folder. */
@@ -113,6 +119,7 @@ function filesOf(root: string): { files: string[]; scripts: string[] } {
 
 export class SkillInstaller {
   readonly registry: SkillRegistryClient
+  private readonly _home: string
   private readonly _file: string
   private readonly _pending: PendingInstalls<Held>
 
@@ -123,6 +130,7 @@ export class SkillInstaller {
     registry?: SkillRegistryClient,
   ) {
     this.registry = registry ?? new SkillRegistryClient()
+    this._home = home
     this._file = join(home, 'skills-installed.json')
     this._pending = new PendingInstalls(join(home, 'installs', 'skills'))
   }
@@ -149,8 +157,12 @@ export class SkillInstaller {
     return this._stage(from.origin, name)
   }
 
-  /** Installs reviewed skills (or applies a reviewed update) and records where they came from; returns their names. */
-  confirm(id: string): string[] {
+  /**
+   * Installs reviewed skills (or applies a reviewed update) and records where they came from; returns their names. A
+   * skill the scan blocks needs `override` (the person's "install anyway"); without it the review stays open.
+   */
+  confirm(id: string, opts: { override?: boolean } = {}): string[] {
+    refuseBlocked(this._pending.peek(id)?.blocked ?? {}, opts.override)
     const held = this._pending.take(id)
     const content = join(held.dir, 'content')
     try {
@@ -171,6 +183,7 @@ export class SkillInstaller {
         record[name] = { origin: held.origin, source: describeOrigin(held.origin), ...held.pin, installedAt }
       }
       this._save(record)
+      allowSkills(this._home, held.blocked)
       return names
     } finally {
       this._pending.drop(id)
@@ -227,11 +240,15 @@ export class SkillInstaller {
       const inside = (s: { path: string }) => (rel: string) => !s.path || rel.startsWith(`${s.path}/`)
       const kept = files.filter((f) => found.some((s) => inside(s)(f)))
       const previous = only ? this.installed()[only] : undefined
+      const scans = found.map((s) => ({ name: s.name, path: s.path, scan: scanSkill(join(content, s.path)) }))
       const expiresAt = this._pending.hold(id, {
         origin,
         pin,
         paths: Object.fromEntries(found.map((s) => [s.name, s.path])),
         replaces: !!only,
+        blocked: Object.fromEntries(
+          scans.filter((s) => s.scan.verdict === 'block').map((s) => [s.name, s.scan.hash]),
+        ),
       })
       return {
         id,
@@ -242,6 +259,7 @@ export class SkillInstaller {
         files: kept.length,
         scripts: scripts.filter((f) => found.some((s) => inside(s)(f))),
         warnings,
+        scan: combineScans(scans),
         ...(previous
           ? {
               replaces: {

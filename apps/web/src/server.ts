@@ -2151,10 +2151,11 @@ export function startServer(options: ServeOptions): WebServer {
           const plugins = options.plugins
           try {
             // An update replaces the folder its code runs from: stop that code first, start the new one after.
+            const { override } = (await req.json().catch(() => ({}))) as { override?: unknown }
             const updating = plugins.reviewed(req.params.id ?? '')
             if (updating?.replaces) await options.pluginHost?.unload(updating.name)
             const plugin = await plugins
-              .confirm(req.params.id ?? '')
+              .confirm(req.params.id ?? '', { override: override === true })
               .finally(() => Promise.all([options.mcp?.start(), options.pluginHost?.sync()]))
             return json({ plugin, plugins: pluginList() })
           } catch (err) {
@@ -2259,17 +2260,33 @@ export function startServer(options: ServeOptions): WebServer {
         })
       }),
       '/api/skills/:name': {
-        PUT: guard(async (req) => {
+        PUT: guard(async (req, url) => {
           if (!options.skills) return json({ error: 'skills need the chat runtime' }, 503)
-          const { enabled, kept } = (await req.json().catch(() => ({}))) as {
+          const { enabled, kept, allow } = (await req.json().catch(() => ({}))) as {
             enabled?: unknown
             kept?: unknown
+            allow?: unknown
           }
-          if (typeof enabled !== 'boolean' && typeof kept !== 'boolean')
-            return json({ error: 'enabled or kept must be true or false' }, 400)
-          if (typeof enabled === 'boolean') options.skills.setEnabled(req.params.name ?? '', enabled)
-          if (typeof kept === 'boolean') options.skills.setKept(req.params.name ?? '', kept)
-          return json({ skills: options.skills.list() })
+          if (typeof enabled !== 'boolean' && typeof kept !== 'boolean' && allow !== true)
+            return json({ error: 'enabled or kept must be true or false, or allow true' }, 400)
+          const name = req.params.name ?? ''
+          const project = url.searchParams.get('project')
+          const path = project ? options.projects?.get(project)?.path : undefined
+          // Switching on a skill its scan holds is allowing it: the person says so explicitly, having seen why.
+          if (
+            enabled === true &&
+            allow !== true &&
+            options.skills.list(path).find((s) => s.name === name)?.held
+          )
+            return json({ error: `the skill scan holds ${name}: allow it to switch it on` }, 409)
+          try {
+            if (allow === true) options.skills.allow(name, path)
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 404)
+          }
+          if (typeof enabled === 'boolean') options.skills.setEnabled(name, enabled)
+          if (typeof kept === 'boolean') options.skills.setKept(name, kept)
+          return json({ skills: options.skills.list(path) })
         }),
         DELETE: guard((req) => {
           if (!options.skills) return json({ error: 'skills need the chat runtime' }, 503)
@@ -2307,10 +2324,13 @@ export function startServer(options: ServeOptions): WebServer {
         }),
       },
       '/api/skill-installs/:id': {
-        POST: guard((req) => {
+        POST: guard(async (req) => {
           if (!options.skills) return json({ error: 'skills need the chat runtime' }, 503)
+          const { override } = (await req.json().catch(() => ({}))) as { override?: unknown }
           try {
-            const names = options.skills.installs.confirm(req.params.id ?? '')
+            const names = options.skills.installs.confirm(req.params.id ?? '', {
+              override: override === true,
+            })
             return json({ names, skills: options.skills.list() })
           } catch (err) {
             return json({ error: err instanceof Error ? err.message : String(err) }, 422)
