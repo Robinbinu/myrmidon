@@ -14,6 +14,7 @@ import {
   fetchFolder,
   fetchGit,
   gitSource,
+  type ImportedFrom,
   type InstalledFrom,
   type InstallOrigin,
   type InstallPin,
@@ -24,7 +25,7 @@ import {
 import { expandHome } from './read-access.ts'
 import { parseSkillSpec, resolveSkillVersion, SkillRegistryClient } from './skill-registry.ts'
 import { combineScans, refuseBlocked, type SkillScan, scanSkill } from './skill-scan.ts'
-import { allowSkills, parseSkillFile } from './skills.ts'
+import { allowSkills, parseForeignSkill, parseSkillFile, renameSkillFile } from './skills.ts'
 
 /**
  * Installing skills into Myrmidon's skills folder from omp's skills registry (`@scope/name[@version]`), a git
@@ -62,6 +63,15 @@ interface Held {
   replaces: boolean
   /** The scan hash of each skill whose scan blocks it, recorded as allowed if the person installs it anyway. */
   blocked: Record<string, string>
+  /** A skill copied in from Claude Code or Codex. */
+  imported?: ImportedFrom
+}
+
+/** A Claude Code or Codex skill being copied in: the name it gets here, the kind of folder it is in, its name there. */
+interface Importing {
+  as: string
+  from: string
+  name: string
 }
 
 /** What the person typed: a registry package, a git URL, or a folder. */
@@ -117,6 +127,20 @@ function filesOf(root: string): { files: string[]; scripts: string[] } {
   return { files, scripts: scripts.sort() }
 }
 
+/**
+ * Gives a copied Claude Code or Codex skill the name it has here: its SKILL.md is rewritten only when its name differs
+ * or it left its name or description out, so an unchanged copy keeps the scan hash of what it was copied from.
+ */
+function renameImported(dir: string, name: string) {
+  const file = join(dir, 'SKILL.md')
+  if (!existsSync(file)) throw new Error('the folder has no SKILL.md')
+  const text = readFileSync(file, 'utf8')
+  if (parseSkillFile(text)?.name === name) return
+  const parsed = parseForeignSkill(text, name)
+  if (!parsed) throw new Error('its SKILL.md says nothing about what it does')
+  writeFileSync(file, renameSkillFile(text, name, parsed.description))
+}
+
 export class SkillInstaller {
   readonly registry: SkillRegistryClient
   private readonly _home: string
@@ -154,7 +178,16 @@ export class SkillInstaller {
   prepareUpdate(name: string): Promise<SkillPreview> {
     const from = this.installed()[name]
     if (!from) throw new Error(`${name} was not installed from a registry, repository or folder`)
-    return this._stage(from.origin, name)
+    const imported = from.imported
+    return this._stage(from.origin, name, imported && { as: name, from: imported.from, name: imported.name })
+  }
+
+  /**
+   * Stages a Claude Code or Codex skill folder for review, to be installed as `importing.as` (its SKILL.md renamed to
+   * match when that differs, or when it left its name or description out).
+   */
+  prepareImport(dir: string, importing: Importing): Promise<SkillPreview> {
+    return this._stage({ kind: 'folder', path: dir }, undefined, importing)
   }
 
   /**
@@ -180,7 +213,13 @@ export class SkillInstaller {
         if (existsSync(target)) renameSync(target, old)
         renameSync(join(content, held.paths[name] ?? ''), target)
         rmSync(old, { recursive: true, force: true })
-        record[name] = { origin: held.origin, source: describeOrigin(held.origin), ...held.pin, installedAt }
+        record[name] = {
+          origin: held.origin,
+          source: describeOrigin(held.origin),
+          ...held.pin,
+          installedAt,
+          ...(held.imported ? { imported: held.imported } : {}),
+        }
       }
       this._save(record)
       allowSkills(this._home, held.blocked)
@@ -203,7 +242,7 @@ export class SkillInstaller {
     this._save(record)
   }
 
-  private async _stage(origin: InstallOrigin, only?: string): Promise<SkillPreview> {
+  private async _stage(origin: InstallOrigin, only?: string, importing?: Importing): Promise<SkillPreview> {
     const { id, dir } = this._pending.stage()
     try {
       const content = join(dir, 'content')
@@ -227,6 +266,12 @@ export class SkillInstaller {
       } else if (origin.kind === 'git') pin = await fetchGit(origin, content)
       else if (origin.kind === 'folder') pin = fetchFolder(origin.path, content)
       else throw new Error(`a skill cannot come from ${origin.kind}`)
+      let imported: ImportedFrom | undefined
+      if (importing) {
+        if (origin.kind !== 'folder') throw new Error('only a folder is imported')
+        imported = { from: importing.from, name: importing.name, hash: scanSkill(origin.path).hash }
+        renameImported(content, importing.as)
+      }
 
       const found = findSkills(content).filter((s) => !only || s.name === only)
       if (!found.length)
@@ -249,6 +294,7 @@ export class SkillInstaller {
         blocked: Object.fromEntries(
           scans.filter((s) => s.scan.verdict === 'block').map((s) => [s.name, s.scan.hash]),
         ),
+        ...(imported ? { imported } : {}),
       })
       return {
         id,

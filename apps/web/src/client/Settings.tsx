@@ -102,6 +102,7 @@ import {
 } from './settings/SettingsSearch.tsx'
 import { type SearchEntry, settingsIndex } from './settings/search.ts'
 import { baseUrlError, channelSetup, clampNumber, cronError, providerNameError } from './settings-forms.ts'
+import { ImportSkills } from './skill-import.tsx'
 import { removeSpecialist, useSpecialists } from './specialists.ts'
 import { useStatus } from './status.tsx'
 import { AppearanceSection } from './themes/AppearanceSection.tsx'
@@ -6039,6 +6040,7 @@ function SkillsSection() {
           ` ${copy.settings.skills.retireIntro(data.retire.staleDays, data.retire.archiveDays)}`}
       </PageHeader>
       <AddSkills installed={data?.skills.map((s) => s.name) ?? []} onReview={setReview} />
+      <ImportSkills onImported={() => void load()} />
       {proposed.length > 0 && (
         <div {...settingRow('skills.proposed')} className="mb-6 flex flex-col gap-3">
           <SectionHeader title={copy.settings.skills.proposed(proposed.length)} />

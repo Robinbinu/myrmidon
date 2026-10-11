@@ -51,6 +51,16 @@ export interface InstalledFrom extends InstallPin {
   /** The origin as the person reads it: a path, a URL, `npm:pkg@1.2`, `plugin@marketplace`. */
   readonly source: string
   readonly installedAt: string
+  /** For a skill copied in from Claude Code or Codex: which of their folders (`origin.path`) it was, and as what. */
+  readonly imported?: ImportedFrom
+}
+
+/** Where an imported skill came from: the tool's kind of folder, its name there, and the scan hash it had then. */
+export interface ImportedFrom {
+  /** A SkillImportOrigin (skill-import.ts): `claude`, `codex-plugin`, `agents`… */
+  readonly from: string
+  readonly name: string
+  readonly hash: string
 }
 
 /** The origin as one line for the person: the same text they could paste to install it again. */

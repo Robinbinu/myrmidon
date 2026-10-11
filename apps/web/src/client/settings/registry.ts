@@ -1308,6 +1308,13 @@ export const SETTINGS = {
     label: s.skills.add.sourceLabel,
     keywords: ['install', 'git', 'github', 'repository', ...kw.skills],
   },
+  'skills.import': {
+    page: 'skills',
+    control: 'button',
+    label: copy.skillImports.title,
+    help: copy.skillImports.intro,
+    keywords: ['import', 'claude code', 'codex', '.agents', 'copy', ...kw.skills],
+  },
   'skills.archived': {
     page: 'skills',
     control: 'list',

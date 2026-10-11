@@ -105,6 +105,8 @@ import {
   type SessionImports,
   type SettingsStore,
   type SileroVad,
+  SKILL_IMPORT_MAX,
+  type SkillImports,
   type SkillLibrary,
   type SkillProposalStore,
   type SmartTurn,
@@ -207,6 +209,8 @@ export interface ServeOptions {
   readonly memory?: MemoryStore
   /** Skills agents load by name. */
   readonly skills?: SkillLibrary
+  /** The person's Claude Code and Codex skills, to copy into `skills` (Settings → Skills → Import). */
+  readonly skillImports?: SkillImports
   /** The person's hooks (Claude Code format). */
   readonly hooks?: HookStore
   readonly plugins?: PluginStore
@@ -387,6 +391,12 @@ function sendProblem(raw: unknown): string | undefined {
     return `Attach at most ${MAX_ATTACHMENTS} files to one message.`
   return undefined
 }
+
+const skillImportSchema = Schema.object({
+  ids: Schema.array(Schema.string().min(1).max(200)).min(1).max(SKILL_IMPORT_MAX).required(),
+  override: Schema.array(Schema.string().min(1).max(200)).max(SKILL_IMPORT_MAX),
+  project: Schema.string().max(200),
+})
 
 const importSchema = Schema.object({
   source: Schema.union(['claude', 'codex']).required(),
@@ -2353,6 +2363,34 @@ export function startServer(options: ServeOptions): WebServer {
           } catch (err) {
             return json({ error: err instanceof Error ? err.message : String(err) }, 422)
           }
+        }),
+      },
+      // Claude Code's and Codex's skills: listing and importing read their folders, so both need full access.
+      '/api/skill-imports': {
+        GET: guard((_req, url) => {
+          if (!options.skillImports) return json({ error: 'this server imports no skills' }, 503)
+          const project = url.searchParams.get('project')
+          const path = project ? options.projects?.get(project)?.path : undefined
+          return json({ skills: options.skillImports.list(path) })
+        }),
+        POST: guard(async (req) => {
+          if (!options.skillImports || !options.skills)
+            return json({ error: 'this server imports no skills' }, 503)
+          let body: ReturnType<typeof skillImportSchema>
+          try {
+            body = skillImportSchema((await req.json()) as never)
+          } catch (err) {
+            return json(
+              { error: `invalid request: ${err instanceof Error ? err.message : String(err)}` },
+              400,
+            )
+          }
+          const path = body.project ? options.projects?.get(body.project)?.path : undefined
+          const result = await options.skillImports.import(body.ids, {
+            ...(path ? { project: path } : {}),
+            ...(body.override ? { override: body.override } : {}),
+          })
+          return json({ ...result, skills: options.skills.list(path) })
         }),
       },
       '/api/skills/:name/restore': {

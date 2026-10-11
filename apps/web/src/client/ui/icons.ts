@@ -11,6 +11,7 @@ import {
   BatteryLow,
   BatteryMedium,
   BellRing,
+  BookCopy,
   BookMarked,
   Brain,
   Cable,
@@ -211,6 +212,8 @@ export const FEATURE_ICONS = {
   skillRegistry: PackageSearch,
   /** The skill scanner's findings: in an install's review and under a flagged or held skill. */
   skillScan: ScanSearch,
+  /** Copying the person's Claude Code and Codex skills into Myrmidon (Settings → Skills). */
+  skillImport: BookCopy,
   /** Hooks: commands around every tool call. */
   hooks: FishingHook,
   /** Requests that run on a schedule. */

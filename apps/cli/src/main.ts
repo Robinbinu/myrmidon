@@ -49,6 +49,7 @@ import {
   ScheduleStore,
   SessionImports,
   SettingsStore,
+  SkillImports,
   SkillLibrary,
   SkillProposalStore,
   SpecialistStore,
@@ -61,6 +62,7 @@ import {
 import { startServer } from '@myrmidon/web'
 import { channels } from './channels.ts'
 import { setupCopy } from './copy.ts'
+import { importSkills } from './import-skills.ts'
 import { plugins, skills } from './installs.ts'
 import { type Call, doctor, key, login, model, type ServerInfo, setup } from './setup.ts'
 import { shutdownSignals } from './shutdown.ts'
@@ -95,6 +97,9 @@ Usage:
   myrmidon import-omp          Copy an existing omp setup (keys, logins, models.yml) from ~/.omp
   myrmidon import-session [ID "<message>"] [--project ID]
                List your Claude Code and Codex sessions; with an ID and a message, continue that session as a new chat
+  myrmidon import-skills [--from claude|codex|all] [--all | <name…>] [--force]
+               List your Claude Code and Codex skills with what the skill scan found; with names or --all, copy them
+               in, each off until you switch it on (--force: also those the scan blocks, after a typed yes)
   myrmidon ls
   myrmidon events <colony-id> [--json]
   myrmidon export <colony-id> [--out file.jsonl]
@@ -127,6 +132,8 @@ const { values, positionals } = parseArgs({
     project: { type: 'string' },
     wait: { type: 'boolean', default: false },
     force: { type: 'boolean', default: false },
+    from: { type: 'string' },
+    all: { type: 'boolean', default: false },
     help: { type: 'boolean', short: 'h', default: false },
   },
 })
@@ -457,6 +464,7 @@ async function main() {
         library,
         memory,
         skills,
+        skillImports: new SkillImports(skills),
         hooks,
         plugins,
         pluginHost,
@@ -583,6 +591,12 @@ async function main() {
     }
     case 'import-session':
       return importSession(arg, positionals[2])
+    case 'import-skills':
+      return importSkills((await runningServer()).call, terminal(), positionals.slice(1), {
+        ...(values.from ? { from: values.from } : {}),
+        all: values.all,
+        force: values.force,
+      })
     case 'ls': {
       await recoverOnly()
       const store = new SqliteLogStore(home)
