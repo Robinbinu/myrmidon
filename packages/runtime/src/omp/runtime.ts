@@ -176,6 +176,13 @@ export interface OmpRuntime {
     options?: { model?: string; signal?: AbortSignal },
   ): Promise<GeneratedImages>
   /**
+   * The embedding models omp can call now (an OpenAI or OpenRouter key), as `provider/id`, cheapest first, for memory
+   * recall by meaning (Settings → Memory).
+   */
+  embeddingModels(): string[]
+  /** One vector per text from `model` (`provider/id`, one of embeddingModels()); throws when it cannot be used. */
+  embed(model: string, texts: readonly string[], signal?: AbortSignal): Promise<number[][]>
+  /**
    * Voice providers' keys, in the same vault as the model providers' (`agent.db`), so a voice provider whose API is a
    * model provider's (OpenAI, Groq, Gemini) uses the key already added for it, and none sits in a file of its own.
    */
@@ -247,6 +254,7 @@ async function start(home: string): Promise<OmpRuntime> {
   const { transcribeAudio } = await import('@oh-my-pi/pi-ai/transcription/index')
   const { isSpeechApi, synthesizeSpeech } = await import('@oh-my-pi/pi-ai/speech/index')
   const images = await import('@oh-my-pi/pi-ai/images/index')
+  const embeddings = await import('@oh-my-pi/pi-ai/embeddings')
   const { ProviderHttpError } = await import('@oh-my-pi/pi-ai/error')
   const { calculateCost } = await import('@oh-my-pi/pi-catalog')
   const { resolveRoleChain } = await import('@oh-my-pi/pi-coding-agent/config/model-resolver')
@@ -571,6 +579,30 @@ async function start(home: string): Promise<OmpRuntime> {
       }
     },
     imageModels: () => imagePool().map(ref),
+    embeddingModels: () =>
+      core.registry
+        .getAvailable('embedding')
+        .filter((m) => m.api === 'openai-embeddings')
+        .sort((a, b) => a.cost.input - b.cost.input || ref(a).localeCompare(ref(b)))
+        .map(ref),
+    async embed(model, texts, signal) {
+      const chosen = core.registry
+        .getAvailable('embedding')
+        .find((m) => m.api === 'openai-embeddings' && ref(m) === model)
+      if (!chosen) throw new Error(`the embedding model ${model} cannot be used now`)
+      if (!isAuthenticated(await core.registry.getApiKey(chosen)))
+        throw new Error(`no key for ${chosen.provider}`)
+      const result = await embeddings.embed(
+        chosen,
+        { input: [...texts], encodingFormat: 'float' },
+        { apiKey: core.registry.resolver(chosen), ...(signal ? { signal } : {}) },
+      )
+      const out: number[][] = texts.map(() => [])
+      for (const e of result.embeddings)
+        if (Array.isArray(e.embedding) && e.index < out.length) out[e.index] = e.embedding
+      if (out.some((v) => !v.length)) throw new Error(`${model} returned fewer vectors than texts`)
+      return out
+    },
     async generateImage(request, options = {}) {
       const pool = imagePool()
       let candidates = pool

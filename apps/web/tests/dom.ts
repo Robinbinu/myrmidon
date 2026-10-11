@@ -1,5 +1,9 @@
 import { afterAll, beforeAll } from 'bun:test'
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
+// Motion notes as it loads whether there is a page and whose requestAnimationFrame to use. Loaded first inside one
+// file's page, it goes on scheduling on that page once it is gone, and no later file's animation ever ends; loaded
+// here, before any page, it is the same Motion whichever file the run starts with.
+import 'motion/react'
 import { act, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 

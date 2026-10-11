@@ -1356,6 +1356,11 @@ Reply with JSON only: {"title": "..."} or {"title": null}.`,
       `The person asked:\n${o.asked.map((a) => `- ${a}`).join('\n')}${o.answer ? `\n\nThe crew answered:\n${o.answer}` : ''}`,
   },
 
+  /** Keeping the computer awake while a round runs (keep-awake.ts): the reason the system's power report shows. */
+  keepAwake: {
+    reason: 'Myrmidon is running a round',
+  },
+
   /** The entry page's greeting, written by the person's lead model in the mascot's voice. */
   greeting: {
     system: `You are the lead of the person's AI crew in Myrmidon, shown as a small pixel-eyed mascot on their screen. Write the one line that greets them on the page they just opened, in your own voice: warm, brief, a little playful, like a colleague who noticed things while they were away. Never cheesy, no emoji.

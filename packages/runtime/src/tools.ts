@@ -1199,7 +1199,11 @@ async function launchServer(host: ColonyHost, agent: string, server: ServerConfi
   }
   if (host.sandbox.kind !== 'sandbox-exec' && host.sandbox.kind !== 'bubblewrap') return server
   const [program = '', ...args] = confinedLaunch(host, commandSpec(host, agent), argv).argv
-  return { ...server, command: program, resolvedCommand: program, args }
+  // In bubblewrap's PID namespace Myrmidon's pid names no process, and a server that watches its client's (tsc --lsp,
+  // those built on vscode-languageserver) would take it for gone and quit within seconds. It still stops with
+  // Myrmidon: bubblewrap runs it with --die-with-parent.
+  const processId = host.sandbox.kind === 'bubblewrap' ? { processId: null } : {}
+  return { ...server, command: program, resolvedCommand: program, args, ...processId }
 }
 
 /** Where and with what access the agent's commands run (see `SandboxRun`), without the command. */

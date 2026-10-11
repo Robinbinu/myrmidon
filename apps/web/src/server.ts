@@ -1736,6 +1736,8 @@ export function startServer(options: ServeOptions): WebServer {
             searchProviders: options.omp?.searchProviders() ?? [],
             // For Settings → Tools → Image generation: the models generate_image can use now, best first.
             imageModels: options.omp?.imageModels() ?? [],
+            // For Settings → Memory: the embedding models recall by meaning can use now, cheapest first.
+            embeddingModels: options.omp?.embeddingModels() ?? [],
             customApis: CUSTOM_APIS,
             sandbox: options.sandboxKind ?? 'unknown',
             home: options.home,

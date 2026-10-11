@@ -67,6 +67,12 @@ export interface MyrSettings {
      */
     carryOutModel?: string
     /**
+     * The model for small jobs: naming chats and suggesting memories. Unset: the cheapest model the person can use, as
+     * before. Apple's on-device model, where the Mac has it (omp lists it as `apple/on-device`), does them free and
+     * offline, but only when picked here.
+     */
+    smallModel?: string
+    /**
      * Models to go on with, in order, when the lead's model fails in a way another model could get past (an outage,
      * a rate limit retries did not clear, an expired sign-in, a model taken down); `workerFallbacks` the same for
      * crewmates and swarm peers. Empty: the round pauses on the error for the person, as before.
@@ -108,6 +114,11 @@ export interface MyrSettings {
    */
   telemetry: { enabled: boolean; endpoint: string }
   /**
+   * `keepAwake`: the computer does not idle-sleep while a round runs, and may again once none runs (keep-awake.ts).
+   * Off by default, so nothing changes until the person turns it on.
+   */
+  power: { keepAwake: boolean }
+  /**
    * `hideSecrets`: keys, tokens and passwords reach model providers as placeholders (provider-secrets.ts). On unless
    * the person turns it off: Myrmidon keeps their data on their machine, and a key read in a .env file should not leave
    * it by accident, while the model still sees that a secret is there and Myrmidon writes the value back into the
@@ -141,8 +152,10 @@ export interface MyrSettings {
   /**
    * `suggest`: after a round, a cheap model suggests memories from what the person said, and now and then merges of
    * kept memories that repeat or went stale; each waits for the person to keep or discard it (memory-review.ts).
+   * `embeddingModel`: recall also matches by meaning with this embedding model (`provider/id`, memory-vectors.ts).
+   * Unset, the default: recall matches words only, which costs nothing and works offline.
    */
-  memory: { suggest: boolean }
+  memory: { suggest: boolean; embeddingModel?: string }
   /** How the entry page's mascot looks, and what its screen shows beside its mood. */
   mascot: {
     eyes: 'round' | 'happy' | 'tall' | 'sleepy' | 'lashes'
@@ -286,6 +299,7 @@ export const settingsSchema = Schema.object({
     judgeModel: Schema.string(),
     advisorModel: Schema.string().max(200),
     carryOutModel: Schema.string().max(200),
+    smallModel: Schema.string().max(200),
     leadFallbacks: Schema.array(Schema.string().max(200)).max(MAX_FALLBACKS).default([]),
     workerFallbacks: Schema.array(Schema.string().max(200)).max(MAX_FALLBACKS).default([]),
     wallMinutes: Schema.number().min(1).max(240).default(30),
@@ -328,6 +342,7 @@ export const settingsSchema = Schema.object({
         .max(500),
     ]).default(''),
   }).default({}),
+  power: Schema.object({ keepAwake: Schema.boolean().default(false) }).default({}),
   privacy: Schema.object({ hideSecrets: Schema.boolean().default(true) }).default({}),
   search: Schema.object({
     provider: Schema.string()
@@ -357,7 +372,10 @@ export const settingsSchema = Schema.object({
     greeting: Schema.union(['model', 'rules']).default('model'),
     titles: Schema.union(['model', 'first-message']).default('model'),
   }).default({}),
-  memory: Schema.object({ suggest: Schema.boolean().default(true) }).default({}),
+  memory: Schema.object({
+    suggest: Schema.boolean().default(true),
+    embeddingModel: Schema.string().max(200),
+  }).default({}),
   mascot: Schema.object({
     eyes: Schema.union(['round', 'happy', 'tall', 'sleepy', 'lashes']).default('round'),
     look: Schema.union(['neutral', 'flower', 'bow']).default('neutral'),
@@ -591,6 +609,7 @@ function parse(input: unknown): MyrSettings {
       ...(s.computerUse.engine === 'omp' ? { engine: 'omp' as const } : {}),
     },
     telemetry: { enabled: s.telemetry.enabled, endpoint: s.telemetry.endpoint.trim() },
+    power: { keepAwake: s.power.keepAwake },
     ssh: {
       hosts: [...new Map(s.ssh.hosts.map((h) => [h.name, h])).values()].map((h) => ({
         name: h.name,
@@ -612,7 +631,10 @@ function parse(input: unknown): MyrSettings {
       greeting: s.profile.greeting,
       titles: s.profile.titles,
     },
-    memory: { suggest: s.memory.suggest },
+    memory: {
+      suggest: s.memory.suggest,
+      ...(s.memory.embeddingModel?.trim() ? { embeddingModel: s.memory.embeddingModel.trim() } : {}),
+    },
     mascot: {
       ...s.mascot,
       crew: {
@@ -730,6 +752,8 @@ export function withoutModel(
   if (next.team.advisorModel === ref) delete next.team.advisorModel
   // Nor is the carry-out model: the lead just keeps its own.
   if (next.team.carryOutModel === ref) delete next.team.carryOutModel
+  // Nor is the small-jobs model: they go back to the cheapest model.
+  if (next.team.smallModel === ref) delete next.team.smallModel
   next.team.leadFallbacks = next.team.leadFallbacks.filter((r) => r !== ref)
   next.team.workerFallbacks = next.team.workerFallbacks.filter((r) => r !== ref)
   if (next.voice.callModel === ref) {
