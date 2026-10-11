@@ -549,6 +549,11 @@ export const SANDBOX_MAX_OUTPUT = 64 * 1024
 /** How long a command stopped for running too long may still take to close its output before the run ends. */
 export const SANDBOX_TIMED_OUT_READ_MS = 1_000
 /**
+ * The argument that makes a compiled Myrmidon run the bash it carries for Windows without Git Bash (embedded-shell.ts,
+ * apps/desktop/src/sidecar.ts), here so the sidecar can pick it without loading the server's modules.
+ */
+export const EMBEDDED_SHELL_COMMAND = 'embedded-shell'
+/**
  * Toolchain folders in the person's home (relative to it) that sandboxed commands may read, never write: where
  * bun, node version managers, rustup, uv, pyenv and the like install the programs on PATH. Commands get a private
  * HOME, so caches and configs (~/.npm, ~/.cache, ~/Library/Caches, ~/.gitconfig) are their own and not listed;

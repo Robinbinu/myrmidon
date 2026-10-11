@@ -292,7 +292,11 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
       }
       case 'worktree/created': {
         const p = e.payload as EventPayloads['worktree/created']
-        out.push({ ...base, kind: 'file', agent: p.agent, lead: copy.steps.ownBranch, strong: p.branch })
+        out.push(
+          p.branch
+            ? { ...base, kind: 'file', agent: p.agent, lead: copy.steps.ownBranch, strong: p.branch }
+            : { ...base, kind: 'file', agent: p.agent, lead: copy.steps.ownCopy },
+        )
         break
       }
       case 'worktree/merged': {

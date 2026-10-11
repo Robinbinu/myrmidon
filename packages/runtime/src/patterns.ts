@@ -353,7 +353,7 @@ export interface Environment {
   readonly computerEngine?: 'cua' | 'omp'
   readonly project?: ProjectContext
   /** The agent's own git worktree of the project, when it has one. */
-  readonly worktree?: { workdir: string; branch: string }
+  readonly worktree?: { workdir: string; branch: string; copy?: true }
   /** The agent's scratch directory. */
   readonly scratch?: string
   /** Skills the agent can load by name. */

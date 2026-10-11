@@ -644,11 +644,19 @@ Open work, in the order it will be done:
          there. Left: grep and ast_grep hits do not record snapshots yet (omp's do), so an edit needs an fs_read first;
          no setting to pin a mode (omp's edit.mode / edit.modelVariants); the mode is fixed by the model a round's
          agent starts on, so a mid-round switch keeps its first fs_edit form.
-      2. Embedded bash (pi-shell `Shell`/`executeShell`: brush fork + in-process coreutils) — a shell on Windows
-         without Git Bash. In-process means outside the OS sandbox, so only where no sandbox applies (full access,
-         Windows until WSL2).
-      3. Workspace isolation (pi-iso `isoStart`/`isoDiff`: APFS clones, btrfs/zfs reflinks, overlayfs, projfs) —
-         crew isolation for projects that are not git repos, and faster than worktrees on big ones.
+      2. [x] Embedded bash (pi-shell `Shell`/`executeShell`: brush fork + in-process coreutils) — a shell on Windows
+         without Git Bash. Done 2026-10-11 (embedded-shell.ts, shell.ts): Windows only, after Git Bash and before
+         PowerShell; macOS and Linux keep /bin/sh. Runs in a worker process (crash stays there), stdin and stderr
+         passed through files (brush takes neither); Settings → About → Command shell says which and why. Left:
+         never run on Windows itself (the tests force it on any OS; Windows CI has Git Bash); stderr arrives after
+         stdout, not interleaved.
+      3. [x] Workspace isolation (pi-iso `isoStart`/`isoDiff`: APFS clones, btrfs/zfs reflinks, overlayfs, projfs) —
+         crew isolation for projects that are not git repos, and faster than worktrees on big ones. Done 2026-10-11
+         (copies.ts): only for projects git worktrees cannot serve; git projects keep worktrees (merge flow). Clone
+         backends only (APFS 0.4 s vs rcopy 5-6 s on a 1.4 GB/39k-file folder, rcopy broke symlinks; overlays show
+         the live project so cannot be a base); a base clone makes merges three-way (`git merge-file`). Own diff walk,
+         not isoDiff (it missed same-size edits within a second). Left: most Linux file systems (ext4) have no clone
+         backend, so no copies there.
       4. [x] Real token counts (`countTokens`) instead of chars/4 in compaction.ts, models.ts (Ollama num_ctx) and the
          prompt manifest (src/tokens.ts): the model's catalog encoding (Claude, Qwen, DeepSeek, Kimi, GLM), o200k
          otherwise; chars/4 if the addon cannot count. 1.8 MB transcript: ~4 ms as per-message parts, ~16 ms as one
@@ -679,12 +687,17 @@ Open work, in the order it will be done:
          from the first running round to the last, released when the setting goes off. omp's assertion also covers
          Linux (login1) and Windows; a failure only logs. No keep-awake existed in apps/desktop.
       9. Smaller: `fuzzyFind` for find, `diffLines`/`structuredPatchHunks` for previews, `FileLock` across
-         processes, `watch`, jj repos (`vcsJjDiscover`), `renderMermaidAscii`. Looked at 2026-10-10, none taken:
+         processes, `watch`, jj repos (`vcsJjDiscover`), `renderMermaidAscii`. Done 2026-10-11: `FileLock` makes
+         `serve` one per home (two servers on one home ran, and stopping one removed the other's server.json);
+         jj: a pure Jujutsu workspace inside a git checkout gets no worktrees of the outer repo nor its git state
+         (copies instead). Not done: `watch` is a head-only stat poll, weaker than the Git panel's 5 s status poll;
+         jj status in the prompt needs async calls in a sync path.
+         Looked at 2026-10-10, none taken:
          `find` is semantic (jfind's grep prior and a judge), not path lookup, and the file browser's filter is a
          substring match over the repository's file list with the secret guard, which fuzzyFind's own walk would
          bypass and reorder; the only hand-built diff is apps/web/src/client/diff.ts, in the browser, where natives
          cannot run (server diffs come from the VCS); nothing renders Mermaid (a candidate for channel replies, where
-         a mermaid block shows as source). Left: `FileLock`, `watch`, `vcsJjDiscover`.
+         a mermaid block shows as source).
       Not needed: desktop (Cua Driver covers computer use), terminal keys/sixel/width (no TUI), pi-voice (own stack).
       Each goes through packages/runtime/src/omp/natives.ts.
 12l. - [x] **Full access, no sandbox** (asked 2026-10-09, like Hermes) — global switch in Settings → Tools (default on)

@@ -2,6 +2,8 @@
 export const setupCopy = {
   noServer: (home: string) =>
     `no running Myrmidon for ${home}: start it first (\`myrmidon serve\`, or the systemd service in docs/remote.md), then run this again`,
+  serverRunning: (home: string) =>
+    `a Myrmidon server is already running for ${home} (its address is in server.json there): use it, stop it first, or start this one with another --home`,
 
   wizard: {
     title: 'Set up this Myrmidon',

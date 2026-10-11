@@ -243,6 +243,14 @@ export const SETTINGS = {
     control: 'info',
     label: s.about.sandbox,
   },
+  'general.shell': {
+    page: 'general',
+    path: [s.about.title],
+    control: 'info',
+    label: s.about.shell,
+    help: s.about.shellHint,
+    keywords: kw.shell,
+  },
 
   // Appearance
   'appearance.myrmidon': {
