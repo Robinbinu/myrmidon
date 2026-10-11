@@ -720,7 +720,12 @@ Open work, in the order it will be done:
       Cisco's skill-scanner plus remote scripts, persistence, credential paths, destructive commands and hidden
       Unicode; critical blocks an install (Install anyway overrides) and holds a skill on disk from agents until it is
       allowed in Settings → Skills (allowed by content hash, so a change holds it again); high asks to confirm. Shown in
-      the install review, Settings → Skills and `myrmidon skills scan`. Left: (2) and (3).
+      the install review, Settings → Skills and `myrmidon skills scan`.
+      Done 2026-10-11 (branch skill-marketplace): (2) `packages/runtime/src/skill-market.ts` reads omp's Skillshare,
+      OpenAI's and Anthropic's skill repositories (shallow copies, licenses shown), skills.sh (search and its public
+      audits; its lists need an account) and ClawHub (off until turned on, its trust verdict shown, a flagged skill
+      blocks as a critical scan finding); each install goes through the staging, scan and review. Settings → Skills →
+      Browse skills, `myrmidon skills search … --source` and `skills add <source>:<id>`. Left: (3).
 13. - [x] **Native UI phase 3+** — overlays, context menus, sheets, Settings as System Settings (spec
       2026-10-07-native-ui). Done 2026-10-09: sheets replace modals, context menus, ⌘K command menu, ⌘/ shortcuts,
       calm new chat, composer pop-ups, Settings like System Settings, old token names gone. Left: legacy.css clean-out,

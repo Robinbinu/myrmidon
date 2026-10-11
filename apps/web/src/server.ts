@@ -106,7 +106,9 @@ import {
   type SettingsStore,
   type SileroVad,
   type SkillLibrary,
+  SkillMarketplace,
   type SkillProposalStore,
+  type SkillView,
   type SmartTurn,
   type SpecialistInput,
   type SpecialistStore,
@@ -207,6 +209,8 @@ export interface ServeOptions {
   readonly memory?: MemoryStore
   /** Skills agents load by name. */
   readonly skills?: SkillLibrary
+  /** The public skill catalogs Settings → Skills browses; made from `skills` and `settings` unless given. */
+  readonly skillMarket?: SkillMarketplace
   /** The person's hooks (Claude Code format). */
   readonly hooks?: HookStore
   readonly plugins?: PluginStore
@@ -774,6 +778,19 @@ export function startServer(options: ServeOptions): WebServer {
   }
   const stopScheduler =
     options.schedules && chats ? startScheduler(options.schedules, runSchedule) : undefined
+  const skillMarket =
+    options.skillMarket ??
+    (options.skills &&
+      new SkillMarketplace(options.home, options.skills.installs, {
+        ...(settingsStore
+          ? {
+              toggles: {
+                get: () => settingsStore.get().skillMarket.sources,
+                set: (sources) => settingsStore.set({ ...settingsStore.get(), skillMarket: { sources } }),
+              },
+            }
+          : {}),
+      }))
   /** Plugins with whether their code is running, its log, and their settings (secrets shown only as set or not). */
   const pluginList = () =>
     (options.plugins?.list() ?? []).map((p) => {
@@ -2343,6 +2360,59 @@ export function startServer(options: ServeOptions): WebServer {
         DELETE: guard((req) => {
           options.skills?.installs.cancel(req.params.id ?? '')
           return json({ ok: true })
+        }),
+      },
+      // The skill marketplace: its sources, their lists and search, and fetching a skill to review. Installing it is
+      // the review's confirm above, as for every skill install.
+      '/api/skill-market': guard(() =>
+        skillMarket
+          ? json({ sources: skillMarket.sources() })
+          : json({ error: 'skills need the chat runtime' }, 503),
+      ),
+      '/api/skill-market/sources/:id': {
+        PUT: guard(async (req) => {
+          if (!skillMarket) return json({ error: 'skills need the chat runtime' }, 503)
+          const { enabled } = (await req.json().catch(() => ({}))) as { enabled?: unknown }
+          if (typeof enabled !== 'boolean') return json({ error: 'enabled must be true or false' }, 400)
+          try {
+            return json({ sources: skillMarket.setEnabled(req.params.id ?? '', enabled) })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 404)
+          }
+        }),
+      },
+      '/api/skill-market/browse': guard(async (_req, url) => {
+        if (!skillMarket) return json({ error: 'skills need the chat runtime' }, 503)
+        try {
+          return json(
+            await skillMarket.browse(
+              url.searchParams.get('source') ?? '',
+              (url.searchParams.get('view') ?? 'popular') as SkillView,
+            ),
+          )
+        } catch (err) {
+          return json({ error: err instanceof Error ? err.message : String(err) }, 422)
+        }
+      }),
+      '/api/skill-market/search': guard(async (_req, url) => {
+        if (!skillMarket) return json({ error: 'skills need the chat runtime' }, 503)
+        const sources = url.searchParams.get('sources')?.split(',').filter(Boolean)
+        try {
+          return json(await skillMarket.search(url.searchParams.get('q') ?? '', sources))
+        } catch (err) {
+          return json({ error: err instanceof Error ? err.message : String(err) }, 422)
+        }
+      }),
+      '/api/skill-market/install': {
+        POST: guard(async (req) => {
+          if (!skillMarket) return json({ error: 'skills need the chat runtime' }, 503)
+          const { ref } = (await req.json().catch(() => ({}))) as { ref?: unknown }
+          if (typeof ref !== 'string') return json({ error: 'give <source>:<id>' }, 400)
+          try {
+            return json({ preview: await skillMarket.prepare(ref) })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 422)
+          }
         }),
       },
       '/api/skills/:name/update': {
