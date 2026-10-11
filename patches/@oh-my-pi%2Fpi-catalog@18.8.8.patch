@@ -1,0 +1,17 @@
+diff --git a/src/provider-models/openai-compat.ts b/src/provider-models/openai-compat.ts
+index b25c78aebb4dc247433511f33b7bf7b23478f57c..0e6f339d356cb2608823edffcc2bbbe97c2695a2 100644
+--- a/src/provider-models/openai-compat.ts
++++ b/src/provider-models/openai-compat.ts
+@@ -1215,7 +1215,11 @@ export interface GroqModelManagerConfig {
+ }
+ 
+ export function groqModelManagerOptions(config?: GroqModelManagerConfig): ModelManagerOptions<"openai-completions"> {
+-	return createSimpleOpenAICompletionsOptions("groq", "https://api.groq.com/openai/v1", config);
++	// Groq's /models lists exactly what it serves: retired bundled ids answer 400 `model_decommissioned`.
++	return {
++		...createSimpleOpenAICompletionsOptions("groq", "https://api.groq.com/openai/v1", config),
++		dynamicModelsAuthoritative: true,
++	};
+ }
+ 
+ // ---------------------------------------------------------------------------
