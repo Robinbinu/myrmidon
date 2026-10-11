@@ -19,6 +19,8 @@ import {
 } from './install-sources.ts'
 import { MarketplaceStore } from './marketplaces.ts'
 import type { McpServerConfig } from './mcp.ts'
+import { combineScans, refuseBlocked, type SkillScan, scanSkill } from './skill-scan.ts'
+import { allowSkills, parseSkillFile } from './skills.ts'
 
 /**
  * Plugins: one folder that adds skills, slash commands, hooks and MCP servers, switched on and off as a unit. The
@@ -75,6 +77,8 @@ export interface PluginPreview {
   readonly commands: readonly string[]
   /** npm packages installing it also installs (their scripts are not run). */
   readonly dependencies: readonly string[]
+  /** What the skill scanner found in its skills (files named from the plugin's folder); none when it has no skills. */
+  readonly scan?: SkillScan
   /** For an update: what is installed now. */
   readonly replaces?: InstallPin
   readonly expiresAt: string
@@ -86,6 +90,8 @@ interface Held {
   origin: InstallOrigin
   pin: InstallPin
   replaces: boolean
+  /** The scan hash of each of its skills the scan blocks, recorded as allowed if the person installs it anyway. */
+  blocked: Record<string, string>
 }
 
 const NAME = /^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$/
@@ -140,6 +146,7 @@ export class PluginStore {
   readonly dir: string
   /** Claude Code marketplaces the person added, to browse and install plugins from. */
   readonly marketplaces: MarketplaceStore
+  private readonly _home: string
   private readonly _state: string
   private readonly _pending: PendingInstalls<Held>
 
@@ -148,6 +155,7 @@ export class PluginStore {
     private readonly fetchFn: FetchFn = (...a) => fetch(...a),
   ) {
     this.dir = join(home, 'plugins')
+    this._home = home
     this._state = join(home, 'plugins.json')
     this.marketplaces = new MarketplaceStore(home, fetchFn)
     this._pending = new PendingInstalls(join(home, 'installs', 'plugins'))
@@ -225,9 +233,11 @@ export class PluginStore {
 
   /**
    * Installs a reviewed plugin (or applies a reviewed update): its dependencies install with scripts off, it moves
-   * into place, and where it came from is recorded. A new plugin starts enabled: the person chose to add it.
+   * into place, and where it came from is recorded. A new plugin starts enabled: the person chose to add it. One with a
+   * skill the scan blocks needs `override` (the person's "install anyway"); without it the review stays open.
    */
-  async confirm(id: string): Promise<PluginInfo> {
+  async confirm(id: string, opts: { override?: boolean } = {}): Promise<PluginInfo> {
+    refuseBlocked(this._pending.peek(id)?.blocked ?? {}, opts.override)
     const held = this._pending.take(id)
     const content = join(held.dir, 'content')
     try {
@@ -251,6 +261,7 @@ export class PluginStore {
         installedAt: new Date().toISOString(),
       }
       this._save({ ...state, installed: { ...state.installed, [held.name]: record } })
+      allowSkills(this._home, held.blocked)
       if (!held.replaces) this.setEnabled(held.name, true)
       return this._get(held.name)
     } finally {
@@ -296,11 +307,20 @@ export class PluginStore {
       if (!replaces && existsSync(join(this.dir, name)))
         throw new Error(`a plugin called ${name} is already installed`)
       const version = found.version ?? pin.version ?? listedVersion
+      // Its skills by the name agents know them by (their SKILL.md), as the skill library lists them.
+      const scans = found.skills.flatMap((folder) => {
+        const at = join(content, 'skills', folder)
+        const parsed = parseSkillFile(readFileSync(join(at, 'SKILL.md'), 'utf8'))
+        return parsed ? [{ name: parsed.name, path: `skills/${folder}`, scan: scanSkill(at) }] : []
+      })
       const expiresAt = this._pending.hold(id, {
         name,
         origin,
         pin: { ...pin, ...(version ? { version } : {}) },
         replaces: !!replaces,
+        blocked: Object.fromEntries(
+          scans.filter((s) => s.scan.verdict === 'block').map((s) => [s.name, s.scan.hash]),
+        ),
       })
       return {
         id,
@@ -319,6 +339,7 @@ export class PluginStore {
         skills: found.skills,
         commands: found.commands.map((c) => c.name),
         dependencies: dependenciesOf(content),
+        ...(scans.length ? { scan: combineScans(scans) } : {}),
         ...(replaces
           ? {
               replaces: {
