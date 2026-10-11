@@ -2652,7 +2652,8 @@ export function NumberField(props: {
     if (next !== props.value) props.onChange(next)
   }
   return (
-    <div className="flex flex-col items-end gap-0.5">
+    // Never squeezed by a long hint beside it: a narrower box hides the number under the browser's step arrows.
+    <div className="flex shrink-0 flex-col items-end gap-0.5">
       <div className="flex items-center gap-2">
         <TextInput
           type="number"
