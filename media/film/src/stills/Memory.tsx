@@ -3,7 +3,7 @@ import { LedScreen } from '../components/Led.tsx'
 import { C, MONO } from '../theme.ts'
 import { Btn, Headline, Panel, PanelHead, Poster } from './kit.tsx'
 
-/** What Alex said, in the chat the suggestions come from. */
+/** What Robin said, in the chat the suggestions come from. */
 function Said() {
   return (
     <Panel tone="window" style={{ left: 88, top: 70, width: 812, height: 150 }}>
@@ -76,7 +76,7 @@ function Suggestions() {
         title="Suggested memories"
         right={<span style={{ fontSize: 16, fontWeight: 450, color: C.label4 }}>2 waiting for you</span>}
       />
-      <Suggestion kind="preference" text="Alex prefers TypeScript" />
+      <Suggestion kind="preference" text="Robin prefers TypeScript" />
       <Suggestion kind="decision" text="Deploys go through staging first" kept />
       <Suggestion kind="fact" text="Release notes go out on Fridays" last />
     </Panel>
@@ -106,7 +106,7 @@ function LearnedSkill() {
             <span style={{ fontFamily: MONO, fontWeight: 600 }}>ship-via-staging</span>
           </div>
           <div style={{ fontSize: 17, color: C.label3, marginTop: 6, lineHeight: 1.4 }}>
-            The same steps in 3 chats: build, test, deploy to staging, wait for Alex’s OK, promote.
+            The same steps in 3 chats: build, test, deploy to staging, wait for Robin’s OK, promote.
           </div>
         </div>
       </div>

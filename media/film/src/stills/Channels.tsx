@@ -4,7 +4,7 @@ import { LogoTile } from '../components/Led.tsx'
 import { C, MONO } from '../theme.ts'
 import { Btn, Headline, Panel, Poster } from './kit.tsx'
 
-type Line = { from: 'alex' | 'bot'; text: ReactNode }
+type Line = { from: 'robin' | 'bot'; text: ReactNode }
 
 /** One app's view of the same conversation, labelled by name only (no marks): when, and two lines of it. */
 const SURFACES: { app: string; color: string; where: string; time: string; lines: Line[]; x: number; y: number; rot: number }[] = [
@@ -14,7 +14,7 @@ const SURFACES: { app: string; color: string; where: string; time: string; lines
     where: 'on the train',
     time: '08:02',
     lines: [
-      { from: 'alex', text: 'Can the crew draft the Q3 investor update?' },
+      { from: 'robin', text: 'Can the crew draft the Q3 investor update?' },
       { from: 'bot', text: 'On it. nova is pulling the numbers.' },
     ],
     x: 70,
@@ -28,7 +28,7 @@ const SURFACES: { app: string; color: string; where: string; time: string; lines
     time: '10:15',
     lines: [
       { from: 'bot', text: 'Draft is ready: 4 pages.' },
-      { from: 'alex', text: 'Add churn by plan, please.' },
+      { from: 'robin', text: 'Add churn by plan, please.' },
     ],
     x: 365,
     y: 338,
@@ -40,7 +40,7 @@ const SURFACES: { app: string; color: string; where: string; time: string; lines
     where: 'at lunch',
     time: '12:40',
     lines: [
-      { from: 'alex', text: 'How is it going?' },
+      { from: 'robin', text: 'How is it going?' },
       { from: 'bot', text: 'Churn chart in. quill fixed two totals.' },
     ],
     x: 660,
@@ -53,7 +53,7 @@ const SURFACES: { app: string; color: string; where: string; time: string; lines
     where: 'on the bus',
     time: '17:05',
     lines: [
-      { from: 'alex', text: 'Send me the PDF?' },
+      { from: 'robin', text: 'Send me the PDF?' },
       { from: 'bot', text: <span style={{ fontFamily: MONO, fontSize: 16 }}>Q3-update.pdf</span> },
     ],
     x: 955,
@@ -63,7 +63,7 @@ const SURFACES: { app: string; color: string; where: string; time: string; lines
   {
     app: 'Email',
     color: '#c8c8d0',
-    where: 'alex@acme.dev',
+    where: 'robin@acme.dev',
     time: '17:06',
     lines: [
       { from: 'bot', text: 'Re: Q3 update, final' },
@@ -76,7 +76,7 @@ const SURFACES: { app: string; color: string; where: string; time: string; lines
 ]
 
 function Bubble(props: Line) {
-  const me = props.from === 'alex'
+  const me = props.from === 'robin'
   return (
     <div style={{ display: 'flex', justifyContent: me ? 'flex-end' : 'flex-start' }}>
       <div
@@ -131,7 +131,7 @@ function Surface(props: (typeof SURFACES)[number]) {
   )
 }
 
-/** The pairing request a stranger's first message raises: nothing reaches the crew until Alex approves the code. */
+/** The pairing request a stranger's first message raises: nothing reaches the crew until Robin approves the code. */
 function Pairing() {
   return (
     <Panel

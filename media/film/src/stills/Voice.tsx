@@ -5,7 +5,7 @@ import { LedScreen } from '../components/Led.tsx'
 import { C, CREW, FONT, MONO } from '../theme.ts'
 import { Headline, Panel, Poster } from './kit.tsx'
 
-/** The live waveform: Alex speaking, loudest in the middle of the phrase. */
+/** The live waveform: Robin speaking, loudest in the middle of the phrase. */
 function Wave(props: { width: number; height: number }) {
   const n = 64
   const bw = props.width / n
@@ -96,13 +96,13 @@ function CallWindow() {
         <Wave width={560} height={64} />
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: '16px 36px 0', borderTop: `1px solid ${C.separator}`, height: 210, paddingTop: 20 }}>
-        <Caption who="Alex" color={C.label2} dim>
+        <Caption who="Robin" color={C.label2} dim>
           Did the staging deploy go through?
         </Caption>
         <Caption who="Myrmidon" color={C.wink}>
           Yes. <span style={{ color: CREW.quill.color, fontWeight: 600 }}>quill</span> ran the tests and all 64 pass. Promote it?
         </Caption>
-        <Caption who="Alex" color={C.label2} live>
+        <Caption who="Robin" color={C.label2} live>
           Go ahead, and text me the link
         </Caption>
       </div>
