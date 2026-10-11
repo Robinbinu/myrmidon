@@ -127,7 +127,8 @@ with speech on your Mac or from any of 12 cloud speech services.
 ## Try it in two minutes
 
 **Download the app:** the [latest beta](https://github.com/Robinbinu/myrmidon/releases) has a macOS (Apple silicon)
-disk image. It is not notarized yet, so the first time, right-click Myrmidon in Applications and choose Open.
+disk image. It is signed but not yet notarized, so the first time macOS asks you to confirm: open it once, then
+choose **Open Anyway** in System Settings → Privacy & Security.
 
 **Or run it from source.** You need macOS, [Bun](https://bun.sh) 1.3.14 or newer, and one way to reach a model: sign in with Claude, ChatGPT,
 Gemini or GitHub Copilot, or use an API key (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, …).
