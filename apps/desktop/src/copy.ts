@@ -28,7 +28,7 @@ export const desktopCopy = {
     exited: (code: number | null) =>
       `The Myrmidon server stopped while starting (exit code ${code ?? 'unknown'}).`,
     timeout: (seconds: number) => `The Myrmidon server did not answer within ${seconds} seconds.`,
-    detail: 'Starting it from a terminal shows why: bun run myr serve',
+    detail: (path: string) => `The server's full output is in ${path}.`,
     ok: 'Quit',
   },
 
