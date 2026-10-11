@@ -15,7 +15,7 @@ const ALLOWED: Record<string, string> = {
   'packages/runtime/tests/oauth-page.test.ts':
     "reads omp's installed sign-in page to prove patches/ still applies",
   'packages/runtime/tests/catalog-patch.test.ts':
-    "reads omp's installed Groq discovery to prove patches/ still applies",
+    "loads omp's installed Groq discovery to prove patches/ still applies",
 }
 
 const sources = async () => {
