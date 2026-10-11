@@ -84,7 +84,8 @@ function kindOf(kind: string): MemoryKind {
   return kind as MemoryKind
 }
 
-// Relevance: lexical, so recall needs no embedding model and works offline on every platform.
+// Relevance: lexical, so recall needs no embedding model and works offline on every platform. Recall by meaning
+// (memory-vectors.ts) is added on top only once the person picks an embedding model, and falls back to this.
 
 const STOP = new Set(
   (
@@ -122,11 +123,31 @@ const DECAY: Record<MemoryKind, { k: number; eta: number }> = {
   lesson: { k: 0.7, eta: 1440 },
   fact: { k: 0.8, eta: 720 },
 }
-function freshness(m: Memory, now: number): number {
+export function freshness(m: Memory, now: number): number {
   const hours = (now - Date.parse(m.updatedAt)) / 3_600_000
   if (!Number.isFinite(hours) || hours <= 0) return 1
   const { k, eta } = DECAY[m.kind]
   return Math.exp(-((hours / eta) ** k))
+}
+
+/** Each memory's BM25 score for the words of `query`, in order; empty when the query or the list has none. */
+export function wordScores(memories: readonly Memory[], query: string): number[] {
+  const q = [...new Set(terms(query.slice(0, RECALL_QUERY_CHARS)))]
+  if (!q.length || !memories.length) return []
+  const docs = memories.map((m) => terms(m.text))
+  const avg = docs.reduce((n, d) => n + d.length, 0) / docs.length || 1
+  const df = new Map(q.map((w) => [w, docs.filter((d) => d.includes(w)).length]))
+  const k1 = 1.2
+  const b = 0.75
+  return docs.map((d) =>
+    q.reduce((score, w) => {
+      const tf = d.filter((x) => x === w).length
+      if (!tf) return score
+      const n = df.get(w) ?? 0
+      const idf = Math.log(1 + (docs.length - n + 0.5) / (n + 0.5))
+      return score + (idf * tf * (k1 + 1)) / (tf + k1 * (1 - b + (b * d.length) / avg))
+    }, 0),
+  )
 }
 
 /**
@@ -140,22 +161,8 @@ export function rankMemories(
   limit: number,
   now = Date.now(),
 ): Memory[] {
-  const q = [...new Set(terms(query.slice(0, RECALL_QUERY_CHARS)))]
-  if (!q.length || !memories.length) return []
-  const docs = memories.map((m) => terms(m.text))
-  const avg = docs.reduce((n, d) => n + d.length, 0) / docs.length || 1
-  const df = new Map(q.map((w) => [w, docs.filter((d) => d.includes(w)).length]))
-  const k1 = 1.2
-  const b = 0.75
-  const raw = docs.map((d) =>
-    q.reduce((score, w) => {
-      const tf = d.filter((x) => x === w).length
-      if (!tf) return score
-      const n = df.get(w) ?? 0
-      const idf = Math.log(1 + (docs.length - n + 0.5) / (n + 0.5))
-      return score + (idf * tf * (k1 + 1)) / (tf + k1 * (1 - b + (b * d.length) / avg))
-    }, 0),
-  )
+  const raw = wordScores(memories, query)
+  if (!raw.length) return []
   const top = Math.max(...raw)
   if (top <= 0) return []
   const scored = memories
@@ -183,10 +190,26 @@ export function rankMemories(
   return picked.map((p) => p.m)
 }
 
+/** Ranking by meaning (memory-vectors.ts), used by the async recall methods when the person picked an embedding model. */
+export interface MemoryMeaning {
+  /** The best `limit` of `memories` for `query`; undefined while no embedding model is picked. Throws when it fails. */
+  rank(
+    memories: readonly Memory[],
+    query: string,
+    limit: number,
+    known: ReadonlySet<string>,
+  ): Promise<Memory[] | undefined>
+  /** Whether two memories of one scope look alike by the vectors already kept, without calling the model. */
+  lookAlike(memories: readonly Memory[]): boolean
+}
+
 export class MemoryStore {
   private readonly _file: string
 
-  constructor(home: string) {
+  constructor(
+    home: string,
+    private readonly _meaning?: MemoryMeaning,
+  ) {
     this._file = join(home, 'memory.json')
   }
 
@@ -292,23 +315,21 @@ export class MemoryStore {
    * rest left for the agents' `recall`. Oldest first, as kept.
    */
   recall(project?: string, request = ''): Memory[] {
-    const kept = this.kept(project)
-    const size = (ms: readonly Memory[]) => ms.reduce((n, m) => n + m.text.length + 20, 0)
-    if (kept.length <= MEMORY_PROMPT_COUNT && size(kept) <= RECALL_CHARS) return kept
-    const preferences = kept
-      .filter((m) => m.kind === 'preference')
-      .reverse()
-      .slice(0, MEMORY_PROMPT_PREFERENCES)
-    const others = kept.filter((m) => !preferences.includes(m))
-    const relevant = rankMemories(others, request, MEMORY_PROMPT_COUNT - preferences.length)
-    const out: Memory[] = []
-    let chars = 0
-    for (const m of [...preferences, ...relevant]) {
-      chars += m.text.length + 20
-      if (chars > RECALL_CHARS) break
-      out.push(m)
-    }
-    return kept.filter((m) => out.includes(m))
+    const plan = carryPlan(this.kept(project))
+    return 'all' in plan
+      ? plan.all
+      : carry(plan, rankMemories(plan.others, request, MEMORY_PROMPT_COUNT - plan.preferences.length))
+  }
+
+  /** `recall`, ranked by meaning as well when the person picked an embedding model; by words if that fails. */
+  async recallFor(project?: string, request = ''): Promise<Memory[]> {
+    const plan = carryPlan(this.kept(project))
+    if ('all' in plan) return plan.all
+    const room = MEMORY_PROMPT_COUNT - plan.preferences.length
+    return carry(
+      plan,
+      (await this._byMeaning(plan.others, request, room)) ?? rankMemories(plan.others, request, room),
+    )
   }
 
   /** The `recall` tool: kept memories matching `query`, best first; with no words to match, the newest. */
@@ -317,11 +338,62 @@ export class MemoryStore {
     return terms(query).length ? rankMemories(kept, query, limit) : kept.slice(-limit).reverse()
   }
 
+  /** `search`, ranked by meaning as well when the person picked an embedding model; by words if that fails. */
+  async searchFor(query: string, limit: number, project?: string): Promise<Memory[]> {
+    if (!terms(query).length) return this.search(query, limit, project)
+    return (await this._byMeaning(this.kept(project), query, limit)) ?? this.search(query, limit, project)
+  }
+
+  /** Whether two kept memories of one scope look alike in meaning (only with an embedding model picked). */
+  lookAlike(memories: readonly Memory[]): boolean {
+    return this._meaning?.lookAlike(memories) ?? false
+  }
+
+  private async _byMeaning(memories: readonly Memory[], query: string, limit: number) {
+    if (!this._meaning || !memories.length) return undefined
+    try {
+      return await this._meaning.rank(memories, query, limit, new Set(this.list().map((m) => m.id)))
+    } catch (err) {
+      console.warn(
+        `memory recall by meaning failed, matching words: ${err instanceof Error ? err.message : err}`,
+      )
+      return undefined
+    }
+  }
+
   private _write(list: Memory[]) {
     const tmp = `${this._file}.${process.pid}.tmp`
     writeFileSync(tmp, `${JSON.stringify(list, null, 2)}\n`)
     renameSync(tmp, this._file)
   }
+}
+
+/**
+ * What a round's prompt carries of `kept`: all of it while it fits (MEMORY_PROMPT_COUNT, RECALL_CHARS); else the
+ * newest preferences, and the others to rank for the rest of the room.
+ */
+function carryPlan(
+  kept: Memory[],
+): { all: Memory[] } | { kept: Memory[]; preferences: Memory[]; others: Memory[] } {
+  const size = kept.reduce((n, m) => n + m.text.length + 20, 0)
+  if (kept.length <= MEMORY_PROMPT_COUNT && size <= RECALL_CHARS) return { all: kept }
+  const preferences = kept
+    .filter((m) => m.kind === 'preference')
+    .reverse()
+    .slice(0, MEMORY_PROMPT_PREFERENCES)
+  return { kept, preferences, others: kept.filter((m) => !preferences.includes(m)) }
+}
+
+/** The preferences, then the relevant ones while RECALL_CHARS holds; oldest first, as kept. */
+function carry(plan: { kept: Memory[]; preferences: Memory[] }, relevant: readonly Memory[]): Memory[] {
+  const out: Memory[] = []
+  let chars = 0
+  for (const m of [...plan.preferences, ...relevant]) {
+    chars += m.text.length + 20
+    if (chars > RECALL_CHARS) break
+    out.push(m)
+  }
+  return plan.kept.filter((m) => out.includes(m))
 }
 
 /** One line per memory for the prompt, e.g. `- [preference] Use British spelling`. */

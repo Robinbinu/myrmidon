@@ -48,6 +48,7 @@ import {
 } from './config.ts'
 import { parseGoal } from './goal.ts'
 import type { HookStore } from './hooks.ts'
+import type { KeepAwake } from './keep-awake.ts'
 import type { ToolLibrary } from './made-tools.ts'
 import type { McpHub } from './mcp.ts'
 import type { MediaTools } from './media.ts'
@@ -374,6 +375,8 @@ export class ChatService {
       shelf?: ChatShelf
       /** Claude Code and Codex sessions imported to start new chats from. */
       imports?: SessionImports
+      /** Keeps the computer awake while rounds run, when the person turned that on. */
+      keepAwake?: KeepAwake
     },
   ) {}
 
@@ -590,10 +593,12 @@ export class ChatService {
   private _own(run: ColonyRun) {
     mkdirSync(join(this.store.home, 'runs'), { recursive: true })
     writeFileSync(this._ownerFile(run.id), String(process.pid))
+    this.options.keepAwake?.hold(run.id)
   }
 
   private _release(run: ColonyRun) {
     rmSync(this._ownerFile(run.id), { force: true })
+    this.options.keepAwake?.release(run.id)
   }
 
   private _settling?: Promise<void>
@@ -818,7 +823,7 @@ export class ChatService {
     if (remotes) spec.remotes = remotes
     const fallbacks = this._fallbacks()
     if (fallbacks) spec.fallbacks = fallbacks
-    const memory = this.options.memory?.recall(project?.id, message) ?? []
+    const memory = (await this.options.memory?.recallFor(project?.id, message)) ?? []
     if (memory.length && spec.chat) spec.chat.memory = memoryLines(memory)
     const more = (this.options.memory?.kept(project?.id).length ?? 0) - memory.length
     if (more > 0 && spec.chat) spec.chat.memoryMore = more
@@ -1079,10 +1084,12 @@ export class ChatService {
         })
       }
     }
-    // Tidying up runs on its own clock, and only when two kept memories of one scope look alike.
+    // Tidying up runs on its own clock, and only when two kept memories of one scope look alike: in words, or in
+    // meaning by the vectors already kept when the person picked an embedding model.
+    const active = store.list().filter((m) => m.status === 'active')
     if (
       Date.now() - this._tidiedAt < MEMORY_REFLECT_EVERY_MS ||
-      !overlapping(store.list().filter((m) => m.status === 'active'))
+      !(overlapping(active) || store.lookAlike(active))
     )
       return
     await this.tidyMemories(lead)
