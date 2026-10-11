@@ -209,6 +209,8 @@ export interface ServerSettings {
     advisorModel?: string
     /** Prewalk's carry-out model; absent means the lead keeps its own. */
     carryOutModel?: string
+    /** The model naming chats and suggesting memories; absent means the cheapest one. */
+    smallModel?: string
     /** Models the lead, and the crew, go on with when theirs fails; absent from older servers. */
     leadFallbacks?: string[]
     workerFallbacks?: string[]
@@ -237,8 +239,10 @@ export interface ServerSettings {
   /** The global level of the permission model: the default preset, rules, who can use what. */
   permissions: GlobalPermissions
   profile?: { name?: string; greeting: 'model' | 'rules'; titles?: 'model' | 'first-message' }
-  /** Memory suggestions after chats; absent from older servers. */
-  memory?: { suggest: boolean }
+  /** Memory suggestions after chats, and recall by meaning with an embedding model; absent from older servers. */
+  memory?: { suggest: boolean; embeddingModel?: string }
+  /** Keep the computer awake while runs work; absent from older servers. */
+  power?: { keepAwake: boolean }
   mascot?: MascotPatch
   /** VS Code themes the person imported; absent from older servers. */
   appearance?: { imported: ImportedTheme[] }
@@ -281,6 +285,8 @@ export interface SettingsResponse {
   searchProviders: { id: string; label: string }[]
   /** Image models generate_image can use now, best first; absent from older servers. */
   imageModels?: string[]
+  /** Embedding models recall by meaning can use now, cheapest first; absent from older servers. */
+  embeddingModels?: string[]
   customApis: Api[]
   sandbox: string
   /** Paths of the person's keys and Myrmidon's data, as typed and in full: a readable folder that opens one is warned about. */
@@ -766,7 +772,13 @@ export function Settings(props: {
                 {section === 'instructions' && data && (
                   <InstructionsSection settings={data.settings} update={update} />
                 )}
-                {section === 'memory' && <MemorySection settings={data?.settings} update={update} />}
+                {section === 'memory' && (
+                  <MemorySection
+                    settings={data?.settings}
+                    embeddingModels={data?.embeddingModels ?? []}
+                    update={update}
+                  />
+                )}
                 {section === 'skills' && <SkillsSection />}
                 {section === 'plugins' && <PluginsSection />}
                 {section === 'hooks' && <HooksSection onDirty={setHooksDirty} />}
@@ -1050,6 +1062,15 @@ function General(props: {
                   true,
                 )
               }
+            />
+          </SettingField>
+        )}
+        {props.data && (
+          <SettingField id="general.keepAwake" inline>
+            <Switch
+              checked={props.data.settings.power?.keepAwake ?? false}
+              label={copy.settings.general.keepAwake}
+              onChange={(keepAwake) => props.update((s) => ({ ...s, power: { keepAwake } }), true)}
             />
           </SettingField>
         )}
@@ -2390,6 +2411,27 @@ function TeamSection(props: {
           }
         />
       </Card>
+      <SectionHeader
+        as="h3"
+        className="mb-2"
+        icon={<FEATURE_ICONS.smallJobs className="size-4 text-muted" />}
+        title={copy.settings.team.smallTitle}
+      />
+      <Card className="mb-8">
+        <OptionalModel
+          id="team.smallModel"
+          value={t.smallModel}
+          models={props.models}
+          choose={copy.settings.team.chooseSmall}
+          off={copy.settings.team.smallOff}
+          onChange={(smallModel) =>
+            props.update((s) => {
+              const { smallModel: _, ...team } = s.team
+              return { ...s, team: smallModel ? { ...team, smallModel } : team }
+            })
+          }
+        />
+      </Card>
       <SectionHeader as="h3" className="mb-2" title={copy.settings.team.limitsTitle} />
       <Card className="mb-8">
         <SettingField id="team.wallMinutes" inline>
@@ -2449,9 +2491,12 @@ function TeamSection(props: {
   )
 }
 
-/** An optional model (the advisor's, prewalk's carry-out), or a picker to choose one while there is none (off). */
+/**
+ * An optional model (the advisor's, prewalk's carry-out, small jobs'), or a picker to choose one while there is none
+ * (off, or automatic).
+ */
 function OptionalModel(props: {
-  id: 'team.advisorModel' | 'team.carryOutModel'
+  id: 'team.advisorModel' | 'team.carryOutModel' | 'team.smallModel'
   value?: string
   models: ModelOption[]
   /** The picker's label while there is none. */
@@ -2778,6 +2823,43 @@ function ImageModelSetting(props: {
         </SettingField>
       </Card>
     </>
+  )
+}
+
+/** The embedding model recall by meaning uses: off (words only, the default), or one the person's providers can run. */
+function EmbeddingModelSetting(props: {
+  models: string[]
+  chosen?: string | undefined
+  update(p: (s: ServerSettings) => ServerSettings, immediate?: boolean): void
+}) {
+  const t = copy.settings.memory
+  const { models, chosen } = props
+  return (
+    <SettingField
+      id="memory.embeddingModel"
+      {...(models.length || chosen ? {} : { hint: t.meaningNone })}
+      inline
+    >
+      <Select
+        value={chosen ?? ''}
+        onChange={(e) =>
+          props.update((s) => {
+            const { embeddingModel: _, ...memory } = s.memory ?? { suggest: true }
+            return { ...s, memory: e.target.value ? { ...memory, embeddingModel: e.target.value } : memory }
+          }, true)
+        }
+        aria-label={t.meaning}
+        className="min-w-44"
+      >
+        <option value="">{t.meaningOff}</option>
+        {chosen && !models.includes(chosen) && <option value={chosen}>{t.meaningGone(chosen)}</option>}
+        {models.map((ref) => (
+          <option key={ref} value={ref}>
+            {ref}
+          </option>
+        ))}
+      </Select>
+    </SettingField>
   )
 }
 
@@ -6130,6 +6212,8 @@ function memoryMatches(m: MemoryEntry, query: string): boolean {
  */
 function MemorySection(props: {
   settings?: ServerSettings | undefined
+  /** Embedding models recall by meaning can use now. */
+  embeddingModels: string[]
   update(p: (s: ServerSettings) => ServerSettings, immediate?: boolean): void
 }) {
   const toast = useToast()
@@ -6197,9 +6281,16 @@ function MemorySection(props: {
             <Switch
               checked={suggest}
               label={t.suggest}
-              onChange={(v) => props.update((s) => ({ ...s, memory: { suggest: v } }), true)}
+              onChange={(v) => props.update((s) => ({ ...s, memory: { ...s.memory, suggest: v } }), true)}
             />
           </SettingField>
+        )}
+        {props.settings && (
+          <EmbeddingModelSetting
+            models={props.embeddingModels}
+            update={props.update}
+            chosen={props.settings.memory?.embeddingModel}
+          />
         )}
         <CardRow {...settingRow('memory.tidy')}>
           <div className="flex items-center gap-3">

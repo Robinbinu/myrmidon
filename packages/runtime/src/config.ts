@@ -854,6 +854,22 @@ export const MEMORY_REFLECT_INPUT = 120
 export const MEMORY_REFLECT_MAX = 8
 export const MEMORY_REFLECT_EVERY_MS = 24 * 60 * 60_000
 export const MEMORY_REFLECT_OVERLAP = 0.4
+/**
+ * Recall by meaning (memory-vectors.ts), only once the person picks an embedding model: how the match by meaning, by
+ * words and freshness weigh (omp's mnemopi weighs vector 0.5, full text 0.3, importance 0.2; freshness stands in for
+ * importance), the least cosine a memory sharing no word with the request needs to count as related, the most texts
+ * one embedding call sends and how long it may take, and the cosine at which two kept memories of one scope look
+ * alike enough to tidy up. Any failure falls back to matching words.
+ */
+export const RECALL_VECTORS = {
+  vector: 0.5,
+  words: 0.3,
+  freshness: 0.2,
+  minCosine: 0.3,
+  batch: 64,
+  timeoutMs: 15_000,
+  overlapCosine: 0.85,
+} as const
 /** The most of a skill file an agent reads at once. */
 export const SKILL_MAX_FILE_CHARS = 40_000
 /** Bundled files listed per skill, so a big skill does not flood the agent. */

@@ -64,19 +64,25 @@ export function defaultModelRef(
   return (shown.find((m) => m.provider === provider) ?? shown[0])?.ref ?? preferred
 }
 
-/** The model that names chats (`titleModel`) among those the person can use and has not hidden. */
+/**
+ * The model that names chats and suggests memories: the person's small-jobs model (`team.smallModel`) while they can
+ * use it and have not hidden it, else the cheapest (`titleModel`) among those they can use and have not hidden.
+ */
 export function namingModel(omp: OmpRuntime, settings: SettingsStore | undefined, lead: string): string {
-  const prefs = settings?.get().models
+  const s = settings?.get()
+  const prefs = s?.models
   const hidden = new Set(prefs?.hidden ?? [])
   const hiddenProviders = new Set(prefs?.hiddenProviders ?? [])
-  const candidates = omp
+  const usable = omp
     .available()
     .filter((m) => !hidden.has(`${m.provider}/${m.id}`) && !hiddenProviders.has(m.provider))
-    .map((m) => ({
-      provider: m.provider,
-      id: m.id,
-      inputPrice: m.cost?.input ?? 0,
-      contextWindow: m.contextWindow ?? null,
-    }))
+  const chosen = s?.team.smallModel
+  if (chosen && usable.some((m) => `${m.provider}/${m.id}` === chosen)) return chosen
+  const candidates = usable.map((m) => ({
+    provider: m.provider,
+    id: m.id,
+    inputPrice: m.cost?.input ?? 0,
+    contextWindow: m.contextWindow ?? null,
+  }))
   return titleModel(candidates, lead)
 }
