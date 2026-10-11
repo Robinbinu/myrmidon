@@ -4,6 +4,7 @@ import { completeSimple, getEnvApiKey, type Model } from './omp/ai.ts'
 import { getBundledModel, getBundledProviders } from './omp/catalog.ts'
 import type { OmpRuntime } from './omp/runtime.ts'
 import { prompts } from './prompts.ts'
+import { tokensOf } from './tokens.ts'
 import type { ContextWindows } from './windows.ts'
 
 export interface ResolvedModel {
@@ -126,7 +127,7 @@ export function withOllamaContext(model: Model, options: StreamOptions): StreamO
       const body = ((await options?.onPayload?.(payload, m, signal)) ?? payload) as {
         options?: Record<string, unknown>
       }
-      const wanted = Math.ceil(JSON.stringify(body).length / 4) * 1.25 + 8_192
+      const wanted = tokensOf(JSON.stringify(body), m ?? model) * 1.25 + 8_192
       const size = 2 ** Math.ceil(Math.log2(wanted))
       return { ...body, options: { ...body.options, num_ctx: window ? Math.min(size, window) : size } }
     },

@@ -14,6 +14,7 @@ import { RULE_FILE_MAX_BYTES, RULES_MAX_FILES } from './config.ts'
 import type { StreamFn } from './omp/agent-core.ts'
 import type { AssistantMessage, AssistantMessageEvent, Message, ToolCall } from './omp/ai.ts'
 import { AssistantMessageEventStream } from './omp/ai.ts'
+import { editInspect } from './omp/natives.ts'
 import {
   parseRuleAgents,
   parseRuleConditionAndScope,
@@ -182,9 +183,20 @@ const text = (key: string) => (args: unknown) => {
   const value = (args as Record<string, unknown> | undefined)?.[key]
   return typeof value === 'string' ? value : undefined
 }
+/** A hashline fs_edit reads as the lines it adds, as omp digests its edit tool (editInspect); none while still partial. */
+const addedLines = (args: unknown) => {
+  const input = text('input')(args)
+  if (input === undefined) return undefined
+  try {
+    const added = editInspect('hashline', JSON.stringify({ input })).entries.map((e) => e.digest)
+    return added.filter(Boolean).join('\n') || undefined
+  } catch {
+    return undefined
+  }
+}
 const DIGESTS: Record<string, (args: unknown) => string | undefined> = {
   fs_write: text('content'),
-  fs_edit: text('new'),
+  fs_edit: (args) => text('new')(args) ?? addedLines(args),
   shell: text('command'),
   reply_user: text('text'),
   reply_person: text('text'),

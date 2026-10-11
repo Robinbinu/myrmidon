@@ -29,6 +29,7 @@ import type { ImageContent, Message, Model, TextContent, ToolResultMessage, Usag
 import * as snapcompact from './omp/snapcompact.ts'
 import { prompts } from './prompts.ts'
 import { hideInMessages, hideSecrets } from './provider-secrets.ts'
+import { tokensOf } from './tokens.ts'
 
 /**
  * Keeps an agent's context inside its model's window, like omp's and Claude Code's auto-compaction. Before each
@@ -105,19 +106,22 @@ const archiveOverhead = (shape: snapcompact.Shape) =>
   Math.ceil((2 * snapcompact.geometry(shape).capacity * 1.15) / 4) + 2_000
 
 /**
- * A rough token count for messages that have not been through the model yet. An image counts by its pixel size, as
- * providers bill it, not by the length of its base64 data.
+ * A token count for messages that have not been through the model yet, by the model's tokenizer (tokens.ts), each
+ * message as the JSON it travels in. An image counts by its pixel size, as providers bill it, not by the length of
+ * its base64 data.
  */
-function estimate(messages: readonly AgentMessage[]): number {
+function estimate(messages: readonly AgentMessage[], model: Model): number {
   let images = 0
-  const text = JSON.stringify(messages, (_key, value) => {
-    if (value?.type === 'image' && typeof value.data === 'string') {
-      images += estimateImageContentTokens(value)
-      return { type: 'image' }
-    }
-    return value
-  })
-  return Math.ceil(text.length / 4) + images
+  const parts = messages.map((m) =>
+    JSON.stringify(m, (_key, value) => {
+      if (value?.type === 'image' && typeof value.data === 'string') {
+        images += estimateImageContentTokens(value)
+        return { type: 'image' }
+      }
+      return value
+    }),
+  )
+  return tokensOf(parts, model) + images
 }
 
 export class ContextCompactor {
@@ -186,7 +190,7 @@ export class ContextCompactor {
       const from = this._fold?.upTo ?? 0
       if (cut <= from) continue
       // What the fold replaces: the previous fold and the messages up to the cut, as the last view sent them.
-      const replaced = estimate(this._view(messages).slice(0, (this._fold ? 1 : 0) + cut - from))
+      const replaced = this._estimate(this._view(messages).slice(0, (this._fold ? 1 : 0) + cut - from))
       const folded = messages.slice(from, cut).map((m) => this._shaken.get(m) ?? m)
       if (method === 'snapcompact') {
         if (!readsImages(model)) continue
@@ -202,7 +206,7 @@ export class ContextCompactor {
       // The summary's budget comes from the window it must fit in, not from the model writing it.
       const text = await this._summarize(folded, model, resolveBudgetReserveTokens(window, settings), signal)
       this._fold = { upTo: cut, method: 'summary', text }
-      after = after - replaced + estimate([this._foldMessage(this._fold)])
+      after = after - replaced + this._estimate([this._foldMessage(this._fold)])
       written = text.length
       methods.push('summary')
       break
@@ -336,7 +340,7 @@ export class ContextCompactor {
     for (const { index, region, placeholder } of plan) {
       const stored = messages[index] as AgentMessage
       const current = region.entry.message as ToolResultMessage
-      const before = estimate([current])
+      const before = this._estimate([current])
       // omp's shake rewrites the message in place; here the stored conversation stays whole, so it works on a copy.
       const copy = { ...current, content: [...current.content] }
       ;(region.entry as { message: AgentMessage }).message = copy as AgentMessage
@@ -348,7 +352,7 @@ export class ContextCompactor {
         copy.prunedAt = Date.now()
       }
       this._shaken.set(stored, copy as AgentMessage)
-      freed += before - estimate([copy as AgentMessage])
+      freed += before - this._estimate([copy as AgentMessage])
     }
     this._shook = true
     return Math.max(0, freed)
@@ -414,7 +418,7 @@ export class ContextCompactor {
         : [],
     }
     // The text edges have a floor of their own: on a small window they can cost more than the summary would.
-    const after = base + estimate([this._foldMessage(fold)])
+    const after = base + this._estimate([this._foldMessage(fold)])
     if (after > settled) return undefined
     return { fold, after, frames: archive?.frames.length ?? 0 }
   }
@@ -434,7 +438,7 @@ export class ContextCompactor {
       content: [{ type: 'text', text: (archive && snapcompact.archiveSourceText(archive)) ?? '' }],
       timestamp: 0,
     } as AgentMessage
-    const before = estimate([this._foldMessage(fold)])
+    const before = this._estimate([this._foldMessage(fold)])
     const text = await this._summarize([archived], model, reserve, signal, undefined)
     this._fold = { upTo: fold.upTo, method: 'summary', text }
     this.options.onCompacted({
@@ -444,7 +448,7 @@ export class ContextCompactor {
       methods: ['summary'],
       elided: 0,
       frames: 0,
-      tokensAfter: estimate([this._foldMessage(this._fold)]),
+      tokensAfter: this._estimate([this._foldMessage(this._fold)]),
     })
   }
 
@@ -501,6 +505,11 @@ export class ContextCompactor {
     } as AgentMessage
   }
 
+  /** Tokens these messages take for the model the agent calls now. */
+  private _estimate(messages: readonly AgentMessage[]): number {
+    return estimate(messages, this.options.model())
+  }
+
   private _view(messages: AgentMessage[]): AgentMessage[] {
     if (!this._fold && !this._shook) return messages
     const kept = messages.slice(this._fold?.upTo ?? 0).map((m) => this._shaken.get(m) ?? m)
@@ -516,9 +525,9 @@ export class ContextCompactor {
     for (let i = view.length - 1; i >= 0; i--) {
       const usage = (view[i] as { role?: string; usage?: Usage }).usage
       if ((view[i] as { role?: string }).role === 'assistant' && usage)
-        return calculateContextTokens(usage) + estimate(view.slice(i + 1))
+        return calculateContextTokens(usage) + this._estimate(view.slice(i + 1))
     }
-    return estimate(view)
+    return this._estimate(view)
   }
 
   /**
@@ -531,7 +540,7 @@ export class ContextCompactor {
     while (i > 0 && size < keep) {
       i -= 1
       const m = messages[i] as AgentMessage
-      size += estimate([this._shaken.get(m) ?? m])
+      size += this._estimate([this._shaken.get(m) ?? m])
     }
     while (i < messages.length && (messages[i] as { role?: string }).role === 'toolResult') i += 1
     return i

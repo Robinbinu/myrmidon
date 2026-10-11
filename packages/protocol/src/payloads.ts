@@ -599,6 +599,11 @@ export interface EventPayloads {
     ok: boolean
     output: string
     usage?: UsageInfo
+    /**
+     * The lines an fs_edit with hashline anchors changed, before and after (its arguments name line numbers, not the
+     * old and new text a replacement carries), for the person's diff.
+     */
+    change?: { before: string; after: string }
   }
   /** A message in the team chat, which everyone on the crew is in; `replyTo` is the number (seq) it answers. */
   'board/posted': { agent: string; text: string; mentions: string[]; replyTo?: number }

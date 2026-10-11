@@ -1407,7 +1407,8 @@ test('agents call MCP tools: read-only ones run at once, others wait for the per
 
 test('fs_edit changes part of a scratch file instead of rewriting it', async () => {
   const resolver = new ModelResolver()
-  scripted(resolver, 'mock/solo', [
+  // A model omp gives exact-text edits (DeepSeek); others edit by hashline anchors (the next test).
+  scripted(resolver, 'mock/deepseek-v4', [
     [tool('fs_write', { path: 'page.html', content: '<h1>Hello</h1>\n<p>draft</p>\n<p>draft</p>\n' })],
     [
       tool('fs_edit', { path: 'page.html', old: '<h1>Hello</h1>', new: '<h1>Weather</h1>' }),
@@ -1419,7 +1420,10 @@ test('fs_edit changes part of a scratch file instead of rewriting it', async () 
   ])
   judge(resolver)
   const chats = new ChatService(runtime, { resolver, classify: fixed('solo') })
-  const { colonyId } = await chats.send('Make a page', { ...solo('mock/solo'), judgeModel: 'mock/judge' })
+  const { colonyId } = await chats.send('Make a page', {
+    ...solo('mock/deepseek-v4'),
+    judgeModel: 'mock/judge',
+  })
   const s = await waitFor(colonyId)
   const results = (await events(colonyId))
     .filter((e) => e.type === 'tool/result')
@@ -1431,6 +1435,59 @@ test('fs_edit changes part of a scratch file instead of rewriting it', async () 
   const { BlobStore } = await import('@myrmidon/core')
   const text = await new BlobStore(join(home, 'colonies', colonyId, 'blobs')).text(blob)
   expect(text).toBe('<h1>Weather</h1>\n<p>final</p>\n<p>final</p>\n')
+})
+
+test('fs_edit with hashline anchors edits the lines fs_read showed, and refuses a stale anchor', async () => {
+  const resolver = new ModelResolver()
+  const tags: string[] = []
+  /** The header tag in the conversation's latest tool result, as the model would copy it. */
+  const tagIn = (ctx: LlmContext) => {
+    const last = ctx.messages.filter((m) => m.role === 'toolResult').at(-1)
+    const tag = /\[page\.html#([0-9A-F]{4})\]/.exec(JSON.stringify(last))?.[1]
+    if (!tag) throw new Error('no header in the last tool result')
+    tags.push(tag)
+    return tag
+  }
+  const input = (tag: string, ops: string) => `[page.html#${tag}]\n${ops}`
+  scripted(resolver, 'mock/solo', [
+    [tool('fs_write', { path: 'page.html', content: '<h1>Hello</h1>\n<p>draft</p>\n<p>draft</p>\n' })],
+    [tool('fs_read', { path: 'page.html' })],
+    (ctx) => [
+      tool('fs_edit', { path: 'page.html', input: input(tagIn(ctx), 'PUT 1.=1:\n+<h1>Weather</h1>\n') }),
+    ],
+    // The reply's header carries on: both drafts in one call, on the numbers that header showed.
+    (ctx) => [
+      tool('fs_edit', {
+        path: 'page.html',
+        input: input(tagIn(ctx), 'PUT 2.=2:\n+<p>final</p>\nPUT 3.=3:\n+<p>final</p>\n'),
+      }),
+    ],
+    // The first read's tag, on a line changed since: refused.
+    () => [tool('fs_edit', { path: 'page.html', input: input(tags[0] ?? '', 'PUT 2.=2:\n+<p>sunny</p>\n') })],
+    [tool('publish_artifact', { name: 'page.html', fromScratch: 'page.html' })],
+    [tool('reply_user', { text: 'Done.', final: true })],
+  ])
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo') })
+  const { colonyId } = await chats.send('Make a page', { ...solo('mock/solo'), judgeModel: 'mock/judge' })
+  const s = await waitFor(colonyId)
+  const log = await events(colonyId)
+  const results = log
+    .filter((e) => e.type === 'tool/result')
+    .map((e) => e.payload as EventPayloads['tool/result'])
+    .filter((r) => r.tool === 'fs_edit')
+  expect(results.map((r) => r.ok)).toEqual([true, true, false])
+  expect(results[2]?.output).toContain('Edit rejected for page.html')
+  // The person's diff comes with each anchored edit's result.
+  expect(results[0]?.change).toEqual({
+    before: '<h1>Hello</h1>\n<p>draft</p>\n<p>draft</p>',
+    after: '<h1>Weather</h1>\n<p>draft</p>\n<p>draft</p>',
+  })
+  const blob = s.artifacts['page.html']?.at(-1)?.blob ?? ''
+  const { BlobStore } = await import('@myrmidon/core')
+  const text = await new BlobStore(join(home, 'colonies', colonyId, 'blobs')).text(blob)
+  expect(text).toBe('<h1>Weather</h1>\n<p>final</p>\n<p>final</p>\n')
+  expect(new Set(tags).size).toBe(2)
 })
 
 test('plan mode presents the plan for approval before any work, and thinking can be set per chat', async () => {
