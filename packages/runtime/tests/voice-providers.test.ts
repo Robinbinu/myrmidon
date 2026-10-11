@@ -17,7 +17,7 @@ import { DeepgramStt, deepgramTts } from '../src/voice/cloud/deepgram.ts'
 import { ElevenLabsStt, elevenLabsTts, elevenLabsVoices } from '../src/voice/cloud/elevenlabs.ts'
 import { fishTts } from '../src/voice/cloud/fish.ts'
 import { GoogleStt, googleTts } from '../src/voice/cloud/google.ts'
-import { groqStt, openAiStt, openAiTts } from '../src/voice/cloud/openai.ts'
+import { GroqTts, groqStt, openAiStt, openAiTts, speechParts } from '../src/voice/cloud/openai.ts'
 import { rimeTts } from '../src/voice/cloud/rime.ts'
 import { speechmaticsStt } from '../src/voice/cloud/speechmatics.ts'
 import { ENDPOINT_DEFAULTS, VOICE_PROVIDERS, voiceProvider } from '../src/voice/providers.ts'
@@ -411,6 +411,38 @@ test('OpenAI and Groq transcribe an uploaded turn, and OpenAI speaks raw 24 kHz 
     voice: 'marin',
     response_format: 'pcm',
   })
+})
+
+test("Groq speaks a WAV per request, a sentence over Orpheus's 200 characters in parts", async () => {
+  const { api, seen } = httpServer(
+    () => new Response(wav(tone(480), 24_000), { headers: { 'content-type': 'audio/wav' } }),
+  )
+  const tts = new GroqTts({
+    key: 'gsk',
+    model: 'canopylabs/orpheus-v1-english',
+    voice: 'troy',
+    api: `${api}/openai/v1`,
+  })
+  expect(await tts.speak('Hi.')).toEqual({ pcm: tone(480), sampleRate: 24_000 })
+  expect(seen[0]?.url.pathname).toBe('/openai/v1/audio/speech')
+  expect(seen[0]?.headers.get('authorization')).toBe('Bearer gsk')
+  expect(JSON.parse(new TextDecoder().decode(seen[0]?.body))).toEqual({
+    model: 'canopylabs/orpheus-v1-english',
+    input: 'Hi.',
+    voice: 'troy',
+    response_format: 'wav',
+  })
+  const long = `${'word '.repeat(30)}then a clause, ${'and more words '.repeat(10)}to finish.`
+  const said = await tts.speak(long)
+  const inputs = seen.slice(1).map((s) => JSON.parse(new TextDecoder().decode(s.body)).input as string)
+  expect(inputs.length).toBe(2)
+  for (const input of inputs) expect(input.length).toBeLessThanOrEqual(200)
+  expect(inputs[0]).toEndWith('then a clause,')
+  expect(inputs.join(' ')).toBe(long.replace(/\s+/g, ' '))
+  expect(said.pcm.length).toBe(960)
+  // No space within the limit: cut at it.
+  expect(speechParts('x'.repeat(450), 200).map((p) => p.length)).toEqual([200, 200, 50])
+  expect(speechParts('  short  ', 200)).toEqual(['short'])
 })
 
 test('Google Cloud reads a turn in one request and its speech comes back as a WAV in base64', async () => {
