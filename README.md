@@ -18,7 +18,7 @@ build and check each other's work.
 
 </div>
 
-<a href="docs/assets/myrmidon-film.mp4"><img src="docs/assets/hero.webp" alt="Three agents research competitors, write the code and design the page in parallel, a reviewer stamps it 0.96, and the Myrmidon end card: one chat, a whole crew" width="100%"></a>
+<a href="docs/assets/myrmidon-film.mp4"><img src="docs/assets/hero.webp" alt="Three agents work an incident in parallel: nova finds the drop in the data, iris reproduces the failed payment on the Mac, quill fixes a rounding bug with a regression test, then the crew folds onto the task board" width="100%"></a>
 
 ---
 
@@ -48,40 +48,41 @@ to be installed or signed in.
 
 ## One evening with Myrmidon
 
-### 6:12 PM · You text it like a teammate
+### 11:12 PM · You text it like a teammate
 
-<img src="docs/assets/film-ask.webp" alt="A phone conversation with Myrmidon ends with the request to launch a pricing page tonight and check what competitors charge" width="100%">
+<img src="docs/assets/film-ask.webp" alt="Robin's phone: Myrmidon's alert that checkout conversion is down 18% since 21:40 with its chart dropping, and Robin's reply asking the crew to find out why, fix it and call back" width="100%">
 
-From Telegram, WhatsApp, iMessage or any of 30 apps, from the desktop app, or out loud: *"Launch our pricing page
-tonight. Check what competitors charge. Call me when it's live."*
+Checkout conversion just fell 18%. From Telegram, WhatsApp, iMessage or any of 30 apps, from the desktop app, or out
+loud: *"Checkout conversions dropped 18% overnight. Find out why, fix it, and call me."*
 
-### 6:13 PM · Your lead plans. A crew spawns.
+### 11:13 PM · Your lead plans. A crew spawns.
 
-<img src="docs/assets/film-crew.webp" alt="Three agents in parallel: nova researches competitor prices in a browser with sources, quill writes the pricing page in its own git worktree with 18 tests passing, and iris designs the cards using the Mac itself" width="100%">
+<img src="docs/assets/film-crew.webp" alt="Three agents in parallel: nova's notebook finds the drop is mobile, euro, since the 21:40 deploy; iris reproduces the failed payment in Safari on the Mac and saves a screenshot; quill fixes a euro rounding bug in its own git worktree and 412 tests pass" width="100%">
 
-The lead splits the job and brings in specialists, each on the model it is best at. **nova** reads competitors'
-sites in a real browser and cites every price. **quill** writes the page in its own git worktree until the tests
-pass. **iris** works the design app on your Mac itself, with an amber glow round the screen so you always know.
+The lead splits the job and brings in specialists, each on the model it is best at. **nova** queries the analytics
+in a notebook and finds the break: mobile, euros, since the 21:40 deploy. **iris** reproduces the failed payment on
+your Mac itself, with an amber glow round the screen so you always know. **quill** stops on a breakpoint in its own
+git worktree, finds a rounding bug, fixes it and writes the test that proves it.
 
-### 6:40 PM · They check each other
+### 11:40 PM · They check each other
 
-<img src="docs/assets/film-review.webp" alt="The task board done and a reviewer stamp: Reviewed 0.96, tests pass, sources checked" width="100%">
+<img src="docs/assets/film-review.webp" alt="The task board done, the crew's messages to each other, and the reviewer's verdict: Reviewed, score 0.97, root cause confirmed, regression test added, 412 passed" width="100%">
 
-Crewmates talk on a shared board, hand work over and reject what isn't right. Nothing is done until an independent
-reviewer runs the tests and checks the sources. Agents can't mark their own work as verified.
+Crewmates message each other, hand work over and reject what isn't right. Nothing is done until an independent
+reviewer runs the tests and confirms the root cause. Agents can't mark their own work as verified.
 
-### 6:41 PM · You stay in charge
+### 11:41 PM · You stay in charge
 
-<img src="docs/assets/film-trust.webp" alt="An approval card, Publish to production, allowed by Robin and logged as event 2047, over the append-only event log" width="100%">
+<img src="docs/assets/film-trust.webp" alt="An approval card, Deploy hotfix to production, allowed by Robin and logged as event 2047, over the append-only event log" width="100%">
 
 Everything runs in macOS's sandbox. Anything that matters waits for your yes, and every step is written to a log
 that can't be edited or deleted. Rewind any change to your project.
 
-### 6:45 PM · It calls you back
+### 11:45 PM · It calls you back
 
-<img src="docs/assets/film-call.webp" alt="Myrmidon calls back: the pricing page is live, $10 below the average competitor" width="100%">
+<img src="docs/assets/film-call.webp" alt="Myrmidon calls back: a rounding bug in euro checkout, fixed, tested and deployed, and the conversion chart climbs back" width="100%">
 
-*"Pricing page is live. You're $10 below the average competitor."*
+*"Found it: a rounding bug in euro checkout. Fixed, tested and deployed. Conversions are back."*
 
 ## And there's more
 

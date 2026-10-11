@@ -6,16 +6,20 @@
   "scripts": {
     "studio": "remotion studio",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "render": "remotion render Film out/film-master.mp4",
+    "render": "remotion render Film out/film-master.mp4 --crf=12",
     "deliver": "bash scripts/deliver.sh",
     "stills": "node scripts/stills.mjs"
   },
   "dependencies": {
     "@fontsource-variable/geist": "5.3.0",
     "@fontsource-variable/geist-mono": "5.3.0",
+    "@lobehub/icons-static-svg": "1.95.1",
     "@remotion/bundler": "4.0.534",
     "@remotion/cli": "4.0.534",
+    "@remotion/layout-utils": "4.0.534",
+    "@remotion/motion-blur": "4.0.534",
     "@remotion/renderer": "4.0.534",
+    "lucide-react": "1.52.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "remotion": "4.0.534"

@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { ChannelMark } from '../components/Brand.tsx'
 import { Icon } from '../components/Icon.tsx'
 import { LogoTile } from '../components/Led.tsx'
 import { C, MONO } from '../theme.ts'
@@ -6,11 +7,10 @@ import { Btn, Headline, Panel, Poster } from './kit.tsx'
 
 type Line = { from: 'robin' | 'bot'; text: ReactNode }
 
-/** One app's view of the same conversation, labelled by name only (no marks): when, and two lines of it. */
-const SURFACES: { app: string; color: string; where: string; time: string; lines: Line[]; x: number; y: number; rot: number }[] = [
+/** One app's view of the same conversation, labelled with its mark and name: when, and two lines of it. */
+const SURFACES: { app: string; where: string; time: string; lines: Line[]; x: number; y: number; rot: number }[] = [
   {
     app: 'Telegram',
-    color: '#26A5E4',
     where: 'on the train',
     time: '08:02',
     lines: [
@@ -23,7 +23,6 @@ const SURFACES: { app: string; color: string; where: string; time: string; lines
   },
   {
     app: 'Slack',
-    color: '#E01E5A',
     where: '#launch',
     time: '10:15',
     lines: [
@@ -36,7 +35,6 @@ const SURFACES: { app: string; color: string; where: string; time: string; lines
   },
   {
     app: 'WhatsApp',
-    color: '#25D366',
     where: 'at lunch',
     time: '12:40',
     lines: [
@@ -49,7 +47,6 @@ const SURFACES: { app: string; color: string; where: string; time: string; lines
   },
   {
     app: 'iMessage',
-    color: '#34DA50',
     where: 'on the bus',
     time: '17:05',
     lines: [
@@ -62,7 +59,6 @@ const SURFACES: { app: string; color: string; where: string; time: string; lines
   },
   {
     app: 'Email',
-    color: '#c8c8d0',
     where: 'robin@acme.dev',
     time: '17:06',
     lines: [
@@ -117,7 +113,7 @@ function Surface(props: (typeof SURFACES)[number]) {
           background: '#141418',
         }}
       >
-        <span style={{ width: 10, height: 10, borderRadius: 99, background: props.color, boxShadow: `0 0 10px ${props.color}88` }} />
+        <ChannelMark id={props.app.toLowerCase()} size={22} style={{ marginLeft: -4 }} />
         <span style={{ fontSize: 18, fontWeight: 650 }}>{props.app}</span>
         <span style={{ fontSize: 15, color: C.label4, flex: 1, overflow: 'hidden', whiteSpace: 'nowrap' }}>{props.where}</span>
         <span style={{ fontFamily: MONO, fontSize: 14, color: C.label3 }}>{props.time}</span>

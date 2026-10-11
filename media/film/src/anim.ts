@@ -6,6 +6,22 @@ export const EASE = Easing.bezier(0.2, 0.8, 0.2, 1)
 export const EASE_IN = Easing.bezier(0.55, 0, 0.75, 0.2)
 export const EASE_IN_OUT = Easing.bezier(0.65, 0, 0.35, 1)
 
+/** GSAP's ease vocabulary, as bezier curves: arrivals, camera moves, wind-ups. */
+export const EASES = {
+  /** power2.out: UI settling. */
+  out: Easing.bezier(0.33, 1, 0.68, 1),
+  /** expo.out: a fast arrival that glides to rest. */
+  expoOut: Easing.bezier(0.16, 1, 0.3, 1),
+  /** power3.inOut: the camera, and anything that travels across the frame. */
+  inOut: Easing.bezier(0.65, 0, 0.35, 1),
+  /** power2.in: leaving. */
+  in: Easing.bezier(0.32, 0, 0.67, 0),
+  /** back.in: the wind-up before a throw. */
+  backIn: Easing.bezier(0.36, 0, 0.66, -0.56),
+  /** back.out: an arrival with a little overshoot. */
+  backOut: Easing.bezier(0.34, 1.56, 0.64, 1),
+} as const
+
 /** Interpolates `frame` across [a, b] to [from, to], clamped, eased. */
 export function tween(frame: number, a: number, b: number, from = 0, to = 1, easing = EASE): number {
   return interpolate(frame, [a, b], [from, to], {
@@ -67,4 +83,34 @@ export function quad(
 export function typed(text: string, frame: number, start: number, cps: number): string {
   const n = clamp(Math.floor(((frame - start) / FPS) * cps), 0, text.length)
   return text.slice(0, n)
+}
+
+/** One key of a multi-key track: a value at a frame, eased into from the key before. */
+export interface Key {
+  f: number
+  v: number
+  ease?: (t: number) => number
+}
+
+/** A value along keys, like a GSAP timeline of `to()` tweens: each segment eases with its destination key's ease. */
+export function track(frame: number, keys: readonly Key[]): number {
+  const first = keys[0]
+  if (!first) throw new Error('track needs at least one key')
+  if (frame <= first.f) return first.v
+  for (let i = 1; i < keys.length; i++) {
+    const a = keys[i - 1] as Key
+    const b = keys[i] as Key
+    if (frame <= b.f) return lerp(a.v, b.v, (b.ease ?? EASES.inOut)((frame - a.f) / Math.max(1, b.f - a.f)))
+  }
+  return (keys[keys.length - 1] as Key).v
+}
+
+/** 0 before `a`, 1 from `a + inF` to `b - outF`, 0 after `b`: a window's presence, eased at both edges. */
+export function presence(frame: number, a: number, b: number, inF = 18, outF = 18): number {
+  return Math.min(tween(frame, a, a + inF, 0, 1, EASES.out), 1 - tween(frame, b - outF, b, 0, 1, EASES.in))
+}
+
+/** A gentle idle wobble in px or degrees: the drift that keeps a held frame alive. */
+export function drift(frame: number, seed: number, amp = 1, speed = 0.012): number {
+  return noise(frame * speed, seed) * amp
 }

@@ -18,10 +18,15 @@ export const C = {
   label4: '#5c5c66',
   accent: '#ffb31a',
   accentSoft: 'rgba(255,179,26,0.14)',
+  onAccent: '#1a1204',
+  bubble: '#2a2a31',
   wink: '#ffcf5c',
   ok: '#3ddc84',
   okSoft: 'rgba(61,220,132,0.11)',
   warn: '#ff8a4c',
+  warnSoft: 'rgba(255,138,76,0.12)',
+  badSoft: 'rgba(255,99,105,0.11)',
+  sidebar: '#0d0d10',
   bad: '#ff6369',
   add: '#0f2a1d',
   del: '#351719',
@@ -48,6 +53,13 @@ export const CREW = {
   iris: { name: 'iris', role: 'designer', model: 'Gemini', color: '#4d7cff', form: 'ball' },
 } as const
 export type CrewName = keyof typeof CREW
+
+/** The crew as the film casts them: the incident gives each the job it does there (the posters keep CREW's). */
+export const CAST = {
+  nova: { ...CREW.nova, role: 'analyst' },
+  quill: { ...CREW.quill, role: 'engineer' },
+  iris: { ...CREW.iris, role: 'tester' },
+} as const satisfies Record<CrewName, { role: string }>
 
 export const FONT = '"Geist Variable", "Geist", -apple-system, system-ui, sans-serif'
 export const MONO = '"Geist Mono Variable", "Geist Mono", ui-monospace, Menlo, monospace'

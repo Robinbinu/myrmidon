@@ -1,37 +1,66 @@
-import type { ComponentType } from 'react'
-import { AbsoluteFill, Sequence } from 'remotion'
+import { AbsoluteFill, getInputProps, useCurrentFrame } from 'remotion'
+import { OverlapProbe } from './components/Debug.tsx'
+import { Caption } from './components/Text.tsx'
+import { Backdrop, Camera, Lens } from './components/World.tsx'
+import { useFontsReady } from './fonts.ts'
+import { AppLayer } from './shots/App.tsx'
+import { BubbleFlight, PhoneAsk } from './shots/Ask.tsx'
+import { AuditLog, Board, FoldFlight, StampAndApproval } from './shots/Board.tsx'
+import { Call } from './shots/Call.tsx'
+import { LoneCaret, QuestionDots } from './shots/Composer.tsx'
+import { MailLane, PanelCursors, Panels, SpawnFlight } from './shots/Crew.tsx'
+import { End } from './shots/End.tsx'
+import { BurstDots, Reach } from './shots/Reach.tsx'
+import { Scatter } from './shots/Scatter.tsx'
+import { Soundtrack } from './Soundtrack.tsx'
+import { BEAT, CAPTIONS, cameraAt, glowAt, worldFade } from './timeline.ts'
 import { C } from './theme.ts'
-import { Ask } from './scenes/Ask.tsx'
-import { Call } from './scenes/Call.tsx'
-import { Coord } from './scenes/Coord.tsx'
-import { Crew } from './scenes/Crew.tsx'
-import { End } from './scenes/End.tsx'
-import { Opening } from './scenes/Opening.tsx'
-import { Reach } from './scenes/Reach.tsx'
-import { Trust } from './scenes/Trust.tsx'
 
-/** The cut: each scene's first frame and length. Neighbours overlap by a short cross-dissolve. */
-export const SCENES: { name: string; from: number; dur: number; Scene: ComponentType<{ dur: number }> }[] = [
-  { name: 'Opening', from: 0, dur: 640, Scene: Opening },
-  { name: 'Ask', from: 625, dur: 430, Scene: Ask },
-  { name: 'Crew', from: 1040, dur: 800, Scene: Crew },
-  { name: 'Coord', from: 1825, dur: 490, Scene: Coord },
-  { name: 'Trust', from: 2300, dur: 430, Scene: Trust },
-  { name: 'Call', from: 2715, dur: 490, Scene: Call },
-  { name: 'Reach', from: 3190, dur: 380, Scene: Reach },
-  { name: 'End', from: 3555, dur: 375, Scene: End },
-]
+export { FILM_FRAMES } from './timeline.ts'
 
-export const FILM_FRAMES = Math.max(...SCENES.map((s) => s.from + s.dur))
-
+/**
+ * The film: one world under one camera (beats 1–6), the call, the reach and the end card in screen space (beats 7–9),
+ * the captions above everything in their own band, and the lens over all of it. Every shot reads the global frame, so
+ * the objects that cross from one shot into the next are the same objects.
+ */
 export function Film() {
+  const ready = useFontsReady()
+  const f = useCurrentFrame()
+  if (!ready) return <AbsoluteFill style={{ background: C.black }} />
+  const cam = cameraAt(f)
+  const fade = worldFade(f)
+  const debug = Boolean(getInputProps().debug)
   return (
     <AbsoluteFill style={{ background: C.black }}>
-      {SCENES.map(({ name, from, dur, Scene }) => (
-        <Sequence key={name} name={name} from={from} durationInFrames={dur}>
-          <Scene dur={dur} />
-        </Sequence>
+      <Backdrop cam={cam} glow={glowAt(f)} />
+      {fade.opacity > 0.001 && (
+        <Camera cam={cam} opacity={fade.opacity} blur={fade.blur}>
+          <Scatter />
+          <AppLayer f={f} rowsGone={f >= BEAT.spawn} />
+          <LoneCaret f={f} />
+          <QuestionDots f={f} />
+          <PhoneAsk f={f} />
+          <BubbleFlight f={f} />
+          <Panels f={f} />
+          <SpawnFlight f={f} />
+          <PanelCursors f={f} />
+          <Board f={f} />
+          <FoldFlight f={f} />
+          <AuditLog f={f} />
+          <StampAndApproval f={f} />
+        </Camera>
+      )}
+      <Call f={f} />
+      <Reach f={f} />
+      <End f={f} />
+      <BurstDots f={f} />
+      <MailLane f={f} />
+      {CAPTIONS.map((c) => (
+        <Caption key={c.text} {...c} />
       ))}
+      <Lens />
+      <Soundtrack />
+      {debug && <OverlapProbe />}
     </AbsoluteFill>
   )
 }
