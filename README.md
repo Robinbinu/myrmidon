@@ -11,7 +11,7 @@ build and check each other's work.
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache_2.0-blue.svg)](LICENSE)
 [![Platform: macOS](https://img.shields.io/badge/platform-macOS-black?logo=apple)](#status)
 [![Runtime: Bun](https://img.shields.io/badge/runtime-Bun_%E2%89%A51.3.14-f9f1e1?logo=bun&logoColor=black)](https://bun.sh)
-[![Status: alpha](https://img.shields.io/badge/status-alpha-orange.svg)](#status)
+[![Status: beta](https://img.shields.io/badge/status-beta-orange.svg)](#status)
 
 **[▶ Watch the film](docs/assets/myrmidon-film.mp4)** · **[Try it in two minutes](#try-it-in-two-minutes)** ·
 **[★ Star it](https://github.com/Robinbinu/myrmidon)**
@@ -125,7 +125,10 @@ with speech on your Mac or from any of 12 cloud speech services.
 
 ## Try it in two minutes
 
-You need macOS, [Bun](https://bun.sh) 1.3.14 or newer, and one way to reach a model: sign in with Claude, ChatGPT,
+**Download the app:** the [latest beta](https://github.com/Robinbinu/myrmidon/releases) has a macOS (Apple silicon)
+disk image. It is not notarized yet, so the first time, right-click Myrmidon in Applications and choose Open.
+
+**Or run it from source.** You need macOS, [Bun](https://bun.sh) 1.3.14 or newer, and one way to reach a model: sign in with Claude, ChatGPT,
 Gemini or GitHub Copilot, or use an API key (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, …).
 
 ```bash
@@ -350,7 +353,7 @@ follow the app without the runtime changing.
 
 ## Status
 
-Myrmidon is **alpha** and built for **macOS first**. It works end to end and is used every day, but APIs, the
+Myrmidon is in **beta** and built for **macOS first**. It works end to end and is used every day, but APIs, the
 event schema and storage formats will still change. Linux and Windows are next: the code is portable, and what is
 left is tracked in [#27](https://github.com/Robinbinu/myrmidon/issues/27) (Linux) and
 [#28](https://github.com/Robinbinu/myrmidon/issues/28) (Windows). See the [roadmap](ROADMAP.md).
@@ -365,8 +368,8 @@ Myrmidon is big, and there is room for you in it:
   is a great first pull request.
 - **Eval cases** in [`apps/eval`](apps/eval), and the agent docs in [`packages/runtime/docs`](packages/runtime/docs).
 
-Before a pull request, run `bun run check` (types, lint and the full suite); keep changes focused and match the
-surrounding style. `bun run dev` serves the app with hot reload. Found a bug?
+Before a pull request, read [CONTRIBUTING.md](CONTRIBUTING.md) and run `bun run check` (types, lint and the full
+suite); keep changes focused and match the surrounding style. `bun run dev` serves the app with hot reload. Found a bug?
 [Report it](https://github.com/Robinbinu/myrmidon/issues/new).
 
 **If Myrmidon is useful to you, star it.** It's the simplest way to help more people find it.
