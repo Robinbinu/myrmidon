@@ -159,12 +159,13 @@ export function FeatureVoice() {
         <span style={{ fontFamily: MONO, fontSize: 20, color: C.wink, letterSpacing: '0.02em' }}>+1 (555) 010-4477</span>
         <span style={{ fontSize: 16, color: C.label3, marginLeft: 12 }}>approved callers only</span>
       </SideCard>
-      <SideCard top={644} icon="mic" title="Local speech, or 12 cloud voices">
+      <SideCard top={644} icon="mic" title="Local speech, or 12 cloud speech services">
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <span style={{ ...chip, color: C.wink, boxShadow: 'inset 0 0 0 1px rgba(255,179,26,0.35)' }}>on this Mac · free</span>
+          <span style={chip}>ElevenLabs</span>
+          <span style={chip}>Deepgram</span>
           <span style={chip}>OpenAI</span>
-          <span style={chip}>xAI</span>
-          <span style={chip}>Gemini</span>
+          <span style={chip}>+9 more</span>
         </div>
       </SideCard>
     </Poster>
