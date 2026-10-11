@@ -1512,10 +1512,10 @@ export class ColonyRun implements ColonyHost {
   }
 
   /** The kept memories best matching `query` that this chat may use, with the ids remember's `replaces` takes. */
-  recallMemory(query: string): string {
+  async recallMemory(query: string): Promise<string> {
     const store = this.options.memory
     if (!store) throw new Error('memory is not available in this run')
-    const found = store.search(query, RECALL_TOOL_COUNT, this.spec.chat?.project?.id)
+    const found = await store.searchFor(query, RECALL_TOOL_COUNT, this.spec.chat?.project?.id)
     if (!found.length) return prompts.colony.recallNone
     return prompts.colony.recalled(
       found.map((m) =>

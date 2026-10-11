@@ -571,7 +571,7 @@ Open work, in the order it will be done:
          preferences and the most relevant (BM25, freshness, MMR) with `recall` for the rest; a cheap model suggests
          memories from what the person said after a round (quoting them, never secrets) and merges for repeats or
          stale ones (Tidy up, or daily when two overlap); agents correct one with remember's `replaces`; all wait for
-         the person. Left: embeddings (lexical recall misses synonyms); memory for channel members' rounds.
+         the person. Embeddings done 2026-10-10 (12ab.6). Left: memory for channel members' rounds.
       2. Debugger for agents over the Debug Adapter Protocol (omp dap). Done: the debug tool (debugger.ts).
       3. Live session sharing: another person joins a chat live (omp collab). Done: Share live… in a chat's menu
          makes a one-time invite (watch, or watch and write); guests see only that chat's conversation, write
@@ -645,13 +645,34 @@ Open work, in the order it will be done:
          crew isolation for projects that are not git repos, and faster than worktrees on big ones.
       4. Real token counts (`countTokens`, o200k/cl100k) instead of chars/4 in compaction.ts and models.ts.
       5. Code summaries for reads (pi-ast `summarizeCode`) — fs_read of a big file returns its structure first.
-      6. Vector helpers (`vectorIndexTopK`, `cosineSimilarityPairs`, `mmrRerankIndices`) for memory recall once
-         there are embeddings (12y.1 left: lexical recall misses synonyms).
-      7. Apple on-device model (`appleFmGenerate`, macOS 26+) — free, offline cheap model for chat names and
-         memory suggestions.
-      8. Keep the Mac awake while a round runs (`PowerAssertion`).
+      6. [x] Vector helpers (`vectorIndexTopK`, `cosineSimilarityPairs`, `mmrRerankIndices`) for memory recall once
+         there are embeddings (12y.1 left: lexical recall misses synonyms). Done 2026-10-10 (branch
+         omp-natives-extras, memory-vectors.ts): Settings → Memory → Recall by meaning picks an embedding model omp
+         can call (pi-ai's `openai-embeddings`: an OpenAI or OpenRouter key; omp's mnemopi would download a local
+         ONNX model or need its own endpoint and key instead). Off by default, and word matching is unchanged and
+         stays the fallback on any failure. With one, the prompt's memories (once they no longer all fit) and
+         `recall` blend cosine, BM25 and freshness (mnemopi's 0.5/0.3/0.2), then native MMR; each memory is embedded
+         once (`memory-vectors.json`), each request once; tidying up also runs when two kept vectors of one scope
+         pass cosine 0.85 (`cosineSimilarityPairs`). Not tried against a live provider (wiring checked with a faked
+         HTTP response).
+      7. [x] Apple on-device model (`appleFmGenerate`, macOS 26+) — free, offline cheap model for chat names and
+         memory suggestions. Done 2026-10-10: omp's model registry already offers it (`apple/on-device`, keyless,
+         darwin-arm64 only, listed only while `appleFmAvailability` says usable) and pi-ai streams it, so it shows in
+         every model picker where the Mac has it. New Settings → Crew & budget → Small jobs (`team.smallModel`)
+         picks the model that names chats and suggests memories; unset it is the cheapest priced model as before,
+         so the on-device model (price 0) is never picked on its own. Naming a chat on it took 2.4 s here. Its 8k
+         context can be too small for memory suggestions with many memories: those fall back to the lead's model.
+      8. [x] Keep the Mac awake while a round runs (`PowerAssertion`). Done 2026-10-10 (keep-awake.ts): Settings →
+         General → Keep the computer awake during runs, off by default; idle sleep only (the screen may sleep), held
+         from the first running round to the last, released when the setting goes off. omp's assertion also covers
+         Linux (login1) and Windows; a failure only logs. No keep-awake existed in apps/desktop.
       9. Smaller: `fuzzyFind` for find, `diffLines`/`structuredPatchHunks` for previews, `FileLock` across
-         processes, `watch`, jj repos (`vcsJjDiscover`), `renderMermaidAscii`.
+         processes, `watch`, jj repos (`vcsJjDiscover`), `renderMermaidAscii`. Looked at 2026-10-10, none taken:
+         `find` is semantic (jfind's grep prior and a judge), not path lookup, and the file browser's filter is a
+         substring match over the repository's file list with the secret guard, which fuzzyFind's own walk would
+         bypass and reorder; the only hand-built diff is apps/web/src/client/diff.ts, in the browser, where natives
+         cannot run (server diffs come from the VCS); nothing renders Mermaid (a candidate for channel replies, where
+         a mermaid block shows as source). Left: `FileLock`, `watch`, `vcsJjDiscover`.
       Not needed: desktop (Cua Driver covers computer use), terminal keys/sixel/width (no TUI), pi-voice (own stack).
       Each goes through packages/runtime/src/omp/natives.ts.
 12l. - [x] **Full access, no sandbox** (asked 2026-10-09, like Hermes) — global switch in Settings → Tools (default on)
