@@ -2,7 +2,16 @@ import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve, sep } from 'node:path'
-import { freePort, myrmidonHome, overlayUrl, pageUrl, runningServer, startServer } from '../src/server.ts'
+import {
+  freePort,
+  myrmidonHome,
+  overlayUrl,
+  pageUrl,
+  runningServer,
+  ServerStartError,
+  serverLogPath,
+  startServer,
+} from '../src/server.ts'
 
 const FAKE = [process.execPath, join(import.meta.dir, 'fake-cli.ts')]
 let home: string
@@ -41,10 +50,20 @@ test('a server.json whose server has gone is removed, so nothing takes it for a 
   expect(existsSync(file)).toBe(false)
 })
 
-test('a server that exits while starting is reported, not waited on', async () => {
-  await expect(
-    startServer({ command: [...FAKE, '--crash'], home, port: freePort(), pollMs: 20 }),
-  ).rejects.toThrow('exit code 3')
+test('a server that exits while starting is reported, not waited on, with what it said and where it is kept', async () => {
+  const error = await startServer({
+    command: [...FAKE, '--crash'],
+    home,
+    port: freePort(),
+    pollMs: 20,
+  }).catch((err: unknown) => err)
+  expect(error).toBeInstanceOf(ServerStartError)
+  const { message, logPath } = error as ServerStartError
+  expect(message).toContain('exit code 3')
+  // An app opened from the Finder has no terminal: the reason the server gave travels with the error.
+  expect(message).toContain('cannot open the chat store: disk full')
+  expect(logPath).toBe(serverLogPath(home))
+  expect(readFileSync(logPath, 'utf8')).toContain('disk full')
 })
 
 test('quitting while the server starts stops it', async () => {

@@ -16,6 +16,8 @@ export const TITLEBAR_INSET_PX = 78
 /** How long the server may take to start; the first start on a machine loads every model provider. */
 export const SERVER_START_TIMEOUT_MS = 90_000
 export const SERVER_POLL_MS = 200
+/** How much of a failed server's output the error shows: its last lines, where the reason usually is. */
+export const SERVER_LOG_TAIL_CHARS = 1_200
 /** How long the server gets to stop its running chats on quit before it is killed. */
 export const SERVER_STOP_TIMEOUT_MS = 10_000
 

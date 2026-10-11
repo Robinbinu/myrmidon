@@ -3,12 +3,18 @@
  * through `<home>/server.json`: a server already running for this home is used as it is, otherwise the shell starts
  * one and stops it again on quit.
  */
-import { readFileSync, rmSync } from 'node:fs'
+import { closeSync, mkdirSync, openSync, readFileSync, rmSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { alive } from '../../../packages/runtime/src/leash.ts'
 import { spawnLeashed } from '../../../packages/runtime/src/leashed.ts'
-import { LAUNCH_ID_ENV, SERVER_POLL_MS, SERVER_START_TIMEOUT_MS, SERVER_STOP_TIMEOUT_MS } from './config.ts'
+import {
+  LAUNCH_ID_ENV,
+  SERVER_LOG_TAIL_CHARS,
+  SERVER_POLL_MS,
+  SERVER_START_TIMEOUT_MS,
+  SERVER_STOP_TIMEOUT_MS,
+} from './config.ts'
 import { desktopCopy } from './copy.ts'
 import type { Platform } from './platform.ts'
 
@@ -118,16 +124,22 @@ export async function startServer(options: {
   const platform = options.platform ?? (process.platform as Platform)
   // Its server.json carries this back, so another server starting for the same home is never taken for it.
   const launch = crypto.randomUUID()
+  // An app opened from the Finder has no terminal: the server's output goes to a file, so a failure can say why.
+  const log = serverLogPath(options.home)
+  mkdirSync(join(log, '..'), { recursive: true })
+  const output = openSync(log, 'w')
   // Leashed, so the server stops with the app even when the app crashes or is killed.
   const child = spawnLeashed(
     [...options.command, 'serve', '--port', String(options.port), '--home', options.home],
     {
       ...(options.cwd ? { cwd: options.cwd } : {}),
       env: { ...process.env, [LAUNCH_ID_ENV]: launch },
-      stdout: 'inherit',
-      stderr: 'inherit',
+      stdout: output,
+      stderr: output,
     },
   )
+  closeSync(output)
+  const failed = (reason: string) => new ServerStartError(reason, logTail(log), log)
   let started: ServerFile | undefined
   const exited = () => child.exitCode !== null || child.signalCode !== null
   const exitsWithin = (ms: number) =>
@@ -158,7 +170,7 @@ export async function startServer(options: {
       await stop()
       throw options.signal.reason
     }
-    if (exited()) throw new Error(desktopCopy.errors.exited(child.exitCode))
+    if (exited()) throw failed(desktopCopy.errors.exited(child.exitCode))
     const written = readServerFile(options.home)
     if (written?.launch === launch && (await answers(written))) {
       started = written
@@ -167,7 +179,31 @@ export async function startServer(options: {
     await Bun.sleep(options.pollMs ?? SERVER_POLL_MS)
   }
   await stop()
-  throw new Error(desktopCopy.errors.timeout(Math.round(timeoutMs / 1000)))
+  throw failed(desktopCopy.errors.timeout(Math.round(timeoutMs / 1000)))
+}
+
+/** Where a server the app starts writes its output: in the home's logs, beside the server's own. */
+export function serverLogPath(home: string): string {
+  return join(home, 'logs', 'desktop-server.log')
+}
+
+/** A server that would not start: why, the end of what it wrote, and where the rest is. */
+export class ServerStartError extends Error {
+  constructor(
+    readonly reason: string,
+    readonly tail: string,
+    readonly logPath: string,
+  ) {
+    super(tail ? `${reason}\n\n${tail}` : reason)
+  }
+}
+
+function logTail(path: string): string {
+  try {
+    return readFileSync(path, 'utf8').trim().slice(-SERVER_LOG_TAIL_CHARS)
+  } catch {
+    return ''
+  }
 }
 
 /** Asks a server to stop itself, with the token it wrote to server.json; whether it took the request. */

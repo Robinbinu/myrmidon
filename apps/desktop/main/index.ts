@@ -38,6 +38,7 @@ import {
   overlayUrl,
   runningServer,
   type Server,
+  ServerStartError,
   startServer,
 } from '../src/server.ts'
 
@@ -206,11 +207,14 @@ serverReady.then(
   },
   async (err: unknown) => {
     if (starting.signal.aborted) return
+    // The reason goes in the message itself: macOS's alert shows no detail line.
+    const reason = err instanceof Error ? err.message : String(err)
+    const where = err instanceof ServerStartError ? `\n\n${t.errors.detail(err.logPath)}` : ''
     await Utils.showMessageBox({
       type: 'error',
       title: t.errors.startTitle,
-      message: t.errors.startTitle,
-      detail: `${err instanceof Error ? err.message : String(err)}\n\n${t.errors.detail}`,
+      message: `${reason}${where}`,
+      detail: `${reason}${where}`,
       buttons: [t.errors.ok],
     })
     stopped = true

@@ -8,7 +8,10 @@ import { rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const arg = (name: string) => process.argv[process.argv.indexOf(name) + 1] ?? ''
-if (process.argv.includes('--crash')) process.exit(3)
+if (process.argv.includes('--crash')) {
+  console.error('cannot open the chat store: disk full')
+  process.exit(3)
+}
 
 const token = 'fake-token'
 const file = join(arg('--home'), 'server.json')
