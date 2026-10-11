@@ -13,6 +13,7 @@ import {
   BellRing,
   BookMarked,
   Brain,
+  Bug,
   Cable,
   CalendarClock,
   Compass,
@@ -35,6 +36,7 @@ import {
   Goal,
   GraduationCap,
   HandHelping,
+  HeartHandshake,
   ImagePlus,
   Import,
   Keyboard,
@@ -57,8 +59,10 @@ import {
   Puzzle,
   RadioTower,
   RectangleEllipsis,
+  RefreshCcwDot,
   Rocket,
   SatelliteDish,
+  Scale,
   ScanSearch,
   ScreenShare,
   ScrollText,
@@ -73,6 +77,7 @@ import {
   SlidersHorizontal,
   Smile,
   SquareTerminal,
+  Star,
   Store,
   Telescope,
   Terminal,
@@ -272,4 +277,14 @@ export const FEATURE_ICONS = {
   shareFile: Share2,
   /** Sharing a chat live: inviting someone to watch or write in it (Share live), and the page they join. */
   liveShare: RadioTower,
+  /** Checking GitHub for a newer Myrmidon release (Settings → About). */
+  updates: RefreshCcwDot,
+  /** Reporting a problem with Myrmidon on GitHub. */
+  reportIssue: Bug,
+  /** Starring Myrmidon's repository on GitHub. */
+  starRepo: Star,
+  /** Who made Myrmidon, and how to reach them. */
+  creator: HeartHandshake,
+  /** Myrmidon's license. */
+  license: Scale,
 } as const
