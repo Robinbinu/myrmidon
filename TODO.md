@@ -635,11 +635,19 @@ Open work, in the order it will be done:
       PtySession, ShellFilesystem, notebookToEditableText and pdfToMarkdown directly. Already shipped in the addon
       we bundle, unused:
       1. Hashline edit engine (pi-edit: `hashline*`, `EditSession`, `EditStore`) — the engine behind 12aa.1.
-      2. Embedded bash (pi-shell `Shell`/`executeShell`: brush fork + in-process coreutils) — a shell on Windows
-         without Git Bash. In-process means outside the OS sandbox, so only where no sandbox applies (full access,
-         Windows until WSL2).
-      3. Workspace isolation (pi-iso `isoStart`/`isoDiff`: APFS clones, btrfs/zfs reflinks, overlayfs, projfs) —
-         crew isolation for projects that are not git repos, and faster than worktrees on big ones.
+      2. [x] Embedded bash (pi-shell `Shell`/`executeShell`: brush fork + in-process coreutils) — a shell on Windows
+         without Git Bash. Done 2026-10-11 (embedded-shell.ts, shell.ts): Windows only, after Git Bash and before
+         PowerShell; macOS and Linux keep /bin/sh. Runs in a worker process (crash stays there), stdin and stderr
+         passed through files (brush takes neither); Settings → About → Command shell says which and why. Left:
+         never run on Windows itself (the tests force it on any OS; Windows CI has Git Bash); stderr arrives after
+         stdout, not interleaved.
+      3. [x] Workspace isolation (pi-iso `isoStart`/`isoDiff`: APFS clones, btrfs/zfs reflinks, overlayfs, projfs) —
+         crew isolation for projects that are not git repos, and faster than worktrees on big ones. Done 2026-10-11
+         (copies.ts): only for projects git worktrees cannot serve; git projects keep worktrees (merge flow). Clone
+         backends only (APFS 0.4 s vs rcopy 5-6 s on a 1.4 GB/39k-file folder, rcopy broke symlinks; overlays show
+         the live project so cannot be a base); a base clone makes merges three-way (`git merge-file`). Own diff walk,
+         not isoDiff (it missed same-size edits within a second). Left: most Linux file systems (ext4) have no clone
+         backend, so no copies there.
       4. Real token counts (`countTokens`, o200k/cl100k) instead of chars/4 in compaction.ts and models.ts.
       5. Code summaries for reads (pi-ast `summarizeCode`) — fs_read of a big file returns its structure first.
       6. Vector helpers (`vectorIndexTopK`, `cosineSimilarityPairs`, `mmrRerankIndices`) for memory recall once
@@ -648,7 +656,11 @@ Open work, in the order it will be done:
          memory suggestions.
       8. Keep the Mac awake while a round runs (`PowerAssertion`).
       9. Smaller: `fuzzyFind` for find, `diffLines`/`structuredPatchHunks` for previews, `FileLock` across
-         processes, `watch`, jj repos (`vcsJjDiscover`), `renderMermaidAscii`.
+         processes, `watch`, jj repos (`vcsJjDiscover`), `renderMermaidAscii`. Done 2026-10-11: `FileLock` makes
+         `serve` one per home (two servers on one home ran, and stopping one removed the other's server.json);
+         jj: a pure Jujutsu workspace inside a git checkout gets no worktrees of the outer repo nor its git state
+         (copies instead). Not done: `watch` is a head-only stat poll, weaker than the Git panel's 5 s status poll;
+         jj status in the prompt needs async calls in a sync path.
       Not needed: desktop (Cua Driver covers computer use), terminal keys/sixel/width (no TUI), pi-voice (own stack).
       Each goes through packages/runtime/src/omp/natives.ts.
 12l. - [x] **Full access, no sandbox** (asked 2026-10-09, like Hermes) — global switch in Settings → Tools (default on)
