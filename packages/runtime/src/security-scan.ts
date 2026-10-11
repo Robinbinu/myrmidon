@@ -113,11 +113,11 @@ const SHAPES: readonly Shape[] = CREDENTIAL_PATTERNS.map((p) => ({
 const ASSIGNED =
   /([A-Za-z0-9_.-]*(?:api[_-]?key|secret|token|password|passwd|credential|access[_-]?key|private[_-]?key)[A-Za-z0-9_.-]*)["']?\s*[:=]\s*(["'])([^"'\s]{12,})\2/gi
 /** Values that are clearly a placeholder or a reference, not a secret. */
-const PLACEHOLDER =
+export const PLACEHOLDER =
   /x{4,}|\*{3,}|\.{3}|your|example|sample|dummy|changeme|placeholder|redacted|<[^>]*>|\$\{|\{\{|%\(|^env:|process\.env/i
 
 /** A secret shown without its value: its first characters and its length. */
-function masked(value: string): string {
+export function masked(value: string): string {
   if (value.startsWith('-----BEGIN')) return value.split('\n')[0] ?? value
   return `${value.slice(0, 4)}… (${value.length} chars)`
 }

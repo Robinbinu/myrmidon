@@ -697,6 +697,17 @@ Open work, in the order it will be done:
       status dot in the app. Done: only work spins; amber means needs you; blue marks a chat finished while you were
       elsewhere until you open it; hollow ring done/idle, dashed queued, square stopped, × failed (ui/status.ts).
       Not done: a "2 need input" count in the window title, and putting needs-input chats first in the sidebar.
+12za. - [ ] **Skills: scanner, marketplace, import from Claude Code and Codex** (asked 2026-10-10: "I like skill scanner
+      and we should support a skill marketplace and an abilty to import skills from claude code and codex"):
+      (1) a skill scanner (after QwenPaw's skill_scanner: prompt injection, exfiltration, credential access,
+      obfuscation, remote scripts, destructive commands, persistence, hidden Unicode) run before any skill is
+      installed or enabled, its findings shown in the review; (2) a skill marketplace to browse, search and install
+      from public registries; (3) import skills from Claude Code and Codex, scanned and off until reviewed.
+      Done 2026-10-11 (branch skill-scanner): (1) `packages/runtime/src/skill-scan.ts`, rules ported from QwenPaw and
+      Cisco's skill-scanner plus remote scripts, persistence, credential paths, destructive commands and hidden
+      Unicode; critical blocks an install (Install anyway overrides) and holds a skill on disk from agents until it is
+      allowed in Settings → Skills (allowed by content hash, so a change holds it again); high asks to confirm. Shown in
+      the install review, Settings → Skills and `myrmidon skills scan`. Left: (2) and (3).
 13. - [x] **Native UI phase 3+** — overlays, context menus, sheets, Settings as System Settings (spec
       2026-10-07-native-ui). Done 2026-10-09: sheets replace modals, context menus, ⌘K command menu, ⌘/ shortcuts,
       calm new chat, composer pop-ups, Settings like System Settings, old token names gone. Left: legacy.css clean-out,
