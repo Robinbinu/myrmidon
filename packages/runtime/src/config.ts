@@ -950,6 +950,13 @@ export const CODEX_ADMIN_SKILLS = '/etc/codex/skills'
  * copy is deleted and they review it again.
  */
 export const INSTALL_REVIEW_MS = 15 * 60_000
+/** This build of Myrmidon. Bump it with each release; a release is tagged `v<version>` on GitHub. */
+export const MYRMIDON_VERSION = '0.1.0'
+/** Where Myrmidon's source, releases and issues live. */
+export const MYRMIDON_REPO = 'Robinbinu/myrmidon'
+/** How long a check for a newer release is reused, so opening About again does not ask GitHub every time. */
+export const UPDATE_CHECK_TTL_MS = 60 * 60_000
+export const UPDATE_CHECK_TIMEOUT_MS = 10_000
 /** Where npm packages are looked up, unless a marketplace entry names its own registry. */
 export const NPM_REGISTRY_URL = 'https://registry.npmjs.org'
 /** omp's skills registry (skills.omp.sh): search it and install a skill from Settings → Skills. */

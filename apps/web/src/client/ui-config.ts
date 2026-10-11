@@ -664,3 +664,12 @@ export const SUGGEST_MODEL_MB = 15
  */
 export const IMPORT_SHOWN_PER_PROJECT = 5
 export const IMPORT_RESULT_CHARS = 240
+
+/** Settings → About: Myrmidon's repository (the runtime checks its releases: MYRMIDON_REPO in config.ts). */
+export const MYRMIDON_REPO_URL = 'https://github.com/Robinbinu/myrmidon'
+
+/** Settings → About: where Myrmidon's creator can be reached. */
+export const CREATOR_LINKS = {
+  github: 'https://github.com/Robinbinu',
+  linkedin: 'https://www.linkedin.com/in/michaelrobink',
+} as const
