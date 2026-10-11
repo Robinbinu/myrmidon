@@ -72,7 +72,7 @@ reviewer runs the tests and checks the sources. Agents can't mark their own work
 
 ### 6:41 PM · You stay in charge
 
-<img src="docs/assets/film-trust.webp" alt="An approval card, Publish to production, allowed by Alex and logged as event 2047, over the append-only event log" width="100%">
+<img src="docs/assets/film-trust.webp" alt="An approval card, Publish to production, allowed by Robin and logged as event 2047, over the append-only event log" width="100%">
 
 Everything runs in macOS's sandbox. Anything that matters waits for your yes, and every step is written to a log
 that can't be edited or deleted. Rewind any change to your project.
