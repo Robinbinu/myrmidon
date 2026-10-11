@@ -1,35 +1,34 @@
 <div align="center">
 
-<a href="docs/assets/myrmidon-film.mp4"><img src="docs/assets/hero.webp" alt="Three agents research competitors, write the code and design the page in parallel, a reviewer stamps it 0.96, and the Myrmidon end card: one chat, a whole crew" width="100%"></a>
+<img src="docs/assets/banner.webp" alt="Myrmidon: the pixel-eyes mark and wordmark, with the tagline One chat. A whole crew of AI agents." width="100%">
 
-**[▶ Watch the 65-second film](docs/assets/myrmidon-film.mp4)**
+### You ask. A crew does it.
 
-# Myrmidon
-
-### One chat. A whole crew of AI agents. Running on your Mac.
-
-Myrmidon is an open-source, local-first AI agent platform. Ask for anything: it answers, writes code, drives a
-browser, uses your Mac's apps, or brings in a crew of specialists that plan, build and check each other's work.
-Reach it from the app, from 30 messaging apps, or by phone call. Use the AI subscriptions you already pay for.
+Myrmidon is a free, open-source AI agent platform for your Mac. Text it from your phone, talk to it, or type in the
+app: it answers, writes code, drives a browser, uses your apps, and brings in a crew of specialists that plan,
+build and check each other's work.
 
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache_2.0-blue.svg)](LICENSE)
 [![Platform: macOS](https://img.shields.io/badge/platform-macOS-black?logo=apple)](#status)
 [![Runtime: Bun](https://img.shields.io/badge/runtime-Bun_%E2%89%A51.3.14-f9f1e1?logo=bun&logoColor=black)](https://bun.sh)
-[![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6?logo=typescript&logoColor=white)](tsconfig.json)
 [![Status: alpha](https://img.shields.io/badge/status-alpha-orange.svg)](#status)
 
-[Quick start](#quick-start) · [What it does](#one-app-instead-of-ten) · [How it works](#how-it-works) ·
-[Features](#features) · [Contributing](#contributing) · [Roadmap](ROADMAP.md)
+**[▶ Watch the film](docs/assets/myrmidon-film.mp4)** · **[Try it in two minutes](#try-it-in-two-minutes)** ·
+**[★ Star it](https://github.com/Robinbinu/myrmidon)**
 
 </div>
 
+<a href="docs/assets/myrmidon-film.mp4"><img src="docs/assets/hero.webp" alt="Three agents research competitors, write the code and design the page in parallel, a reviewer stamps it 0.96, and the Myrmidon end card: one chat, a whole crew" width="100%"></a>
+
 ---
 
-## One app instead of ten
+## You use ten AI tools
 
-Most AI tools make you pick one shape: a chat bot, a coding agent, a browser operator, a computer-use agent, a
-multi-agent framework, a messaging bot. Myrmidon is all of them behind one conversation, sharing one memory, one
-permission model and one audit log.
+A coding agent. A browser bot. A chatbot that forgets everything. A voice app, a scheduler, a model router, a bot in
+every chat app. Each with its own login, its own memory and its own bill.
+
+**Myrmidon is one chat that does all of it**, with one memory, one set of permissions and one record of everything
+it did.
 
 | Myrmidon does | The tools it can stand in for |
 |---|---|
@@ -43,12 +42,88 @@ permission model and one audit log.
 | Every major model, by API key or by signing in with your subscription | OpenRouter, LiteLLM |
 | Memory you approve, skills it learns, plugins in Claude Code's format | ChatGPT Memory, Claude Code plugins |
 
+
 It is a harness, not a wrapper: Myrmidon runs its own agent loop, tools, sandbox and model calls. No other CLI has
 to be installed or signed in.
 
-<img src="docs/assets/film-ask.webp" alt="Text Myrmidon like a teammate: a phone conversation ends with the request to launch a pricing page tonight and check what competitors charge" width="100%">
+## One evening with Myrmidon
 
-## Quick start
+### 6:12 PM · You text it like a teammate
+
+<img src="docs/assets/film-ask.webp" alt="A phone conversation with Myrmidon ends with the request to launch a pricing page tonight and check what competitors charge" width="100%">
+
+From Telegram, WhatsApp, iMessage or any of 30 apps, from the desktop app, or out loud: *"Launch our pricing page
+tonight. Check what competitors charge. Call me when it's live."*
+
+### 6:13 PM · Your lead plans. A crew spawns.
+
+<img src="docs/assets/film-crew.webp" alt="Three agents in parallel: nova researches competitor prices in a browser with sources, quill writes the pricing page in its own git worktree with 18 tests passing, and iris designs the cards using the Mac itself" width="100%">
+
+The lead splits the job and brings in specialists, each on the model it is best at. **nova** reads competitors'
+sites in a real browser and cites every price. **quill** writes the page in its own git worktree until the tests
+pass. **iris** works the design app on your Mac itself, with an amber glow round the screen so you always know.
+
+### 6:40 PM · They check each other
+
+<img src="docs/assets/film-review.webp" alt="The task board done and a reviewer stamp: Reviewed 0.96, tests pass, sources checked" width="100%">
+
+Crewmates talk on a shared board, hand work over and reject what isn't right. Nothing is done until an independent
+reviewer runs the tests and checks the sources. Agents can't mark their own work as verified.
+
+### 6:41 PM · You stay in charge
+
+<img src="docs/assets/film-trust.webp" alt="An approval card, Publish to production, allowed by Alex and logged as event 2047, over the append-only event log" width="100%">
+
+Everything runs in macOS's sandbox. Anything that matters waits for your yes, and every step is written to a log
+that can't be edited or deleted. Rewind any change to your project.
+
+### 6:45 PM · It calls you back
+
+<img src="docs/assets/film-call.webp" alt="Myrmidon calls back: the pricing page is live, $10 below the average competitor" width="100%">
+
+*"Pricing page is live. You're $10 below the average competitor."*
+
+## And there's more
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/assets/feature-skills.webp" alt="Skills from anywhere, scanned first: a skill catalog browser and an install review where the scanner blocks a dangerous skill and passes a clean one"></td>
+    <td width="50%"><img src="docs/assets/feature-channels.webp" alt="Talk to it from 30 apps: one conversation across Telegram, WhatsApp, Slack and iMessage, and a code to approve a new sender"></td>
+  </tr>
+  <tr>
+    <td><b>Skills from anywhere, scanned first.</b> Browse OpenAI's and Anthropic's catalogs and skills.sh, bring
+    over your Claude Code and Codex skills, and let the scanner hold anything dangerous.</td>
+    <td><b>Talk to it from 30 apps.</b> Telegram, WhatsApp, Signal, iMessage, Slack, Discord, Teams, email, SMS and
+    more continue the same chats. Only people you approve get in.</td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/assets/feature-computer.webp" alt="Computer use on a Mac: an amber glow round the screen, agent cursors with name pills, an Esc stops it pill and an approval for one step"></td>
+    <td width="50%"><img src="docs/assets/feature-models.webp" alt="The model picker with Claude, ChatGPT, Gemini, Copilot, local models and API keys, each subscription with a battery of what is left"></td>
+  </tr>
+  <tr>
+    <td><b>It can use your Mac. You stay in charge.</b> One approved app at a time, consequential steps asked first,
+    and Esc stops it.</td>
+    <td><b>Use the AI you already pay for.</b> Sign in with Claude, ChatGPT, Gemini or Copilot, add any API key or a
+    local model, and give each agent its own.</td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/assets/feature-memory.webp" alt="Suggested memories with Keep and Discard, and a skill learned from a finished task"></td>
+    <td width="50%"><img src="docs/assets/feature-safety.webp" alt="Permission presets, per-tool Allow, Ask or Off, secrets shown as placeholders, and a rewind timeline"></td>
+  </tr>
+  <tr>
+    <td><b>Memory you approve.</b> It suggests what to remember and learns skills from finished work; you decide what
+    is kept.</td>
+    <td><b>Sandboxed by default.</b> Presets from Ask to Full access, a switch per tool, secrets that never reach a
+    model, and every step on the record.</td>
+  </tr>
+</table>
+
+<img src="docs/assets/feature-voice.webp" alt="A call with Myrmidon: live waveform and captions, with ringing a Twilio number from any phone and local or cloud voices" width="100%">
+
+**Call your crew.** Press Call in the app or ring your own number from any phone. It talks while the crew works,
+with speech on your Mac or from any of 12 cloud speech services.
+
+## Try it in two minutes
 
 You need macOS, [Bun](https://bun.sh) 1.3.14 or newer, and one way to reach a model: sign in with Claude, ChatGPT,
 Gemini or GitHub Copilot, or use an API key (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, …).
@@ -81,7 +156,10 @@ bun run myr import-session   # Claude Code and Codex chats
 bun run myr import-omp       # oh-my-pi keys, sign-ins and models.yml
 ```
 
-## How it works
+## Under the hood
+
+<details>
+<summary><b>How it works</b></summary>
 
 ```mermaid
 flowchart LR
@@ -114,32 +192,10 @@ flowchart LR
 5. **Nothing is hidden.** Every message, tool call, file and decision is an event in an append-only SQLite log that
    refuses `UPDATE` and `DELETE`. The UI, replay, audit view and exports all read it.
 
-### See a crew at work
+</details>
 
-One message: *"Launch our pricing page tonight. Check what competitors charge. Call me when it's live."*
-
-<img src="docs/assets/film-crew.webp" alt="Three agents in parallel: nova researches competitor prices in a browser with sources, quill writes the pricing page in its own git worktree with 18 tests passing, and iris designs the cards using the Mac itself" width="100%">
-
-<table>
-  <tr>
-    <td width="50%"><img src="docs/assets/film-review.webp" alt="The task board done and a reviewer stamp: Reviewed 0.96, tests pass, sources checked"></td>
-    <td width="50%"><img src="docs/assets/film-trust.webp" alt="Sandboxed, logged, yours: an approval card, Publish to production, allowed by Alex and logged as event 2047, over the append-only event log"></td>
-  </tr>
-  <tr>
-    <td align="center"><sub><b>Checked</b>: a reviewer runs the tests and checks the sources</sub></td>
-    <td align="center"><sub><b>Yours</b>: you approve what matters; every step is logged</sub></td>
-  </tr>
-  <tr>
-    <td width="50%"><img src="docs/assets/film-call.webp" alt="Myrmidon calls back: the pricing page is live, $10 below the average competitor"></td>
-    <td width="50%"><img src="docs/assets/film-reach.webp" alt="Any model: Claude, GPT, Gemini, Llama, local models or any API key, around the mascot"></td>
-  </tr>
-  <tr>
-    <td align="center"><sub><b>Calls you back</b>: voice and phone, with the result</sub></td>
-    <td align="center"><sub><b>Any model</b>: the subscriptions you already pay for</sub></td>
-  </tr>
-</table>
-
-## Features
+<details>
+<summary><b>Everything it can do</b></summary>
 
 ### Code
 
@@ -227,7 +283,10 @@ One message: *"Launch our pricing page tonight. Check what competitors charge. C
 - Export a chat as Markdown or a standalone HTML page, share it live with guests, or send an encrypted share file.
 - Scheduled rounds, background runs (`myr ask --wait`) and OpenTelemetry export.
 
-## Scripted crews
+</details>
+
+<details>
+<summary><b>Scripted crews</b></summary>
 
 Describe a crew in YAML and run it headless or with the UI:
 
@@ -250,7 +309,10 @@ observer: { interval: 30s }
 bun run myr run examples/calculator/colony.yaml --ui
 ```
 
-## CLI
+</details>
+
+<details>
+<summary><b>Command line</b></summary>
 
 | Command | What it does |
 |---|---|
@@ -266,7 +328,10 @@ bun run myr run examples/calculator/colony.yaml --ui
 
 Run them with `bun run myr …`. Data lives in `~/.myrmidon`; override with `--home DIR` or `MYRMIDON_HOME`.
 
-## Architecture
+</details>
+
+<details>
+<summary><b>Architecture</b></summary>
 
 A Bun + TypeScript monorepo. The HTTP/WebSocket API and the event protocol are the contract, so new clients can
 follow the app without the runtime changing.
@@ -281,28 +346,30 @@ follow the app without the runtime changing.
 | [`apps/cli`](apps/cli) | The `myr` command |
 | [`apps/eval`](apps/eval) | Eval harness with coding, browsing, research and crew cases |
 
+</details>
+
 ## Status
 
 Myrmidon is **alpha** and built for **macOS first**. It works end to end and is used every day, but APIs, the
 event schema and storage formats will still change. Linux and Windows are next: the code is portable, and what is
 left is tracked in [#27](https://github.com/Robinbinu/myrmidon/issues/27) (Linux) and
-[#28](https://github.com/Robinbinu/myrmidon/issues/28) (Windows). See the [roadmap](ROADMAP.md) for what is done
-and what is next.
+[#28](https://github.com/Robinbinu/myrmidon/issues/28) (Windows). See the [roadmap](ROADMAP.md).
 
-## Contributing
+## Join the crew
 
-Myrmidon is big, and there is room for you in it. Good first places:
+Myrmidon is big, and there is room for you in it:
 
-- **Linux and Windows support**: issues labeled [`linux`](https://github.com/Robinbinu/myrmidon/labels/linux) and
+- **Linux and Windows**: issues labeled [`linux`](https://github.com/Robinbinu/myrmidon/labels/linux) and
   [`windows`](https://github.com/Robinbinu/myrmidon/labels/windows).
 - **Channels**: every channel is tested against fakes; trying one against the real service and fixing what breaks
   is a great first pull request.
 - **Eval cases** in [`apps/eval`](apps/eval), and the agent docs in [`packages/runtime/docs`](packages/runtime/docs).
 
 Before a pull request, run `bun run check` (types, lint and the full suite); keep changes focused and match the
-surrounding style. Development server with hot reload: `bun run dev`.
+surrounding style. `bun run dev` serves the app with hot reload. Found a bug?
+[Report it](https://github.com/Robinbinu/myrmidon/issues/new).
 
-If Myrmidon is useful to you, **star the repo**: it is the simplest way to help more people find it.
+**If Myrmidon is useful to you, star it.** It's the simplest way to help more people find it.
 
 ## Acknowledgements
 
