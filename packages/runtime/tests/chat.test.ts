@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { newColonyId, SqliteLogStore } from '@myrmidon/core'
 import { type ColonyState, type EventPayloads, foldColony, type MyrEvent } from '@myrmidon/protocol'
+import { classifyModelError } from '../src/agent.ts'
 import {
   BrowserHub,
   bootRuntime,
@@ -17,7 +18,7 @@ import {
   type Runtime,
   type TeamConfig,
 } from '../src/index.ts'
-import type { Context as LlmContext } from '../src/omp/ai.ts'
+import type { AssistantMessage, Context as LlmContext } from '../src/omp/ai.ts'
 import { createMockModel, type MockContent } from '../src/omp/mock.ts'
 import type { OmpRuntime } from '../src/omp/runtime.ts'
 
@@ -2220,6 +2221,40 @@ test('a transient failure is retried on the same model before the fallback takes
   expect(primary.n).toBe(3)
   expect((await fallbacksOf(colonyId)).map((f) => f.model)).toEqual(['mock/backup'])
 }, 20_000)
+
+test('a request over the per-minute limit, or a retired model, is not retried and says why', async () => {
+  const resolver = new ModelResolver()
+  // Groq's 413 and 400 as they came back (organization id left out).
+  const tooBig = failing(
+    resolver,
+    'mock/tpm',
+    '413 Request too large for model `openai/gpt-oss-120b` in organization `org_x` service tier `on_demand` on tokens per minute (TPM): Limit 8000, Requested 13557, please reduce your message size and try again. (type=tokens param=rate_limit_exceeded)',
+  )
+  const retired = failing(
+    resolver,
+    'mock/retired',
+    '400 The model `llama3-70b-8192` has been decommissioned and is no longer supported. (type=invalid_request_error param=model_decommissioned)',
+  )
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo') })
+  const first = await chats.send('Answer me', { ...solo('mock/tpm'), judgeModel: 'mock/judge' })
+  const paused = await waitFor(first.colonyId)
+  expect(tooBig.n).toBe(1)
+  expect(paused.modelError).toMatchObject({ kind: 'error', cause: 'per-minute', limit: 8000, tokens: 13557 })
+  const second = await chats.send('Answer me', { ...solo('mock/retired'), judgeModel: 'mock/judge' })
+  const stopped = await waitFor(second.colonyId)
+  expect(retired.n).toBe(1)
+  expect(stopped.modelError).toMatchObject({ kind: 'error', cause: 'retired' })
+})
+
+test('a per-minute limit one request fits under is still waited out', () => {
+  const m = {
+    role: 'assistant',
+    stopReason: 'error',
+    errorMessage: 'Rate limit reached on tokens per min (TPM): Limit 8000, Used 7000, Requested 1500.',
+  } as AssistantMessage
+  expect(classifyModelError(m)).toEqual({ kind: 'error', message: m.errorMessage as string, transient: true })
+})
 
 test("a swarm's peer falls back on the crew's chain, not the lead's", async () => {
   const resolver = new ModelResolver()

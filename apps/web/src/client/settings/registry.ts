@@ -1149,6 +1149,15 @@ export const SETTINGS = {
     keywords: kw.budget,
     keys: ['team.costUsd'],
   },
+  'team.monthlyUsd': {
+    page: 'team',
+    path: [s.team.monthlyTitle],
+    control: 'number',
+    label: s.team.monthlyLimit,
+    help: s.team.monthlyLimitHint,
+    keywords: ['monthly', 'month', 'total', 'cap', 'hard limit', 'quota', ...kw.budget],
+    keys: ['team.monthlyUsd'],
+  },
   'team.tokens': {
     page: 'team',
     path: [s.team.limitsTitle],

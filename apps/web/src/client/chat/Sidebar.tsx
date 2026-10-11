@@ -137,6 +137,8 @@ export function Sidebar(props: {
   onAddProject?(): void
   onRemoveProject?(project: Project): void
   onProjectPermissions?(project: Project): void
+  /** Opens a project's Budget sheet: its own spend caps. */
+  onProjectBudget?(project: Project): void
   onView(v: View): void
   onSettings(): void
   onGateways(): void
@@ -843,6 +845,11 @@ export function Sidebar(props: {
                         label: m.permissions,
                         icon: FEATURE_ICONS.permissions,
                         run: () => props.onProjectPermissions?.(p),
+                      },
+                      props.onProjectBudget && {
+                        label: m.budget,
+                        icon: FEATURE_ICONS.budget,
+                        run: () => props.onProjectBudget?.(p),
                       },
                       copyAction(m.copyPath, p.path, () => toast(m.pathCopied, 'success')),
                     ])

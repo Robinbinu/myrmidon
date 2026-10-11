@@ -1099,6 +1099,8 @@ export class ColonyRun implements ColonyHost {
         model,
         kind: error.kind,
         message: error.message.slice(0, 2_000),
+        ...(error.cause ? { cause: error.cause } : {}),
+        ...(error.limit !== undefined ? { limit: error.limit } : {}),
         ...(error.tokens !== undefined ? { tokens: error.tokens } : {}),
         ...(error.window !== undefined ? { window: error.window } : {}),
       },
@@ -1201,6 +1203,7 @@ export class ColonyRun implements ColonyHost {
         maxTurns: this.spec.budget.maxTurns,
         ...(this.spec.budget.costUsd !== undefined ? { costUsd: this.spec.budget.costUsd } : {}),
         ...(this.spec.budget.tokens !== undefined ? { tokens: this.spec.budget.tokens } : {}),
+        ...(this.spec.budget.total ? { total: this.spec.budget.total } : {}),
       },
       unsafeNoSandbox: this.unsafeNoSandbox,
       ...(this.spec.chat
@@ -2378,10 +2381,15 @@ export class ColonyRun implements ColonyHost {
 
   /** Stops the round once what it spent reaches its money or token limit. */
   private _checkBudget() {
-    const { costUsd, tokens } = this.spec.budget
+    const { costUsd, tokens, total } = this.spec.budget
     const spent = this.spent()
+    // Stopped by a running total, the total spent is its cap less what this run had left of it, plus any overshoot.
     if (costUsd !== undefined && spent.cost >= costUsd)
-      void this.stop(prompts.colony.spendLimit(spent.cost, costUsd))
+      void this.stop(
+        total
+          ? prompts.colony.totalLimit(total.scope, total.usd + spent.cost - costUsd, total.usd)
+          : prompts.colony.spendLimit(spent.cost, costUsd),
+      )
     else if (tokens !== undefined && spent.tokens >= tokens)
       void this.stop(prompts.colony.tokenLimit(spent.tokens, tokens))
   }

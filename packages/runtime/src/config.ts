@@ -140,6 +140,14 @@ export const PROMPT_FAMILY_WORDS = 130
  * A settings file that already holds a value keeps it. The Settings hint states it too.
  */
 export const DEFAULT_COST_USD = 5
+/** The largest spend cap a chat, project or month may have, in dollars: a typo cannot set an unbounded one. */
+export const MAX_BUDGET_USD = 100_000
+/**
+ * How often, at most, running chats are checked against the running totals (a chat's, a project's month, the global
+ * month) while they spend: each run is also capped at what its totals had left when it started, so this only catches
+ * runs that share a total and spend at once.
+ */
+export const BUDGET_CHECK_MS = 2_000
 /** The most workers (or swarm peers) a chat's team may have, so one request cannot start an unbounded crowd. */
 export const MAX_WORKERS = 8
 
@@ -200,6 +208,29 @@ export const PROVIDER_ALIASES: Record<string, string> = {
   'google-antigravity': 'google',
   'google-gemini-cli': 'google',
 }
+/**
+ * Corrections to omp's request shape (a model's `compat`) for chat-completions models of a provider whose API refuses
+ * what omp's catalog sends, optionally only for one model lineage (omp's identity class). Groq refuses
+ * `reasoning_content` on an assistant message, which omp puts on Kimi's tool-call turns (a "." when there was no
+ * thinking; an earlier model's thinking reaches the model as text either way). Groq's Qwen takes `reasoning_effort`
+ * none, low, medium or high, not Qwen's `enable_thinking`.
+ */
+export const MODEL_COMPAT_FIXES: readonly {
+  readonly provider: string
+  readonly class?: string
+  readonly compat: Readonly<Record<string, unknown>>
+}[] = [
+  { provider: 'groq', compat: { requiresReasoningContentForToolCalls: false } },
+  {
+    provider: 'groq',
+    class: 'qwen',
+    compat: {
+      thinkingFormat: 'openai',
+      reasoningDisableMode: 'none-effort',
+      reasoningEffortMap: { minimal: 'low' },
+    },
+  },
+]
 
 // Tools (tools.ts)
 
@@ -1365,6 +1396,8 @@ export const VOICE_VOICES_CACHE_MS = 10 * 60_000
 export const VOICE_STT_CHUNK_MS = 50
 /** How often an open speech-to-text stream is kept alive while the turn is quiet (Deepgram closes after 10 s). */
 export const VOICE_STT_KEEPALIVE_MS = 5_000
+/** The most characters Groq's speech (Orpheus) takes in one request; a longer sentence is said in parts. */
+export const GROQ_TTS_MAX_CHARS = 200
 /**
  * Realtime calls: how long a realtime model has to set its session up, and how long a tool call that must check the
  * person's last words (answer_approval) waits for their transcript, which a realtime model writes beside its answer.

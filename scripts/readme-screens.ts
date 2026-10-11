@@ -19,7 +19,7 @@ if (!ROOT) {
   // The capture runs in a child whose HOME is an empty folder: omp would otherwise find the person's cloud
   // credentials (~/.aws, gcloud) and Myrmidon their Claude Code and Codex sessions.
   const root = mkdtempSync(join(tmpdir(), 'myr-screens-'))
-  const home = join(root, 'home', 'alex')
+  const home = join(root, 'home', 'robin')
   // The agents' sandbox runs toolchains from the home folder only, so bun gets a copy there for the crew's tests.
   const bunBin = join(home, '.bun', 'bin')
   mkdirSync(bunBin, { recursive: true })
@@ -39,7 +39,7 @@ if (!ROOT) {
     env: {
       ...env,
       HOME: home,
-      USER: 'alex',
+      USER: 'robin',
       PATH: `${bunBin}:${process.env.PATH ?? '/usr/bin:/bin'}`,
       MYR_SCREENS_ROOT: root,
     },
@@ -134,7 +134,7 @@ async function capture(root: string) {
               accounts: [
                 {
                   provider: 'anthropic',
-                  account: 'alex@example.com',
+                  account: 'robin@example.com',
                   plan: 'max',
                   status: 'ok',
                   windows: [
@@ -156,7 +156,7 @@ async function capture(root: string) {
                 },
                 {
                   provider: 'openai',
-                  account: 'alex@example.com',
+                  account: 'robin@example.com',
                   plan: 'pro',
                   status: 'ok',
                   windows: [
@@ -275,7 +275,7 @@ async function capture(root: string) {
           tool('create_task', {
             subject: 'Build the playable page',
             description:
-              'Goal: a page Alex can open and play.\nContext: import snake.js and leaderboard.js from task-1.\nDeliverable: index.html: canvas, score and best, leaderboard panel, arrow keys and WASD, space to pause, an attract mode while idle.\nDone when: it plays in a browser with no console errors.\nNot yours: tests.',
+              'Goal: a page Robin can open and play.\nContext: import snake.js and leaderboard.js from task-1.\nDeliverable: index.html: canvas, score and best, leaderboard panel, arrow keys and WASD, space to pause, an attract mode while idle.\nDone when: it plays in a browser with no console errors.\nNot yours: tests.',
             assignee: coder,
             outputs: ['index.html'],
             blockedBy: ['task-1'],
@@ -445,11 +445,11 @@ async function capture(root: string) {
     return { type: 'toolCall' as const, name, arguments: args }
   }
 
-  // ---------- settings: Alex, the crew, setup half done ----------
+  // ---------- settings: Robin, the crew, setup half done ----------
   const base = settings.get()
   settings.set({
     ...base,
-    profile: { ...base.profile, name: 'Alex', greeting: 'rules', titles: 'model' },
+    profile: { ...base.profile, name: 'Robin', greeting: 'rules', titles: 'model' },
     mascot: {
       ...base.mascot,
       color: 'amber',
@@ -471,7 +471,7 @@ async function capture(root: string) {
     },
   })
 
-  // ---------- a few skills of Alex's, so Settings → Skills has something to list ----------
+  // ---------- a few skills of Robin's, so Settings → Skills has something to list ----------
   const SKILLS: [dir: string, name: string, description: string][] = [
     [
       join(homedir(), '.claude', 'skills'),
@@ -582,11 +582,11 @@ async function capture(root: string) {
     const shot = async (name: string) => {
       if (shots && !shots.includes(name.replace(/(-dark|-light)?\.png$/, ''))) return
       await Bun.sleep(400)
-      // A real install shows the person's own home here, so the throwaway one reads as Alex's.
+      // A real install shows the person's own home here, so the throwaway one reads as Robin's.
       await page.evaluate((from) => {
         const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
         for (let n = walk.nextNode(); n; n = walk.nextNode())
-          if (n.textContent?.includes(from)) n.textContent = n.textContent.replaceAll(from, '/Users/alex')
+          if (n.textContent?.includes(from)) n.textContent = n.textContent.replaceAll(from, '/Users/robin')
       }, homedir())
       await page.screenshot({ path: join(out, name) })
       console.log(`  ${name}`)
@@ -682,7 +682,7 @@ async function capture(root: string) {
     if (record) await cdp.send('Page.stopScreencast')
 
     // ----- the finished chat -----
-    // Alex has played a few rounds since, so the preview shows a leaderboard.
+    // Robin has played a few rounds since, so the preview shows a leaderboard.
     const game = page.frames().find((f) => f.url().includes('index.html'))
     if (!game)
       throw new Error(
@@ -694,11 +694,11 @@ async function capture(root: string) {
     await game.evaluate(() => {
       const at = Date.now()
       const scores = [
-        ['Alex', 42],
+        ['Robin', 42],
         ['Sam', 35],
-        ['Alex', 31],
+        ['Robin', 31],
         ['Riley', 24],
-        ['Alex', 17],
+        ['Robin', 17],
       ] as const
       localStorage.setItem(
         'snake.leaderboard',
@@ -1028,8 +1028,8 @@ describe('leaderboard', () => {
 
   test('survives a reload, and ignores junk in storage', () => {
     const storage = memory()
-    save(storage, [{ name: 'Alex', score: 21, at: 1 }])
-    expect(load(storage)).toEqual([{ name: 'Alex', score: 21, at: 1 }])
+    save(storage, [{ name: 'Robin', score: 21, at: 1 }])
+    expect(load(storage)).toEqual([{ name: 'Robin', score: 21, at: 1 }])
     storage.setItem(KEY, '{not json')
     expect(load(storage)).toEqual([])
   })

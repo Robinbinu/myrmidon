@@ -39,6 +39,8 @@ export const TEAM_PANEL_CLEARANCE_PX = 8
 
 /* ------------------------------------------------------------------ composer */
 
+/** The largest spend cap a chat, project or month may have, in dollars: the runtime's MAX_BUDGET_USD. */
+export const BUDGET_MAX_USD = 100_000
 /** Files one message can carry. */
 export const MAX_FILES = 10
 /** The largest attachment a message can carry; the error text in copy.app.fileTooLarge names the same size. */

@@ -14,6 +14,8 @@ const ALLOWED: Record<string, string> = {
     "copies omp's native addon into the compiled app, by its install path",
   'packages/runtime/tests/oauth-page.test.ts':
     "reads omp's installed sign-in page to prove patches/ still applies",
+  'packages/runtime/tests/catalog-patch.test.ts':
+    "loads omp's installed Groq discovery to prove patches/ still applies",
 }
 
 const sources = async () => {

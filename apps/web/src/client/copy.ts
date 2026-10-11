@@ -32,6 +32,9 @@ import type { EventPayloads } from '@myrmidon/protocol'
  *               confirm button starts with "Yes," and repeats the verb and its object ("Yes, remove channel").
  *   Send now / Send when done   how a message typed during a run reaches the crew (the /steer and /queue commands).
  */
+/** Dollars spent, to the cent. */
+const usd = (n: number) => `$${n.toFixed(2)}`
+
 export const copy = {
   brand: {
     name: 'Myrmidon',
@@ -587,6 +590,7 @@ export const copy = {
       'chat/renamed': 'chat renamed',
       'chat/allowed': 'allowed for this chat',
       'chat/permissions': 'chat permissions set',
+      'chat/budget': 'chat budget set',
       'colony/failed': 'crew failed',
       'colony/completed': 'crew completed',
       'agent/status': 'status changed',
@@ -1170,6 +1174,7 @@ export const copy = {
       label: (name: string) => `Project ${name}`,
       newChat: 'New chat here',
       permissions: 'Permissions',
+      budget: 'Budget',
       copyPath: 'Copy folder path',
       pathCopied: 'Folder path copied',
     },
@@ -2017,6 +2022,38 @@ export const copy = {
     },
   },
 
+  /**
+   * Spend caps (packages/runtime/src/budgets.ts): a chat's in the composer's crew panel, a project's in its Budget
+   * sheet; the global ones are in Settings → Crew & budget (settings.team).
+   */
+  budget: {
+    chatTitle: 'Budget for this chat',
+    perRun: 'Per run',
+    /** What a per-run cap left empty falls back to: the project's, else the global one. */
+    perRunHint: (fallback: string) => `The most one run may spend. Empty: ${fallback}.`,
+    inheritProject: (usd: number) => `the project's $${usd}`,
+    inheritGlobal: (usd: number) => `the global $${usd}`,
+    inheritNone: 'no limit',
+    chatTotal: 'Total for this chat',
+    chatTotalHint: 'Over all its runs. Once reached, a run stops and no new one starts until you raise it.',
+    projectTotal: 'Total per month',
+    projectTotalHint:
+      'Over all its chats in a calendar month, starting again on the 1st. Once reached, a run stops and no new one starts until you raise it.',
+    /** Empty means no cap of its own. */
+    none: 'None',
+    spent: (spent: number, cap?: number) =>
+      cap ? `${usd(spent)} of $${cap} spent` : `${usd(spent)} spent so far`,
+    monthSpent: (spent: number, cap?: number) =>
+      cap ? `${usd(spent)} of $${cap} spent this month` : `${usd(spent)} spent this month`,
+    unpriced: 'Models without a known price count as $0.',
+    sheetTitle: (project: string) => `Budget · ${project}`,
+    save: 'Save budget',
+    saved: (project: string) => `${project}: budget saved`,
+    /** On the toast of a run refused because a running total is used up. */
+    raise: 'Raise it',
+    field: (label: string) => `${label}, in dollars`,
+  },
+
   /** Agents running without the sandbox: the warning before it is given, and the badge on chats that have it. */
   fullAccess: {
     badge: 'Full access',
@@ -2197,6 +2234,11 @@ export const copy = {
       `This chat no longer fits ${model}'s context window, even after older messages were summarized.`,
     refusal: "The provider's safety filter stopped this reply. Another model can pick up from here.",
     error: 'The provider returned an error. Another model can pick up from here, or try again.',
+    retiredTitle: (model: string) => `${model} has been retired`,
+    retired: (model: string, next?: string) =>
+      `The provider no longer serves ${model}, so trying it again won't help. Continue on another model${next ? `, such as ${next}` : ''}.`,
+    perMinute: (model: string, limit: number, tokens: number) =>
+      `This request is about ${tokens.toLocaleString('en-US')} tokens, but your account allows ${model} only ${limit.toLocaleString('en-US')} tokens a minute, so waiting won't help. Raise the account's tier with the provider, or continue on another model.`,
     providerMessage: 'Provider message',
     continueWith: 'Continue with',
     wontFit: (window: string) => `Under ${window}: this chat won't fit`,
@@ -3602,7 +3644,11 @@ export const copy = {
       spendLimit: 'Spend limit per run',
       /** The default is the runtime's DEFAULT_COST_USD. */
       spendLimitHint:
-        'The run stops at this cost; at 80% agents are told to wrap up. Each follow-up gets the full limit again. Starts at $5; 0 means no limit.',
+        'The run stops at this cost; at 80% agents are told to wrap up. Each follow-up gets the full limit again. Starts at $5; 0 means no limit. A project or chat can set its own.',
+      monthlyTitle: 'Monthly budget',
+      monthlyLimit: 'Spend limit per month',
+      monthlyLimitHint:
+        'Every chat together, in a calendar month that starts again on the 1st. Once reached, a run stops and no new one starts until you raise it. 0 means no limit. Models without a known price count as $0.',
       tokenLimit: 'Token limit per run',
       tokenLimitHint: 'Counts every token the models process, cached input included. 0 means no limit.',
       turns: 'Turns per agent',

@@ -13,6 +13,7 @@ import {
 } from '@myrmidon/protocol'
 import {
   DEFAULT_COST_USD,
+  MAX_BUDGET_USD,
   MAX_CREW_NAMES,
   MAX_FALLBACKS,
   MAX_IMPORTED_THEMES,
@@ -84,6 +85,8 @@ export interface MyrSettings {
     /** Per-round limits; 0 means no limit. */
     costUsd: number
     tokens: number
+    /** The most every chat together may spend in a calendar month (budgets.ts); 0, the default, means no cap. */
+    monthlyUsd: number
   }
   /** What sandboxed agents may read beyond their workspace, in every chat. Full access is a preset (`permissions`). */
   sandbox: {
@@ -311,6 +314,7 @@ export const settingsSchema = Schema.object({
     maxTurns: Schema.natural().min(1).max(200).default(40),
     costUsd: Schema.number().min(0).max(1000).default(DEFAULT_COST_USD),
     tokens: Schema.natural().max(1_000_000_000).default(0),
+    monthlyUsd: Schema.number().min(0).max(MAX_BUDGET_USD).default(0),
   }).default({}),
   sandbox: Schema.object({
     read: Schema.array(Schema.string().pattern(readFolderPattern()).max(1000)).max(MAX_READ_FOLDERS),

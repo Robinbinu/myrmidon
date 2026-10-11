@@ -1,4 +1,5 @@
 import {
+  type Budget,
   DEFAULT_PRESET,
   expandCommand,
   type PermissionLevel,
@@ -28,6 +29,8 @@ import { AnimatePresence, MotionConfig, motion } from 'motion/react'
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   api,
+  type BudgetHit,
+  budgetHit,
   type ChatGroup,
   type ChatRound,
   type ChatSummary,
@@ -41,6 +44,7 @@ import {
   reachable,
   send as request,
   saveComposer,
+  setChatBudget,
   type TeamConfig,
 } from './api.ts'
 import { ColonyScreen } from './ColonyScreen.tsx'
@@ -48,6 +52,7 @@ import { CommandPalette, type PaletteItem } from './CommandPalette.tsx'
 import { Compare } from './Compare.tsx'
 import { ComputerBanner, OPEN_SETTINGS_EVENT } from './ComputerUse.tsx'
 import { ChatReadChips } from './chat/ApprovalCards.tsx'
+import { ProjectBudget } from './chat/Budget.tsx'
 import { ChatFamily } from './chat/ChatFamily.tsx'
 import { Composer, type ComposerHandle, type Delivery } from './chat/Composer.tsx'
 import { sidebarOrder, stepChat } from './chat/chat-order.ts'
@@ -402,8 +407,11 @@ export function App() {
   }, [loadGroups])
   /** A new chat's own permission level, chosen in the composer before its first message. */
   const [newPermissions, setNewPermissions] = useState<PermissionLevel>()
+  /** A new chat's own spend caps, set in the composer's crew panel before its first message. */
+  const [newBudget, setNewBudget] = useState<Budget>()
   const [picking, setPicking] = useState(false)
   const [permissionsFor, setPermissionsFor] = useState<Project>()
+  const [budgetFor, setBudgetFor] = useState<Project>()
   /** Where the person is with setup; `failed` while Myrmidon could not say. */
   const [setup, setSetup] = useState<SetupView | 'failed'>()
   /** The setup assistant's screen while it is open in place of the app. */
@@ -869,6 +877,7 @@ export function App() {
           ...(!chatId && forkOf ? { forkOf } : {}),
           ...(!chatId && imported ? { importOf: imported.id } : {}),
           ...(!chatId && newPermissions ? { permissions: newPermissions } : {}),
+          ...(!chatId && newBudget ? { budget: newBudget } : {}),
           ...(answers ? { answers } : {}),
           ...(files.length ? { attachments: await Promise.all(files.map(encodeFile)) } : {}),
         },
@@ -876,6 +885,7 @@ export function App() {
       setActiveChat(r.chatId)
       if (!chatId) {
         setNewPermissions(undefined)
+        setNewBudget(undefined)
         setForkOf(undefined)
         setImported(undefined)
       }
@@ -895,7 +905,7 @@ export function App() {
       refreshChats()
     } catch (err) {
       setPending(undefined)
-      toast(String((err as Error).message ?? err), 'error')
+      toast(String((err as Error).message ?? err), 'error', raiseBudget(budgetHit(err)))
       throw err
     } finally {
       setBusy(false)
@@ -909,7 +919,23 @@ export function App() {
       toast(model ? copy.app.toasts.continuingOnNewModel : copy.app.toasts.resuming, 'info')
       refreshChats()
     } catch (err) {
-      toast(String((err as Error).message ?? err), 'error')
+      toast(String((err as Error).message ?? err), 'error', raiseBudget(budgetHit(err)))
+    }
+  }
+
+  /** A run a running total refused offers to raise that total where it is set: the chat's, its project's, global. */
+  const raiseBudget = (hit: BudgetHit | undefined) => {
+    if (!hit || !fullAccess) return undefined
+    const project = projects.find((p) => p.id === (chat?.project?.id ?? newProject))
+    if (hit.scope === 'project' && !project) return undefined
+    return {
+      label: copy.budget.raise,
+      run: () =>
+        hit.scope === 'chat'
+          ? composer.current?.openCrew()
+          : hit.scope === 'project'
+            ? setBudgetFor(project)
+            : openSettings('team'),
     }
   }
 
@@ -1129,6 +1155,7 @@ export function App() {
         ? {
             onAddProject: () => setPicking(true),
             onProjectPermissions: setPermissionsFor,
+            onProjectBudget: setBudgetFor,
             onRemoveProject: async (p: Project) => {
               try {
                 const r = await request<{ projects: Project[] }>('DELETE', `/api/projects/${p.id}`)
@@ -1651,6 +1678,22 @@ export function App() {
                           }
                           onSend={(t, delivery, files) => send(t, activeChat, delivery, files)}
                           {...(chat?.crew ? { crew: chat.crew } : {})}
+                          {...(fullAccess
+                            ? {
+                                budget: {
+                                  value: (chat ? chat.budget : newBudget) ?? {},
+                                  spent: chat?.spent ?? 0,
+                                  project: projects.find((p) => p.id === (chat?.project?.id ?? newProject))
+                                    ?.budget,
+                                  onChange: (b: Budget) => {
+                                    if (!chat) return setNewBudget(b)
+                                    setChatBudget(chat.chatId, b).then(refreshChats, (err) =>
+                                      toast(String((err as Error).message ?? err), 'error'),
+                                    )
+                                  },
+                                },
+                              }
+                            : {})}
                           onCommand={command}
                           onStop={stop}
                           chatState={{ chat: !!chat, resumable: !!chat && chat.status === 'stopped' }}
@@ -1845,6 +1888,14 @@ export function App() {
                   setRuleFor(undefined)
                   toast(copy.rules.saved(name, where === 'project'), 'success')
                 }}
+              />
+            )}
+            {budgetFor && (
+              <ProjectBudget
+                key="budget"
+                project={budgetFor}
+                onClose={() => setBudgetFor(undefined)}
+                onSaved={setProjects}
               />
             )}
             {permissionsFor && (
