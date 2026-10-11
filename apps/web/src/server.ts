@@ -71,6 +71,7 @@ import {
   type McpServerConfig,
   type MemoryStore,
   type ModelResolver,
+  MYRMIDON_VERSION,
   markSetup,
   NextWordModel,
   namingModel,
@@ -122,6 +123,7 @@ import {
   TOOL_DEFS,
   type ToolLibrary,
   TWILIO_API,
+  UpdateChecker,
   VOICE_ENDPOINT_ID,
   type VoiceFiles,
   VoiceHub,
@@ -211,6 +213,8 @@ export interface ServeOptions {
   readonly skills?: SkillLibrary
   /** The public skill catalogs Settings → Skills browses; made from `skills` and `settings` unless given. */
   readonly skillMarket?: SkillMarketplace
+  /** Asks GitHub whether a newer Myrmidon is released (Settings → General → About); tests pass a fake. */
+  readonly updates?: UpdateChecker
   /** The person's hooks (Claude Code format). */
   readonly hooks?: HookStore
   readonly plugins?: PluginStore
@@ -603,6 +607,7 @@ export function startServer(options: ServeOptions): WebServer {
     })
   }
   const account = accountName()
+  const updates = options.updates ?? new UpdateChecker()
   const greetings = options.resolver ? new GreetingWriter(options.resolver) : undefined
   /**
    * The model that writes greetings (the entry page's line, a call's opening): the cheap one that names chats, not the
@@ -1759,6 +1764,7 @@ export function startServer(options: ServeOptions): WebServer {
             customApis: CUSTOM_APIS,
             sandbox: options.sandboxKind ?? 'unknown',
             shell: hostShell().name,
+            version: MYRMIDON_VERSION,
             home: options.home,
             // Readable folders that open these get a warning: keys, sign-ins and every chat's data.
             guardedReads: guardedPaths(options.home),
@@ -2319,6 +2325,10 @@ export function startServer(options: ServeOptions): WebServer {
           }
         }),
       },
+      // Whether a newer Myrmidon is released; `force` asks GitHub again instead of the last hour's answer.
+      '/api/updates': guard(async (_req, url) =>
+        json(await updates.check(url.searchParams.get('force') === '1')),
+      ),
       // Searching omp's skills registry; an empty search lists its popular skills.
       '/api/skill-registry': guard(async (_req, url) => {
         if (!options.skills) return json({ error: 'skills need the chat runtime' }, 503)

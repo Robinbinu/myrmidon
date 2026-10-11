@@ -238,6 +238,28 @@ export const SETTINGS = {
     label: s.shortcuts.title,
     keywords: [...kw.shortcuts, ...strings(s.shortcuts)],
   },
+  'general.version': {
+    page: 'general',
+    path: [s.about.title],
+    control: 'button',
+    label: s.about.version,
+    keywords: [s.about.checkUpdates, ...kw.version],
+  },
+  'general.creator': {
+    page: 'general',
+    path: [s.about.title],
+    control: 'info',
+    label: s.about.creator,
+    help: s.about.creatorHint,
+    keywords: kw.creator,
+  },
+  'general.project': {
+    page: 'general',
+    path: [s.about.title],
+    control: 'list',
+    label: s.about.project,
+    keywords: [s.about.reportIssue, s.about.starRepo, s.about.releases, ...kw.project],
+  },
   'general.dataFolder': {
     page: 'general',
     path: [s.about.title],
