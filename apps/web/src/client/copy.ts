@@ -455,6 +455,7 @@ export const copy = {
     followedRules: (n: number) => `Following the project's ${n === 1 ? 'rule file' : `${n} rule files`}:`,
     proposedMemory: 'Proposed to remember:',
     ownBranch: 'Works on its own branch',
+    ownCopy: 'Works on its own copy of the project',
     merged: (n: number) => `Merged ${n} file${n === 1 ? '' : 's'} into the project`,
     onMac: (app: string) => `On your Mac, in ${app}:`,
     computerSetup: 'Computer use needs setting up:',

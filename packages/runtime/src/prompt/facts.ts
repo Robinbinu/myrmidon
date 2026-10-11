@@ -151,7 +151,7 @@ export interface PromptFacts {
     /** Command prefixes a rule lets run without asking, for the Ask preset's line. */
     readonly allow: readonly string[]
     readonly project?: { readonly name: string; readonly path: string }
-    readonly worktree?: { readonly path: string; readonly branch: string }
+    readonly worktree?: { readonly path: string; readonly branch: string; readonly copy?: true }
     /** Folders the person opened for reading beyond the defaults. */
     readonly reads: readonly string[]
     /** Secrets in what the agent reads reach its model as placeholders. */
@@ -338,7 +338,13 @@ export function factsFor(spec: ColonySpec, agent: AgentSpec, env: Environment): 
           }
         : {}),
       ...(project && env.worktree
-        ? { worktree: { path: env.worktree.workdir, branch: env.worktree.branch } }
+        ? {
+            worktree: {
+              path: env.worktree.workdir,
+              branch: env.worktree.branch,
+              ...(env.worktree.copy ? { copy: true as const } : {}),
+            },
+          }
         : {}),
       reads: spec.askAll ? [] : (spec.reads ?? []),
       secretsHidden: env.secretsHidden === true,

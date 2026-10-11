@@ -309,6 +309,7 @@ function places(f: PromptFacts): string[] {
         workdir: f.access.worktree.path,
         branch: f.access.worktree.branch,
         path: p.path,
+        ...(f.access.worktree.copy ? { copy: true } : {}),
         ...(git?.branch ? { base: git.branch } : {}),
       }),
       ...(scratch ? [env.scratch(scratch)] : []),
@@ -499,7 +500,7 @@ export const SECTIONS: readonly Section[] = [
     {
       key: 'worktree',
       guard: (f) => f.access.worktree !== undefined && has(f, 'submit_task'),
-      render: () => say.worktree,
+      render: (f) => (f.access.worktree?.copy ? say.projectCopy : say.worktree),
     },
     {
       key: 'escalation',
