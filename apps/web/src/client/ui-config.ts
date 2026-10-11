@@ -34,6 +34,8 @@ export const DELETE_TITLES_SHOWN = 5
 export const AGENT_MIN_WINDOW = 32_000
 /** The shortest a model picker's list gets before it opens the other way. */
 export const MODEL_LIST_MIN_PX = 160
+/** Space kept clear above the composer's team panel, so its heading never slides under the chat's top edge. */
+export const TEAM_PANEL_CLEARANCE_PX = 8
 
 /* ------------------------------------------------------------------ composer */
 
