@@ -74,6 +74,7 @@ import {
   Smile,
   SquareTerminal,
   Store,
+  Telescope,
   Terminal,
   TextSearch,
   User,
@@ -211,6 +212,8 @@ export const FEATURE_ICONS = {
   skillRegistry: PackageSearch,
   /** The skill scanner's findings: in an install's review and under a flagged or held skill. */
   skillScan: ScanSearch,
+  /** Browse skills: the public skill catalogs to search and install from (Settings → Skills). */
+  skillMarket: Telescope,
   /** Hooks: commands around every tool call. */
   hooks: FishingHook,
   /** Requests that run on a schedule. */

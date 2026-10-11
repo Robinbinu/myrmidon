@@ -169,13 +169,17 @@ export const setupCopy = {
     pluginsUsage:
       'usage: myrmidon plugins [add <folder|git URL|npm:pkg|plugin@marketplace> | update <name> | remove <name> | marketplaces [add <owner/repo|git URL> | refresh <name> | remove <name>]]',
     skillsUsage:
-      'usage: myrmidon skills [search [query] | add <@scope/name|git URL> [--force] | update <name> | remove <name> | scan [name|folder]]',
+      'usage: myrmidon skills [search [query] [--source omp,openai,anthropic,skills.sh,clawhub] | add <source:id|@scope/name|git URL> [--force] | update <name> | remove <name> | scan [name|folder]]',
     notInteractive:
       'installing asks you to confirm what it shows, and nothing is typing here: run it in a terminal, or use Settings',
     noPlugins: 'no plugins yet: `myrmidon plugins add <source>`',
     noMarketplaces: 'no marketplaces yet: `myrmidon plugins marketplaces add <owner/repo>`',
     noSkills: 'nothing installed from a registry or repository yet: `myrmidon skills add <@scope/name>`',
     noHits: 'nothing in the registry matches',
+    noMarketHits: 'no skill source has a match',
+    sourceFailed: (source: string, error: string) => `${source} did not answer: ${error}`,
+    flagged: 'flagged suspicious',
+    audit: (by: string) => `${by} audit:`,
     fetching: (what: string) => `Fetching ${what}…`,
     review: 'About to install:',
     reviewUpdate: 'About to update:',
