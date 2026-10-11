@@ -316,8 +316,38 @@ function fakeServer(v: Variant = {}) {
       archived: [{ name: 'old-skill', description: 'Retired' }],
       retire: { staleDays: 30, archiveDays: 60 },
     },
+    '/api/skill-imports': {
+      skills: [
+        {
+          id: 'agents:notes:1',
+          origin: 'agents',
+          name: 'notes',
+          importAs: 'notes',
+          description: 'Keeps notes',
+          dir: '/agents/notes',
+          alreadyImported: false,
+          scan: { verdict: 'clean', findings: [], scannedFiles: 1, skippedFiles: 0, hash: 'n' },
+        },
+      ],
+    },
     '/api/skill-proposals': {
       proposals: [{ id: 'sp1', name: 'deploy', description: 'Deploys', body: 'Steps', why: 'Used twice' }],
+    },
+    '/api/skill-market': {
+      sources: [
+        ['omp', 'Skillshare', ['popular', 'trending', 'recent']],
+        ['openai', 'OpenAI', ['all']],
+        ['anthropic', 'Anthropic', ['all']],
+        ['skills.sh', 'skills.sh', []],
+        ['clawhub', 'ClawHub', ['trending', 'popular', 'recent']],
+      ].map(([id, name, views]) => ({
+        id,
+        name,
+        url: `https://${id}.test`,
+        enabled: id !== 'clawhub',
+        optIn: id === 'clawhub',
+        views,
+      })),
     },
     '/api/memory': {
       memories: [
@@ -551,6 +581,11 @@ test('every control on every Settings page is a registry row, and every registry
     specialists: [() => click(t.specialists.add), () => click(t.specialists.edit)],
     schedules: [() => click(t.schedules.change), () => click(t.schedules.repeat.custom).catch(() => {})],
     memory: [() => click('I prefer pnpm')],
+    skills: [
+      () => click(t.skills.market.open),
+      () => click(t.skills.market.sources.omp?.name ?? ''),
+      () => click(copy.skillImports.open),
+    ],
     channels: [
       () => click('Telegram'),
       () => click(t.channels.tabs.setup),

@@ -938,6 +938,10 @@ export const SKILL_SCAN_MAX_FILE_BYTES = 5 * 1024 * 1024
 /** How much of a finding's line it quotes, and the most findings one skill reports. */
 export const SKILL_SCAN_EXCERPT_CHARS = 140
 export const SKILL_SCAN_MAX_FINDINGS = 200
+/** The most Claude Code and Codex skills the import lists (skill-import.ts), each scanned as it is listed. */
+export const SKILL_IMPORT_MAX = 500
+/** Where an administrator puts skills every Codex user on the machine gets. */
+export const CODEX_ADMIN_SKILLS = '/etc/codex/skills'
 
 // Installing plugins and skills (install-sources.ts, marketplaces.ts, skill-installs.ts)
 
@@ -946,6 +950,13 @@ export const SKILL_SCAN_MAX_FINDINGS = 200
  * copy is deleted and they review it again.
  */
 export const INSTALL_REVIEW_MS = 15 * 60_000
+/** This build of Myrmidon. Bump it with each release; a release is tagged `v<version>` on GitHub. */
+export const MYRMIDON_VERSION = '0.1.0'
+/** Where Myrmidon's source, releases and issues live. */
+export const MYRMIDON_REPO = 'Robinbinu/myrmidon'
+/** How long a check for a newer release is reused, so opening About again does not ask GitHub every time. */
+export const UPDATE_CHECK_TTL_MS = 60 * 60_000
+export const UPDATE_CHECK_TIMEOUT_MS = 10_000
 /** Where npm packages are looked up, unless a marketplace entry names its own registry. */
 export const NPM_REGISTRY_URL = 'https://registry.npmjs.org'
 /** omp's skills registry (skills.omp.sh): search it and install a skill from Settings → Skills. */
@@ -954,6 +965,28 @@ export const SKILLS_REGISTRY_URL = 'https://skills.omp.sh'
 export const INSTALL_FETCH_TIMEOUT_MS = 60_000
 /** The largest package tarball fetched: skills registry packages are capped at 5 MB, plugins get more room. */
 export const INSTALL_MAX_BYTES = 50 * 1024 * 1024
+/**
+ * The skill marketplace (Settings → Skills → Browse skills): the public catalogs it reads. OpenAI's and Anthropic's
+ * are git repositories it keeps a shallow copy of; skills.sh and ClawHub answer over HTTP.
+ */
+export const OPENAI_SKILLS_REPO = 'https://github.com/openai/skills.git'
+export const ANTHROPIC_SKILLS_REPO = 'https://github.com/anthropics/skills.git'
+export const SKILLS_SH_URL = 'https://skills.sh'
+export const CLAWHUB_URL = 'https://clawhub.ai'
+/** One marketplace request (search, a list, an audit); a slow source is reported, the others still answer. */
+export const MARKET_FETCH_TIMEOUT_MS = 15_000
+/** How long a marketplace's answer to the same search or list is reused, so browsing does not refetch. */
+export const MARKET_CACHE_MS = 5 * 60_000
+/** How old the copy of a git catalog may get before browsing it fetches the repository again. */
+export const MARKET_CATALOG_MAX_AGE_MS = 6 * 60 * 60_000
+/** Results each source gives one search or list. */
+export const MARKET_RESULTS = 30
+/** skills.sh audits are one request per skill: only the first this many results of a search carry theirs. */
+export const MARKET_AUDITS = 12
+/** How deep in a repository a skill a marketplace names (by name, not path) is looked for. */
+export const MARKET_PICK_DEPTH = 5
+/** The most files a skill ClawHub serves file by file may have. */
+export const CLAWHUB_MAX_FILES = 200
 /** The largest script a made tool may have, to keep tools small. */
 export const MADE_TOOL_MAX_SOURCE = 64 * 1024
 

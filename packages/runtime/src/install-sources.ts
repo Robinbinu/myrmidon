@@ -37,6 +37,8 @@ export type InstallOrigin =
   | { readonly kind: 'npm'; readonly spec: string; readonly registry?: string }
   | { readonly kind: 'marketplace'; readonly marketplace: string; readonly plugin: string }
   | { readonly kind: 'registry'; readonly spec: string }
+  /** A skill marketplace that serves files itself rather than a repository or package (skill-market.ts). */
+  | { readonly kind: 'market'; readonly source: string; readonly id: string }
 
 /** What one fetch pinned: the exact version, commit and tarball hash that were installed. */
 export interface InstallPin {
@@ -51,6 +53,16 @@ export interface InstalledFrom extends InstallPin {
   /** The origin as the person reads it: a path, a URL, `npm:pkg@1.2`, `plugin@marketplace`. */
   readonly source: string
   readonly installedAt: string
+  /** For a skill copied in from Claude Code or Codex: which of their folders (`origin.path`) it was, and as what. */
+  readonly imported?: ImportedFrom
+}
+
+/** Where an imported skill came from: the tool's kind of folder, its name there, and the scan hash it had then. */
+export interface ImportedFrom {
+  /** A SkillImportOrigin (skill-import.ts): `claude`, `codex-plugin`, `agents`… */
+  readonly from: string
+  readonly name: string
+  readonly hash: string
 }
 
 /** The origin as one line for the person: the same text they could paste to install it again. */
@@ -66,6 +78,8 @@ export function describeOrigin(origin: InstallOrigin): string {
       return `${origin.plugin}@${origin.marketplace}`
     case 'registry':
       return origin.spec
+    case 'market':
+      return `${origin.source}:${origin.id}`
   }
 }
 
@@ -121,6 +135,8 @@ export function originName(origin: InstallOrigin): string {
       return origin.plugin
     case 'registry':
       return origin.spec.replace(/^@[^/]+\//, '').replace(/@.*$/, '')
+    case 'market':
+      return origin.id.split('/').pop() ?? origin.id
   }
 }
 

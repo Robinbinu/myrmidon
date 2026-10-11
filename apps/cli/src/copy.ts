@@ -169,13 +169,17 @@ export const setupCopy = {
     pluginsUsage:
       'usage: myrmidon plugins [add <folder|git URL|npm:pkg|plugin@marketplace> | update <name> | remove <name> | marketplaces [add <owner/repo|git URL> | refresh <name> | remove <name>]]',
     skillsUsage:
-      'usage: myrmidon skills [search [query] | add <@scope/name|git URL> [--force] | update <name> | remove <name> | scan [name|folder]]',
+      'usage: myrmidon skills [search [query] [--source omp,openai,anthropic,skills.sh,clawhub] | add <source:id|@scope/name|git URL> [--force] | update <name> | remove <name> | scan [name|folder]]',
     notInteractive:
       'installing asks you to confirm what it shows, and nothing is typing here: run it in a terminal, or use Settings',
     noPlugins: 'no plugins yet: `myrmidon plugins add <source>`',
     noMarketplaces: 'no marketplaces yet: `myrmidon plugins marketplaces add <owner/repo>`',
     noSkills: 'nothing installed from a registry or repository yet: `myrmidon skills add <@scope/name>`',
     noHits: 'nothing in the registry matches',
+    noMarketHits: 'no skill source has a match',
+    sourceFailed: (source: string, error: string) => `${source} did not answer: ${error}`,
+    flagged: 'flagged suspicious',
+    audit: (by: string) => `${by} audit:`,
     fetching: (what: string) => `Fetching ${what}…`,
     review: 'About to install:',
     reviewUpdate: 'About to update:',
@@ -207,5 +211,36 @@ export const setupCopy = {
     blocked:
       'Not installed: the skill scan blocks it. If you trust where it comes from, run it again with --force.',
     confirmAnyway: 'Install it anyway? Type yes to install',
+  },
+  /** `myrmidon import-skills`: copying Claude Code and Codex skills into Myrmidon. */
+  importSkills: {
+    usage: 'usage: myrmidon import-skills [--from claude|codex|all] [--all | <name…>] [--force]',
+    none: 'No Claude Code or Codex skills on this computer.',
+    origins: {
+      claude: 'Claude Code',
+      'claude-plugin': 'Claude plugin',
+      agents: 'Codex',
+      codex: 'Codex',
+      'codex-plugin': 'Codex plugin',
+      project: 'project',
+    },
+    verdict: { clean: 'clean', warn: 'worth a look', block: 'blocked' },
+    plugin: (name: string) => `plugin ${name}`,
+    already: (name: string) => `already in Myrmidon as ${name}`,
+    renamed: (name: string) => `imports as ${name}`,
+    offThere: 'off there',
+    hint: 'Import: myrmidon import-skills <name…> or --all. Each is scanned and stays off until you switch it on.',
+    noSuchSkill: (name: string) => `no Claude Code or Codex skill called ${name}`,
+    nothingToImport: 'Nothing to import: all of them are in Myrmidon already.',
+    notInteractive: 'importing a skill the scan blocks asks you to confirm, and nothing is typing here',
+    blockedList: (names: string[]) =>
+      `The skill scan blocks ${names.join(', ')}: it found something critical. Import only if you trust where it comes from.`,
+    confirmAnyway: 'Import it anyway? Type yes to import',
+    cancelled: 'Not imported.',
+    imported: (names: string[]) =>
+      `Imported ${names.join(', ')}: off until you switch ${names.length === 1 ? 'it' : 'them'} on in Settings → Skills`,
+    skippedBlocked: (name: string) =>
+      `Not imported ${name}: the skill scan blocks it (run again with --force)`,
+    failed: (name: string, why: string) => `Not imported ${name}: ${why}`,
   },
 }

@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { type SkillScan, scanSkill } from '@myrmidon/runtime'
+import { type MarketResults, type SkillAudit, type SkillScan, scanSkill } from '@myrmidon/runtime'
 import { setupCopy } from './copy.ts'
 import type { Call, Terminal } from './setup.ts'
 
@@ -24,13 +24,18 @@ interface Preview {
   scripts?: string[]
   warnings?: string[]
   scan?: SkillScan
+  audit?: SkillAudit
   replaces?: { version?: string; commit?: string }
 }
 
-/** `--force`: install what the skill scan blocks, after the same typed yes. */
+/** `--force`: install what the skill scan blocks, after the same typed yes. `--source`: skill sources to search. */
 export interface InstallOptions {
   force?: boolean
+  source?: string
 }
+
+/** The skill marketplace's sources, as `myrmidon skills add <source>:<id>` names them (skill-market.ts). */
+const MARKET_REF = /^(omp|openai|anthropic|skills\.sh|clawhub):\S/
 
 /** A scan's findings, worst first, each with where it is and why it matters. */
 function printScan(term: Terminal, scan: SkillScan, indent = '  ') {
@@ -43,6 +48,14 @@ function printScan(term: Terminal, scan: SkillScan, indent = '  ') {
     if (f.excerpt) term.print(`${indent}         ${s.dim(f.excerpt)}`)
   }
   if (scan.skippedFiles) term.print(`${indent}${s.dim(t.scanSkipped(scan.skippedFiles))}`)
+}
+
+/** A source's audit on one line: its verdict, then each check's. */
+function auditLine(term: Terminal, audit: SkillAudit): string {
+  const s = term.style
+  const tone = { pass: s.green, warn: s.yellow, fail: s.red, unknown: s.dim } as const
+  const checks = audit.checks.map((c) => `${c.name} ${c.status}`).join(', ')
+  return `${tone[audit.status](audit.status)}${audit.summary ? ` ${audit.summary}` : ''}${checks ? s.dim(` (${checks})`) : ''}`
 }
 
 /** `plugin@marketplace`, as Claude Code names a marketplace plugin. */
@@ -83,6 +96,7 @@ async function confirmInstall(
   term.print(`  ${s.dim(t.runs)} ${runs.length ? s.yellow(runs.join('; ')) : t.nothingRuns}`)
   if (p.dependencies?.length) term.print(`  ${t.dependencies(p.dependencies)}`)
   for (const w of p.warnings ?? []) term.print(`  ${s.yellow(w)}`)
+  if (p.audit) term.print(`  ${s.dim(t.audit(p.audit.by))} ${auditLine(term, p.audit)}`)
   const blocked = p.scan?.verdict === 'block'
   if (p.scan) {
     term.print(`  ${s.dim(t.scan)} ${t.verdict[p.scan.verdict]}`)
@@ -246,6 +260,22 @@ export async function skills(
       )
     return
   }
+  if (verb === 'search' && (arg || opts.source)) {
+    const sources = opts.source ? `&sources=${encodeURIComponent(opts.source)}` : ''
+    const r = await call<MarketResults>(
+      'GET',
+      `/api/skill-market/search?q=${encodeURIComponent(arg)}${sources}`,
+    )
+    for (const e of r.errors) term.print(s.yellow(t.sourceFailed(e.source, e.error)))
+    if (!r.hits.length) return term.print(t.noMarketHits)
+    for (const h of r.hits) {
+      const tags = [h.license, h.flagged && s.red(t.flagged)].filter(Boolean).join(' · ')
+      term.print(`${s.bold(h.installRef)}${tags ? `  ${s.dim(tags)}` : ''}`)
+      if (h.description) term.print(`  ${h.description}`)
+      if (h.audit) term.print(`  ${s.dim(t.audit(h.audit.by))} ${auditLine(term, h.audit)}`)
+    }
+    return
+  }
   if (verb === 'search') {
     const { hits } = await call<{
       hits: { scope: string; name: string; version: string; description: string }[]
@@ -258,7 +288,9 @@ export async function skills(
   if (verb === 'add' && arg) {
     needsPerson(term)
     term.print(s.dim(t.fetching(arg)))
-    const { preview } = await call<{ preview: Preview }>('POST', '/api/skill-installs', { source: arg })
+    const { preview } = MARKET_REF.test(arg)
+      ? await call<{ preview: Preview }>('POST', '/api/skill-market/install', { ref: arg })
+      : await call<{ preview: Preview }>('POST', '/api/skill-installs', { source: arg })
     return confirmInstall(call, term, 'skill', preview, opts)
   }
   if (verb === 'update' && arg) {

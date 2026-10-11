@@ -71,6 +71,7 @@ import {
   type McpServerConfig,
   type MemoryStore,
   type ModelResolver,
+  MYRMIDON_VERSION,
   markSetup,
   NextWordModel,
   namingModel,
@@ -105,8 +106,12 @@ import {
   type SessionImports,
   type SettingsStore,
   type SileroVad,
+  SKILL_IMPORT_MAX,
+  type SkillImports,
   type SkillLibrary,
+  SkillMarketplace,
   type SkillProposalStore,
+  type SkillView,
   type SmartTurn,
   type SpecialistInput,
   type SpecialistStore,
@@ -120,6 +125,7 @@ import {
   TOOL_DEFS,
   type ToolLibrary,
   TWILIO_API,
+  UpdateChecker,
   VOICE_ENDPOINT_ID,
   type VoiceFiles,
   VoiceHub,
@@ -207,6 +213,12 @@ export interface ServeOptions {
   readonly memory?: MemoryStore
   /** Skills agents load by name. */
   readonly skills?: SkillLibrary
+  /** The person's Claude Code and Codex skills, to copy into `skills` (Settings → Skills → Import). */
+  readonly skillImports?: SkillImports
+  /** The public skill catalogs Settings → Skills browses; made from `skills` and `settings` unless given. */
+  readonly skillMarket?: SkillMarketplace
+  /** Asks GitHub whether a newer Myrmidon is released (Settings → General → About); tests pass a fake. */
+  readonly updates?: UpdateChecker
   /** The person's hooks (Claude Code format). */
   readonly hooks?: HookStore
   readonly plugins?: PluginStore
@@ -387,6 +399,12 @@ function sendProblem(raw: unknown): string | undefined {
     return `Attach at most ${MAX_ATTACHMENTS} files to one message.`
   return undefined
 }
+
+const skillImportSchema = Schema.object({
+  ids: Schema.array(Schema.string().min(1).max(200)).min(1).max(SKILL_IMPORT_MAX).required(),
+  override: Schema.array(Schema.string().min(1).max(200)).max(SKILL_IMPORT_MAX),
+  project: Schema.string().max(200),
+})
 
 const importSchema = Schema.object({
   source: Schema.union(['claude', 'codex']).required(),
@@ -599,6 +617,7 @@ export function startServer(options: ServeOptions): WebServer {
     })
   }
   const account = accountName()
+  const updates = options.updates ?? new UpdateChecker()
   const greetings = options.resolver ? new GreetingWriter(options.resolver) : undefined
   /**
    * The model that writes greetings (the entry page's line, a call's opening): the cheap one that names chats, not the
@@ -774,6 +793,19 @@ export function startServer(options: ServeOptions): WebServer {
   }
   const stopScheduler =
     options.schedules && chats ? startScheduler(options.schedules, runSchedule) : undefined
+  const skillMarket =
+    options.skillMarket ??
+    (options.skills &&
+      new SkillMarketplace(options.home, options.skills.installs, {
+        ...(settingsStore
+          ? {
+              toggles: {
+                get: () => settingsStore.get().skillMarket.sources,
+                set: (sources) => settingsStore.set({ ...settingsStore.get(), skillMarket: { sources } }),
+              },
+            }
+          : {}),
+      }))
   /** Plugins with whether their code is running, its log, and their settings (secrets shown only as set or not). */
   const pluginList = () =>
     (options.plugins?.list() ?? []).map((p) => {
@@ -1742,6 +1774,7 @@ export function startServer(options: ServeOptions): WebServer {
             customApis: CUSTOM_APIS,
             sandbox: options.sandboxKind ?? 'unknown',
             shell: hostShell().name,
+            version: MYRMIDON_VERSION,
             home: options.home,
             // Readable folders that open these get a warning: keys, sign-ins and every chat's data.
             guardedReads: guardedPaths(options.home),
@@ -2302,6 +2335,10 @@ export function startServer(options: ServeOptions): WebServer {
           }
         }),
       },
+      // Whether a newer Myrmidon is released; `force` asks GitHub again instead of the last hour's answer.
+      '/api/updates': guard(async (_req, url) =>
+        json(await updates.check(url.searchParams.get('force') === '1')),
+      ),
       // Searching omp's skills registry; an empty search lists its popular skills.
       '/api/skill-registry': guard(async (_req, url) => {
         if (!options.skills) return json({ error: 'skills need the chat runtime' }, 503)
@@ -2345,6 +2382,59 @@ export function startServer(options: ServeOptions): WebServer {
           return json({ ok: true })
         }),
       },
+      // The skill marketplace: its sources, their lists and search, and fetching a skill to review. Installing it is
+      // the review's confirm above, as for every skill install.
+      '/api/skill-market': guard(() =>
+        skillMarket
+          ? json({ sources: skillMarket.sources() })
+          : json({ error: 'skills need the chat runtime' }, 503),
+      ),
+      '/api/skill-market/sources/:id': {
+        PUT: guard(async (req) => {
+          if (!skillMarket) return json({ error: 'skills need the chat runtime' }, 503)
+          const { enabled } = (await req.json().catch(() => ({}))) as { enabled?: unknown }
+          if (typeof enabled !== 'boolean') return json({ error: 'enabled must be true or false' }, 400)
+          try {
+            return json({ sources: skillMarket.setEnabled(req.params.id ?? '', enabled) })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 404)
+          }
+        }),
+      },
+      '/api/skill-market/browse': guard(async (_req, url) => {
+        if (!skillMarket) return json({ error: 'skills need the chat runtime' }, 503)
+        try {
+          return json(
+            await skillMarket.browse(
+              url.searchParams.get('source') ?? '',
+              (url.searchParams.get('view') ?? 'popular') as SkillView,
+            ),
+          )
+        } catch (err) {
+          return json({ error: err instanceof Error ? err.message : String(err) }, 422)
+        }
+      }),
+      '/api/skill-market/search': guard(async (_req, url) => {
+        if (!skillMarket) return json({ error: 'skills need the chat runtime' }, 503)
+        const sources = url.searchParams.get('sources')?.split(',').filter(Boolean)
+        try {
+          return json(await skillMarket.search(url.searchParams.get('q') ?? '', sources))
+        } catch (err) {
+          return json({ error: err instanceof Error ? err.message : String(err) }, 422)
+        }
+      }),
+      '/api/skill-market/install': {
+        POST: guard(async (req) => {
+          if (!skillMarket) return json({ error: 'skills need the chat runtime' }, 503)
+          const { ref } = (await req.json().catch(() => ({}))) as { ref?: unknown }
+          if (typeof ref !== 'string') return json({ error: 'give <source>:<id>' }, 400)
+          try {
+            return json({ preview: await skillMarket.prepare(ref) })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 422)
+          }
+        }),
+      },
       '/api/skills/:name/update': {
         POST: guard(async (req) => {
           if (!options.skills) return json({ error: 'skills need the chat runtime' }, 503)
@@ -2353,6 +2443,34 @@ export function startServer(options: ServeOptions): WebServer {
           } catch (err) {
             return json({ error: err instanceof Error ? err.message : String(err) }, 422)
           }
+        }),
+      },
+      // Claude Code's and Codex's skills: listing and importing read their folders, so both need full access.
+      '/api/skill-imports': {
+        GET: guard((_req, url) => {
+          if (!options.skillImports) return json({ error: 'this server imports no skills' }, 503)
+          const project = url.searchParams.get('project')
+          const path = project ? options.projects?.get(project)?.path : undefined
+          return json({ skills: options.skillImports.list(path) })
+        }),
+        POST: guard(async (req) => {
+          if (!options.skillImports || !options.skills)
+            return json({ error: 'this server imports no skills' }, 503)
+          let body: ReturnType<typeof skillImportSchema>
+          try {
+            body = skillImportSchema((await req.json()) as never)
+          } catch (err) {
+            return json(
+              { error: `invalid request: ${err instanceof Error ? err.message : String(err)}` },
+              400,
+            )
+          }
+          const path = body.project ? options.projects?.get(body.project)?.path : undefined
+          const result = await options.skillImports.import(body.ids, {
+            ...(path ? { project: path } : {}),
+            ...(body.override ? { override: body.override } : {}),
+          })
+          return json({ ...result, skills: options.skills.list(path) })
         }),
       },
       '/api/skills/:name/restore': {
