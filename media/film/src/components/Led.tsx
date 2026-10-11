@@ -325,3 +325,25 @@ export function dotLayout(text: string): { dots: [number, number][]; width: numb
   }
   return { dots, width: x - 1 }
 }
+
+/**
+ * A word lit on an LED panel: `dotLayout`'s 5×7 letters as amber cells on a faint unlit grid one cell wider all round,
+ * drawn by the mascot's own screen so it glows the same. `width` sets the panel's width in px.
+ */
+export function DotWord(props: { text: string; width: number; color?: string; style?: CSSProperties }) {
+  const word = dotLayout(props.text)
+  const cols = word.width + 2
+  // LedScreen spaces cells 0.3 of a cell apart: cols cells and cols - 1 gaps fill the width.
+  const cell = props.width / (cols + (cols - 1) * 0.3)
+  return (
+    <LedScreen
+      cols={cols}
+      rows={9}
+      cell={cell}
+      cells={word.dots.map(([x, y]): Cell => [x + 1, y + 1])}
+      color={props.color}
+      bezel={false}
+      style={props.style}
+    />
+  )
+}
