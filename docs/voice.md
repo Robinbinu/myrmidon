@@ -64,7 +64,7 @@ whether it streams, and where its key comes from:
 | AssemblyAI | Universal-Streaming, streams | | |
 | OpenAI | gpt-4o(-mini)-transcribe, whisper-1 | gpt-4o-mini-tts, tts-1, streams | gpt-realtime |
 | Gemini | | | Gemini Live |
-| Groq | Whisper large v3 (turbo) | | |
+| Groq | Whisper large v3 (turbo) | Orpheus (English, Saudi Arabic); accept its terms in Groq's console first | |
 | Google Cloud | Speech-to-Text v1 | Text-to-Speech (Chirp 3 HD…), your voices | |
 | Azure AI Speech (key + region) | short audio | Neural voices, streams | |
 | AWS (access key + region) | Transcribe, streams | Polly, streams | |

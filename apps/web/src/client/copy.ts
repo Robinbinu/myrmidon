@@ -2234,6 +2234,11 @@ export const copy = {
       `This chat no longer fits ${model}'s context window, even after older messages were summarized.`,
     refusal: "The provider's safety filter stopped this reply. Another model can pick up from here.",
     error: 'The provider returned an error. Another model can pick up from here, or try again.',
+    retiredTitle: (model: string) => `${model} has been retired`,
+    retired: (model: string, next?: string) =>
+      `The provider no longer serves ${model}, so trying it again won't help. Continue on another model${next ? `, such as ${next}` : ''}.`,
+    perMinute: (model: string, limit: number, tokens: number) =>
+      `This request is about ${tokens.toLocaleString('en-US')} tokens, but your account allows ${model} only ${limit.toLocaleString('en-US')} tokens a minute, so waiting won't help. Raise the account's tier with the provider, or continue on another model.`,
     providerMessage: 'Provider message',
     continueWith: 'Continue with',
     wontFit: (window: string) => `Under ${window}: this chat won't fit`,
