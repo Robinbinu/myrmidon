@@ -8,7 +8,7 @@ export default {
   app: {
     name: 'Myrmidon',
     identifier: 'dev.myrmidon.app',
-    version: '0.0.1',
+    version: '0.1.0',
   },
   build: {
     // The real Bun runtime, as the rest of Myrmidon uses, with bun:ffi for the Dock badge.
