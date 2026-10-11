@@ -94,6 +94,7 @@ import {
   MCP_FAILURE_LIMIT,
   PAGE_EXCERPT,
   READ_LOG_RESULT_CHARS,
+  READ_SUMMARY_MIN_LINES,
   REVIEW_MAX_CHARS,
   RULE_MAX_TEXT,
   SSH,
@@ -117,6 +118,14 @@ import {
   scrubToken,
   shellLine,
 } from './github.ts'
+import {
+  applyHashline,
+  editModeFor,
+  editModeOf,
+  numberedRows,
+  setEditMode,
+  snapshotHeader,
+} from './hashline.ts'
 import { agentActor, type ColonyHost, type ReviewDecision } from './host.ts'
 import {
   browserSteps,
@@ -139,6 +148,7 @@ import { type ProjectCheck, scratchChecks } from './project-context.ts'
 import type { PromptFacts } from './prompt/facts.ts'
 import { type Place, prompts } from './prompts.ts'
 import { keysAt, slashed, within } from './read-access.ts'
+import { renderSummary, summarizeSource } from './read-summary.ts'
 import { ruleMatches } from './rule-files.ts'
 import { SANDBOX_DIRS, type SandboxRun } from './sandbox.ts'
 import { SCAN_CHECKS, securityScan } from './security-scan.ts'
@@ -166,6 +176,8 @@ interface ToolOutput {
   readonly preface?: string
   /** What the call spent on a model of its own (generate_image), for the round's budget. */
   readonly usage?: UsageInfo
+  /** The lines a hashline edit changed, for the person's diff (its arguments carry no old and new text). */
+  readonly change?: { readonly before: string; readonly after: string }
 }
 
 interface ToolDef {
@@ -175,6 +187,8 @@ interface ToolDef {
   /** For a tool whose description depends on the round's configuration: what this agent is told instead. */
   readonly describe?: (facts: PromptFacts) => string
   readonly parameters: ReturnType<typeof type>
+  /** For a tool whose parameters depend on the agent (fs_edit's hashline form): its parameters instead, when it has its own. */
+  readonly parametersFor?: (facts: PromptFacts) => ReturnType<typeof type> | undefined
   /** For a tool only some of whose calls change things (lsp's rename): this call's tier, which `tier` is the least of. */
   // biome-ignore lint/suspicious/noExplicitAny: arguments are validated against `parameters` by the agent loop
   readonly tierOf?: (args: any) => Tier
@@ -235,28 +249,91 @@ const clip = (text: string, max = MAX_READ_CHARS) =>
  * shown and, when lines remain, the offset that reads on (after Qwen Code's and Gemini CLI's read_file paging).
  */
 export function readRange(text: string, offset = 1, limit?: number, max = MAX_READ_CHARS): string {
+  const w = readWindow(text, offset, limit, max)
+  if (w.whole) return text
+  return `${prompts.toolResults.readLines(w.first, w.last, w.total)}\n${w.shown.join('\n')}${readOnNote(w)}`
+}
+
+/** The lines readRange shows: from `first` to `last` of `total`, `whole` when that is the file as it is. */
+interface ReadWindow {
+  readonly first: number
+  readonly last: number
+  readonly total: number
+  readonly shown: readonly string[]
+  readonly whole: boolean
+  /** The one line shown was cut at the cap. */
+  readonly cut: boolean
+}
+
+function readWindow(text: string, offset = 1, limit?: number, max = MAX_READ_CHARS): ReadWindow {
   if (!Number.isInteger(offset) || offset < 1) throw new Error('offset is a line number, 1 or more')
   if (limit !== undefined && (!Number.isInteger(limit) || limit < 1))
     throw new Error('limit is a number of lines, 1 or more')
-  if (offset === 1 && limit === undefined && text.length <= max) return text
   const lines = text.split('\n')
   if (text.endsWith('\n')) lines.pop()
   const total = lines.length
+  if (offset === 1 && limit === undefined && text.length <= max)
+    return { first: 1, last: total, total, shown: lines, whole: true, cut: false }
   if (offset > total) throw new Error(prompts.toolResults.readPastEnd(offset, total))
   const wanted = lines.slice(offset - 1, limit === undefined ? undefined : offset - 1 + limit)
   const shown: string[] = []
   let size = 0
+  let cut = false
   for (const line of wanted) {
     // A single line longer than the cap is cut rather than skipped, so a minified file still reads.
     if (size + line.length + 1 > max) {
-      if (shown.length === 0) shown.push(`${line.slice(0, max)}…`)
+      if (shown.length === 0) {
+        shown.push(`${line.slice(0, max)}…`)
+        cut = true
+      }
       break
     }
     shown.push(line)
     size += line.length + 1
   }
-  const last = offset + shown.length - 1
-  return `${prompts.toolResults.readLines(offset, last, total)}\n${shown.join('\n')}${last < total ? `\n${prompts.toolResults.readOn(last + 1, total)}` : ''}`
+  return { first: offset, last: offset + shown.length - 1, total, shown, whole: false, cut }
+}
+
+const readOnNote = (w: ReadWindow) =>
+  w.last < w.total ? `\n${prompts.toolResults.readOn(w.last + 1, w.total)}` : ''
+
+/**
+ * fs_read of a text file for an agent that edits with hashline anchors: the `[path#TAG]` header and `N:line` rows,
+ * the lines shown recorded as seen (a cut line is not: its end was not shown).
+ */
+function anchoredRead(
+  host: ColonyHost,
+  agent: string,
+  file: string,
+  shown: string,
+  text: string,
+  w: ReadWindow,
+) {
+  const seen = w.shown.map((_, i) => w.first + i).filter((line) => !(w.cut && line === w.last))
+  const header = snapshotHeader(host, agent, file, shown, text, seen)
+  const range = w.whole ? '' : `${prompts.toolResults.readLines(w.first, w.last, w.total)}\n`
+  return `${header}\n${range}${numberedRows(w.shown, w.first)}${readOnNote(w)}`
+}
+
+/**
+ * A long source file read whole, as its structure (read-summary.ts) under the hashline header or a plain one, or
+ * none when it is not one: then it reads as lines.
+ */
+async function summaryRead(host: ColonyHost, agent: string, file: string, shown: string, text: string) {
+  const lines = text.split('\n').length - (text.endsWith('\n') ? 1 : 0)
+  if (lines < READ_SUMMARY_MIN_LINES && text.length <= MAX_READ_CHARS) return undefined
+  const summary = await summarizeSource(text, file)
+  if (!summary) return undefined
+  const anchors = editModeOf(host, agent) === 'hashline'
+  const body = renderSummary(summary, anchors ? ':' : '|')
+  const first = summary.folds[0]
+  const foot = first ? `\n\n${prompts.toolResults.readSummaryFoot(summary.foldedLines, first)}` : ''
+  // A structure as long as a page of lines saves nothing.
+  if (body.length + foot.length > MAX_READ_CHARS) return undefined
+  const head = anchors
+    ? snapshotHeader(host, agent, file, shown, text, summary.seen)
+    : prompts.toolResults.readSummaryHead(lines)
+  return `${head}\n${body}${foot}`
 }
 
 function taskLine(t: TaskSnapshot) {
@@ -943,6 +1020,47 @@ async function writeChanges(
     approved.push({ path: c.path, ...(await guardProjectEdit(host, agent, tool, c.path, { ...c, key })) })
   for (const a of approved) writeFileSync(a.path, a.content)
   return approved.filter((a) => a.edited).map((a) => a.path)
+}
+
+/** Whether the agent these facts describe edits with hashline anchors (hashline.ts). */
+const anchored = (f: PromptFacts) => editModeFor(f.model.ref) === 'hashline'
+
+/**
+ * fs_edit with hashline anchors: the engine works out the new content from the header and operations, and the change
+ * is then decided and written as a replacement is (guardProjectEdit), so permissions, review, receipts and project
+ * rules are the same for both.
+ */
+async function editByAnchors(
+  args: { path: string; input: string },
+  agent: string,
+  host: ColonyHost,
+): Promise<ToolOutput> {
+  const path = host.workspace.resolveInWorkdir(agent, args.path)
+  let edited = false
+  const result = await applyHashline({
+    host,
+    agent,
+    cwd: realpathSync.native(host.workspace.workdir(agent)),
+    file: path,
+    shown: args.path,
+    input: args.input,
+    sameFile: (p) => host.workspace.resolveInWorkdir(agent, p) === path,
+    write: async (after) => {
+      const change = await guardProjectEdit(host, agent, 'fs_edit', path, {
+        before: readFileSync(path, 'utf8'),
+        after,
+        key: receiptKey(host, agent, 'fs_edit', args),
+      })
+      writeFileSync(path, change.content)
+      edited = change.edited
+      return change.content
+    },
+  })
+  return {
+    text: `${result.text}${edited ? prompts.toolResults.editedByPerson : ''}${rulesForFile(host, agent, path)}`,
+    images: [],
+    ...(result.change ? { change: result.change } : {}),
+  }
 }
 
 /**
@@ -2269,21 +2387,37 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       })
       mkdirSync(dirname(path), { recursive: true })
       writeFileSync(path, content)
-      return `wrote ${args.path} (${Buffer.byteLength(content)} bytes)${edited ? prompts.toolResults.editedByPerson : ''}${rulesForFile(host, agent, path)}`
+      // As omp's write: the new tag comes back, so the file just written can be edited by line without a read.
+      const tag =
+        editModeOf(host, agent) === 'hashline'
+          ? prompts.toolResults.hashlineWritten(snapshotHeader(host, agent, path, args.path, content, []))
+          : ''
+      return `wrote ${args.path} (${Buffer.byteLength(content)} bytes)${edited ? prompts.toolResults.editedByPerson : ''}${tag}${rulesForFile(host, agent, path)}`
     },
   },
   {
     name: 'fs_edit',
     tier: 'write',
     description: prompts.tools.fs_edit.description(PLACE),
-    describe: (f) => prompts.tools.fs_edit.description(placeOf(f)),
+    describe: (f) =>
+      anchored(f)
+        ? prompts.tools.fs_edit.anchored.description(placeOf(f))
+        : prompts.tools.fs_edit.description(placeOf(f)),
     parameters: type({
       path: type('string').describe(prompts.tools.fs_edit.params.path),
       old: type('string').atLeastLength(1).describe(prompts.tools.fs_edit.params.old),
       new: type('string').describe(prompts.tools.fs_edit.params.new),
       'all?': type('boolean').describe(prompts.tools.fs_edit.params.all),
     }),
+    parametersFor: (f) =>
+      anchored(f)
+        ? type({
+            path: type('string').describe(prompts.tools.fs_edit.anchored.params.path),
+            input: type('string').atLeastLength(1).describe(prompts.tools.fs_edit.anchored.params.input),
+          })
+        : undefined,
     async run(args, agent, host) {
+      if (typeof args.input === 'string') return editByAnchors(args, agent, host)
       const path = host.workspace.resolveInWorkdir(agent, args.path)
       const text = readFileSync(path, 'utf8')
       const count = text.split(args.old).length - 1
@@ -2306,7 +2440,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     name: 'fs_read',
     tier: 'read',
     description: prompts.tools.fs_read.description(PLACE),
-    describe: (f) => prompts.tools.fs_read.description(placeOf(f)),
+    describe: (f) => prompts.tools.fs_read.description(placeOf(f), anchored(f)),
     parameters: type({
       path: type('string').describe(prompts.tools.fs_read.params.path),
       'offset?': type('number').describe(prompts.tools.fs_read.params.offset),
@@ -2318,8 +2452,20 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       const path = host.workspace.resolveForRead(agent, args.path)
       const read = await readFileAs(path, args.path, args)
       if (read.image) return { text: read.head ?? '', images: [read.image] }
-      const text = `${readRange(read.text, args.offset, args.limit)}${rulesForFile(host, agent, path)}`
-      return read.head ? { text, images: [], preface: `${read.head}\n` } : text
+      const rules = rulesForFile(host, agent, path)
+      // A converted document (PDF, notebook…) is not the file's own lines: no anchors and no code structure for it.
+      if (read.head)
+        return {
+          text: `${readRange(read.text, args.offset, args.limit)}${rules}`,
+          images: [],
+          preface: `${read.head}\n`,
+        }
+      const whole = args.offset === undefined && args.limit === undefined
+      const summary = whole ? await summaryRead(host, agent, path, args.path, read.text) : undefined
+      if (summary) return `${summary}${rules}`
+      if (editModeOf(host, agent) !== 'hashline')
+        return `${readRange(read.text, args.offset, args.limit)}${rules}`
+      return `${anchoredRead(host, agent, path, args.path, read.text, readWindow(read.text, args.offset, args.limit))}${rules}`
     },
   },
   {
@@ -4177,12 +4323,16 @@ class AlreadyDone extends Error {
 }
 
 /** A harness tool's parameters as JSON Schema, the way providers receive them (as pi-ai's arkToWireSchema does). */
-export function toolParameters(name: string): Record<string, unknown> | undefined {
-  const params = computerToolSpec(name)?.parameters ?? TOOL_DEFS.find((d) => d.name === name)?.parameters
+export function toolParameters(name: string, facts?: PromptFacts): Record<string, unknown> | undefined {
+  const def = TOOL_DEFS.find((d) => d.name === name)
+  const params = computerToolSpec(name)?.parameters ?? (def && parametersOf(def, facts))
   return params?.toJsonSchema({ fallback: (ctx: { base: unknown }) => ctx.base } as never) as
     | Record<string, unknown>
     | undefined
 }
+
+const parametersOf = (def: ToolDef, facts?: PromptFacts) =>
+  (facts && def.parametersFor?.(facts)) || def.parameters
 
 /** A harness tool's description as this agent sees it. */
 export function toolDescription(name: string, facts?: PromptFacts): string | undefined {
@@ -4196,6 +4346,8 @@ function harnessTools(
   host: ColonyHost,
   facts?: PromptFacts,
 ): AgentTool[] {
+  // fs_read's rows and fs_edit's parameters follow the model the agent starts on, and stay so for the round.
+  if (facts) setEditMode(host, agent, editModeFor(facts.model.ref))
   return TOOL_DEFS.filter((d) => allow.has(d.name))
     .filter((d) => d.tier !== 'exec' || host.sandbox.kind !== 'none' || host.unsafeNoSandbox)
     .map(
@@ -4203,7 +4355,7 @@ function harnessTools(
         name: def.name,
         label: def.name,
         description: (facts && def.describe?.(facts)) || def.description,
-        parameters: def.parameters,
+        parameters: parametersOf(def, facts),
         intent: 'omit',
         approval: def.tier,
         concurrency: def.tierOf
@@ -4219,6 +4371,7 @@ function harnessTools(
           let output: string
           let images: ToolOutput['images'] = []
           let usage: UsageInfo | undefined
+          let change: ToolOutput['change']
           let ok = true
           const tier = tierOf(def, params)
           // Calls that write get receipts; commands may rightly run twice, and reads change nothing.
@@ -4252,6 +4405,7 @@ function harnessTools(
             if (typeof result !== 'string') {
               images = result.images
               usage = result.usage
+              change = result.change
             }
             const preface = typeof result === 'string' ? '' : (result.preface ?? '')
             // Long pages are saved under web/ in scratch, and the browser's downloads under downloads/; reading one
@@ -4282,6 +4436,7 @@ function harnessTools(
               ok,
               output: clip(output, 8_000),
               ...(usage ? { usage } : {}),
+              ...(ok && change ? { change } : {}),
             },
           })
           return {

@@ -616,8 +616,11 @@ Open work, in the order it will be done:
       eval, lsp, debug, stream rules, crew/subagents, advisor, live share, web_search on omp's providers,
       security_scan, ast_grep/ast_edit, github, browser, computer, generate_image, tts, memory, file rewind, rule
       files from Cursor/Windsurf/Cline/Copilot/Gemini, fallbacks):
-      1. Hashline edits: fs_edit anchored by line content hashes instead of exact old text (omp's biggest
-         edit-reliability win on weaker models; stale anchors rejected).
+      1. [x] Hashline edits (branch omp-hashline): fs_edit anchored by line numbers under a `[path#TAG]` file hash
+         instead of exact old text, through omp's native engine (src/hashline.ts); stale anchors rejected. omp 18.8.8
+         hashes the file, not each line: TAG is the snapshot's hash and edits name its original line numbers. Mode per
+         model as omp picks it (hashline; exact-text replace for Kimi, MiMo, MiniMax, DeepSeek, StepFun, Codex Spark,
+         GLM 5.3 Flash).
       2. Context checkpoint / rewind tools: the agent marks a point, explores, then collapses the exploration into
          a short report (ours rewinds files, not context).
       3. Code review with a verdict: parallel reviewer agents over a branch, commit or uncommitted work, every
@@ -634,14 +637,23 @@ Open work, in the order it will be done:
 12ab. - [ ] **Use more of omp's Rust (pi-natives 18.8.8)** — checked 2026-10-10. We call only grep, glob, Process,
       PtySession, ShellFilesystem, notebookToEditableText and pdfToMarkdown directly. Already shipped in the addon
       we bundle, unused:
-      1. Hashline edit engine (pi-edit: `hashline*`, `EditSession`, `EditStore`) — the engine behind 12aa.1.
+      1. [x] Hashline edit engine (pi-edit: `hashline*`, `EditSession`, `EditStore`) — the engine behind 12aa.1, done
+         there. Left: grep and ast_grep hits do not record snapshots yet (omp's do), so an edit needs an fs_read first;
+         no setting to pin a mode (omp's edit.mode / edit.modelVariants); the mode is fixed by the model a round's
+         agent starts on, so a mid-round switch keeps its first fs_edit form.
       2. Embedded bash (pi-shell `Shell`/`executeShell`: brush fork + in-process coreutils) — a shell on Windows
          without Git Bash. In-process means outside the OS sandbox, so only where no sandbox applies (full access,
          Windows until WSL2).
       3. Workspace isolation (pi-iso `isoStart`/`isoDiff`: APFS clones, btrfs/zfs reflinks, overlayfs, projfs) —
          crew isolation for projects that are not git repos, and faster than worktrees on big ones.
-      4. Real token counts (`countTokens`, o200k/cl100k) instead of chars/4 in compaction.ts and models.ts.
-      5. Code summaries for reads (pi-ast `summarizeCode`) — fs_read of a big file returns its structure first.
+      4. [x] Real token counts (`countTokens`) instead of chars/4 in compaction.ts, models.ts (Ollama num_ctx) and the
+         prompt manifest (src/tokens.ts): the model's catalog encoding (Claude, Qwen, DeepSeek, Kimi, GLM), o200k
+         otherwise; chars/4 if the addon cannot count. 1.8 MB transcript: ~4 ms as per-message parts, ~16 ms as one
+         string; chars/4 undercounted it by ~10% (o200k) and ~40% (Claude 5).
+      5. [x] Code summaries for reads (pi-ast `summarizeCodeAsync`, src/read-summary.ts) — fs_read of a whole source
+         file of READ_SUMMARY_MIN_LINES (400) lines or more, or past MAX_READ_CHARS, returns its structure first (omp's
+         folds, footer naming ranges); offset/limit reads lines; prose reads whole; under the hashline header only the
+         lines shown count as seen. Left: languages omp downloads grammars for on demand read as lines (no download).
       6. Vector helpers (`vectorIndexTopK`, `cosineSimilarityPairs`, `mmrRerankIndices`) for memory recall once
          there are embeddings (12y.1 left: lexical recall misses synonyms).
       7. Apple on-device model (`appleFmGenerate`, macOS 26+) — free, offline cheap model for chat names and

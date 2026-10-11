@@ -6,10 +6,11 @@ import {
   DEFAULT_COMPACTION_SETTINGS,
   resolveBudgetReserveTokens,
   resolveThresholdTokens,
+  tokenizerEncodingForModel,
 } from '../src/omp/agent-core.ts'
 import { AssistantMessageEventStream, isContextOverflow, type } from '../src/omp/ai.ts'
 import { parseMetricLines } from '../src/omp/autoresearch.ts'
-import { getBundledModel, getBundledProviders } from '../src/omp/catalog.ts'
+import { classifyModel, getBundledModel, getBundledProviders } from '../src/omp/catalog.ts'
 import { loadComputerSupervisor } from '../src/omp/computer.ts'
 import { loadDap } from '../src/omp/dap.ts'
 import { loadPythonPrelude, loadPythonRunner } from '../src/omp/eval.ts'
@@ -126,6 +127,31 @@ describe('pi-natives', () => {
     )
     expect(typeof natives.Process.fromPid).toBe('function')
     expect(typeof natives.PtySession).toBe('function')
+  })
+
+  test('the hashline engine tags a snapshot and formats the rows fs_read shows', () => {
+    const store = new natives.EditStore()
+    const tag = store.recordSnapshot(join(home, 'h.ts'), 'a\nb\n', [1, 2])
+    expect(tag).toMatch(/^[0-9A-F]{4}$/)
+    expect(natives.hashlineFormatHeader('h.ts', tag)).toBe(`[h.ts#${tag}]`)
+    expect(natives.hashlineFormatNumberedLines('a\nb', 1)).toBe('1:a\n2:b')
+    const inspected = natives.editInspect(
+      'hashline',
+      JSON.stringify({ input: `[h.ts#${tag}]\nPUT 1.=1:\n+x\n` }),
+    )
+    expect(inspected).toMatchObject({ paths: ['h.ts'], entries: [{ digest: 'x' }], fileOps: [] })
+    expect(typeof natives.EditSession).toBe('function')
+  })
+
+  test('tokens count per encoding, and code summaries fold bodies', async () => {
+    expect(natives.countTokens('hello world', natives.Encoding.O200kBase)).toBe(2)
+    expect(natives.countTokens(['hello', 'world'], natives.Encoding.Cl100kBase)).toBe(2)
+    expect(tokenizerEncodingForModel({ tokenizer: 'claude-v5' })).toBe(natives.Encoding.ClaudeV5)
+    expect(classifyModel('', 'deepseek/deepseek-v4', { lenient: true }).class).toBe('deepseek')
+    const code = `function f() {\n${'  x()\n'.repeat(10)}}\n`
+    const summary = await natives.summarizeCodeAsync({ code, path: 'f.ts', minBodyLines: 4 })
+    expect(summary).toMatchObject({ parsed: true, elided: true, language: 'typescript' })
+    expect(summary.segments.map((s) => s.kind)).toContain('elided')
   })
 })
 
