@@ -28,6 +28,7 @@ import {
 import { COMPUTER_STOP_KEYS, WINDOW_SIZE } from '../src/config.ts'
 import { desktopCopy } from '../src/copy.ts'
 import { setDockBadge } from '../src/dock.ts'
+import { removeRetainedArchives } from '../src/extraction.ts'
 import { prepareOverlayWindow } from '../src/overlay-window.ts'
 import { asPlatform, executableName, menuFor, titlebarInset, windowChrome } from '../src/platform.ts'
 import {
@@ -59,6 +60,14 @@ const win = new BrowserWindow({
   preload: preloadScript({ origin, secret, titlebarInsetPx: chrome.titlebarInsetPx }),
 })
 if (chrome.buttons) win.setWindowButtonPosition(chrome.buttons.x, chrome.buttons.y)
+// Over 400 MB of unpacked-app archive that only Electrobun's own updater would use (see src/extraction.ts).
+try {
+  removeRetainedArchives(Utils.paths.userData)
+} catch (err) {
+  console.warn(
+    `could not remove the unpacked app's archive: ${err instanceof Error ? err.message : String(err)}`,
+  )
+}
 
 const run = (script: string) => win.webview.executeJavascript(script)
 /** The dashboard's address, token included, once there is a server to show. */
