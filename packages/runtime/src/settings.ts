@@ -193,6 +193,11 @@ export interface MyrSettings {
    */
   appearance: { imported: ImportedTheme[] }
   /**
+   * Which skill marketplaces Browse skills reads (Settings → Skills), by source id; a source not named here is on or
+   * off as skill-market.ts defaults it (ClawHub off).
+   */
+  skillMarket: { sources: Record<string, boolean> }
+  /**
    * Voice calls: the call model (the lead's when unset), and how a call hears and speaks. `pipeline` (the default):
    * speech to text, the call model, text to speech, each on this machine (Phonon-2, Kitten TTS), omp's cloud models,
    * a voice provider set up in Settings → Models & providers, or the person's own OpenAI-compatible service;
@@ -425,6 +430,9 @@ export const settingsSchema = Schema.object({
       .max(MAX_IMPORTED_THEMES)
       .default([]),
   }).default({}),
+  skillMarket: Schema.object({
+    sources: Schema.dict(Schema.boolean()).default({}),
+  }).default({}),
   voice: Schema.object({
     enabled: Schema.boolean().default(false),
     callModel: Schema.string(),
@@ -655,6 +663,7 @@ function parse(input: unknown): MyrSettings {
         syntax: Object.fromEntries(Object.entries(t.syntax).filter(([k]) => SYNTAX_ROLES.has(k))),
       })),
     },
+    skillMarket: { sources: s.skillMarket.sources },
     voice: voiceSettings(s.voice),
     ...(setup
       ? {

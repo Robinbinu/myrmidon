@@ -145,3 +145,51 @@ test('with nobody at the terminal, nothing is fetched or installed', async () =>
   )
   expect(calls).toEqual([])
 })
+
+test('skills search asks the skill sources, and add <source>:<id> installs through the same review', async () => {
+  const audit = { by: 'skills.sh', status: 'warn', checks: [{ name: 'Snyk', status: 'warn' }] }
+  const { call, calls } = api({
+    'GET /api/skill-market/search?q=pdf&sources=skills.sh%2Copenai': () => ({
+      hits: [
+        {
+          installRef: 'skills.sh:ada/tools/pdf-reader',
+          name: 'pdf-reader',
+          description: 'Reads PDFs aloud',
+          audit,
+        },
+        {
+          installRef: 'openai:skills/.curated/pdf',
+          name: 'pdf',
+          description: 'PDFs',
+          license: 'Apache License',
+        },
+      ],
+      errors: [{ source: 'omp', error: 'answered 502' }],
+    }),
+    'POST /api/skill-market/install': () => ({
+      preview: {
+        id: 's1',
+        skills: [{ name: 'pdf-reader' }],
+        source: 'https://github.com/ada/tools.git',
+        audit,
+      },
+    }),
+    'POST /api/skill-installs/s1': () => ({ names: ['pdf-reader'] }),
+  })
+  const search = scripted([])
+  await skills(call, search.term, ['search', 'pdf'], { source: 'skills.sh,openai' })
+  const listed = search.out.join('\n')
+  expect(listed).toContain('skills.sh:ada/tools/pdf-reader')
+  expect(listed).toContain('skills.sh audit: warn (Snyk warn)')
+  expect(listed).toContain('openai:skills/.curated/pdf  Apache License')
+  expect(listed).toContain('omp did not answer: answered 502')
+
+  const add = scripted(['yes'])
+  await skills(call, add.term, ['add', 'skills.sh:ada/tools/pdf-reader'])
+  expect(add.out.join('\n')).toContain('skills.sh audit: warn')
+  expect(calls.slice(-2).map((c) => c.route)).toEqual([
+    'POST /api/skill-market/install',
+    'POST /api/skill-installs/s1',
+  ])
+  expect(calls.at(-2)?.body).toEqual({ ref: 'skills.sh:ada/tools/pdf-reader' })
+})

@@ -8,7 +8,8 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs'
-import { join, relative, resolve } from 'node:path'
+import { basename, join, relative, resolve } from 'node:path'
+import { MARKET_PICK_DEPTH } from './config.ts'
 import {
   describeOrigin,
   fetchFolder,
@@ -24,7 +25,7 @@ import {
 } from './install-sources.ts'
 import { expandHome } from './read-access.ts'
 import { parseSkillSpec, resolveSkillVersion, SkillRegistryClient } from './skill-registry.ts'
-import { combineScans, refuseBlocked, type SkillScan, scanSkill } from './skill-scan.ts'
+import { combineScans, refuseBlocked, type SkillFinding, type SkillScan, scanSkill } from './skill-scan.ts'
 import { allowSkills, parseForeignSkill, parseSkillFile, renameSkillFile } from './skills.ts'
 
 /**
@@ -50,9 +51,36 @@ export interface SkillPreview {
   readonly warnings: readonly string[]
   /** What the skill scanner found, across every skill it brings (files named from the fetched folder). */
   readonly scan: SkillScan
+  /** What the marketplace it came from says about it, shown beside the scan. */
+  readonly audit?: SkillAudit
   /** For an update: what is installed now. */
   readonly replaces?: InstallPin
   readonly expiresAt: string
+}
+
+/** A marketplace's own or a third party's check of a skill (skills.sh's audits, ClawHub's trust verdict). */
+export interface SkillAudit {
+  /** Who reports it: `skills.sh`, `ClawHub`. */
+  readonly by: string
+  readonly status: 'pass' | 'warn' | 'fail' | 'unknown'
+  readonly summary?: string
+  readonly url?: string
+  readonly checks: readonly { name: string; status: SkillAudit['status']; summary?: string }[]
+}
+
+/** How a marketplace that serves files itself (an origin of kind `market`) fetches one skill into a folder. */
+export type MarketFetch = (
+  id: string,
+  dest: string,
+) => Promise<{ pin: InstallPin; audit?: SkillAudit; flagged?: string }>
+
+/** What a marketplace adds to a fetch: which skill of a repository, its audit, and whether it flags it. */
+export interface StageOptions {
+  /** The one skill wanted from a repository holding many, by its name or its folder's, wherever it sits. */
+  readonly pick?: string
+  readonly audit?: SkillAudit
+  /** Why the marketplace flags it as suspicious: this blocks the install as a critical scan finding does. */
+  readonly flagged?: string
 }
 
 interface Held {
@@ -107,6 +135,45 @@ function findSkills(root: string): { name: string; description: string; path: st
   return []
 }
 
+/**
+ * The skill called `want` (by its name, else its folder's) anywhere in a fetched repository, for a marketplace that
+ * names a skill but not where its repository keeps it.
+ */
+function pickSkill(
+  root: string,
+  want: string,
+): { name: string; description: string; path: string } | undefined {
+  const found: { name: string; description: string; path: string }[] = []
+  const walk = (dir: string, depth: number) => {
+    const file = join(dir, 'SKILL.md')
+    if (existsSync(file)) {
+      const parsed = parseSkillFile(readFileSync(file, 'utf8'))
+      if (parsed)
+        found.push({ name: parsed.name, description: parsed.description, path: relative(root, dir) })
+    }
+    if (depth >= MARKET_PICK_DEPTH) return
+    for (const e of readdirSync(dir, { withFileTypes: true }))
+      if (e.isDirectory() && e.name !== '.git' && e.name !== 'node_modules')
+        walk(join(dir, e.name), depth + 1)
+  }
+  walk(root, 0)
+  return found.find((s) => s.name === want) ?? found.find((s) => basename(s.path) === want)
+}
+
+/** The scan with the marketplace's flag as a critical finding first, so the install blocks as a scan block does. */
+function withFlag(scan: SkillScan, flagged: string): SkillScan {
+  const finding: SkillFinding = {
+    rule: 'marketplace-flagged',
+    category: 'supply_chain',
+    severity: 'critical',
+    file: 'SKILL.md',
+    line: 0,
+    excerpt: flagged,
+    why: 'The marketplace it comes from flags this skill as suspicious.',
+  }
+  return { ...scan, verdict: 'block', findings: [finding, ...scan.findings] }
+}
+
 /** Every file under a folder, relative to it, and those that can run. */
 function filesOf(root: string): { files: string[]; scripts: string[] } {
   const files: string[] = []
@@ -143,6 +210,8 @@ function renameImported(dir: string, name: string) {
 
 export class SkillInstaller {
   readonly registry: SkillRegistryClient
+  /** Marketplaces that serve skills themselves, by source id; skill-market.ts adds them. */
+  readonly markets = new Map<string, MarketFetch>()
   private readonly _home: string
   private readonly _file: string
   private readonly _pending: PendingInstalls<Held>
@@ -174,12 +243,21 @@ export class SkillInstaller {
     return this._stage(skillOrigin(source))
   }
 
+  /** Fetches skills from where a marketplace says they are, for the person to review as `prepare` does. */
+  prepareFrom(origin: InstallOrigin, opts: StageOptions = {}): Promise<SkillPreview> {
+    return this._stage(origin, undefined, opts)
+  }
+
   /** Fetches the newest of an installed skill from where it came from, to review as an update. */
   prepareUpdate(name: string): Promise<SkillPreview> {
     const from = this.installed()[name]
     if (!from) throw new Error(`${name} was not installed from a registry, repository or folder`)
     const imported = from.imported
-    return this._stage(from.origin, name, imported && { as: name, from: imported.from, name: imported.name })
+    return this._stage(
+      from.origin,
+      name,
+      imported ? { importing: { as: name, from: imported.from, name: imported.name } } : {},
+    )
   }
 
   /**
@@ -187,7 +265,7 @@ export class SkillInstaller {
    * match when that differs, or when it left its name or description out).
    */
   prepareImport(dir: string, importing: Importing): Promise<SkillPreview> {
-    return this._stage({ kind: 'folder', path: dir }, undefined, importing)
+    return this._stage({ kind: 'folder', path: dir }, undefined, { importing })
   }
 
   /**
@@ -242,12 +320,17 @@ export class SkillInstaller {
     this._save(record)
   }
 
-  private async _stage(origin: InstallOrigin, only?: string, importing?: Importing): Promise<SkillPreview> {
+  private async _stage(
+    origin: InstallOrigin,
+    only?: string,
+    opts: StageOptions & { importing?: Importing } = {},
+  ): Promise<SkillPreview> {
     const { id, dir } = this._pending.stage()
     try {
       const content = join(dir, 'content')
       let pin: InstallPin = {}
       let warnings: string[] = []
+      let { audit, flagged } = opts
       if (origin.kind === 'registry') {
         const spec = parseSkillSpec(origin.spec)
         if (!spec) throw new Error(`not a registry skill: ${origin.spec}`)
@@ -265,7 +348,15 @@ export class SkillInstaller {
         warnings = chosen.warnings
       } else if (origin.kind === 'git') pin = await fetchGit(origin, content)
       else if (origin.kind === 'folder') pin = fetchFolder(origin.path, content)
-      else throw new Error(`a skill cannot come from ${origin.kind}`)
+      else if (origin.kind === 'market') {
+        const market = this.markets.get(origin.source)
+        if (!market) throw new Error(`skills from ${origin.source} cannot be fetched here`)
+        const got = await market(origin.id, content)
+        pin = got.pin
+        audit = got.audit ?? audit
+        flagged = got.flagged ?? flagged
+      } else throw new Error(`a skill cannot come from ${origin.kind}`)
+      const { importing } = opts
       let imported: ImportedFrom | undefined
       if (importing) {
         if (origin.kind !== 'folder') throw new Error('only a folder is imported')
@@ -273,7 +364,14 @@ export class SkillInstaller {
         renameImported(content, importing.as)
       }
 
-      const found = findSkills(content).filter((s) => !only || s.name === only)
+      let found: { name: string; description: string; path: string }[]
+      if (opts.pick) {
+        const picked = pickSkill(content, opts.pick)
+        if (!picked) throw new Error(`it has no skill called ${opts.pick}`)
+        found = [picked]
+        // Recorded with its folder, so an update fetches only that skill.
+        if (origin.kind === 'git' && picked.path) origin = { ...origin, subdir: picked.path }
+      } else found = findSkills(content).filter((s) => !only || s.name === only)
       if (!found.length)
         throw new Error(
           only ? `it no longer has a skill called ${only}` : 'no SKILL.md with a name and description',
@@ -285,7 +383,10 @@ export class SkillInstaller {
       const inside = (s: { path: string }) => (rel: string) => !s.path || rel.startsWith(`${s.path}/`)
       const kept = files.filter((f) => found.some((s) => inside(s)(f)))
       const previous = only ? this.installed()[only] : undefined
-      const scans = found.map((s) => ({ name: s.name, path: s.path, scan: scanSkill(join(content, s.path)) }))
+      const scans = found.map((s) => {
+        const scan = scanSkill(join(content, s.path))
+        return { name: s.name, path: s.path, scan: flagged ? withFlag(scan, flagged) : scan }
+      })
       const expiresAt = this._pending.hold(id, {
         origin,
         pin,
@@ -306,6 +407,7 @@ export class SkillInstaller {
         scripts: scripts.filter((f) => found.some((s) => inside(s)(f))),
         warnings,
         scan: combineScans(scans),
+        ...(audit ? { audit } : {}),
         ...(previous
           ? {
               replaces: {

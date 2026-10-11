@@ -124,6 +124,21 @@ const pm = copy.permissions
 const mo = s.models
 const cm = copy.composer
 
+/** A skill marketplace source's switch under Browse skills → Sources (packages/runtime/src/skill-market.ts). */
+const marketSource = <I extends string>(id: I, keywords: readonly string[]) => {
+  const source = s.skills.market.sources[id]
+  const entry: StaticSetting = {
+    page: 'skills',
+    path: [s.skills.market.title, s.skills.market.sourcesTitle],
+    control: 'switch',
+    label: source?.name ?? id,
+    ...(source ? { help: source.hint } : {}),
+    keywords: [...keywords, 'marketplace', 'source', ...kw.skills],
+    keys: ['skillMarket.sources'],
+  }
+  return { [`skills.market.${id}`]: entry } as Record<`skills.market.${I}`, StaticSetting>
+}
+
 /**
  * Every setting Settings shows, by id: where it is, what it is called and what it says, and the other words people
  * use for it. Settings' rows render their label and hint from their entry here (settings/Setting.tsx), so search
@@ -1337,6 +1352,33 @@ export const SETTINGS = {
     help: copy.skillImports.intro,
     keywords: ['import', 'claude code', 'codex', '.agents', 'copy', ...kw.skills],
   },
+  'skills.market.browse': {
+    page: 'skills',
+    path: [s.skills.market.title],
+    control: 'button',
+    label: s.skills.market.title,
+    help: s.skills.market.intro,
+    keywords: ['marketplace', 'catalog', 'discover', 'openai', 'anthropic', 'codex', 'claude', ...kw.skills],
+  },
+  'skills.market.search': {
+    page: 'skills',
+    path: [s.skills.market.title],
+    control: 'text',
+    label: s.skills.market.searchLabel,
+    keywords: ['marketplace', 'find', 'install', ...kw.skills],
+  },
+  'skills.market.view': {
+    page: 'skills',
+    path: [s.skills.market.title],
+    control: 'segmented',
+    label: s.skills.market.viewLabel,
+    keywords: ['popular', 'trending', 'recent', ...kw.skills],
+  },
+  ...marketSource('omp', ['skillshare', 'skills.omp.sh', 'registry']),
+  ...marketSource('openai', ['codex', 'curated']),
+  ...marketSource('anthropic', ['claude']),
+  ...marketSource('skills.sh', ['vercel', 'audit']),
+  ...marketSource('clawhub', ['openclaw', 'malicious', 'suspicious']),
   'skills.archived': {
     page: 'skills',
     control: 'list',

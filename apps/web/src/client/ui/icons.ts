@@ -80,6 +80,7 @@ import {
   SquareTerminal,
   Star,
   Store,
+  Telescope,
   Terminal,
   TextSearch,
   User,
@@ -219,6 +220,8 @@ export const FEATURE_ICONS = {
   skillScan: ScanSearch,
   /** Copying the person's Claude Code and Codex skills into Myrmidon (Settings → Skills). */
   skillImport: BookCopy,
+  /** Browse skills: the public skill catalogs to search and install from (Settings → Skills). */
+  skillMarket: Telescope,
   /** Hooks: commands around every tool call. */
   hooks: FishingHook,
   /** Requests that run on a schedule. */

@@ -37,6 +37,8 @@ export type InstallOrigin =
   | { readonly kind: 'npm'; readonly spec: string; readonly registry?: string }
   | { readonly kind: 'marketplace'; readonly marketplace: string; readonly plugin: string }
   | { readonly kind: 'registry'; readonly spec: string }
+  /** A skill marketplace that serves files itself rather than a repository or package (skill-market.ts). */
+  | { readonly kind: 'market'; readonly source: string; readonly id: string }
 
 /** What one fetch pinned: the exact version, commit and tarball hash that were installed. */
 export interface InstallPin {
@@ -76,6 +78,8 @@ export function describeOrigin(origin: InstallOrigin): string {
       return `${origin.plugin}@${origin.marketplace}`
     case 'registry':
       return origin.spec
+    case 'market':
+      return `${origin.source}:${origin.id}`
   }
 }
 
@@ -131,6 +135,8 @@ export function originName(origin: InstallOrigin): string {
       return origin.plugin
     case 'registry':
       return origin.spec.replace(/^@[^/]+\//, '').replace(/@.*$/, '')
+    case 'market':
+      return origin.id.split('/').pop() ?? origin.id
   }
 }
 

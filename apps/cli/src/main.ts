@@ -89,9 +89,10 @@ Usage:
   myrmidon plugins [add <source> | update <name> | remove <name> | marketplaces [add|refresh|remove …]]
                Install plugins from a folder, repository URL, npm:<package> or <plugin>@<marketplace>; you
                review what runs before anything is installed (--force: one whose skills the scan blocks)
-  myrmidon skills [search [query] | add <@scope/name | repository URL> | update <name> | remove <name> | scan [name|folder]]
-               Search omp's skills registry and install skills, after the same review and a skill scan; one the
-               scan blocks installs only with --force. scan prints what the scan finds (exit 1 when it blocks)
+  myrmidon skills [search [query] [--source a,b] | add <source:id | @scope/name | repository URL> | update <name> | remove <name> | scan [name|folder]]
+               Search the skill sources (omp, openai, anthropic, skills.sh, clawhub once turned on) and install
+               skills, after the same review and a skill scan; one the scan blocks installs only with --force.
+               scan prints what the scan finds (exit 1 when it blocks)
   myrmidon ask "<request>" [--chat ID] [--project ID] [--wait]
                Send a request to the running server (from \`serve\`); --wait prints the final answer
   myrmidon import-omp          Copy an existing omp setup (keys, logins, models.yml) from ~/.omp
@@ -134,6 +135,7 @@ const { values, positionals } = parseArgs({
     force: { type: 'boolean', default: false },
     from: { type: 'string' },
     all: { type: 'boolean', default: false },
+    source: { type: 'string' },
     help: { type: 'boolean', short: 'h', default: false },
   },
 })
@@ -573,7 +575,10 @@ async function main() {
         server ??= runningServer()
         return (await server).call<T>(method, path, body)
       }
-      return skills(call, terminal(), positionals.slice(1), { force: values.force })
+      return skills(call, terminal(), positionals.slice(1), {
+        force: values.force,
+        ...(values.source ? { source: values.source } : {}),
+      })
     }
     case 'doctor': {
       const server = await runningServer().catch(() => undefined)

@@ -4512,6 +4512,57 @@ export const copy = {
       restored: (name: string) => `Restored ${name}`,
       showMore: 'Show more',
       showLess: 'Show less',
+      /** Browse skills: the public skill catalogs, searched and installed through the same review and scan. */
+      market: {
+        title: 'Browse skills',
+        intro:
+          'Skills OpenAI, Anthropic and others publish. Each is fetched, scanned and shown to you before it installs; a source’s own audit is shown beside the scan.',
+        open: 'Browse skills…',
+        openLabel: 'Open the skill browser',
+        sourcesTitle: 'Sources',
+        sources: {
+          omp: { name: 'Skillshare', hint: "omp's skills registry, skills.omp.sh" },
+          openai: { name: 'OpenAI', hint: "OpenAI's curated and system skills, github.com/openai/skills" },
+          anthropic: { name: 'Anthropic', hint: "Anthropic's skills, github.com/anthropics/skills" },
+          'skills.sh': {
+            name: 'skills.sh',
+            hint: 'The open skills directory: searched by name, with third-party audits',
+          },
+          clawhub: { name: 'ClawHub', hint: "OpenClaw's skill registry, clawhub.ai" },
+        } as Record<string, { name: string; hint: string }>,
+        sourceLabel: (name: string) => `Browse ${name}`,
+        clawhubWarning:
+          'Hundreds of malicious skills were found on ClawHub in February 2026. Its own verdict is shown, and a skill it flags installs only if you confirm it anyway.',
+        all: 'All sources',
+        sourceTabs: 'Skill sources',
+        searchLabel: 'Search skills',
+        searchPlaceholder: 'e.g. pdf, testing, deploy',
+        search: 'Search',
+        searching: 'Searching…',
+        viewLabel: 'List',
+        views: { popular: 'Popular', trending: 'Trending', recent: 'Recent', all: 'All' } as Record<
+          string,
+          string
+        >,
+        searchFirst: 'Search every source at once, or pick a source to see its lists.',
+        searchOnly: (name: string) => `${name} has no lists to browse without an account: search it instead.`,
+        noHits: 'Nothing matches.',
+        failed: (name: string, error: string) => `${name} did not answer: ${error}`,
+        loading: 'Loading…',
+        by: (who: string) => `by ${who}`,
+        installs: (n: number) => `${n.toLocaleString()} installs`,
+        weekly: (n: number) => `${n.toLocaleString()} this week`,
+        stars: (n: number) => `${n.toLocaleString()} stars`,
+        review: 'Review & install',
+        installed: 'installed',
+        page: 'Open its page',
+        audit: { pass: 'passed', warn: 'warnings', fail: 'failed', unknown: 'not rated' },
+        auditBadge: (by: string, status: string) => `${by}: ${status}`,
+        auditTitle: (by: string) => `${by}'s audit`,
+        auditNote: 'Their check, not Myrmidon’s: the skill scan below is ours.',
+        flagged: 'flagged suspicious',
+        verdictAtReview: 'verdict shown at review',
+      },
       add: {
         title: 'Add skills',
         intro:
