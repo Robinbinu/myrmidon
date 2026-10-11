@@ -22,6 +22,9 @@ import { FISH_MODELS, FISH_VOICES, fishTts, fishVoices } from './cloud/fish.ts'
 import { GOOGLE_STT_MODELS, GOOGLE_VOICES, GoogleStt, googleTts, googleVoices } from './cloud/google.ts'
 import {
   GROQ_STT_MODELS,
+  GROQ_TTS_MODELS,
+  GROQ_VOICES,
+  GroqTts,
   groqStt,
   OPENAI_STT_MODELS,
   OPENAI_TTS_MODELS,
@@ -216,6 +219,12 @@ export const VOICE_PROVIDERS: readonly VoiceProvider[] = [
     keysUrl: 'https://console.groq.com/keys',
     key: { vault: 'groq', sharedWith: 'groq' },
     stt: { models: GROQ_STT_MODELS, streaming: false, make: (o) => groqStt({ key: o.key, model: o.model }) },
+    tts: {
+      models: GROQ_TTS_MODELS,
+      voices: GROQ_VOICES,
+      streaming: false,
+      make: (o) => new GroqTts({ key: o.key, model: o.model, voice: o.voice }),
+    },
   },
   {
     id: 'google-cloud',
