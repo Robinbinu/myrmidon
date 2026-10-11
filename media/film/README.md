@@ -58,6 +58,19 @@ npx remotion still Film out/poster.png --frame=3720
 npx remotion still Social out/social-preview.png
 ```
 
+## README stills
+
+The banner and the feature posters are stills in `src/stills/` (registered in `src/stills/index.ts`): `banner`
+(2400×800) and `feature-skills`, `feature-channels`, `feature-computer`, `feature-models`, `feature-memory`,
+`feature-safety` and `feature-voice` (1600×900). Each id is its file name:
+
+```sh
+FFMPEG=/path/to/ffmpeg npm run stills            # all of them, into docs/assets/<id>.webp
+npm run stills -- feature-voice --png            # one, as a PNG master in out/stills/ only
+```
+
+`WEBP_QUALITY` (default 88) sets the WebP quality.
+
 To check a cut without rendering video, `node scripts/review.mjs Film 0.5 --every 120` writes a still every two seconds
 to `out/review/` (or pass frame numbers instead of `--every N`).
 
