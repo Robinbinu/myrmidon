@@ -52,12 +52,13 @@ function readers(tools: readonly string[]): string {
 /** Where an agent's file tools work, for the descriptions that name it; `full`: the round has full access. */
 export interface Place {
   /** `working`: not known yet (no facts), said neutrally. */
-  readonly where: 'worktree' | 'project' | 'scratch' | 'working'
+  readonly where: 'worktree' | 'copy' | 'project' | 'scratch' | 'working'
   readonly full: boolean
 }
 const PLACES = {
   working: 'your working directory',
   worktree: 'your git worktree of the project',
+  copy: 'your copy of the project',
   project: 'the project folder',
   scratch: 'your scratch directory',
 } as const
@@ -268,6 +269,8 @@ export const prompts = {
       `This is the person's real folder: your file tools and shell work there, and changes are real. Scratch files and saved web pages go in your scratch directory, not the project.${propose ? ' When the person should look a change over before it lands (a file they care about, a commit), use propose: they see it in full, may rewrite it, and say yes or no.' : ''}`,
     /** For an agent in its own git worktree of the project; paths are under Environment. */
     worktree: `You work in your own git worktree of the project, so your edits never collide with other crewmates'. When you submit_task, the harness merges your changes into the person's folder; do not commit, switch branches, or edit that folder yourself. If your changes conflict with someone else's, submit_task fails and your worktree shows both sides with conflict markers to resolve.`,
+    /** For an agent in its own copy of a project outside git (copies.ts). */
+    projectCopy: `You work in your own copy of the project, so your edits never collide with other crewmates'. When you submit_task, the harness merges your changes into the person's folder; do not edit that folder yourself. If your changes conflict with someone else's, submit_task fails and your copy shows both sides with conflict markers to resolve.`,
     plugins: `A feature for Myrmidon itself (a tool, a command, a panel) is a plugin, never an edit to its compiled code: read_docs("plugins"), create_plugin, test_plugin until it passes, then propose_plugin.`,
     /** The answer tier's method: it answers in one reply. `web`: it has web_search. */
     answerMethod: (web: boolean) =>
@@ -538,8 +541,17 @@ ${roster}`,
       `Budget: ${p.minutes} min for the round; you stop after ${p.turns} turns (a turn is one wake-up, however many calls it makes).`,
     reviewer: (p: { setting: string; judge?: string }) =>
       `Reviewer: ${p.setting}${p.judge ? ` (judge: ${p.judge})` : ''}.`,
-    worktree: (p: { name: string; workdir: string; branch: string; path: string; base?: string }) =>
-      `Working directory: ${p.workdir}, your git worktree of the project "${p.name}" at ${p.path} (branch ${p.branch}${p.base ? `, from ${p.base}` : ''}).`,
+    worktree: (p: {
+      name: string
+      workdir: string
+      branch: string
+      path: string
+      base?: string
+      copy?: boolean
+    }) =>
+      p.copy
+        ? `Working directory: ${p.workdir}, your own copy of the project "${p.name}" at ${p.path}.`
+        : `Working directory: ${p.workdir}, your git worktree of the project "${p.name}" at ${p.path} (branch ${p.branch}${p.base ? `, from ${p.base}` : ''}).`,
     /** `git`: the project's branch, changes and latest commits, when it is a repository. */
     project: (p: {
       name: string

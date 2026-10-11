@@ -1558,7 +1558,13 @@ const PLACE: Place = { where: 'working', full: false }
 
 /** Where this agent's file tools work, for their descriptions. */
 function placeOf(f: PromptFacts): Place {
-  const where = f.access.worktree ? 'worktree' : f.access.project ? 'project' : 'scratch'
+  const where = f.access.worktree
+    ? f.access.worktree.copy
+      ? 'copy'
+      : 'worktree'
+    : f.access.project
+      ? 'project'
+      : 'scratch'
   return { where, full: f.access.fullAccess }
 }
 
