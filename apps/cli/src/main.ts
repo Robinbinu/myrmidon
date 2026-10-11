@@ -31,8 +31,10 @@ import {
   guardSecrets,
   HookStore,
   importFromOmp,
+  KeepAwake,
   loadColonySpec,
   McpHub,
+  MeaningRecall,
   MemoryStore,
   ModelResolver,
   ompMediaTools,
@@ -376,7 +378,16 @@ async function main() {
       const specialists = new SpecialistStore(home)
       const skillProposals = new SkillProposalStore(home)
       const library = new ToolLibrary(join(home, 'tools'))
-      const memory = new MemoryStore(home)
+      // Recall matches by meaning too only once the person picks an embedding model (Settings → Memory).
+      const memory = new MemoryStore(
+        home,
+        new MeaningRecall(join(home, 'memory-vectors.json'), () => {
+          const model = settings.get().memory.embeddingModel
+          return model ? { model, embed: (texts, signal) => omp.embed(model, texts, signal) } : undefined
+        }),
+      )
+      const keepAwake = new KeepAwake(() => settings.get().power.keepAwake)
+      settings.onChange(() => keepAwake.sync())
       const skills = new SkillLibrary(home, undefined, () => plugins.skillRoots())
       // Learned skills nobody uses are retired to the archive; Settings → Skills restores them.
       skills.curateEvery((archived, err) =>
@@ -399,6 +410,7 @@ async function main() {
         resolver,
         shelf,
         imports,
+        keepAwake,
         settings,
         web: ompWebTools(omp, () => settings.get().search.provider),
         media: ompMediaTools({
