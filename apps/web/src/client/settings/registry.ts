@@ -169,6 +169,14 @@ export const SETTINGS = {
     keywords: [...kw.suggest, 'next word', 'language model', 'pythia', 'autocomplete'],
     dependsOn: 'general.suggest',
   },
+  'general.keepAwake': {
+    page: 'general',
+    control: 'switch',
+    label: g.keepAwake,
+    help: g.keepAwakeHint,
+    keywords: kw.keepAwake,
+    keys: ['power.keepAwake'],
+  },
   'general.setup': {
     page: 'general',
     control: 'button',
@@ -1051,6 +1059,15 @@ export const SETTINGS = {
     keywords: kw.prewalk,
     keys: ['team.carryOutModel'],
   },
+  'team.smallModel': {
+    page: 'team',
+    path: [s.team.smallTitle],
+    control: 'button',
+    label: s.team.small,
+    help: s.team.smallHint,
+    keywords: [...kw.smallModel, ...kw.chatNames],
+    keys: ['team.smallModel'],
+  },
   'team.leadFallbacks': {
     page: 'team',
     path: [s.team.fallbacksTitle],
@@ -1230,6 +1247,14 @@ export const SETTINGS = {
     help: s.memory.suggestHint,
     keywords: [...kw.memory, 'suggestions', 'extract', 'learn from chats'],
     keys: ['memory.suggest'],
+  },
+  'memory.embeddingModel': {
+    page: 'memory',
+    control: 'select',
+    label: s.memory.meaning,
+    help: s.memory.meaningHint,
+    keywords: [...kw.memory, ...kw.meaning],
+    keys: ['memory.embeddingModel'],
   },
   'memory.tidy': {
     page: 'memory',

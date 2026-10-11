@@ -558,8 +558,8 @@ Open work, in the order it will be done:
         server.json after kill, process-tree tests.
       - [ ] Windows bugs parked 2026-10-10 ("stop windows mark the bug in todo and solve it later"), each a
         `pendingOn('win32', …)` gap in tests/platform.ts and docs/ci.md:
-        - `walSidecarOnWindows`: a WAL database copied without `-wal`/`-shm` must read without SQLite creating
-          them; the immutable-first open (fd07371) never ran on Windows CI.
+        - [x] `walSidecarOnWindows`: fixed 2026-10-10 (`xp-ci-green`): the immutable open passes SQLITE_OPEN_URI,
+          which Bun's bundled SQLite needs to read the `file:` name as a URI.
         - `ptyTerminalOnWindows`: the PowerShell answer never comes back through pi-natives' ConPTY session.
         - `bunWindowsSockets`: Bun heap corruption on TCP close (1.3.14 and 1.4.3); report upstream, then upgrade.
         - Command timeout on Windows is only half fixed: `run()` returns at the timeout, but grandchildren Git
@@ -571,7 +571,7 @@ Open work, in the order it will be done:
          preferences and the most relevant (BM25, freshness, MMR) with `recall` for the rest; a cheap model suggests
          memories from what the person said after a round (quoting them, never secrets) and merges for repeats or
          stale ones (Tidy up, or daily when two overlap); agents correct one with remember's `replaces`; all wait for
-         the person. Left: embeddings (lexical recall misses synonyms); memory for channel members' rounds.
+         the person. Embeddings done 2026-10-10 (12ab.6). Left: memory for channel members' rounds.
       2. Debugger for agents over the Debug Adapter Protocol (omp dap). Done: the debug tool (debugger.ts).
       3. Live session sharing: another person joins a chat live (omp collab). Done: Share live… in a chat's menu
          makes a one-time invite (watch, or watch and write); guests see only that chat's conversation, write
@@ -619,8 +619,11 @@ Open work, in the order it will be done:
       eval, lsp, debug, stream rules, crew/subagents, advisor, live share, web_search on omp's providers,
       security_scan, ast_grep/ast_edit, github, browser, computer, generate_image, tts, memory, file rewind, rule
       files from Cursor/Windsurf/Cline/Copilot/Gemini, fallbacks):
-      1. Hashline edits: fs_edit anchored by line content hashes instead of exact old text (omp's biggest
-         edit-reliability win on weaker models; stale anchors rejected).
+      1. [x] Hashline edits (branch omp-hashline): fs_edit anchored by line numbers under a `[path#TAG]` file hash
+         instead of exact old text, through omp's native engine (src/hashline.ts); stale anchors rejected. omp 18.8.8
+         hashes the file, not each line: TAG is the snapshot's hash and edits name its original line numbers. Mode per
+         model as omp picks it (hashline; exact-text replace for Kimi, MiMo, MiniMax, DeepSeek, StepFun, Codex Spark,
+         GLM 5.3 Flash).
       2. Context checkpoint / rewind tools: the agent marks a point, explores, then collapses the exploration into
          a short report (ours rewinds files, not context).
       3. Code review with a verdict: parallel reviewer agents over a branch, commit or uncommitted work, every
@@ -637,21 +640,51 @@ Open work, in the order it will be done:
 12ab. - [ ] **Use more of omp's Rust (pi-natives 18.8.8)** — checked 2026-10-10. We call only grep, glob, Process,
       PtySession, ShellFilesystem, notebookToEditableText and pdfToMarkdown directly. Already shipped in the addon
       we bundle, unused:
-      1. Hashline edit engine (pi-edit: `hashline*`, `EditSession`, `EditStore`) — the engine behind 12aa.1.
+      1. [x] Hashline edit engine (pi-edit: `hashline*`, `EditSession`, `EditStore`) — the engine behind 12aa.1, done
+         there. Left: grep and ast_grep hits do not record snapshots yet (omp's do), so an edit needs an fs_read first;
+         no setting to pin a mode (omp's edit.mode / edit.modelVariants); the mode is fixed by the model a round's
+         agent starts on, so a mid-round switch keeps its first fs_edit form.
       2. Embedded bash (pi-shell `Shell`/`executeShell`: brush fork + in-process coreutils) — a shell on Windows
          without Git Bash. In-process means outside the OS sandbox, so only where no sandbox applies (full access,
          Windows until WSL2).
       3. Workspace isolation (pi-iso `isoStart`/`isoDiff`: APFS clones, btrfs/zfs reflinks, overlayfs, projfs) —
          crew isolation for projects that are not git repos, and faster than worktrees on big ones.
-      4. Real token counts (`countTokens`, o200k/cl100k) instead of chars/4 in compaction.ts and models.ts.
-      5. Code summaries for reads (pi-ast `summarizeCode`) — fs_read of a big file returns its structure first.
-      6. Vector helpers (`vectorIndexTopK`, `cosineSimilarityPairs`, `mmrRerankIndices`) for memory recall once
-         there are embeddings (12y.1 left: lexical recall misses synonyms).
-      7. Apple on-device model (`appleFmGenerate`, macOS 26+) — free, offline cheap model for chat names and
-         memory suggestions.
-      8. Keep the Mac awake while a round runs (`PowerAssertion`).
+      4. [x] Real token counts (`countTokens`) instead of chars/4 in compaction.ts, models.ts (Ollama num_ctx) and the
+         prompt manifest (src/tokens.ts): the model's catalog encoding (Claude, Qwen, DeepSeek, Kimi, GLM), o200k
+         otherwise; chars/4 if the addon cannot count. 1.8 MB transcript: ~4 ms as per-message parts, ~16 ms as one
+         string; chars/4 undercounted it by ~10% (o200k) and ~40% (Claude 5).
+      5. [x] Code summaries for reads (pi-ast `summarizeCodeAsync`, src/read-summary.ts) — fs_read of a whole source
+         file of READ_SUMMARY_MIN_LINES (400) lines or more, or past MAX_READ_CHARS, returns its structure first (omp's
+         folds, footer naming ranges); offset/limit reads lines; prose reads whole; under the hashline header only the
+         lines shown count as seen. Left: languages omp downloads grammars for on demand read as lines (no download).
+      6. [x] Vector helpers (`vectorIndexTopK`, `cosineSimilarityPairs`, `mmrRerankIndices`) for memory recall once
+         there are embeddings (12y.1 left: lexical recall misses synonyms). Done 2026-10-10 (branch
+         omp-natives-extras, memory-vectors.ts): Settings → Memory → Recall by meaning picks an embedding model omp
+         can call (pi-ai's `openai-embeddings`: an OpenAI or OpenRouter key; omp's mnemopi would download a local
+         ONNX model or need its own endpoint and key instead). Off by default, and word matching is unchanged and
+         stays the fallback on any failure. With one, the prompt's memories (once they no longer all fit) and
+         `recall` blend cosine, BM25 and freshness (mnemopi's 0.5/0.3/0.2), then native MMR; each memory is embedded
+         once (`memory-vectors.json`), each request once; tidying up also runs when two kept vectors of one scope
+         pass cosine 0.85 (`cosineSimilarityPairs`). Not tried against a live provider (wiring checked with a faked
+         HTTP response).
+      7. [x] Apple on-device model (`appleFmGenerate`, macOS 26+) — free, offline cheap model for chat names and
+         memory suggestions. Done 2026-10-10: omp's model registry already offers it (`apple/on-device`, keyless,
+         darwin-arm64 only, listed only while `appleFmAvailability` says usable) and pi-ai streams it, so it shows in
+         every model picker where the Mac has it. New Settings → Crew & budget → Small jobs (`team.smallModel`)
+         picks the model that names chats and suggests memories; unset it is the cheapest priced model as before,
+         so the on-device model (price 0) is never picked on its own. Naming a chat on it took 2.4 s here. Its 8k
+         context can be too small for memory suggestions with many memories: those fall back to the lead's model.
+      8. [x] Keep the Mac awake while a round runs (`PowerAssertion`). Done 2026-10-10 (keep-awake.ts): Settings →
+         General → Keep the computer awake during runs, off by default; idle sleep only (the screen may sleep), held
+         from the first running round to the last, released when the setting goes off. omp's assertion also covers
+         Linux (login1) and Windows; a failure only logs. No keep-awake existed in apps/desktop.
       9. Smaller: `fuzzyFind` for find, `diffLines`/`structuredPatchHunks` for previews, `FileLock` across
-         processes, `watch`, jj repos (`vcsJjDiscover`), `renderMermaidAscii`.
+         processes, `watch`, jj repos (`vcsJjDiscover`), `renderMermaidAscii`. Looked at 2026-10-10, none taken:
+         `find` is semantic (jfind's grep prior and a judge), not path lookup, and the file browser's filter is a
+         substring match over the repository's file list with the secret guard, which fuzzyFind's own walk would
+         bypass and reorder; the only hand-built diff is apps/web/src/client/diff.ts, in the browser, where natives
+         cannot run (server diffs come from the VCS); nothing renders Mermaid (a candidate for channel replies, where
+         a mermaid block shows as source). Left: `FileLock`, `watch`, `vcsJjDiscover`.
       Not needed: desktop (Cua Driver covers computer use), terminal keys/sixel/width (no TUI), pi-voice (own stack).
       Each goes through packages/runtime/src/omp/natives.ts.
 12l. - [x] **Full access, no sandbox** (asked 2026-10-09, like Hermes) — global switch in Settings → Tools (default on)

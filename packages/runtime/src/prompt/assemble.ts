@@ -1,6 +1,7 @@
 import type { Environment } from '../patterns.ts'
 import { prompts } from '../prompts.ts'
 import type { AgentSpec, ColonySpec } from '../spec.ts'
+import { tokensOf } from '../tokens.ts'
 import { factsFor, type PromptFacts } from './facts.ts'
 import { HEADINGS, type HeadingKey, SECTIONS, type Section, type Tier } from './sections.ts'
 
@@ -9,7 +10,7 @@ export interface PromptManifest {
   readonly agent: string
   readonly sections: readonly { readonly key: string; readonly version: number; readonly hash: string }[]
   readonly family: string
-  /** A rough size of the system prompt (characters / 4). */
+  /** The system prompt's size in tokens (o200k: the agent's own tokenizer may count more). */
   readonly totalTokens: number
 }
 
@@ -67,7 +68,7 @@ export function assemble(facts: PromptFacts): AssembledPrompt {
         hash: hash(text),
       })),
       family: facts.model.family,
-      totalTokens: Math.round(system.join('\n\n').length / 4),
+      totalTokens: tokensOf(system),
     },
   }
 }

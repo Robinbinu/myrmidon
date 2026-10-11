@@ -38,7 +38,7 @@ const LEVEL_INK: Record<PlanLevel, string> = {
 export const PickerHost = createContext<RefObject<HTMLElement | null> | undefined>(undefined)
 
 /** Where a list opened from `el` can show: inside the nearest ancestor that clips (the chat's scroll area), not the window. */
-function visibleBounds(el: HTMLElement): { top: number; bottom: number } {
+export function visibleBounds(el: HTMLElement): { top: number; bottom: number } {
   for (let p = el.parentElement; p; p = p.parentElement) {
     if (getComputedStyle(p).overflowY === 'visible') continue
     const r = p.getBoundingClientRect()
