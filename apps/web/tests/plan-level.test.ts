@@ -2,9 +2,10 @@ import { expect, test } from 'bun:test'
 import type { QuotaSnapshot } from '../src/client/plan-limits.tsx'
 import { withDom } from './dom.ts'
 
-// plan-limits reads the page's address (its API client) when it loads.
+// plan-limits reads the page's address (its API client) when it loads, so it is imported inside each test, once the
+// page is up.
 withDom()
-const { planLevel } = await import('../src/client/plan-limits.tsx')
+const load = () => import('../src/client/plan-limits.tsx')
 
 const snap = (
   ...accounts: { used?: number; status?: 'ok' | 'warning' | 'exhausted' }[][]
@@ -26,7 +27,8 @@ const snap = (
   })),
 })
 
-test('the battery reads the tightest window of the roomiest account, in four steps', () => {
+test('the battery reads the tightest window of the roomiest account, in four steps', async () => {
+  const { planLevel } = await load()
   expect(planLevel(snap([{ used: 10 }, { used: 20 }]), 'anthropic')?.level).toBe('full')
   expect(planLevel(snap([{ used: 10 }, { used: 55 }]), 'anthropic')).toMatchObject({ level: 'mid', left: 45 })
   expect(planLevel(snap([{ used: 85, status: 'warning' }]), 'anthropic')?.level).toBe('low')
@@ -38,13 +40,15 @@ test('the battery reads the tightest window of the roomiest account, in four ste
   expect(planLevel(snap([{ used: 30 }]), 'anthropic')?.text).toContain('70% left')
 })
 
-test('no battery without a reported use: an API key, another provider, or no numbers', () => {
+test('no battery without a reported use: an API key, another provider, or no numbers', async () => {
+  const { planLevel } = await load()
   expect(planLevel(undefined, 'anthropic')).toBeUndefined()
   expect(planLevel(snap([{ used: 10 }]), 'openai')).toBeUndefined()
   expect(planLevel(snap([{}]), 'anthropic')).toBeUndefined()
 })
 
-test('the tooltip names every window, the one the battery shows first', () => {
+test('the tooltip names every window, the one the battery shows first', async () => {
+  const { planLevel } = await load()
   const text = planLevel(snap([{ used: 16 }, { used: 71 }]), 'anthropic')?.text ?? ''
   expect(text.split('\n')).toEqual(['Weekly: 29% left', '5-hour: 84% left'])
 })

@@ -17,3 +17,15 @@ reads exactly what the screen shows.
 The tests enforce it: `apps/web/tests/settings-registry.test.tsx` renders every page and fails on a control with
 no registry row, a row whose control or label differs from its entry, a live row search cannot find, and an entry
 no page shows; `apps/web/tests/settings-search.test.ts` fails on a settings-file key no entry claims.
+
+## Tests: parallel by default
+
+- `bun run test` runs every test file in parallel worker processes (`bun test --parallel`, via scripts/test.ts), about
+  2 minutes on a laptop instead of 5–10 serially; a run still going after 10 minutes (TEST_WALL_S) is stuck and is
+  stopped, workers included. `bun run test:changed` runs only the files affected by your git changes
+  (`--changed`; pass a branch to compare against, e.g. `bun run test:changed develop`): use it while working, and the
+  full parallel run before you merge.
+- Every file runs in its own process (`--parallel` implies `--isolate`), so a file may not lean on another file having
+  run first. In apps/web, import a module that reads the page as it loads (anything reaching `api.ts`) from inside a
+  test, after `withDom()`, never at the top of the file.
+- `bun run test:serial` is the old one-process run, for chasing a failure that only shows there.

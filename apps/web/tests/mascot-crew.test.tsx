@@ -2,7 +2,6 @@ import { afterEach, expect, test } from 'bun:test'
 import { MotionConfig } from 'motion/react'
 import { act } from 'react'
 import { copy } from '../src/client/copy.ts'
-import { DEFAULT_MASCOT } from '../src/client/mascot.ts'
 import { MASCOT_CREW, MASCOT_TOUCH } from '../src/client/ui-config.ts'
 import { mount, withDom } from './dom.ts'
 
@@ -239,6 +238,7 @@ test('the crew holds still while the window is in the background, and moves agai
 
 test('a right-click does not make the next key press a tap, and a cancelled drag does not eat the next click', async () => {
   const { MascotScreen } = await import('../src/client/chat/MascotScreen.tsx')
+  const { DEFAULT_MASCOT } = await import('../src/client/mascot.ts')
   const taps: string[] = []
   const view = await mount(
     <MotionConfig reducedMotion="never" skipAnimations>
