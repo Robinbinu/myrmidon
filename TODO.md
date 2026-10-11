@@ -710,7 +710,7 @@ Open work, in the order it will be done:
       status dot in the app. Done: only work spins; amber means needs you; blue marks a chat finished while you were
       elsewhere until you open it; hollow ring done/idle, dashed queued, square stopped, × failed (ui/status.ts).
       Not done: a "2 need input" count in the window title, and putting needs-input chats first in the sidebar.
-12za. - [ ] **Skills: scanner, marketplace, import from Claude Code and Codex** (asked 2026-10-10: "I like skill scanner
+12za. - [x] **Skills: scanner, marketplace, import from Claude Code and Codex** (asked 2026-10-10: "I like skill scanner
       and we should support a skill marketplace and an abilty to import skills from claude code and codex"):
       (1) a skill scanner (after QwenPaw's skill_scanner: prompt injection, exfiltration, credential access,
       obfuscation, remote scripts, destructive commands, persistence, hidden Unicode) run before any skill is
@@ -720,7 +720,12 @@ Open work, in the order it will be done:
       Cisco's skill-scanner plus remote scripts, persistence, credential paths, destructive commands and hidden
       Unicode; critical blocks an install (Install anyway overrides) and holds a skill on disk from agents until it is
       allowed in Settings → Skills (allowed by content hash, so a change holds it again); high asks to confirm. Shown in
-      the install review, Settings → Skills and `myrmidon skills scan`. Left: (2) and (3).
+      the install review, Settings → Skills and `myrmidon skills scan`.
+      Done 2026-10-11 (branch skill-marketplace): (2) `packages/runtime/src/skill-market.ts` reads omp's Skillshare,
+      OpenAI's and Anthropic's skill repositories (shallow copies, licenses shown), skills.sh (search and its public
+      audits; its lists need an account) and ClawHub (off until turned on, its trust verdict shown, a flagged skill
+      blocks as a critical scan finding); each install goes through the staging, scan and review. Settings → Skills →
+      Browse skills, `myrmidon skills search … --source` and `skills add <source>:<id>`.
       (3) done 2026-10-11 (branch skill-import): `packages/runtime/src/skill-import.ts` lists Claude Code skills and
       plugins, `~/.agents/skills`, Codex's folders and plugins and a project's `.agents`/`.codex` skills (Codex's
       config.toml and Claude's disabled plugins marked off there), and imports through the skill installer: copied,

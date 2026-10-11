@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { api, post, send } from './api.ts'
 import { copy } from './copy.ts'
 import { settingRow } from './settings/Setting.tsx'
+import { AuditSummary, type SkillAuditView } from './skill-market.tsx'
 import { ConfirmButton } from './ui/ConfirmButton.tsx'
 import { FEATURE_ICONS } from './ui/icons.ts'
 import { Badge, Banner, Button, Card, CardRow, cn, SectionHeader, TextInput } from './ui/primitives.tsx'
@@ -71,6 +72,8 @@ export interface SkillPreviewView {
   scripts: string[]
   warnings: string[]
   scan: SkillScanView
+  /** The marketplace's own audit of it, when it came from Browse skills. */
+  audit?: SkillAuditView
   replaces?: { version?: string; commit?: string }
   expiresAt: string
 }
@@ -301,6 +304,7 @@ export function InstallReview(props: { review: Review; onClose(): void; onInstal
             {t.warning}
           </Banner>
         )}
+        {review.kind === 'skill' && review.preview.audit && <AuditSummary audit={review.preview.audit} />}
         {scan && <ScanFindings scan={scan} />}
       </div>
       <div className="mt-4 flex items-center justify-end gap-2">
