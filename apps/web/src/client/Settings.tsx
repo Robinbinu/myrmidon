@@ -154,8 +154,10 @@ import { matchCombo } from './ui/shortcuts.ts'
 import { useToast } from './ui/Toast.tsx'
 import {
   AGENT_MIN_WINDOW,
+  CREATOR_LINKS,
   MASCOT_COLORS,
   MAX_FALLBACKS,
+  MYRMIDON_REPO_URL,
   SETTINGS_NAV_COLLAPSE_PX,
   SETTINGS_SEARCH_COMBO,
   SUGGEST_MODEL_POLL_MS,
@@ -294,6 +296,8 @@ export interface SettingsResponse {
   sandbox: string
   /** The shell commands run in (shell.ts); absent from older servers. */
   shell?: string
+  /** This build's version; absent from older servers. */
+  version?: string
   /** Paths of the person's keys and Myrmidon's data, as typed and in full: a readable folder that opens one is warned about. */
   guardedReads?: string[]
   home: string
@@ -6615,10 +6619,89 @@ function Shortcuts() {
   )
 }
 
+/** GET /api/updates: the latest GitHub release against this build (runtime updates.ts). */
+type UpdateCheck =
+  | { status: 'current'; current: string; latest: string }
+  | { status: 'available'; current: string; latest: string; url: string }
+  | { status: 'none'; current: string }
+  | { status: 'unreachable'; current: string; error: string }
+
 function About({ data }: { data?: SettingsResponse }) {
+  const t = copy.settings.about
+  const [check, setCheck] = useState<UpdateCheck | 'checking'>()
+  const repo = MYRMIDON_REPO_URL
+  const checkNow = () => {
+    setCheck('checking')
+    api<UpdateCheck>('/api/updates?force=1').then(setCheck, (err: unknown) =>
+      setCheck({
+        status: 'unreachable',
+        current: data?.version ?? '',
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    )
+  }
+  const result =
+    check === undefined || check === 'checking' ? undefined : check.status === 'current' ? (
+      t.upToDate
+    ) : check.status === 'available' ? (
+      <>
+        {t.updateAvailable(check.latest)} <ExternalAnchor href={check.url}>{t.whatsNew}</ExternalAnchor>
+      </>
+    ) : check.status === 'none' ? (
+      t.noRelease
+    ) : (
+      t.unreachable(check.error)
+    )
   return (
     <>
-      <PageHeader title={copy.settings.about.title}>{copy.settings.about.intro}</PageHeader>
+      <PageHeader title={t.title}>{t.intro}</PageHeader>
+      <Card className="mb-4">
+        <SettingField id="general.version" inline hint={result}>
+          <div className="flex items-center gap-3">
+            <span className="font-mono text-callout text-muted">{data?.version ?? '…'}</span>
+            <Button
+              size="sm"
+              icon={
+                <FEATURE_ICONS.updates className={cn('size-3.5', check === 'checking' && 'animate-spin')} />
+              }
+              disabled={check === 'checking' || !data}
+              onClick={checkNow}
+            >
+              {check === 'checking' ? t.checking : t.checkUpdates}
+            </Button>
+          </div>
+        </SettingField>
+        <SettingField id="general.creator" inline>
+          <span className="flex items-center gap-3 text-callout">
+            <FEATURE_ICONS.creator className="size-3.5 text-muted" />
+            <span className="font-medium">{t.creatorName}</span>
+            <ExternalAnchor href={CREATOR_LINKS.github}>{t.github}</ExternalAnchor>
+            <ExternalAnchor href={CREATOR_LINKS.linkedin}>{t.linkedin}</ExternalAnchor>
+          </span>
+        </SettingField>
+        <SettingField id="general.project">
+          <div className="flex flex-wrap gap-x-5 gap-y-2 text-callout">
+            <ExternalAnchor
+              href={`${repo}/issues/new`}
+              icon={<FEATURE_ICONS.reportIssue className="size-3.5" />}
+            >
+              {t.reportIssue}
+            </ExternalAnchor>
+            <ExternalAnchor href={repo} icon={<FEATURE_ICONS.starRepo className="size-3.5" />}>
+              {t.starRepo}
+            </ExternalAnchor>
+            <ExternalAnchor href={`${repo}/releases`} icon={<ExternalLink className="size-3.5" />}>
+              {t.releases}
+            </ExternalAnchor>
+            <ExternalAnchor
+              href={`${repo}/blob/main/LICENSE`}
+              icon={<FEATURE_ICONS.license className="size-3.5" />}
+            >
+              {t.license}
+            </ExternalAnchor>
+          </div>
+        </SettingField>
+      </Card>
       <Card>
         <SettingField id="general.dataFolder" inline>
           <span className="font-mono text-callout text-muted">{data?.home ?? '…'}</span>
@@ -6635,12 +6718,27 @@ function About({ data }: { data?: SettingsResponse }) {
           <span className="font-mono text-callout text-muted">{data?.shell ?? '…'}</span>
         </SettingField>
         <CardRow>
-          <p className="text-callout text-muted">{copy.settings.about.eventLog}</p>
+          <p className="text-callout text-muted">{t.eventLog}</p>
         </CardRow>
       </Card>
       <div className="mt-4 flex items-center gap-2 text-small text-muted">
-        <Bot className="size-3.5" /> {copy.settings.about.builtOn}
+        <Bot className="size-3.5" /> {t.builtOn}
       </div>
     </>
+  )
+}
+
+/** A link that leaves Myrmidon: a new tab in a browser, the person's browser in the desktop app. */
+function ExternalAnchor(props: { href: string; icon?: ReactNode; children: ReactNode }) {
+  return (
+    <a
+      href={props.href}
+      target="_blank"
+      rel="noreferrer"
+      className="inline-flex items-center gap-1.5 font-medium text-accent-fg hover:underline"
+    >
+      {props.icon}
+      {props.children}
+    </a>
   )
 }
