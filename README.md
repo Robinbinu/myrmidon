@@ -1,6 +1,10 @@
 <div align="center">
 
-<img src="docs/assets/banner.svg" alt="Myrmidon: one chat, a whole crew of AI agents behind it" width="100%">
+<a href="docs/assets/myrmidon-film.mp4"><img src="docs/assets/hero.webp" alt="Three agents research competitors, write the code and design the page in parallel, a reviewer stamps it 0.96, and the Myrmidon end card: one chat, a whole crew" width="100%"></a>
+
+**[▶ Watch the 65-second film](docs/assets/myrmidon-film.mp4)**
+
+# Myrmidon
 
 ### One chat. A whole crew of AI agents. Running on your Mac.
 
@@ -16,13 +20,6 @@ Reach it from the app, from 30 messaging apps, or by phone call. Use the AI subs
 
 [Quick start](#quick-start) · [What it does](#one-app-instead-of-ten) · [How it works](#how-it-works) ·
 [Features](#features) · [Contributing](#contributing) · [Roadmap](ROADMAP.md)
-
-<br>
-
-<img src="docs/assets/demo.gif" alt="A 23-second demo: a request is typed, the lead brings in a crew, the task board fills, a tester play-tests the game in a live browser, the review passes and the finished snake game opens" width="100%">
-
-<sub>23 seconds, real UI, scripted models: one request becomes a crew that builds, tests and reviews a game.
-<a href="docs/assets/demo.mp4">Watch the MP4</a>.</sub>
 
 </div>
 
@@ -49,10 +46,7 @@ permission model and one audit log.
 It is a harness, not a wrapper: Myrmidon runs its own agent loop, tools, sandbox and model calls. No other CLI has
 to be installed or signed in.
 
-<picture>
-  <source media="(prefers-color-scheme: light)" srcset="docs/assets/home-light.png">
-  <img src="docs/assets/home-dark.png" alt="Myrmidon's home screen: a dot-matrix mascot that greets you by name, crew cursors, and a composer with the model, crew and permission controls" width="100%">
-</picture>
+<img src="docs/assets/film-ask.webp" alt="Text Myrmidon like a teammate: a phone conversation ends with the request to launch a pricing page tonight and check what competitors charge" width="100%">
 
 ## Quick start
 
@@ -73,8 +67,6 @@ bun run desktop
 
 The desktop app starts its own server and opens a setup assistant: models, crew, a first project, voice, messaging
 apps and alerts, every step skippable. It finds the providers you already have. Then type what you want done.
-
-<img src="docs/assets/setup-dark.png" alt="The first-run setup assistant: its steps in a sidebar and the mascot greeting you by name" width="100%">
 
 Prefer a browser tab? `bun run myr serve` prints a `http://127.0.0.1:…/#token=…` link. Prefer the terminal?
 `bun run myr setup` signs you in and picks a model, and `bun run myr doctor` checks everything.
@@ -124,34 +116,28 @@ flowchart LR
 
 ### See a crew at work
 
-A lead plans a snake game, a coder and a tester build it in parallel, and the reviewer scores the result.
+One message: *"Launch our pricing page tonight. Check what competitors charge. Call me when it's live."*
 
-<img src="docs/assets/chat-dark.png" alt="A finished crew round in the chat: the lead's final answer, the reviewer's score and the files, with the crew panel showing each agent's model, turns, tokens and tools" width="100%">
-
-<table>
-  <tr>
-    <td width="50%"><img src="docs/assets/crew-dark.png" alt="Crew console: agents with their models and token counts, a live activity feed of every tool call, and a replay scrubber"></td>
-    <td width="50%"><img src="docs/assets/preview-dark.png" alt="A published file previewed in a sandbox: the snake game the crew built, running"></td>
-  </tr>
-  <tr>
-    <td align="center"><sub><b>Crew console</b>: every tool call, task and verdict, with replay</sub></td>
-    <td align="center"><sub><b>Artifacts</b>: published files open in a sandboxed preview</sub></td>
-  </tr>
-</table>
+<img src="docs/assets/film-crew.webp" alt="Three agents in parallel: nova researches competitor prices in a browser with sources, quill writes the pricing page in its own git worktree with 18 tests passing, and iris designs the cards using the Mac itself" width="100%">
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/assets/tasks-dark.png" alt="The task board mid-round: two crewmates working, one task waiting, one done"></td>
-    <td width="50%"><img src="docs/assets/browser-dark.png" alt="The tester's live browser play-testing the game, with its named cursor"></td>
+    <td width="50%"><img src="docs/assets/film-review.webp" alt="The task board done and a reviewer stamp: Reviewed 0.96, tests pass, sources checked"></td>
+    <td width="50%"><img src="docs/assets/film-trust.webp" alt="Sandboxed, logged, yours: an approval card, Publish to production, allowed by Alex and logged as event 2047, over the append-only event log"></td>
   </tr>
   <tr>
-    <td align="center"><sub><b>Task board</b>: who is on what, live</sub></td>
-    <td align="center"><sub><b>Browser agent</b>: watch it work, take over any time</sub></td>
+    <td align="center"><sub><b>Checked</b>: a reviewer runs the tests and checks the sources</sub></td>
+    <td align="center"><sub><b>Yours</b>: you approve what matters; every step is logged</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/assets/film-call.webp" alt="Myrmidon calls back: the pricing page is live, $10 below the average competitor"></td>
+    <td width="50%"><img src="docs/assets/film-reach.webp" alt="Any model: Claude, GPT, Gemini, Llama, local models or any API key, around the mascot"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub><b>Calls you back</b>: voice and phone, with the result</sub></td>
+    <td align="center"><sub><b>Any model</b>: the subscriptions you already pay for</sub></td>
   </tr>
 </table>
-
-<sub>Every screen comes from a demo run with scripted models in a throwaway data folder
-(<code>bun scripts/readme-screens.ts</code>), so it is reproducible and holds no personal data.</sub>
 
 ## Features
 
@@ -197,8 +183,6 @@ A lead plans a snake game, a coder and a tester build it in parallel, and the re
   context window.
 - `generate_image` and `tts` for pictures and speech as chat artifacts.
 
-<img src="docs/assets/models-dark.png" alt="The model picker grouped by provider, with the subscription battery on the model chip" width="100%">
-
 ### Channels, voice and devices
 
 - **30 channels**: Telegram, WhatsApp (linked device or Cloud API), Signal, iMessage, Matrix, Slack, Discord,
@@ -211,8 +195,6 @@ A lead plans a snake game, a coder and a tester build it in parallel, and the re
   Speech runs locally (Phonon-2, Kitten TTS) or on Deepgram, ElevenLabs, Cartesia, OpenAI, Google, Azure, AWS and
   more, or the call runs on OpenAI Realtime or Gemini Live.
 - **Run it on a server** and pair your devices over Tailscale or SSH. See [docs/remote.md](docs/remote.md).
-
-<img src="docs/assets/channels-dark.png" alt="Settings, Channels: a gallery of messaging services to connect, including Telegram, WhatsApp, Signal, iMessage, Matrix, Slack, Discord, Microsoft Teams and Google Chat" width="100%">
 
 ### Extend it
 
@@ -229,15 +211,13 @@ A lead plans a snake game, a coder and a tester build it in parallel, and the re
   self-made tools kept in a library.
 - **Memory** across chats: a cheap model suggests what to remember, you decide what is kept.
 
-<img src="docs/assets/skills-dark.png" alt="Settings, Skills: your own skills and Claude Code's, each with a switch, and a search of the skills registry" width="100%">
-
 ### Safe by default
 
 - Commands run in macOS's sandbox: agents read the project and toolchains, write only the project and their work
   files, and cannot see the rest of your home, other chats or your keys.
 - Secrets are redacted from logs and reach model providers as placeholders.
 - Every tool can be Allow, Ask first or Off; projects start on ask; each run stops at $5 unless you raise it.
-- An audit view of every file, URL and command each agent touched. Want it unrestricted, like Hermes Agent? Turn on
+- An audit view of every file, URL and command each agent touched. Want it unrestricted? Turn on
   **full access** for a project; approvals still apply.
 
 ### The app
@@ -246,8 +226,6 @@ A lead plans a snake game, a coder and a tester build it in parallel, and the re
 - ⌘K command menu, search across every chat, chat groups and forks, a file tree of your project.
 - Export a chat as Markdown or a standalone HTML page, share it live with guests, or send an encrypted share file.
 - Scheduled rounds, background runs (`myr ask --wait`) and OpenTelemetry export.
-
-<img src="docs/assets/command-dark.png" alt="The ⌘K command menu open over a chat" width="100%">
 
 ## Scripted crews
 
@@ -328,15 +306,15 @@ If Myrmidon is useful to you, **star the repo**: it is the simplest way to help 
 
 ## Acknowledgements
 
-Built on [oh-my-pi](https://github.com/can1357/oh-my-pi) for models and the agent loop,
-[Cordis](https://www.npmjs.com/package/@deepseek-ai/cordis) for services, and
-[Electrobun](https://electrobun.dev) for the desktop app. Computer use runs on
-[Cua Driver](https://github.com/trycua/cua). Channels are ported from
-[Hermes Agent](https://github.com/NousResearch/hermes-agent) and [OpenClaw](https://github.com/openclaw/openclaw);
-voice turn-taking uses [Silero VAD](https://github.com/snakers4/silero-vad) and Pipecat's
-[Smart Turn](https://github.com/pipecat-ai/smart-turn); the composer's next-word model is EleutherAI's
-[Pythia-14M](https://huggingface.co/EleutherAI/pythia-14m). Inspired by Claude Code, Codex, Cursor and Manus. Full
-notices are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+- [oh-my-pi](https://github.com/can1357/oh-my-pi)
+- [Hermes Agent](https://github.com/NousResearch/hermes-agent)
+- [OpenClaw](https://github.com/openclaw/openclaw)
+- [Pipecat](https://github.com/pipecat-ai/pipecat)
+- [LiveKit Agents](https://github.com/livekit/agents)
+- [QwenPaw](https://github.com/agentscope-ai/QwenPaw)
+- [Cisco AI Defense skill-scanner](https://github.com/cisco-ai-defense/skill-scanner)
+
+Their license texts are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## Author
 
