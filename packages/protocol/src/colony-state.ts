@@ -2,6 +2,7 @@ import type { EventId, MyrEvent } from './event.ts'
 import type {
   AgentInfo,
   AgentStatus,
+  Budget,
   ChatGrant,
   ColonyStatus,
   ComputerApp,
@@ -54,6 +55,8 @@ export interface RoundInfo {
   escalated?: EventPayloads['colony/escalated']
   /** The round's project snapshots: its changes are start → end. */
   checkpoints: { start?: string; end?: string }
+  /** USD its models and tools reported while it was the colony's latest round; unpriced responses add nothing. */
+  cost: number
 }
 
 export interface Entry {
@@ -228,6 +231,8 @@ export interface ColonyState {
   chatGrants?: ChatGrant[]
   /** The chat's level of the permission model; absent until the person first sets something for the chat. */
   chatPermissions?: PermissionLevel
+  /** The chat's own spend caps; absent until the person first sets one for the chat. */
+  chatBudget?: Budget
   /** Folders the person let sandboxed agents read for the rest of the chat; absent until they allow one. */
   chatReads?: string[]
   /** Apps on the person's Mac they let agents use in this chat (computer use); absent until they allow one. */
@@ -256,7 +261,14 @@ function roundOf(p: EventPayloads['colony/created'], event: MyrEvent): RoundInfo
     startedAt: event.time,
     status: 'created',
     checkpoints: {},
+    cost: 0,
   }
+}
+
+/** Counts spend toward the latest round: what agents spend while a round winds down is still that round's. */
+function spend(state: ColonyState, cost: number) {
+  const round = state.rounds.at(-1)
+  if (round) round.cost += cost
 }
 
 /** Closes the current round with the colony's status as the event left it. */
@@ -564,6 +576,10 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
         }
       break
     }
+    case 'chat/budget': {
+      state.chatBudget = { ...(event.payload as EventPayloads['chat/budget']) }
+      break
+    }
     case 'chat/permissions': {
       state.chatPermissions = structuredClone(event.payload as EventPayloads['chat/permissions'])
       break
@@ -695,7 +711,10 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
       if (view) {
         view.tokens += p.usage?.totalTokens ?? 0
         if (p.usage?.cost === undefined) view.costKnown = false
-        else view.cost += p.usage.cost
+        else {
+          view.cost += p.usage.cost
+          spend(state, p.usage.cost)
+        }
         view.lastSeq = event.seq
       }
       break
@@ -706,7 +725,10 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
       // A tool's own spend is added when known; one that reports none leaves the agent's cost as it was.
       if (view && p.usage) {
         view.tokens += p.usage.totalTokens
-        if (p.usage.cost !== undefined) view.cost += p.usage.cost
+        if (p.usage.cost !== undefined) {
+          view.cost += p.usage.cost
+          spend(state, p.usage.cost)
+        }
       }
       break
     }

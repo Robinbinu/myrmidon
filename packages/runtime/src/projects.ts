@@ -9,7 +9,13 @@ import {
 } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, join, parse, relative, resolve } from 'node:path'
-import { type LegacyProjectPermissions, type ProjectPermissions, projectLevelFrom } from '@myrmidon/protocol'
+import {
+  type Budget,
+  type LegacyProjectPermissions,
+  type ProjectPermissions,
+  projectLevelFrom,
+} from '@myrmidon/protocol'
+import { normalizeBudget } from './budgets.ts'
 import {
   MAX_FIND_RESULTS,
   MAX_FIND_SCAN,
@@ -43,6 +49,8 @@ export interface Project {
   readonly addedAt: string
   /** The project's level of the permission model; no preset means it uses the global one. */
   readonly permissions: ProjectPermissions
+  /** Its own spend caps (budgets.ts): per run, and for each calendar month of its chats; absent sets none. */
+  readonly budget?: Budget
 }
 
 export class ProjectStore {
@@ -58,9 +66,14 @@ export class ProjectStore {
       const raw = JSON.parse(readFileSync(this._file, 'utf8')) as unknown
       if (!Array.isArray(raw)) return []
       // Folders saved before the permission model keep their mode as a preset (see projectLevelFrom).
-      return (raw as (Omit<Project, 'permissions'> & { permissions?: unknown })[])
+      return (
+        raw as (Omit<Project, 'permissions' | 'budget'> & { permissions?: unknown; budget?: unknown })[]
+      )
         .filter((p) => p && typeof p.path === 'string')
-        .map((p) => ({ ...p, permissions: projectLevelFrom(p.permissions) }))
+        .map(({ budget, ...p }) => {
+          const caps = savedBudget(budget)
+          return { ...p, permissions: projectLevelFrom(p.permissions), ...(caps ? { budget: caps } : {}) }
+        })
     } catch {
       return []
     }
@@ -120,6 +133,18 @@ export class ProjectStore {
     return next
   }
 
+  /** Sets the project's spend caps (0 or absent: none of its own); its running chats are held to them at once. */
+  setBudget(id: string, budget: unknown): Project {
+    const next = normalizeBudget(budget)
+    const list = this.list()
+    const project = list.find((p) => p.id === id)
+    if (!project) throw new Error('no such project')
+    const { budget: _, ...rest } = project
+    const saved = Object.keys(next).length ? { ...rest, budget: next } : rest
+    this._write(list.map((p) => (p.id === id ? saved : p)))
+    return saved
+  }
+
   /** Forgets a project. Its folder and its chats are untouched; the chats just stop being grouped under it. */
   remove(id: string): void {
     this._write(this.list().filter((p) => p.id !== id))
@@ -129,6 +154,17 @@ export class ProjectStore {
     const tmp = `${this._file}.${process.pid}.tmp`
     writeFileSync(tmp, `${JSON.stringify(projects, null, 2)}\n`)
     renameSync(tmp, this._file)
+  }
+}
+
+/** A project's caps as the file holds them; caps a hand edit broke are dropped rather than failing the whole list. */
+function savedBudget(raw: unknown): Budget | undefined {
+  if (raw === undefined) return undefined
+  try {
+    const caps = normalizeBudget(raw)
+    return Object.keys(caps).length ? caps : undefined
+  } catch {
+    return undefined
   }
 }
 
