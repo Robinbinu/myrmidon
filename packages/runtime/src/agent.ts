@@ -868,14 +868,30 @@ export interface ModelError {
   readonly kind: 'refusal' | 'overflow' | 'error'
   readonly message: string
   readonly transient?: boolean
+  /**
+   * Why trying the same model again cannot work: the provider retired it, or one request is bigger than the
+   * account's tokens-per-minute limit (`limit`; `tokens` is the request's size).
+   */
+  readonly cause?: 'retired' | 'per-minute'
+  readonly limit?: number
   /** For an overflow: the conversation's estimated size and the model's window, in tokens. */
   readonly tokens?: number
   readonly window?: number
 }
 
+/** A provider saying it no longer serves the model (Groq: 400 `model_decommissioned`). */
+const RETIRED = /\bdecommissioned\b/i
+/** A provider's tokens-per-minute limit and what one request asked for (Groq's 413, OpenAI's 429). */
+const PER_MINUTE = /tokens per min(?:ute)?\b[\s\S]*?Limit:? (\d+), Requested:? (\d+)/i
+
 export function classifyModelError(m: AssistantMessage): ModelError {
   const message = m.errorMessage?.trim() || 'the model returned an error with no message'
   if (/refus/i.test(message)) return { kind: 'refusal', message }
+  if (RETIRED.test(message)) return { kind: 'error', message, transient: false, cause: 'retired' }
+  const [, limit, tokens] = (PER_MINUTE.exec(message) ?? []).map(Number)
+  // Waiting cannot help a request that alone is over the limit for any minute.
+  if (limit !== undefined && tokens !== undefined && tokens > limit)
+    return { kind: 'error', message, transient: false, cause: 'per-minute', limit, tokens }
   const transient =
     (m.errorStatus !== undefined && TRANSIENT_STATUS.has(m.errorStatus)) ||
     /timed? ?out|ECONNRESET|ETIMEDOUT|socket hang up|overloaded|rate.?limit|temporar|try again/i.test(message)

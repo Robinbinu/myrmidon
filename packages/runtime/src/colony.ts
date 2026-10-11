@@ -1099,6 +1099,8 @@ export class ColonyRun implements ColonyHost {
         model,
         kind: error.kind,
         message: error.message.slice(0, 2_000),
+        ...(error.cause ? { cause: error.cause } : {}),
+        ...(error.limit !== undefined ? { limit: error.limit } : {}),
         ...(error.tokens !== undefined ? { tokens: error.tokens } : {}),
         ...(error.window !== undefined ? { window: error.window } : {}),
       },

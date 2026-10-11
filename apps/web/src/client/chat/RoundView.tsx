@@ -1306,13 +1306,23 @@ function ModelFailure(props: {
     ? usable.filter(fits).sort((a, b) => (b.contextWindow ?? 0) - (a.contextWindow ?? 0))[0]
     : fallbackModel(failed.model, usable, fits, props.used)
   const pick = nextModel || suggested?.ref || ''
+  // A retired model, or a request over the account's per-minute limit, fails the same way however often it is tried.
+  const cause = failed.kind === 'error' ? failed.cause : undefined
+  const because =
+    cause === 'retired'
+      ? copy.modelFailure.retired(name(failed.model), suggested && name(suggested.ref))
+      : cause === 'per-minute' && failed.limit && failed.tokens
+        ? copy.modelFailure.perMinute(name(failed.model), failed.limit, failed.tokens)
+        : undefined
   // Folding again only helps a model with room for the agent's own instructions and tools.
-  const canRetry = !overflow || (failed.window ?? 0) >= AGENT_MIN_WINDOW
+  const canRetry = !cause && (!overflow || (failed.window ?? 0) >= AGENT_MIN_WINDOW)
   const title = overflow
     ? copy.modelFailure.tooLong(name(failed.model))
     : failed.kind === 'refusal'
       ? copy.modelFailure.declined(name(failed.model))
-      : copy.modelFailure.couldntAnswer(name(failed.model))
+      : cause === 'retired'
+        ? copy.modelFailure.retiredTitle(name(failed.model))
+        : copy.modelFailure.couldntAnswer(name(failed.model))
   const explain = overflow
     ? failed.tokens && failed.window && failed.tokens < failed.window
       ? copy.modelFailure.windowTooSmall(
@@ -1329,7 +1339,7 @@ function ModelFailure(props: {
         : copy.modelFailure.noLongerFits(name(failed.model))
     : failed.kind === 'refusal'
       ? copy.modelFailure.refusal
-      : copy.modelFailure.error
+      : (because ?? copy.modelFailure.error)
   const go = (which: 'same' | 'other') => {
     setResuming(which)
     void props.onResume(which === 'other' ? pick : undefined).finally(() => setResuming(undefined))

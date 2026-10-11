@@ -371,6 +371,12 @@ export interface EventPayloads {
     model: string
     kind: 'refusal' | 'overflow' | 'error'
     message: string
+    /**
+     * Why the same model cannot simply be tried again: the provider retired it, or one request is over the account's
+     * tokens-per-minute `limit` (`tokens` is the request's size).
+     */
+    cause?: 'retired' | 'per-minute'
+    limit?: number
     /** For an overflow: the conversation's estimated size and the model's window, in tokens. */
     tokens?: number
     window?: number
