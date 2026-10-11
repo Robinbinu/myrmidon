@@ -7,10 +7,10 @@ import { Btn, Code, Headline, Panel, PanelHead, Poster } from './kit.tsx'
 type Source = [string, IconName, string, boolean?]
 const SOURCES: Source[] = [
   ['All sources', 'layers', ''],
-  ['OpenAI', 'globe', '64'],
-  ['Anthropic', 'globe', '38'],
-  ['skills.sh', 'search', '2.1k', true],
-  ['Skillshare', 'globe', '540'],
+  ['OpenAI', 'globe', '44'],
+  ['Anthropic', 'globe', '19'],
+  ['skills.sh', 'search', '', true],
+  ['Skillshare', 'globe', ''],
 ]
 const IMPORTS: Source[] = [
   ['Claude Code', 'terminal', '12'],
