@@ -62,6 +62,17 @@ export interface LegacyProjectPermissions {
   read?: string[]
 }
 
+/** Where a spend cap is set; the most specific one that sets a per-run cap wins (chat, then project, then global). */
+export type BudgetScope = 'chat' | 'project' | 'global'
+
+/** Spend caps set at one level, in USD; absent (or 0) sets none there. */
+export interface Budget {
+  /** The most one run may spend. */
+  readonly runUsd?: number
+  /** A running total: a chat's whole life, or a calendar month for a project and globally. */
+  readonly totalUsd?: number
+}
+
 /**
  * Kinds of step a person allowed for the rest of a chat from approval cards before the permission model (file changes,
  * shell commands). Read from old logs only; chat rules replace them (`rulesFromGrants`).
@@ -188,7 +199,17 @@ export interface EventPayloads {
     agents: AgentInfo[]
     acceptance: unknown[]
     /** `tokens` counts every token the models process, cached input included (what the run card shows). */
-    budget: { wallMs: number; costUsd?: number; tokens?: number; maxTurns?: number }
+    /**
+     * `total`: when a running total (a chat's, a project's month, the global month) leaves this run less than its own
+     * cap, `costUsd` is what is left of it, and this says which total and how much it is.
+     */
+    budget: {
+      wallMs: number
+      costUsd?: number
+      tokens?: number
+      maxTurns?: number
+      total?: { scope: BudgetScope; usd: number }
+    }
     unsafeNoSandbox: boolean
     chat?: {
       chatId: string
@@ -572,6 +593,8 @@ export interface EventPayloads {
   'chat/allowed': { grants: ChatGrant[]; reads?: string[] }
   /** The chat's level of the permission model after the person changed it (preset, rules, who may use what). */
   'chat/permissions': PermissionLevel
+  /** The chat's own spend caps after the person changed them. */
+  'chat/budget': Budget
   'colony/failed': { reason: string }
   'colony/completed': { verdicts: EventId[] }
   'agent/status': { agent: string; status: AgentStatus; detail?: string }

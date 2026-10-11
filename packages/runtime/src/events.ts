@@ -74,6 +74,9 @@ const colonySpec = Schema.object({
     costUsd: Schema.number(),
     tokens: Schema.natural(),
     maxTurns: Schema.natural(),
+    total: optional(
+      Schema.object({ scope: oneOf('chat', 'project', 'global'), usd: Schema.number().required() }),
+    ),
   }),
   unsafeNoSandbox: Schema.boolean().default(false),
   chat: optional(
@@ -594,6 +597,12 @@ const defs: EventTypeDefinition[] = [
     version: 1,
     actors: ['user'],
     schema: permissionLevel,
+  },
+  {
+    type: 'chat/budget',
+    version: 1,
+    actors: ['user'],
+    schema: Schema.object({ runUsd: Schema.number().min(0), totalUsd: Schema.number().min(0) }),
   },
   {
     type: 'chat/allowed',

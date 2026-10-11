@@ -25,6 +25,7 @@ import {
   addKnownSecrets,
   type BrowserHub,
   BUILT_IN_CHANNELS,
+  BudgetExceededError,
   buildCatalog,
   CallRefused,
   type CallSession,
@@ -390,6 +391,12 @@ const MAX_MESSAGE_CHARS = 20_000
  * What the person can fix in a message the schema would refuse, in words that say how. Anything else the schema
  * refuses is the page's or a script's mistake and stays technical.
  */
+/** Why a run did not start; one a running total refused says which, so the page can offer to raise it. */
+function refusal(err: unknown): { error: string; budget?: BudgetExceededError['hit'] } {
+  const error = err instanceof Error ? err.message : String(err)
+  return { error, ...(err instanceof BudgetExceededError ? { budget: err.hit } : {}) }
+}
+
 function sendProblem(raw: unknown): string | undefined {
   const { text, attachments } = (raw ?? {}) as { text?: unknown; attachments?: unknown }
   const count = (n: number) => n.toLocaleString('en-US')
@@ -425,6 +432,8 @@ const sendSchema = Schema.object({
   importOf: Schema.string().pattern(/^import-[a-z0-9-]{1,40}$/),
   // A new chat's own permission level, chosen in the composer before its first message (checked by normalizeLevel).
   permissions: Schema.any(),
+  // A new chat's own spend caps, set in the composer's crew panel before its first message (checked by normalizeBudget).
+  budget: Schema.any(),
   // An answer given on a question card: the card shows it, so the chat need not repeat it as a message.
   // Optional: a missing object field would default to {} and fail on its required seq, refusing every message.
   answers: Schema.union([
@@ -1822,6 +1831,7 @@ export function startServer(options: ServeOptions): WebServer {
               await options.computer.stop()
             }
             await options.chats?.permissionsChanged()
+            await options.chats?.budgetsChanged()
             return json({ settings })
           } catch (err) {
             return json({ error: err instanceof Error ? err.message : String(err) }, 400)
@@ -2044,6 +2054,19 @@ export function startServer(options: ServeOptions): WebServer {
           if (!options.specialists.remove(req.params.id ?? ''))
             return json({ error: 'no such specialist' }, 404)
           return json({ specialists: options.specialists.list() })
+        }),
+      },
+      '/api/projects/:id/budget': {
+        PUT: guard(async (req) => {
+          if (!options.projects) return json({ error: 'projects need the chat runtime' }, 503)
+          const body = (await req.json().catch(() => undefined)) as unknown
+          try {
+            const project = options.projects.setBudget(req.params.id ?? '', body)
+            await options.chats?.budgetsChanged()
+            return json({ project, projects: options.projects.list() })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
         }),
       },
       '/api/projects/:id/permissions': {
@@ -3056,11 +3079,15 @@ export function startServer(options: ServeOptions): WebServer {
                   ? { permissions: body.permissions }
                   : {}
                 : {}),
+              // Like PUT /api/chats/:id/budget, a chat's own caps need a device with full access.
+              ...(body.budget !== undefined && !body.chatId && access.scope === 'full'
+                ? { budget: body.budget }
+                : {}),
             })
             calls?.tell()
             return json(sent)
           } catch (err) {
-            return json({ error: err instanceof Error ? err.message : String(err) }, 422)
+            return json(refusal(err), 422)
           }
         }),
       },
@@ -3254,8 +3281,27 @@ export function startServer(options: ServeOptions): WebServer {
             const model = typeof body.model === 'string' && body.model ? body.model : undefined
             return json(await options.chats.resume(req.params.chatId ?? '', model))
           } catch (err) {
-            return json({ error: err instanceof Error ? err.message : String(err) }, 422)
+            return json(refusal(err), 422)
           }
+        }),
+      },
+      // A chat's own spend caps (budgets.ts), set in the composer's crew panel; its running round is held to them.
+      '/api/chats/:chatId/budget': {
+        PUT: guard(async (req) => {
+          if (!options.chats) return json({ error: 'this server was started without the chat runtime' }, 503)
+          const body = (await req.json().catch(() => undefined)) as unknown
+          try {
+            return json({ budget: await options.chats.setChatBudget(req.params.chatId ?? '', body) })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
+        }),
+      },
+      // What has been spent this calendar month, by everyone and per project, for the budget controls.
+      '/api/spend': {
+        GET: guard(async () => {
+          if (!options.chats) return json({ error: 'this server was started without the chat runtime' }, 503)
+          return json(await options.chats.spend())
         }),
       },
       '/api/chats/:chatId/model': {

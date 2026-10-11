@@ -140,6 +140,14 @@ export const PROMPT_FAMILY_WORDS = 130
  * A settings file that already holds a value keeps it. The Settings hint states it too.
  */
 export const DEFAULT_COST_USD = 5
+/** The largest spend cap a chat, project or month may have, in dollars: a typo cannot set an unbounded one. */
+export const MAX_BUDGET_USD = 100_000
+/**
+ * How often, at most, running chats are checked against the running totals (a chat's, a project's month, the global
+ * month) while they spend: each run is also capped at what its totals had left when it started, so this only catches
+ * runs that share a total and spend at once.
+ */
+export const BUDGET_CHECK_MS = 2_000
 /** The most workers (or swarm peers) a chat's team may have, so one request cannot start an unbounded crowd. */
 export const MAX_WORKERS = 8
 
