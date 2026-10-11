@@ -1388,6 +1388,8 @@ export const VOICE_VOICES_CACHE_MS = 10 * 60_000
 export const VOICE_STT_CHUNK_MS = 50
 /** How often an open speech-to-text stream is kept alive while the turn is quiet (Deepgram closes after 10 s). */
 export const VOICE_STT_KEEPALIVE_MS = 5_000
+/** The most characters Groq's speech (Orpheus) takes in one request; a longer sentence is said in parts. */
+export const GROQ_TTS_MAX_CHARS = 200
 /**
  * Realtime calls: how long a realtime model has to set its session up, and how long a tool call that must check the
  * person's last words (answer_approval) waits for their transcript, which a realtime model writes beside its answer.
