@@ -938,6 +938,10 @@ export const SKILL_SCAN_MAX_FILE_BYTES = 5 * 1024 * 1024
 /** How much of a finding's line it quotes, and the most findings one skill reports. */
 export const SKILL_SCAN_EXCERPT_CHARS = 140
 export const SKILL_SCAN_MAX_FINDINGS = 200
+/** The most Claude Code and Codex skills the import lists (skill-import.ts), each scanned as it is listed. */
+export const SKILL_IMPORT_MAX = 500
+/** Where an administrator puts skills every Codex user on the machine gets. */
+export const CODEX_ADMIN_SKILLS = '/etc/codex/skills'
 
 // Installing plugins and skills (install-sources.ts, marketplaces.ts, skill-installs.ts)
 

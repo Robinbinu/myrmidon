@@ -208,4 +208,35 @@ export const setupCopy = {
       'Not installed: the skill scan blocks it. If you trust where it comes from, run it again with --force.',
     confirmAnyway: 'Install it anyway? Type yes to install',
   },
+  /** `myrmidon import-skills`: copying Claude Code and Codex skills into Myrmidon. */
+  importSkills: {
+    usage: 'usage: myrmidon import-skills [--from claude|codex|all] [--all | <name…>] [--force]',
+    none: 'No Claude Code or Codex skills on this computer.',
+    origins: {
+      claude: 'Claude Code',
+      'claude-plugin': 'Claude plugin',
+      agents: 'Codex',
+      codex: 'Codex',
+      'codex-plugin': 'Codex plugin',
+      project: 'project',
+    },
+    verdict: { clean: 'clean', warn: 'worth a look', block: 'blocked' },
+    plugin: (name: string) => `plugin ${name}`,
+    already: (name: string) => `already in Myrmidon as ${name}`,
+    renamed: (name: string) => `imports as ${name}`,
+    offThere: 'off there',
+    hint: 'Import: myrmidon import-skills <name…> or --all. Each is scanned and stays off until you switch it on.',
+    noSuchSkill: (name: string) => `no Claude Code or Codex skill called ${name}`,
+    nothingToImport: 'Nothing to import: all of them are in Myrmidon already.',
+    notInteractive: 'importing a skill the scan blocks asks you to confirm, and nothing is typing here',
+    blockedList: (names: string[]) =>
+      `The skill scan blocks ${names.join(', ')}: it found something critical. Import only if you trust where it comes from.`,
+    confirmAnyway: 'Import it anyway? Type yes to import',
+    cancelled: 'Not imported.',
+    imported: (names: string[]) =>
+      `Imported ${names.join(', ')}: off until you switch ${names.length === 1 ? 'it' : 'them'} on in Settings → Skills`,
+    skippedBlocked: (name: string) =>
+      `Not imported ${name}: the skill scan blocks it (run again with --force)`,
+    failed: (name: string, why: string) => `Not imported ${name}: ${why}`,
+  },
 }

@@ -2554,6 +2554,48 @@ export const copy = {
     gone: 'The imported transcript is no longer here.',
   },
 
+  /** Copying the person's Claude Code and Codex skills into Myrmidon (Settings → Skills, `myrmidon import-skills`). */
+  skillImports: {
+    title: 'Import from Claude Code and Codex',
+    intro:
+      'Copy skills you already use in Claude Code or Codex into Myrmidon. Each is scanned and arrives switched off, so you can look at it before agents use it; the originals stay where they are.',
+    open: 'Import skills from Claude Code or Codex…',
+    sheetTitle: 'Import skills',
+    loading: 'Reading your Claude Code and Codex skills…',
+    failed: 'Could not list your skills',
+    empty: 'No Claude Code or Codex skills on this computer.',
+    emptyHint:
+      'Claude Code keeps them in ~/.claude/skills and its plugins; Codex in ~/.agents/skills, ~/.codex/skills and its plugins.',
+    origins: {
+      claude: 'Claude Code',
+      'claude-plugin': 'Claude Code plugins',
+      agents: 'Codex (~/.agents/skills)',
+      codex: 'Codex',
+      'codex-plugin': 'Codex plugins',
+      project: 'This project (Codex)',
+    },
+    pick: (name: string) => `Import ${name}`,
+    selectAll: 'Select all',
+    plugin: (name: string) => `plugin ${name}`,
+    already: 'already in Myrmidon',
+    alreadyAs: (name: string) => `already in Myrmidon as ${name}`,
+    renamed: (name: string) => `as ${name}`,
+    renamedHint: 'A different skill here already has its name, so it comes in under this one.',
+    offThere: { claude: 'off in Claude Code', codex: 'off in Codex' },
+    needs: (tools: readonly string[]) => `Needs ${tools.join(', ')}`,
+    verdict: { clean: 'clean', warn: 'worth a look', block: 'blocked' },
+    importAnyway: 'Import anyway…',
+    confirmAnyway: 'Yes, import it',
+    anywayWarning: 'Its scan found something critical: only if you trust where it comes from.',
+    import: (n: number) => (n ? `Import ${n}` : 'Import'),
+    importing: 'Importing…',
+    imported: (names: readonly string[]) =>
+      `Imported ${names.join(', ')}: off until you switch ${names.length === 1 ? 'it' : 'them'} on`,
+    skipped: (n: number) => `${n} not imported`,
+    footnote:
+      "Each is copied into Myrmidon's skills folder and stays off until you switch it on; Update brings in later changes.",
+  },
+
   /** Sharing a chat as an encrypted file (chat menu → Export → Encrypted share file, `/export share`). */
   share: {
     title: 'Share as an encrypted file',

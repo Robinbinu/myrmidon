@@ -145,15 +145,15 @@ export class PairingCodes {
 /**
  * Requests a `chat` device may not make: sharing a chat live, the terminal, the person's own browser, keys and providers, Settings and permission changes, plugins,
  * MCP servers, hooks, saving stream rules, browsing the server's folders or a project's files, git actions on projects,
- * managing devices, other gateways, and channels, and listing or importing Claude Code and Codex sessions (that reads
- * those tools' folders).
+ * managing devices, other gateways, and channels, and listing or importing Claude Code and Codex sessions and skills
+ * (that reads those tools' folders).
  */
 export function needsFull(method: string, path: string): boolean {
   const write = method !== 'GET' && method !== 'HEAD'
   // Other gateways, reached through this one: a chats-only device must not borrow this hub's access to them.
   if (path.startsWith('/gw/')) return true
   if (
-    /^\/api\/(terminal|browser|credentials|providers|logins|devices|gateways|channels|import-omp|import-sessions|folders|mcp-reload|setup|ssh|telemetry)(\/|$)/.test(
+    /^\/api\/(terminal|browser|credentials|providers|logins|devices|gateways|channels|import-omp|import-sessions|skill-imports|folders|mcp-reload|setup|ssh|telemetry)(\/|$)/.test(
       path,
     )
   )

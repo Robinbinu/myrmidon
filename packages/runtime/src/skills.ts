@@ -123,10 +123,8 @@ const NAME = /^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$/
 /** Marks a skill Myrmidon learned itself (in its front matter), as opposed to one the person wrote. */
 const LEARNED = /^source:\s*learned\s*$/m
 
-/** Parses a SKILL.md's front matter and body; undefined unless it names and describes the skill. */
-export function parseSkillFile(
-  text: string,
-): { name: string; description: string; body: string } | undefined {
+/** A SKILL.md's front matter (its top-level keys) and body; undefined when it has no front matter. */
+function splitSkillFile(text: string): { meta: Record<string, unknown>; body: string } | undefined {
   const m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/.exec(text)
   if (!m) return undefined
   let meta: unknown
@@ -134,18 +132,64 @@ export function parseSkillFile(
     meta = Bun.YAML.parse(m[1] ?? '')
   } catch {
     // Skills written for other harnesses often hold an unquoted colon in their description, which strict YAML
-    // rejects but those harnesses accept: fall back to reading the two keys line by line.
+    // rejects but those harnesses accept: fall back to reading the top-level keys line by line.
     meta = Object.fromEntries(
       (m[1] ?? '').split(/\r?\n/).flatMap((line) => {
-        const kv = /^(name|description):\s*(.*)$/.exec(line)
+        const kv = /^([\w-]+):\s*(.*)$/.exec(line)
         return kv ? [[kv[1], (kv[2] ?? '').replace(/^(["'])(.*)\1$/, '$2')]] : []
       }),
     )
   }
-  const { name, description } = (meta ?? {}) as { name?: unknown; description?: unknown }
+  return {
+    meta: meta && typeof meta === 'object' && !Array.isArray(meta) ? (meta as Record<string, unknown>) : {},
+    body: (m[2] ?? '').trim(),
+  }
+}
+
+/** Parses a SKILL.md's front matter and body; undefined unless it names and describes the skill. */
+export function parseSkillFile(
+  text: string,
+): { name: string; description: string; body: string } | undefined {
+  const split = splitSkillFile(text)
+  if (!split) return undefined
+  const { name, description } = split.meta
   if (typeof name !== 'string' || !NAME.test(name)) return undefined
   if (typeof description !== 'string' || !description.trim()) return undefined
-  return { name, description: description.trim().slice(0, 1024), body: (m[2] ?? '').trim() }
+  return { name, description: description.trim().slice(0, 1024), body: split.body }
+}
+
+/**
+ * Reads a SKILL.md written for Claude Code, which lets a skill leave out its name (its folder's) and its description
+ * (its first paragraph); undefined when neither gives a usable name and description. `meta` is every key it set.
+ */
+export function parseForeignSkill(
+  text: string,
+  folder: string,
+): { name: string; description: string; meta: Record<string, unknown> } | undefined {
+  const { meta, body } = splitSkillFile(text) ?? { meta: {}, body: text.trim() }
+  const name = typeof meta.name === 'string' ? meta.name : folder
+  if (!NAME.test(name)) return undefined
+  const paragraph = body
+    .split(/\r?\n\s*\r?\n/)
+    .find((p) => p.trim() && !p.trim().startsWith('#'))
+    ?.replace(/\s+/g, ' ')
+    .trim()
+  const description =
+    typeof meta.description === 'string' && meta.description.trim() ? meta.description.trim() : paragraph
+  return description ? { name, description: description.slice(0, 1024), meta } : undefined
+}
+
+/**
+ * The SKILL.md with its front matter naming the skill `name`, and describing it when it did not say: the rest is left
+ * as written. Myrmidon reads a skill only when its front matter names and describes it.
+ */
+export function renameSkillFile(text: string, name: string, description: string): string {
+  const described = `description: ${JSON.stringify(description.replace(/\s+/g, ' ').trim())}`
+  const m = /^---\r?\n([\s\S]*?)\r?\n---(\r?\n|$)/.exec(text)
+  if (!m) return `---\nname: ${name}\n${described}\n---\n\n${text}`
+  const lines = (m[1] ?? '').split(/\r?\n/).filter((l) => !/^name:/.test(l))
+  if (!lines.some((l) => /^description:/.test(l))) lines.unshift(described)
+  return `---\nname: ${name}\n${lines.join('\n')}\n---${m[2] ?? ''}${text.slice(m[0].length)}`
 }
 
 export class SkillLibrary {

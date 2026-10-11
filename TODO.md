@@ -721,6 +721,11 @@ Open work, in the order it will be done:
       Unicode; critical blocks an install (Install anyway overrides) and holds a skill on disk from agents until it is
       allowed in Settings → Skills (allowed by content hash, so a change holds it again); high asks to confirm. Shown in
       the install review, Settings → Skills and `myrmidon skills scan`. Left: (2) and (3).
+      (3) done 2026-10-11 (branch skill-import): `packages/runtime/src/skill-import.ts` lists Claude Code skills and
+      plugins, `~/.agents/skills`, Codex's folders and plugins and a project's `.agents`/`.codex` skills (Codex's
+      config.toml and Claude's disabled plugins marked off there), and imports through the skill installer: copied,
+      scanned, recorded, renamed `name-codex` on a clash, an identical one skipped, blocked ones only with Import
+      anyway, each off until switched on. Settings → Skills → Import, `myrmidon import-skills`.
 13. - [x] **Native UI phase 3+** — overlays, context menus, sheets, Settings as System Settings (spec
       2026-10-07-native-ui). Done 2026-10-09: sheets replace modals, context menus, ⌘K command menu, ⌘/ shortcuts,
       calm new chat, composer pop-ups, Settings like System Settings, old token names gone. Left: legacy.css clean-out,
