@@ -32,8 +32,30 @@ export interface PluginPreviewView {
   skills: string[]
   commands: string[]
   dependencies: string[]
+  /** None when it brings no skills. */
+  scan?: SkillScanView
   replaces?: { version?: string; commit?: string }
   expiresAt: string
+}
+
+/** One thing the skill scanner found (packages/runtime/src/skill-scan.ts SkillFinding). */
+export interface SkillFindingView {
+  rule: string
+  category: string
+  severity: 'critical' | 'high' | 'medium' | 'low'
+  file: string
+  line: number
+  excerpt: string
+  why: string
+}
+
+/** What the skill scanner found in a skill (packages/runtime/src/skill-scan.ts SkillScan). */
+export interface SkillScanView {
+  verdict: 'clean' | 'warn' | 'block'
+  findings: SkillFindingView[]
+  scannedFiles: number
+  skippedFiles: number
+  hash: string
 }
 
 /** What fetched skills hold (packages/runtime/src/skill-installs.ts SkillPreview). */
@@ -48,6 +70,7 @@ export interface SkillPreviewView {
   files: number
   scripts: string[]
   warnings: string[]
+  scan: SkillScanView
   replaces?: { version?: string; commit?: string }
   expiresAt: string
 }
@@ -76,6 +99,76 @@ export function InstalledLine(props: { from: InstalledFromView; label: (source: 
 }
 
 const t = copy.settings.installReview
+const sc = copy.settings.skillScan
+
+const SEVERITY_TONE = { critical: 'bad', high: 'warn', medium: 'neutral', low: 'neutral' } as const
+
+function Finding(props: { finding: SkillFindingView }) {
+  const f = props.finding
+  return (
+    <li className="flex flex-col gap-0.5">
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge tone={SEVERITY_TONE[f.severity]}>{sc.severity[f.severity]}</Badge>
+        <span className="break-all font-mono text-footnote text-muted">{sc.at(f.file, f.line)}</span>
+      </div>
+      <p className="text-fg-2">{f.why}</p>
+      {f.excerpt && (
+        <code
+          className="block truncate rounded-md bg-fill/60 px-2 py-1 font-mono text-footnote"
+          title={f.excerpt}
+        >
+          {f.excerpt}
+        </code>
+      )}
+    </li>
+  )
+}
+
+/**
+ * What the skill scanner found: critical and high findings in full, the rest folded away, and a line saying a scan is
+ * advice, not a guarantee.
+ */
+export function ScanFindings(props: { scan: SkillScanView; verdictLine?: boolean }) {
+  const { scan } = props
+  const major = scan.findings.filter((f) => f.severity === 'critical' || f.severity === 'high')
+  const minor = scan.findings.filter((f) => f.severity === 'medium' || f.severity === 'low')
+  const Icon = FEATURE_ICONS.skillScan
+  return (
+    <div className="flex flex-col gap-2">
+      {props.verdictLine !== false && (
+        <>
+          <SectionHeader icon={<Icon className="size-4 text-muted" />} title={sc.title} />
+          <p className={cn(scan.verdict === 'block' ? 'text-bad-ink' : 'text-fg-2')}>
+            {scan.verdict === 'block'
+              ? sc.block
+              : scan.verdict === 'warn'
+                ? sc.warn
+                : sc.clean(scan.scannedFiles)}
+          </p>
+        </>
+      )}
+      {major.length > 0 && (
+        <ul className="flex flex-col gap-2">
+          {major.map((f) => (
+            <Finding key={`${f.rule}:${f.file}:${f.line}`} finding={f} />
+          ))}
+        </ul>
+      )}
+      {minor.length > 0 && (
+        <details className="text-callout">
+          <summary className="cursor-default text-muted">{sc.lesser(minor.length)}</summary>
+          <ul className="mt-2 flex flex-col gap-2">
+            {minor.map((f) => (
+              <Finding key={`${f.rule}:${f.file}:${f.line}`} finding={f} />
+            ))}
+          </ul>
+        </details>
+      )}
+      {scan.skippedFiles > 0 && <p className="text-footnote text-muted">{sc.skipped(scan.skippedFiles)}</p>}
+      <p className="text-footnote text-muted">{sc.advisory}</p>
+    </div>
+  )
+}
 
 /** The review: what will be installed, from where, and what of it runs as the person; Install is their yes. */
 export function InstallReview(props: { review: Review; onClose(): void; onInstalled(): void }) {
@@ -83,16 +176,18 @@ export function InstallReview(props: { review: Review; onClose(): void; onInstal
   const [busy, setBusy] = useState(false)
   const { review } = props
   const p = review.preview
+  const scan = review.preview.scan
   const cancel = () => {
     if (busy) return
     void send('DELETE', `/api/${review.kind}-installs/${p.id}`).catch(() => {})
     props.onClose()
   }
-  const install = async () => {
+  const install = async (override = false) => {
     setBusy(true)
+    const body = override ? { override: true } : {}
     try {
       if (review.kind === 'plugin') {
-        const r = await post<{ plugin: { name: string } }>(`/api/plugin-installs/${p.id}`, {})
+        const r = await post<{ plugin: { name: string } }>(`/api/plugin-installs/${p.id}`, body)
         toast(
           review.preview.replaces
             ? copy.settings.plugins.updated(r.plugin.name)
@@ -100,7 +195,7 @@ export function InstallReview(props: { review: Review; onClose(): void; onInstal
           'success',
         )
       } else {
-        const r = await post<{ names: string[] }>(`/api/skill-installs/${p.id}`, {})
+        const r = await post<{ names: string[] }>(`/api/skill-installs/${p.id}`, body)
         toast(
           review.preview.replaces
             ? copy.settings.skills.updated(r.names)
@@ -206,14 +301,35 @@ export function InstallReview(props: { review: Review; onClose(): void; onInstal
             {t.warning}
           </Banner>
         )}
+        {scan && <ScanFindings scan={scan} />}
       </div>
-      <div className="mt-4 flex justify-end gap-2">
+      <div className="mt-4 flex items-center justify-end gap-2">
         <Button variant="borderless" onClick={cancel} disabled={busy}>
           {t.cancel}
         </Button>
-        <Button variant="primary" onClick={() => void install()} loading={busy}>
-          {busy ? t.installing : p.replaces ? t.update : t.install}
-        </Button>
+        {busy ? (
+          <Button variant="primary" loading>
+            {t.installing}
+          </Button>
+        ) : scan?.verdict === 'block' ? (
+          <ConfirmButton
+            label={t.installAnyway}
+            confirm={t.confirmAnyway}
+            warning={t.anywayWarning}
+            onConfirm={() => void install(true)}
+          />
+        ) : scan?.verdict === 'warn' ? (
+          <ConfirmButton
+            label={p.replaces ? t.update : t.install}
+            confirm={t.confirmFlagged}
+            warning={t.flaggedWarning}
+            onConfirm={() => void install()}
+          />
+        ) : (
+          <Button variant="primary" onClick={() => void install()}>
+            {p.replaces ? t.update : t.install}
+          </Button>
+        )}
       </div>
     </Sheet>
   )

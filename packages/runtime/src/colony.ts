@@ -353,11 +353,9 @@ export class ColonyRun implements ColonyHost {
     this.workspace = new ColonyWorkspace(dir, spec.chat?.project?.path, () => this.fullAccess, {
       dataDir: realPath(runtime.home),
       reads: () => this.extraReads(),
-      // Skills say their scripts run from their own folder, so the shell may read the enabled ones.
+      // Skills say their scripts run from their own folder, so the shell may read the ones agents are offered.
       commandReads: () =>
-        (this.options.skills?.list(this.spec.chat?.project?.path) ?? [])
-          .filter((s) => s.enabled)
-          .map((s) => s.dir),
+        (this.options.skills?.offered(this.spec.chat?.project?.path) ?? []).map((s) => s.dir),
     })
     const folder = spec.chat?.project?.path
     // Read once per round, so every agent works from the same rules even if a file changes mid-round.
@@ -965,9 +963,10 @@ export class ColonyRun implements ColonyHost {
   }
 
   skills(): { name: string; description: string }[] {
-    return (this.options.skills?.list(this.spec.chat?.project?.path) ?? [])
-      .filter((s) => s.enabled)
-      .map((s) => ({ name: s.name, description: s.description }))
+    return (this.options.skills?.offered(this.spec.chat?.project?.path) ?? []).map((s) => ({
+      name: s.name,
+      description: s.description,
+    }))
   }
 
   async useSkill(agent: string, name: string, file?: string): Promise<string> {

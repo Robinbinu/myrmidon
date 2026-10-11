@@ -4459,6 +4459,30 @@ export const copy = {
       remove: 'Remove',
       confirmRemove: 'Yes, remove skill',
       removed: (name: string) => `Removed ${name}`,
+      /** A skill whose scan blocks it, not offered to agents until the person allows it. */
+      held: 'held',
+      heldHint: 'Its scan found something critical, so agents are not offered it until you allow it.',
+      allowedBadge: 'allowed',
+      allowedHint: 'Its scan found something critical, and you allowed it as it is now.',
+      flagged: 'flagged',
+      flaggedHint: 'Its scan found things worth a look.',
+      findings: (n: number) => `Scan findings (${n})`,
+      allow: 'Allow…',
+      confirmAllow: 'Yes, let agents use it',
+      allowWarning: 'Only if you trust where it comes from: agents follow what it says.',
+      allowed: (name: string) => `Agents can use ${name}`,
+    },
+    /** What the skill scanner found, in an install's review and under a skill in Settings → Skills. */
+    skillScan: {
+      title: 'Skill scan',
+      clean: (files: number) => `Nothing worrying in ${files === 1 ? 'its 1 file' : `its ${files} files`}.`,
+      warn: 'It found things worth a look.',
+      block: 'It found something critical. Install it only if you trust where it comes from.',
+      severity: { critical: 'critical', high: 'high', medium: 'medium', low: 'low' },
+      lesser: (n: number) => `${n} lesser finding${n === 1 ? '' : 's'}`,
+      skipped: (n: number) => `${n} file${n === 1 ? '' : 's'} not read: binary, media or too large.`,
+      at: (file: string, line: number) => (line ? `${file}:${line}` : file),
+      advisory: 'A scan can miss things; the sandbox and your approvals still apply.',
     },
     /** The review shown before a plugin or skill is installed. */
     installReview: {
@@ -4489,6 +4513,12 @@ export const copy = {
       update: 'Update',
       installing: 'Installing…',
       cancel: 'Cancel',
+      /** Installing what the scan flagged takes a second click; what it blocks, an explicit "anyway". */
+      confirmFlagged: 'Yes, install it',
+      flaggedWarning: 'Read what the scan found first.',
+      installAnyway: 'Install anyway…',
+      confirmAnyway: 'Yes, install anyway',
+      anywayWarning: 'The scan found something critical. Agents will be able to use it.',
     },
     memory: {
       kinds: {

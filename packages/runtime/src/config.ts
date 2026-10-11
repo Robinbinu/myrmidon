@@ -863,6 +863,15 @@ export const SKILL_STALE_DAYS = 30
 export const SKILL_ARCHIVE_DAYS = 90
 /** How often the server looks for learned skills to retire. */
 export const SKILL_CURATE_EVERY_MS = 6 * 60 * 60_000
+/**
+ * The skill scanner (skill-scan.ts), after QwenPaw's limits: the most files of one skill it reads and the largest; past
+ * either a file is counted as skipped, not read.
+ */
+export const SKILL_SCAN_MAX_FILES = 100
+export const SKILL_SCAN_MAX_FILE_BYTES = 5 * 1024 * 1024
+/** How much of a finding's line it quotes, and the most findings one skill reports. */
+export const SKILL_SCAN_EXCERPT_CHARS = 140
+export const SKILL_SCAN_MAX_FINDINGS = 200
 
 // Installing plugins and skills (install-sources.ts, marketplaces.ts, skill-installs.ts)
 

@@ -60,7 +60,9 @@ import {
   Marketplaces,
   type PluginPreviewView,
   type Review,
+  ScanFindings,
   type SkillPreviewView,
+  type SkillScanView,
 } from './installs.tsx'
 import { type MascotPatch, SETTINGS_SAVED, withMascotDefaults } from './mascot.ts'
 import { MascotBehaviour, MascotPreview, MiniMascot } from './mascot-settings.tsx'
@@ -5563,6 +5565,10 @@ export interface SkillEntry {
   curation?: { uses: number; lastUsed?: string; stale: boolean; kept: boolean }
   /** Installed from the skills registry, a repository or a folder. */
   installed?: InstalledFromView
+  /** What the skill scanner found; a gateway older than the scanner sends neither. */
+  scan?: SkillScanView
+  /** Its scan blocks it and the person has not allowed it: agents are not offered it. */
+  held?: boolean
 }
 
 interface SkillsResponse {
@@ -5986,9 +5992,37 @@ function SkillsSection() {
                         <Badge tone="warn">{copy.settings.skills.stale}</Badge>
                       </span>
                     )}
+                    {s.held ? (
+                      <span title={copy.settings.skills.heldHint}>
+                        <Badge tone="bad">{copy.settings.skills.held}</Badge>
+                      </span>
+                    ) : s.scan?.verdict === 'block' ? (
+                      <span title={copy.settings.skills.allowedHint}>
+                        <Badge tone="warn">{copy.settings.skills.allowedBadge}</Badge>
+                      </span>
+                    ) : (
+                      s.scan?.verdict === 'warn' && (
+                        <span title={copy.settings.skills.flaggedHint}>
+                          <Badge tone="warn">{copy.settings.skills.flagged}</Badge>
+                        </span>
+                      )
+                    )}
                   </div>
                   <SkillDescription text={s.description} dir={s.dir} />
                   {s.installed && <InstalledLine from={s.installed} label={copy.settings.skills.from} />}
+                  {s.held && (
+                    <p className="mt-1 text-callout text-bad-ink">{copy.settings.skills.heldHint}</p>
+                  )}
+                  {!!s.scan?.findings.length && (
+                    <details className="mt-1 text-callout" open={s.held}>
+                      <summary className="cursor-default text-muted">
+                        {copy.settings.skills.findings(s.scan.findings.length)}
+                      </summary>
+                      <div className="mt-2">
+                        <ScanFindings scan={s.scan} verdictLine={false} />
+                      </div>
+                    </details>
+                  )}
                   {s.curation && (
                     <div className="mt-1 text-footnote text-muted">
                       {copy.settings.skills.uses(
@@ -6037,8 +6071,22 @@ function SkillsSection() {
                     {s.curation.kept ? copy.settings.skills.kept : copy.settings.skills.keep}
                   </Button>
                 )}
+                {s.held && (
+                  <ConfirmButton
+                    label={copy.settings.skills.allow}
+                    confirm={copy.settings.skills.confirmAllow}
+                    warning={copy.settings.skills.allowWarning}
+                    onConfirm={() =>
+                      void send('PUT', `/api/skills/${s.name}`, { enabled: true, allow: true })
+                        .then(() => toast(copy.settings.skills.allowed(s.name), 'success'))
+                        .then(load)
+                        .catch((err: Error) => toast(err.message, 'error'))
+                    }
+                  />
+                )}
                 <Switch
-                  checked={s.enabled}
+                  checked={s.enabled && !s.held}
+                  disabled={s.held}
                   label={copy.settings.skills.canUse(s.name)}
                   onChange={(enabled) =>
                     void send('PUT', `/api/skills/${s.name}`, { enabled })

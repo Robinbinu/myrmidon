@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { homedir } from 'node:os'
-import { join, relative, resolve, sep } from 'node:path'
+import { dirname, join, relative, resolve, sep } from 'node:path'
 import {
   SKILL_ARCHIVE_DAYS,
   SKILL_CURATE_EVERY_MS,
@@ -23,6 +23,7 @@ import { prompts } from './prompts.ts'
 import { slashed } from './read-access.ts'
 import { SkillInstaller } from './skill-installs.ts'
 import type { SkillRegistryClient } from './skill-registry.ts'
+import { type SkillScan, scanSkill } from './skill-scan.ts'
 
 /**
  * Skills in the Agent Skills format (agentskills.io), as Claude Code, Codex and others use them: a folder with a
@@ -44,6 +45,13 @@ export interface Skill {
   readonly curation?: SkillCuration
   /** For a skill installed from the registry, a repository or a folder: where from, and exactly what. */
   readonly installed?: InstalledFrom
+  /** What the skill scanner found in its folder. */
+  readonly scan: SkillScan
+  /**
+   * Its scan blocks it and the person has not allowed this content: agents are not offered it, whatever `enabled`
+   * says, until they allow it (or it changes into something the scan passes).
+   */
+  readonly held: boolean
 }
 
 /** How a learned skill is used, after Hermes's curator: unused ones go stale, then to the archive. */
@@ -66,6 +74,50 @@ interface Usage {
 }
 
 const DAY_MS = 24 * 60 * 60_000
+
+/** `<home>/skills.json`: skills the person switched off, and blocked skills they allowed, by the scan hash allowed. */
+interface SkillState {
+  disabled: string[]
+  allowed: Record<string, string>
+}
+
+const stateFile = (home: string) => join(home, 'skills.json')
+
+function readState(file: string): SkillState {
+  try {
+    const raw = JSON.parse(readFileSync(file, 'utf8')) as { disabled?: unknown; allowed?: unknown }
+    return {
+      disabled: Array.isArray(raw.disabled)
+        ? raw.disabled.filter((x): x is string => typeof x === 'string')
+        : [],
+      allowed:
+        raw.allowed && typeof raw.allowed === 'object'
+          ? Object.fromEntries(
+              Object.entries(raw.allowed).filter((e): e is [string, string] => typeof e[1] === 'string'),
+            )
+          : {},
+    }
+  } catch {
+    return { disabled: [], allowed: {} }
+  }
+}
+
+function writeState(file: string, state: SkillState) {
+  mkdirSync(dirname(file), { recursive: true })
+  writeFileSync(`${file}.tmp`, `${JSON.stringify(state, null, 2)}\n`)
+  renameSync(`${file}.tmp`, file)
+}
+
+/**
+ * Records that the person allowed these skills as they are now (name to scan hash), so a blocked scan does not hold
+ * them; an install the person confirmed despite its scan records its skills here.
+ */
+export function allowSkills(home: string, hashes: Readonly<Record<string, string>>) {
+  if (!Object.keys(hashes).length) return
+  const file = stateFile(home)
+  const state = readState(file)
+  writeState(file, { ...state, allowed: { ...state.allowed, ...hashes } })
+}
 
 const NAME = /^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$/
 /** Marks a skill Myrmidon learned itself (in its front matter), as opposed to one the person wrote. */
@@ -98,6 +150,7 @@ export function parseSkillFile(
 
 export class SkillLibrary {
   private readonly _state: string
+  private readonly _home: string
   readonly dir: string
 
   constructor(
@@ -110,7 +163,8 @@ export class SkillLibrary {
   ) {
     this.dir = join(home, 'skills')
     this.installs = new SkillInstaller(home, this.dir, registry)
-    this._state = join(home, 'skills.json')
+    this._home = home
+    this._state = stateFile(home)
     this._usageFile = join(home, 'skills-usage.json')
     this._archivedFile = join(home, 'skills-archived.json')
     this._archive = join(this.dir, '.archive')
@@ -126,7 +180,8 @@ export class SkillLibrary {
 
   /** Every skill a chat can use: Myrmidon's own, the person's Claude Code skills, their plugins', and the project's. */
   list(project?: string, now = Date.now()): Skill[] {
-    const disabled = new Set(this._disabled())
+    const state = readState(this._state)
+    const disabled = new Set(state.disabled)
     const usage = this._usage()
     const installed = this.installs.installed()
     const sources: [string, SkillSource][] = [
@@ -152,12 +207,15 @@ export class SkillLibrary {
         // The first source to name a skill wins: Myrmidon's own over the person's, theirs over a project's.
         if (!parsed || out.has(parsed.name)) continue
         const learned = source === 'myrmidon' && isLearned(text)
+        const scan = scanSkill(dir)
         out.set(parsed.name, {
           name: parsed.name,
           description: parsed.description,
           dir: realpathSync.native(dir),
           source,
           enabled: !disabled.has(parsed.name),
+          scan,
+          held: scan.verdict === 'block' && state.allowed[parsed.name] !== scan.hash,
           ...(learned ? { curation: this._curation(parsed.name, usage, now) } : {}),
           ...(source === 'myrmidon' && installed[parsed.name] ? { installed: installed[parsed.name] } : {}),
         })
@@ -166,9 +224,21 @@ export class SkillLibrary {
     return [...out.values()].sort((a, b) => a.name.localeCompare(b.name))
   }
 
+  /** The skills agents are offered: switched on, and not held by their scan. */
+  offered(project?: string): Skill[] {
+    return this.list(project).filter((s) => s.enabled && !s.held)
+  }
+
+  /** The person allows a skill its scan blocked, as it is now: if it changes, the scan decides again. */
+  allow(name: string, project?: string) {
+    const skill = this.list(project).find((s) => s.name === name)
+    if (!skill) throw new Error(`no skill called ${name}`)
+    allowSkills(this._home, { [name]: skill.scan.hash })
+  }
+
   /** A skill's instructions and the files it bundles, or one of those files (`file`, relative to the skill). */
   read(name: string, project?: string, file?: string): string {
-    const skill = this.list(project).find((s) => s.name === name && s.enabled)
+    const skill = this.offered(project).find((s) => s.name === name)
     if (!skill) throw new Error(`no skill called ${name}`)
     if (file) {
       const path = resolve(skill.dir, file)
@@ -357,20 +427,11 @@ export class SkillLibrary {
   }
 
   setEnabled(name: string, enabled: boolean) {
-    const disabled = new Set(this._disabled())
+    const state = readState(this._state)
+    const disabled = new Set(state.disabled)
     if (enabled) disabled.delete(name)
     else disabled.add(name)
-    writeFileSync(`${this._state}.tmp`, `${JSON.stringify({ disabled: [...disabled].sort() }, null, 2)}\n`)
-    renameSync(`${this._state}.tmp`, this._state)
-  }
-
-  private _disabled(): string[] {
-    try {
-      const raw = JSON.parse(readFileSync(this._state, 'utf8')) as { disabled?: unknown }
-      return Array.isArray(raw.disabled) ? raw.disabled.filter((x): x is string => typeof x === 'string') : []
-    } catch {
-      return []
-    }
+    writeState(this._state, { ...state, disabled: [...disabled].sort() })
   }
 }
 

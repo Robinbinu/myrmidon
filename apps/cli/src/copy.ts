@@ -167,7 +167,7 @@ export const setupCopy = {
     pluginsUsage:
       'usage: myrmidon plugins [add <folder|git URL|npm:pkg|plugin@marketplace> | update <name> | remove <name> | marketplaces [add <owner/repo|git URL> | refresh <name> | remove <name>]]',
     skillsUsage:
-      'usage: myrmidon skills [search [query] | add <@scope/name|git URL> | update <name> | remove <name>]',
+      'usage: myrmidon skills [search [query] | add <@scope/name|git URL> [--force] | update <name> | remove <name> | scan [name|folder]]',
     notInteractive:
       'installing asks you to confirm what it shows, and nothing is typing here: run it in a terminal, or use Settings',
     noPlugins: 'no plugins yet: `myrmidon plugins add <source>`',
@@ -195,5 +195,15 @@ export const setupCopy = {
     removed: (name: string) => `Removed ${name}`,
     added: (name: string, n: number) => `Added marketplace ${name} (${n} plugins)`,
     refreshed: (name: string) => `Refreshed ${name}`,
+    scan: 'skill scan:',
+    verdict: { clean: 'clean', warn: 'worth a look', block: 'blocked: something critical' },
+    held: 'held: agents are not offered it until you allow it in Settings → Skills',
+    notScanned: 'not scanned (the server is older than the skill scanner)',
+    noSuchSkill: (name: string) => `no skill called ${name}, and no folder there`,
+    scanSkipped: (n: number) => `${n} file${n === 1 ? '' : 's'} not read: binary, media or too large`,
+    advisory: 'A scan can miss things; the sandbox and your approvals still apply.',
+    blocked:
+      'Not installed: the skill scan blocks it. If you trust where it comes from, run it again with --force.',
+    confirmAnyway: 'Install it anyway? Type yes to install',
   },
 }
