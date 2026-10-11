@@ -106,7 +106,7 @@ jobs:
         # TESTS is deliberately unquoted: it is a list of path filters. A run still going after 25 minutes is stuck
         # (a whole run takes about 12): it is stopped, saying what was running, instead of holding the job to 45.
         run: |
-          bun test --parallel --timeout 30000 $TESTS &
+          bun test --timeout 30000 $TESTS &
           tests=$!
           (
             for _ in $(seq 150); do
