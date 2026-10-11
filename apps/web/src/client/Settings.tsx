@@ -291,6 +291,8 @@ export interface SettingsResponse {
   embeddingModels?: string[]
   customApis: Api[]
   sandbox: string
+  /** The shell commands run in (shell.ts); absent from older servers. */
+  shell?: string
   /** Paths of the person's keys and Myrmidon's data, as typed and in full: a readable folder that opens one is warned about. */
   guardedReads?: string[]
   home: string
@@ -6626,6 +6628,9 @@ function About({ data }: { data?: SettingsResponse }) {
         </SettingField>
         <SettingField id="general.sandbox" inline>
           <span className="font-mono text-callout text-muted">{data?.sandbox ?? '…'}</span>
+        </SettingField>
+        <SettingField id="general.shell" inline>
+          <span className="font-mono text-callout text-muted">{data?.shell ?? '…'}</span>
         </SettingField>
         <CardRow>
           <p className="text-callout text-muted">{copy.settings.about.eventLog}</p>

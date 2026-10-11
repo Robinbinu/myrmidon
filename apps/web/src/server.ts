@@ -61,6 +61,7 @@ import {
   guestMessage,
   guestSummary,
   type HookStore,
+  hostShell,
   importFromOmp,
   type LiveInput,
   type LocalServer,
@@ -1740,6 +1741,7 @@ export function startServer(options: ServeOptions): WebServer {
             embeddingModels: options.omp?.embeddingModels() ?? [],
             customApis: CUSTOM_APIS,
             sandbox: options.sandboxKind ?? 'unknown',
+            shell: hostShell().name,
             home: options.home,
             // Readable folders that open these get a warning: keys, sign-ins and every chat's data.
             guardedReads: guardedPaths(options.home),

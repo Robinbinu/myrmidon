@@ -1,7 +1,8 @@
 /**
- * omp's native addon (pi-natives): glob, grep and ast-grep, document converters, processes and terminals, the
- * hashline edit engine (pi-edit), token counts and code summaries (pi-ast), vector search for memory recall, and
- * the power assertion that keeps the computer awake.
+ * omp's native addon (pi-natives): glob, grep and ast-grep, document converters, processes, terminals, its bash,
+ * the hashline edit engine (pi-edit), token counts and code summaries (pi-ast), vector search for memory recall,
+ * the power assertion that keeps the computer awake, cross-process file locks, workspace clones (pi-iso), and
+ * telling a Jujutsu workspace from a git checkout.
  */
 export {
   type AstReplaceChange,
@@ -14,12 +15,18 @@ export {
   EditStore,
   Encoding,
   editInspect,
+  executeShell,
+  FileLock,
   FileType,
   GrepOutputMode,
   glob,
   grep,
   hashlineFormatHeader,
   hashlineFormatNumberedLines,
+  IsoBackendKind,
+  isoResolve,
+  isoStart,
+  isoStop,
   mmrRerankIndices,
   notebookToEditableText,
   PowerAssertion,
@@ -29,5 +36,6 @@ export {
   type ShellFilesystem,
   type SummaryResult,
   summarizeCodeAsync,
+  vcsIsPureJj,
   vectorIndexTopK,
 } from '@oh-my-pi/pi-natives'
