@@ -58,7 +58,7 @@ import { Markdown, plainText } from './Markdown.tsx'
 import { ModelPicker, windowLabel } from './ModelPicker.tsx'
 import { fallbackModel, modelName } from './model-list.ts'
 import { FullAccessBadge } from './ProjectPermissions.tsx'
-import { QuestionCard } from './QuestionCard.tsx'
+import { type ClosedBecause, QuestionCard } from './QuestionCard.tsx'
 import { RoundChanges } from './RoundChanges.tsx'
 import { StepRow } from './StepRow.tsx'
 import { currentStep, deriveSteps } from './steps.ts'
@@ -269,6 +269,16 @@ export function RoundView(props: {
     })
   // An answer given on a question card shows in the card itself, not as a message of its own.
   const answerTo = (m: ChatEntry) => colony.state.chatMessages.find((x) => x.answers?.seq === m.seq)
+  // A question stays open from the moment it is asked until the person writes again or the round ends. The round
+  // pauses for it only once the asking turn (and the crew) has stopped, which can take a model call or more; an
+  // answer sent before then steers the running round. A remark the agent adds after asking leaves it open.
+  const closedBecause = (m: ChatEntry): ClosedBecause | undefined => {
+    const after = colony.state.chatMessages.filter((x) => x.seq > m.seq)
+    if (after.some((x) => x.from === 'user')) return 'replied'
+    if (after.some((x) => x.question)) return 'newer'
+    const waiting = isRunning(state.status) || (state.status === 'stopped' && state.statusReason === AWAITING)
+    return latest && waiting ? undefined : 'ended'
+  }
   const message = (m: ChatEntry) =>
     m.answers ? null : m.from === 'user' ? (
       <UserMessage
@@ -298,7 +308,8 @@ export function RoundView(props: {
             <QuestionCard
               choices={m.choices ?? []}
               {...(m.plan ? { plan: m.plan } : {})}
-              open={latest && state.statusReason === AWAITING && m === state.chatMessages.at(-1)}
+              open={closedBecause(m) === undefined}
+              {...(closedBecause(m) ? { closed: closedBecause(m) } : {})}
               {...(answerTo(m)?.answers ? { answered: answerTo(m)?.answers?.picks } : {})}
               {...(answerTo(m)?.readBy?.length ? { readBy: answerTo(m)?.readBy } : {})}
               onAnswer={(text, picks) => props.onAnswer(text, picks ? { seq: m.seq, picks } : undefined)}
@@ -1611,7 +1622,10 @@ function Outcome({
     )
   }
   // Questions with options are their own call to answer; the banner would only repeat it.
-  if (state.status === 'stopped' && state.statusReason === AWAITING && state.chatMessages.at(-1)?.choices)
+  // The open question is the latest one since the person last wrote, whatever the agent said after asking it.
+  const asking = state.chatMessages.findLast((m) => m.question)
+  const wrote = state.chatMessages.findLast((m) => m.from === 'user')?.seq ?? 0
+  if (state.status === 'stopped' && state.statusReason === AWAITING && asking?.choices && asking.seq > wrote)
     return null
   // An earlier round that ended on a question was answered by the round after it.
   if (state.status === 'stopped' && state.statusReason === AWAITING && !latest) return null

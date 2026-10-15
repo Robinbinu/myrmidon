@@ -1493,6 +1493,14 @@ export const copy = {
     sending: 'Sending…',
     /** The card's footer once answered: the answer lives in the card, not in a message of its own. */
     answered: 'Answered',
+    /** Sent and accepted, until the chat records the answer. */
+    sent: 'Sent',
+    /** Why a card nobody answered can no longer be answered, in place of its buttons. */
+    ended: 'This round ended before it was answered. Reply in the message box to go on.',
+    replied: 'You replied in the chat instead.',
+    newer: 'A newer question replaced this one.',
+    /** An answer that did not get through; the card stays open to send again. */
+    failed: (error: string) => `Your answer was not sent: ${error.trim().replace(/\.$/, '')}. Send it again.`,
     readBy: (names: readonly string[]) => `Read by ${names.join(', ')}`,
     pickAny: 'Pick any that apply',
     other: 'Other: type your own answer',
@@ -2802,6 +2810,8 @@ export const copy = {
       roundEnded: (title: string, status: string) => `“${title}” ${status}`,
       paused: 'paused',
       chooseLeadModel: 'Choose a lead model first',
+      /** A send before the models have loaded: nothing went out. */
+      modelsLoading: 'The models are still loading',
       queued: 'Sent: the crew reads it once the current work is done',
       steering: 'Sent: the crew reads it at its next step',
       continuingOnNewModel: 'Continuing on the new model',

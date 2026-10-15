@@ -854,10 +854,11 @@ export function App() {
     how: { plan?: boolean; goal?: boolean } = {},
     answers?: QuestionAnswers,
   ) => {
-    if (!config) return
+    // A caller waiting on the send (a question card) must not take a send that never went out as sent.
+    if (!config) throw new Error(copy.app.toasts.modelsLoading)
     if (!config.leadModel) {
       toast(copy.app.toasts.chooseLeadModel, 'error')
-      throw new Error('no model')
+      throw new Error(copy.app.toasts.chooseLeadModel)
     }
     setBusy(true)
     const startsRound = !chat || !running
