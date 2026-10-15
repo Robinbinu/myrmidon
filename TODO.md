@@ -710,6 +710,16 @@ Open work, in the order it will be done:
       clear ownership) and structured outcomes (files changed, checks run, blockers, evidence-based confidence). Keep
       the colony history, task graph, permissions, approvals, notes, workspaces and artifacts. More agents is not the
       goal: the mode that reliably finishes with least overhead is.
+12ad. - [ ] **Task 8: tool reliability and error recovery** (asked 2026-10-15). Phase 1 (audit + failure matrix,
+      docs/research/2026-10-15-tool-failure-matrix.md, branch tool-failure-audit) runs now; phase 2 (implementation)
+      starts after Task 5 lifecycle hardening lands, since it shares cancellation, timeouts and duplicate handling.
+      Phase 2: structured error classes with a recovery policy each (retry only plausibly transient errors, bounded,
+      no provider-wide hammering, no silent behaviour-changing model switches); real tool output and failure status
+      fed to the reasoning loop so agents act on the actual error; actionable UI errors without secrets or raw
+      exceptions; tests for retries, fallback, cancellation and partial failure; approvals, sandbox and audit trail
+      kept. Failure matrix: auth, quota/rate limit, transient provider failure/timeout, invalid tool args, missing
+      executables, permission denial/approval expiry, browser/computer-use disconnect, partial failures,
+      cancellation in flight, repeated actions/duplicate results.
 12l. - [x] **Full access, no sandbox** (asked 2026-10-09, like Hermes) — global switch in Settings → Tools (default on)
       and a per-project Full access; lifts the command sandbox, file-path limits and the private-address rule; approvals
       still apply; channel members and read-only projects stay sandboxed. Left: Windows (unconfined commands still use
