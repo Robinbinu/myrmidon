@@ -6,7 +6,7 @@ full Linux and Windows support comes later, tracked in GitHub issues #27 (Linux)
 
 ## When it runs
 
-- every push to `develop`, and to any `xp-*` branch (the platform branches): macOS;
+- every push to `develop` or `main`, and to any `xp-*` branch (the platform branches): macOS;
 - every pull request to `main` or `develop`: macOS;
 - by hand (`workflow_dispatch`), for one OS or all (macOS by default), optionally for some test files only.
 
@@ -35,6 +35,13 @@ Each job runs, in order (later steps run even when an earlier check fails, so on
    so a stuck run says where it is stuck instead of holding the job to its 45.
 
 Windows checks out with LF line endings (`core.autocrlf false`), as the repository is written.
+
+### The macOS app smoke test
+
+After the suite passes, on pushes to `develop` and `main` and on pull requests to `main` (and by hand with `smoke`
+ticked), a second macOS job runs `bun run smoke:desktop`: it builds the release app, unpacks it, launches it with an
+empty HOME, and checks its server, its compiled leash and its signatures (docs/verification.md, tier 3). Not yet
+timed on a runner (about a minute on an M-series Mac). No secrets: the build is signed ad hoc, never notarized.
 
 The jobs use no secrets. Beyond the installs and that toolchain download, tests reach only loopback servers they start
 themselves; browser tests use the Chrome each runner already has.
@@ -96,6 +103,13 @@ whether a fix closes their gap and how they fail if it does not; `bun` runs with
 The repository is private, so minutes count: a macOS minute costs 10, a Windows minute 2, a Linux minute 1. A full
 run takes about 7 minutes on macOS and Linux and about 10 on Windows. Prefer a single-OS manual run while working
 on one platform.
+
+## Model evaluations
+
+`.github/workflows/model-eval.yml` runs the eval harness with real models, which costs money, so it never runs on a
+push or a pull request: only by hand with `spend` ticked, or weekly when the repository variable
+`MODEL_EVAL_SCHEDULE` is `on`, and only with the provider's key as a repository secret. See docs/verification.md,
+tier 4.
 
 ## The weekly omp bump
 
