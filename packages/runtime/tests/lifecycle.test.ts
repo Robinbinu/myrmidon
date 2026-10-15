@@ -2,7 +2,7 @@
  * The round and agent lifecycle under interruption, error, cancellation and recovery (docs/lifecycle.md): each test
  * injects one fault with scripted models and checks the invariant it could break.
  */
-import { afterEach, beforeEach, expect, test } from 'bun:test'
+import { afterEach, beforeEach, expect, spyOn, test } from 'bun:test'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -57,6 +57,10 @@ async function until(run: ColonyRun, done: (events: MyrEvent[], state: ColonySta
     if (done(await read(run), run.state())) return
   throw new Error('the run never got there')
 }
+
+/** An agent's status as the log has it: a run stops following its log once it has ended. */
+const agentStatus = (events: readonly MyrEvent[], agent: string) =>
+  ofType(events, 'agent/status').findLast((p) => p.agent === agent)?.status
 
 function alive(pid: number) {
   try {
@@ -277,4 +281,117 @@ test('a run whose process died is closed whole: nothing of it still looks under 
   expect(s.servers.web?.stopped).toBeDefined()
   // What was running when it died stays visible: the person decides whether it ran before resuming.
   expect(unfinishedCalls(events).map((c) => c.args)).toEqual([{ command: 'npm publish' }])
+})
+
+const soloSpec = (tools: string[] = ['publish_artifact']) =>
+  parseColonySpec({
+    name: 'Solo',
+    mission: 'Do the job.',
+    agents: [{ name: 'solo', model: 'mock/solo', tools }],
+    budget: { wall: '60s' },
+  })
+
+test('stopping while the model is still writing ends the turn cleanly: no failure, nothing left working', async () => {
+  const resolver = new ModelResolver()
+  const mock = createMockModel({ handler: () => ({ content: ['a long answer'], delayMs: 60_000 }) })
+  resolver.register('mock/solo', { model: mock.model, streamFn: mock.stream })
+  const run = new ColonyRun(runtime, soloSpec(), { resolver, quietMs: 20_000 })
+  await run.start()
+  await until(run, (_, s) => s.agents.solo?.status === 'working')
+  const at = Date.now()
+  await run.stop('stopped by user')
+  const final = await run.done
+  expect(Date.now() - at).toBeLessThan(5_000)
+  expect(final.status).toBe('stopped')
+  expect(final.modelError).toBeUndefined()
+  await until(run, (events) => agentStatus(events, 'solo') === 'stopped', 5_000)
+  const events = await read(run)
+  expect(ofType(events, 'agent/error')).toHaveLength(0)
+  expect(ofType(events, 'agent/turn').filter((t) => t.phase === 'end')).toHaveLength(1)
+})
+
+test('a model that fails midway stops the run with its error, keeps what was done, and resumes', async () => {
+  const resolver = new ModelResolver()
+  let calls = 0
+  const failing = createMockModel({
+    handler: () => {
+      calls += 1
+      return calls === 1
+        ? { content: [tool('publish_artifact', { name: 'draft.txt', content: 'v1\n' })] }
+        : { content: [], throw: 'internal error: the model crashed' }
+    },
+  })
+  resolver.register('mock/solo', { model: failing.model, streamFn: failing.stream })
+  const run = new ColonyRun(runtime, soloSpec(), { resolver, quietMs: 20_000 })
+  await run.start()
+  const stopped = await run.done
+  expect(stopped.status).toBe('stopped')
+  expect(stopped.statusReason).toContain('model failed')
+  expect(stopped.modelError?.message).toContain('the model crashed')
+  expect(stopped.artifacts['draft.txt']).toHaveLength(1)
+  await until(run, (events) => agentStatus(events, 'solo') === 'stopped', 5_000)
+
+  // Resumed once the model works again: the draft is not published again, and the error is cleared.
+  const other = new ModelResolver()
+  scripted(other, 'mock/solo', [[], ['the draft is published']])
+  const resumed = new ColonyRun(runtime, soloSpec(), { resolver: other, quietMs: 20_000, resumeId: run.id })
+  await resumed.resume('the model failed')
+  await until(resumed, (events) =>
+    ofType(events, 'llm/response').some((r) => r.text === 'the draft is published'),
+  )
+  expect(resumed.state().modelError).toBeUndefined()
+  await resumed.stop('test over')
+  const final = await resumed.done
+  expect(final.artifacts['draft.txt']).toHaveLength(1)
+})
+
+test('a run whose agents have all died does not stay running', async () => {
+  const { ColonyAgent } = await import('../src/agent.ts')
+  const resolver = new ModelResolver()
+  scripted(resolver, 'mock/solo', [])
+  const crash = spyOn(ColonyAgent.prototype, 'run').mockImplementation(async () => {
+    throw new Error('injected: the agent loop crashed')
+  })
+  try {
+    const run = new ColonyRun(runtime, soloSpec(), { resolver, quietMs: 20_000 })
+    await run.start()
+    const final = await Promise.race([run.done, Bun.sleep(10_000).then(() => undefined)])
+    expect(final?.status).toBe('stopped')
+    expect(final?.statusReason).toContain('all agents have stopped or failed')
+    expect(final?.agents.solo?.status).toBe('failed')
+    expect(final?.agents.solo?.detail).toContain('injected')
+  } finally {
+    crash.mockRestore()
+  }
+})
+
+test('an approval answered no, timed out, or answered twice: the call is refused once, and the run goes on', async () => {
+  const resolver = new ModelResolver()
+  scripted(resolver, 'mock/solo', [])
+  const run = new ColonyRun(runtime, soloSpec(), { resolver, quietMs: 20_000 })
+  await run.start()
+  const waiting = () => Object.values(run.state().approvals).find((a) => !a.decided)?.id
+  const denied = run.reviewChange('solo', 'shell', 'shell make deploy', {})
+  await until(run, () => waiting() !== undefined)
+  const first = waiting() ?? ''
+  await run.decideApproval(first, false, 'person', { note: 'not today' })
+  expect(await denied).toEqual({ approved: false, note: 'not today' })
+  // The same answer again (a double click, a retried request) is refused, and logs nothing more.
+  await expect(run.decideApproval(first, true)).rejects.toThrow('no longer waiting')
+  await expect(run.decideApproval('approval-made-up', true)).rejects.toThrow('no longer waiting')
+
+  // Nobody answers in time: the timer decides it as a refusal, recorded as such.
+  const late = run.reviewChange('solo', 'shell', 'shell make clean', {})
+  await until(run, () => waiting() !== undefined)
+  const second = waiting() ?? ''
+  await run.decideApproval(second, false, 'timeout')
+  expect((await late).approved).toBe(false)
+  const decided = ofType(await read(run), 'approval/decided')
+  expect(decided.map((d) => [d.id, d.approved, d.by])).toEqual([
+    [first, false, 'person'],
+    [second, false, 'timeout'],
+  ])
+  expect(run.state().status).toBe('running')
+  await run.stop('test over')
+  await run.done
 })

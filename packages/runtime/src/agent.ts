@@ -419,7 +419,8 @@ export class ColonyAgent {
       }
       const items = [...this._quiet.splice(0), ...this.inbox.splice(0)]
       await this._turn(items)
-      if (this._failed) return
+      // Its model failure stopped the round: it ends as stopped below, not left "working" in a stopped round.
+      if (this._failed) break
     }
     if (this.host.state().status !== 'running') await this._status('stopped', this.host.state().status)
   }
