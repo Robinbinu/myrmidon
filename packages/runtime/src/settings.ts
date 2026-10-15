@@ -122,6 +122,11 @@ export interface MyrSettings {
    */
   power: { keepAwake: boolean }
   /**
+   * `command`: the person installed the `myrmidon` command from the desktop app (cli-command.ts), so each launch points
+   * a link left behind by a moved app at this one. Off until they install it; nothing is installed without them.
+   */
+  cli: { command: boolean }
+  /**
    * `hideSecrets`: keys, tokens and passwords reach model providers as placeholders (provider-secrets.ts). On unless
    * the person turns it off: Myrmidon keeps their data on their machine, and a key read in a .env file should not leave
    * it by accident, while the model still sees that a secret is there and Myrmidon writes the value back into the
@@ -352,6 +357,7 @@ export const settingsSchema = Schema.object({
     ]).default(''),
   }).default({}),
   power: Schema.object({ keepAwake: Schema.boolean().default(false) }).default({}),
+  cli: Schema.object({ command: Schema.boolean().default(false) }).default({}),
   privacy: Schema.object({ hideSecrets: Schema.boolean().default(true) }).default({}),
   search: Schema.object({
     provider: Schema.string()
@@ -622,6 +628,7 @@ function parse(input: unknown): MyrSettings {
     },
     telemetry: { enabled: s.telemetry.enabled, endpoint: s.telemetry.endpoint.trim() },
     power: { keepAwake: s.power.keepAwake },
+    cli: { command: s.cli.command },
     ssh: {
       hosts: [...new Map(s.ssh.hosts.map((h) => [h.name, h])).values()].map((h) => ({
         name: h.name,

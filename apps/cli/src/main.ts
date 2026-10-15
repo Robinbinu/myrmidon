@@ -24,10 +24,12 @@ import {
   ChatService,
   ChatShelf,
   Checkpoints,
+  CliCommand,
   ColonyRun,
   ComputerHub,
   ContextWindows,
   claimServerHome,
+  compiledBinary,
   detectSandbox,
   guardSecrets,
   HookStore,
@@ -401,6 +403,15 @@ async function main() {
         }),
       )
       const keepAwake = new KeepAwake(() => settings.get().power.keepAwake)
+      // The myrmidon command, which only the desktop app's compiled server can link to. For a person who installed it,
+      // a link left pointing at a copy of the app that moved is pointed at this one; never installed without them.
+      const cliCommand = new CliCommand({ binary: compiledBinary() })
+      if (settings.get().cli.command)
+        try {
+          if (cliCommand.repair()) console.log(c.dim(`myrmidon command relinked: ${cliCommand.link}`))
+        } catch (err) {
+          console.error(c.yellow(`myrmidon command: ${err instanceof Error ? err.message : err}`))
+        }
       settings.onChange(() => keepAwake.sync())
       const skills = new SkillLibrary(home, undefined, () => plugins.skillRoots())
       // Learned skills nobody uses are retired to the archive; Settings → Skills restores them.
@@ -474,6 +485,7 @@ async function main() {
         shelf,
         imports,
         sandboxKind: sandbox.kind,
+        cliCommand,
         noAuth: values.dev,
         ...(values.host ? { host: values.host } : {}),
         ...(values['public-url'] ? { publicUrl: values['public-url'] } : {}),

@@ -720,6 +720,7 @@ export const copy = {
       voice: 'Voice calls',
       channels: 'Messaging apps',
       alerts: 'Alerts',
+      command: 'Terminal command',
       ready: 'Ready',
     },
     /** The mascot's status line during setup, beside the moods it has everywhere. */
@@ -881,6 +882,17 @@ export const copy = {
         desktop:
           'Notifications were not allowed. To allow them later, open System Settings → Notifications → Myrmidon.',
       },
+    },
+    command: {
+      title: 'The myrmidon command',
+      intro:
+        'Use Myrmidon from a terminal too, the way VS Code offers its code command: myrmidon ask, myrmidon doctor and the rest. Nothing changes unless you install it.',
+      whatTitle: 'What installing does',
+      what: [
+        'Adds a link at ~/.local/bin/myrmidon to this app, so it always runs the Myrmidon you have.',
+        'If a new terminal window would not find it there, adds three marked lines to ~/.zprofile that put that folder on your PATH. Nothing else in the file changes.',
+        'Needs no password. Settings → General removes both, and nothing else.',
+      ],
     },
     ready: {
       title: 'You’re ready',
@@ -1920,6 +1932,28 @@ export const copy = {
       /** Joins the parts of a compound command remembered together. */
       and: ' and ',
     },
+  },
+
+  /** The `myrmidon` command the desktop app installs in a terminal: Settings → General and its setup step. */
+  cliCommand: {
+    label: 'Terminal command',
+    hint: 'The myrmidon command in a terminal, linked to this app.',
+    install: 'Install',
+    remove: 'Remove',
+    repair: 'Repair',
+    replace: 'Point it here',
+    checking: 'Checking…',
+    status: {
+      missing: 'Not installed.',
+      installed: (link: string) => `Installed at ${link}.`,
+      broken: (link: string) => `The link at ${link} is broken: the app it pointed to moved or is gone.`,
+      elsewhere: (link: string, target: string) => `${link} runs another copy of Myrmidon, at ${target}.`,
+      taken: (link: string) => `${link} belongs to something else, so Myrmidon leaves it alone.`,
+    },
+    /** After ~/.zprofile got its PATH lines, which only a new shell reads. */
+    profileAdded: 'Your PATH is set in ~/.zprofile; open a new terminal window to use it.',
+    installed: 'Installed. Open a new terminal window and type myrmidon.',
+    removed: 'The myrmidon command is removed.',
   },
 
   /** Computer use: agents seeing and controlling the person's Mac through Cua Driver. */
@@ -3239,6 +3273,15 @@ export const copy = {
         ],
         chatNames: ['chat title', 'titles', 'rename chats', 'naming'],
         keepAwake: ['sleep', 'caffeinate', 'awake', 'power', 'battery', 'idle', 'lid', 'amphetamine'],
+        cliCommand: [
+          'cli',
+          'command line',
+          'shell command',
+          'path',
+          'install command',
+          'zprofile',
+          'code command',
+        ],
         smallModel: [
           'cheap model',
           'naming model',

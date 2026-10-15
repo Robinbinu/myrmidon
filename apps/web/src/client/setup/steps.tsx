@@ -10,6 +10,7 @@ import { ModelPicker } from '../chat/ModelPicker.tsx'
 import { canLead } from '../chat/model-list.ts'
 import { PermissionChoices } from '../chat/ProjectPermissions.tsx'
 import { HelpersEditor, Row } from '../chat/TeamControls.tsx'
+import { CliCommandControls, useCliCommand } from '../cli-command.tsx'
 import { copy } from '../copy.ts'
 import {
   ChannelsSection,
@@ -1334,7 +1335,51 @@ function testResultText(r: TestNotice): string {
   }
 }
 
-/* ------------------------------------------------------------------ 9 ready */
+/* ------------------------------------------------------------------ 9 the myrmidon command */
+
+/** Offers the myrmidon command in a terminal; Continue without installing leaves everything as it was. */
+export function CommandStep() {
+  const ctx = useSetup()
+  const mascot = useSetupMascot()
+  const command = useCliCommand((view) => {
+    if (view.state === 'installed') ctx.refresh()
+  })
+  const s = t.command
+  return (
+    <StepFrame
+      screen="command"
+      title={s.title}
+      intro={s.intro}
+      later="command"
+      next={{ onClick: () => ctx.done('command') }}
+    >
+      <Card>
+        <CardRow>
+          <p className="mb-2 text-body font-medium text-fg">{s.whatTitle}</p>
+          <ul className="flex list-disc flex-col gap-1 pl-5 text-callout leading-relaxed text-muted">
+            {s.what.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+        </CardRow>
+        <CardRow>
+          <CliCommandControls
+            command={{
+              ...command,
+              install: async () => {
+                const ok = await command.install()
+                mascot.react(ok ? 'nod' : 'worried')
+                return ok
+              },
+            }}
+          />
+        </CardRow>
+      </Card>
+    </StepFrame>
+  )
+}
+
+/* ------------------------------------------------------------------ 10 ready */
 
 /** What Ready says beside each step. The open screen is Ready itself, so no step there is current. */
 const READY_STATUS: Record<StepStatus, string> = {

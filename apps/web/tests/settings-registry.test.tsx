@@ -233,6 +233,7 @@ function fakeServer(v: Variant = {}) {
       ],
     },
     '/api/tools': { tools: [] },
+    '/api/cli-command': { state: 'installed', link: '/tmp/home/.local/bin/myrmidon', profileBlock: true },
     '/api/plugins': {
       plugins: [
         {

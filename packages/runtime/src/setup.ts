@@ -2,6 +2,7 @@ import {
   SETUP_STEPS,
   type SetupHave,
   type SetupMark,
+  type SetupSkip,
   type SetupState,
   type SetupStep,
 } from '@myrmidon/protocol'
@@ -102,6 +103,8 @@ export function setupHave(input: {
   modelReady: boolean
   projects: number
   channelsOn: boolean
+  /** The myrmidon command is installed and points at this app. */
+  command: boolean
 }): SetupHave {
   return {
     you: !!input.settings.profile.name,
@@ -110,6 +113,7 @@ export function setupHave(input: {
     project: input.projects > 0,
     voice: input.settings.voice.enabled,
     channels: input.channelsOn,
+    command: input.command,
   }
 }
 
@@ -123,12 +127,18 @@ export function markSetup(state: SetupState, step: SetupStep, mark: SetupMark | 
 
 /**
  * Finished, or left with Finish later: every step not marked yet is done when its thing exists and later otherwise,
- * so what is left shows on the home screen.
+ * so what is left shows on the home screen. A step skipped on this Myrmidon is done: there is nothing to come back to.
  */
-export function finishSetup(state: SetupState, have: SetupHave, now = new Date()): SetupState {
+export function finishSetup(
+  state: SetupState,
+  have: SetupHave,
+  now = new Date(),
+  skip: SetupSkip = [],
+): SetupState {
   const steps = { ...state.steps }
   // Welcome has nothing to set up later.
-  for (const step of SETUP_STEPS) steps[step] ??= step === 'welcome' || have[step] ? 'done' : 'later'
+  for (const step of SETUP_STEPS)
+    steps[step] ??= step === 'welcome' || have[step] || skip.includes(step) ? 'done' : 'later'
   return { ...state, finishedAt: now.toISOString(), steps }
 }
 

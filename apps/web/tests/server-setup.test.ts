@@ -190,6 +190,8 @@ test('a new install starts setup at the beginning; marks, finishing and starting
     voice: 'later',
     channels: 'later',
     alerts: 'later',
+    // A server with no myrmidon command to install (run from source) has nothing to come back to there.
+    command: 'done',
   })
   expect(JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8')).setup.finishedAt).toBeString()
   const again = await call<Answer>('PUT', '/api/setup', { restart: true })

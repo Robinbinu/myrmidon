@@ -1,4 +1,4 @@
-import { SETUP_STEPS, type SetupMark, type SetupStep } from '@myrmidon/protocol'
+import type { SetupMark, SetupStep } from '@myrmidon/protocol'
 import { LoaderCircle } from 'lucide-react'
 import { AnimatePresence, motion, useReducedMotionConfig } from 'motion/react'
 import { type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -25,19 +25,21 @@ import {
   previousScreen,
   SETUP_PARAM,
   SETUP_RETURN_PARAM,
-  SETUP_SCREENS,
   type SetupReturn,
   type SetupScreen,
   type SetupView,
   STATUS_DOT,
   type Starter,
   type StepStatus,
+  screensFor,
   stepStatus,
+  stepsFor,
   withAlerts,
 } from './state.ts'
 import {
   AlertsStep,
   ChannelsStep,
+  CommandStep,
   CrewStep,
   ModelsStep,
   ProjectStep,
@@ -157,7 +159,7 @@ export function Setup(props: {
   const leave = (step: SetupStep, value: SetupMark) => {
     if (step === 'project') setProjectChosen(value === 'done')
     const saved = mark(step, value)
-    if (!single) return setScreen(nextScreen(step))
+    if (!single) return setScreen(nextScreen(step, screensFor(view)))
     setClosing(true)
     void saved.then((kept) => (kept ? props.onClose({}) : setClosing(false)))
   }
@@ -199,7 +201,7 @@ export function Setup(props: {
     go: setScreen,
     back: () => {
       if (single) return props.onClose({})
-      const before = previousScreen(screen)
+      const before = previousScreen(screen, screensFor(view))
       if (before) setScreen(before)
     },
     done: (step) => leave(step, 'done'),
@@ -212,7 +214,8 @@ export function Setup(props: {
   const name = settings.data?.settings.profile?.name?.trim() || settings.data?.account
   const status = (s: SetupScreen): StepStatus =>
     s === 'ready' ? (s === screen ? 'current' : 'todo') : stepStatus(s, view, screen)
-  const at = SETUP_SCREENS.indexOf(screen)
+  const screens = screensFor(view)
+  const at = screens.indexOf(screen)
 
   // The arrows move between the steps in the list, as in any list of choices: Up and Down down the side, and Left
   // and Right too, for the strip a narrow window shows instead.
@@ -270,7 +273,7 @@ export function Setup(props: {
           className="material-sidebar w-48 shrink-0 overflow-y-auto border-r border-line px-2.5 py-4 max-md:w-full max-md:overflow-x-auto max-md:border-r-0 max-md:border-b max-md:py-2 lg:w-60"
         >
           <ol ref={list} className="flex flex-col gap-px max-md:flex-row max-md:gap-1" onKeyDown={onListKey}>
-            {SETUP_SCREENS.map((s) => {
+            {screens.map((s) => {
               const st = status(s)
               return (
                 <li key={s}>
@@ -312,7 +315,8 @@ export function Setup(props: {
                   {screen === 'voice' && <VoiceStep />}
                   {screen === 'channels' && <ChannelsStep />}
                   {screen === 'alerts' && <AlertsStep />}
-                  {screen === 'ready' && <ReadyStep steps={SETUP_STEPS} />}
+                  {screen === 'command' && <CommandStep />}
+                  {screen === 'ready' && <ReadyStep steps={stepsFor(view)} />}
                 </SetupProvider>
               </motion.div>
             </AnimatePresence>
@@ -320,7 +324,7 @@ export function Setup(props: {
         </main>
       </div>
       <p className="sr-only" aria-live="polite">
-        {t.announce(at + 1, SETUP_SCREENS.length, t.steps[screen])}
+        {t.announce(at + 1, screens.length, t.steps[screen])}
       </p>
     </div>
   )

@@ -18,6 +18,7 @@ import {
   type ProjectPermissions,
   runDiff,
   type SetupState,
+  type SetupStep,
   stopCause,
 } from '@myrmidon/protocol'
 import {
@@ -35,6 +36,8 @@ import {
   type ChatService,
   ChatShares,
   type ChatShelf,
+  type CliCommand,
+  CliCommandError,
   type ComputerHub,
   CUSTOM_APIS,
   type CustomApi,
@@ -238,6 +241,8 @@ export interface ServeOptions {
   readonly suggestModel?: NextWordModel
   /** Where the setup assistant looks for model servers on this computer; Ollama's and LM Studio's ports unless given. */
   readonly setupServers?: readonly LocalServer[]
+  /** The `myrmidon` command the desktop app installs in a terminal (Settings → General, and a setup step). */
+  readonly cliCommand?: CliCommand
   /**
    * Stops the whole server, for `POST /api/shutdown` with this server's own token on this machine: how the desktop
    * app stops the server it started, since on Windows a signal cannot let it stop its chats first.
@@ -623,8 +628,12 @@ export function startServer(options: ServeOptions): WebServer {
       modelReady: modelReady(),
       projects: options.projects?.list().length ?? 0,
       channelsOn,
+      command: options.cliCommand?.status().state === 'installed',
     })
   }
+  /** Steps with nothing to set up here: the myrmidon command, outside the desktop app. */
+  const setupSkip = (): SetupStep[] =>
+    !options.cliCommand || options.cliCommand.status().state === 'unavailable' ? ['command'] : []
   const account = accountName()
   const updates = options.updates ?? new UpdateChecker()
   const greetings = options.resolver ? new GreetingWriter(options.resolver) : undefined
@@ -1813,10 +1822,11 @@ export function startServer(options: ServeOptions): WebServer {
         PUT: guard(async (req) => {
           if (!options.settings) return json({ error: 'settings need the chat runtime' }, 503)
           try {
-            // Setup is kept by /api/setup alone, and the message box's crew by /api/settings/composer: a page saving its
-            // settings sends the copy it read, which may be older.
-            const { setup, composer } = options.settings.get()
-            const body = { ...((await req.json()) as Record<string, unknown>), setup, composer }
+            // Setup is kept by /api/setup alone, the message box's crew by /api/settings/composer, and whether the person
+            // installed the myrmidon command by /api/cli-command: a page saving its settings sends the copy it read,
+            // which may be older.
+            const { setup, composer, cli } = options.settings.get()
+            const body = { ...((await req.json()) as Record<string, unknown>), setup, composer, cli }
             const was = options.settings.get().computerUse
             const hostsWere = options.settings.get().ssh.hosts
             const settings = options.settings.set(body)
@@ -1856,7 +1866,7 @@ export function startServer(options: ServeOptions): WebServer {
         GET: guard(async () => {
           const setup = await currentSetup()
           if (!setup) return json({ error: 'setup needs the chat runtime' }, 503)
-          return json({ setup, have: setupNow() })
+          return json({ setup, have: setupNow(), skip: setupSkip() })
         }),
         PUT: guard(async (req) => {
           const settings = options.settings
@@ -1865,7 +1875,7 @@ export function startServer(options: ServeOptions): WebServer {
           const body = (await req.json().catch(() => ({}))) as Record<string, unknown>
           let next: SetupState
           if (body.restart === true) next = restartSetup(setup)
-          else if (body.finish === true) next = finishSetup(setup, setupNow())
+          else if (body.finish === true) next = finishSetup(setup, setupNow(), new Date(), setupSkip())
           else if (body.dismiss === true) next = dismissSetup(setup)
           else if (
             isSetupStep(body.step) &&
@@ -1878,7 +1888,7 @@ export function startServer(options: ServeOptions): WebServer {
               400,
             )
           settings.set({ ...settings.get(), setup: next })
-          return json({ setup: next, have: setupNow() })
+          return json({ setup: next, have: setupNow(), skip: setupSkip() })
         }),
       },
       // What the Connect models step can offer before asking for anything.
@@ -2899,6 +2909,38 @@ export function startServer(options: ServeOptions): WebServer {
         }
       }),
       // Telemetry export (Settings → General): whether headers are kept and how the last send went; never the headers.
+      // The myrmidon command in a terminal: whether it is installed, and installing or removing it. The choice is kept
+      // in the settings, so a launch can point a link left by a moved app at this one.
+      '/api/cli-command': {
+        GET: guard(() => {
+          if (!options.cliCommand) return json({ error: 'the myrmidon command needs the chat runtime' }, 503)
+          return json(options.cliCommand.status())
+        }),
+        POST: guard(async () => {
+          const command = options.cliCommand
+          if (!command) return json({ error: 'the myrmidon command needs the chat runtime' }, 503)
+          try {
+            const status = await command.install()
+            if (options.settings) options.settings.set({ ...options.settings.get(), cli: { command: true } })
+            return json(status)
+          } catch (err) {
+            if (err instanceof CliCommandError) return json({ error: err.message, ...command.status() }, 409)
+            throw err
+          }
+        }),
+        DELETE: guard(() => {
+          const command = options.cliCommand
+          if (!command) return json({ error: 'the myrmidon command needs the chat runtime' }, 503)
+          try {
+            const status = command.remove()
+            if (options.settings) options.settings.set({ ...options.settings.get(), cli: { command: false } })
+            return json(status)
+          } catch (err) {
+            if (err instanceof CliCommandError) return json({ error: err.message, ...command.status() }, 409)
+            throw err
+          }
+        }),
+      },
       '/api/telemetry': {
         GET: guard(() => {
           if (!options.telemetry) return json({ error: 'telemetry needs the chat runtime' }, 503)
