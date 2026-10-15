@@ -40,6 +40,12 @@ condition, never on a sleep it hopes is long enough. A bug fix comes with the te
 
 **Pass mark:** 0 failures. Skips are the platform-pending and opt-in tests listed in docs/ci.md.
 
+**One full parallel run per machine at a time.** Each `bun run test` starts a worker per core; two or three at once
+(several agents or worktrees on one Mac) push the load far past the core count and tests time out that pass alone.
+While others run, use `bun run test:changed` or named files, and for the one full run cap the workers:
+`bun test --parallel=2 --timeout 60000`. A timeout seen only under that load is noise; rerun the file alone before
+treating it as a failure. The same goes for tier 3, which builds the whole app: run it once, at the end.
+
 **When it fails:** read the failing test's output; rerun just that file (`bun test <path>`), then the whole run. A
 failure only in the parallel run usually means a file leaning on another file's state (AGENTS.md). Never weaken,
 skip or delete a test to get green; if the test is wrong, say why in the commit. Known local exception: the PTY
