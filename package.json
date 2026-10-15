@@ -17,6 +17,7 @@
     "test:integration": "bun scripts/test-group.ts integration",
     "test:security": "bun scripts/test-group.ts security",
     "test:perf": "bun scripts/test-group.ts perf",
+    "smoke:desktop": "bun scripts/smoke-desktop.ts",
     "check": "bun run typecheck && bun run lint && bun scripts/test.ts",
     "myr": "bun apps/cli/src/main.ts",
     "dev": "bun --watch apps/cli/src/main.ts serve --port 4318 --dev --debug",
