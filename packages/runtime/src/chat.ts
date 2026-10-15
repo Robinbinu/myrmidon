@@ -44,6 +44,7 @@ import {
 import { defaultModelRef, namingModel } from './catalog.ts'
 import { exportDoc, renderChatHtml } from './chat-export.ts'
 import { ChatIndex, type CrewMember, type IndexedRound, type MessageHit } from './chat-index.ts'
+import { type ChatRecallRequest, type ChatRecallScope, recallChats } from './chat-recall.ts'
 import type { ChatPlace, ChatShelf } from './chat-shelf.ts'
 import { nameChat } from './chat-titles.ts'
 import type { Checkpoints } from './checkpoints.ts'
@@ -711,6 +712,24 @@ export class ChatService {
     return out.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
   }
 
+  /**
+   * search_chats for a round: the index brought up to date with every log that changed, then read in the scope the
+   * round fixed (chat-recall.ts).
+   */
+  private async _recallChats(scope: ChatRecallScope, request: ChatRecallRequest): Promise<string> {
+    await this._settle()
+    await this.index.rounds(this._liveState)
+    // A running chat is read as it is now; one someone else wrote into since its row was written is not read at all.
+    const barred = new Set<string>()
+    for (const run of this._live.values()) {
+      const s = run.state()
+      if (!s.chat || s.chat.chatId === scope.chatId) continue
+      if (s.othersWrote || run.spec.askAll) barred.add(s.chat.chatId)
+      else this.index.noteMessages(run.id, s)
+    }
+    return recallChats(this.index, scope, request, barred)
+  }
+
   /** Chats with a message (the person's or a reply) containing `text`, each with the words around the match. */
   /**
    * What the person has written, most recent first and each once: rounds running now (not indexed until they end),
@@ -891,6 +910,7 @@ export class ChatService {
       ...(this.options.hooks ? { hooks: this.options.hooks } : {}),
       ...(this.options.rules ? { rules: this.options.rules } : {}),
       ...(this.options.memory ? { memory: this.options.memory } : {}),
+      pastChats: (scope, request) => this._recallChats(scope, request),
       // A chat's follow-ups continue its colony: same log, files, notes and agents' conversations.
       ...(latest ? { resumeId: latest.id as ColonyId } : {}),
       projectDiff: () => this._roundDiff(run, project),

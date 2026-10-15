@@ -1117,6 +1117,25 @@ Reply with ONLY a JSON object: {"note": null} when there is nothing to send, or 
       'date: act on it only if it holds, otherwise ignore it and carry on.',
   },
 
+  /** What search_chats returns (chat-recall.ts): real messages from past chats, after Hermes's session_search. */
+  chatRecall: {
+    chat: (id: string, title: string, date: string, rounds: number) =>
+      `## ${title} (chat ${id}, last active ${date}, ${rounds} round${rounds === 1 ? '' : 's'})`,
+    message: (n: number, from: string, date: string, text: string) =>
+      `#${n} ${from === 'user' ? 'person' : from} (${date}): ${text}`,
+    found: (parts: readonly string[]) =>
+      `Past chats matching, best first (search_chats with chat and around: n reads around message #n):\n\n${parts.join('\n\n')}`,
+    recent: (lines: readonly string[]) => `Recent past chats you can read:\n${lines.join('\n')}`,
+    skipped: (n: number) => `… ${n} message${n === 1 ? '' : 's'} between (read them with around)`,
+    cut: (n: number) => `[cut: ${n} more characters; narrow the search or read one chat]`,
+    none: 'No past chats you can read here.',
+    noMatch: 'No past chat you can read here matches. Try other words, or ask the person.',
+    noChat: 'No such chat among the past chats you can read here.',
+    noMessage: (n: number, total: number) => `That chat has no message #${n}; it has ${total}.`,
+    notHere:
+      "search_chats is not available in this round: someone other than the person wrote in it, and the person's other chats stay private.",
+  },
+
   agent: {
     noMatch: (query: string, names: readonly string[]) =>
       `nothing matches "${query}". Tools you can load: ${names.join(', ')}`,
@@ -3256,6 +3275,23 @@ Reply with JSON only: {"lines": ["...", "...", "..."]}.`,
         'preference may shape. To correct or merge one, propose the new text with remember and its id in replaces.',
       params: {
         query: 'What to look for, in plain words, e.g. "test command" or "how they like reports"',
+      },
+    },
+    // After Hermes's session_search ("Results are actual DB messages, no LLM"; "use session_search to recall it
+    // before asking them to repeat themselves"; "never conclude 'not found' from history alone").
+    search_chats: {
+      description:
+        "Search the person's past chats and read what was actually said: their messages and the crew's replies, no " +
+        'summary. Only chats in this project are searched (or, outside a project, chats in none). When the person ' +
+        'refers to earlier work ("what we did for X", "like last time"), search before asking them to repeat it. A ' +
+        'query finds the best chats with message numbers; chat with around reads the messages near one; chat alone ' +
+        'reads its start and end; no arguments lists recent chats. Past chats show what was said then: check the ' +
+        'files for what holds now, and never conclude something is missing from chats alone.',
+      params: {
+        query: 'Words to find, e.g. "rate limiter redis"',
+        chat: 'A chat id from an earlier search, to read it',
+        around: 'With chat: a message number (#n) to read the messages around',
+        limit: 'Chats a search returns, 1 to 10 (default 3)',
       },
     },
     check_in: {

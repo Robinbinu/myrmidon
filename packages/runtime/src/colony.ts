@@ -53,6 +53,7 @@ import { ColonyAgent, type ModelError } from './agent.ts'
 import type { BrowserHub } from './browser.ts'
 import { namingModel } from './catalog.ts'
 import { cellKernels } from './cells.ts'
+import type { ChatRecallRequest, ChatRecallScope } from './chat-recall.ts'
 import type { ComputerHub } from './computer/driver.ts'
 import { COMPUTER_TOOL_NAMES } from './computer/names.ts'
 import {
@@ -199,6 +200,8 @@ export interface RunOptions {
   readonly ssh?: SshHub
   /** What the person keeps across chats; agents propose additions to it with remember. */
   readonly memory?: MemoryStore
+  /** The person's past chats an agent may search (search_chats), in the scope this round gives it. */
+  readonly pastChats?: (scope: ChatRecallScope, request: ChatRecallRequest) => Promise<string>
   /** Skills agents can load by name (use_skill). */
   readonly skills?: SkillLibrary
   /** The person's hooks, run before and after tools and when the round ends. */
@@ -1557,6 +1560,19 @@ export class ColonyRun implements ColonyHost {
       ),
       formatCurrentTime(),
     )
+  }
+
+  /**
+   * search_chats: the person's past chats in this round's scope, which the round fixes and the agent cannot widen:
+   * this chat's project (or none), never this chat, never a chat someone else wrote in. A round someone other than
+   * the person started or wrote into reads none of them.
+   */
+  async searchChats(request: ChatRecallRequest): Promise<string> {
+    const search = this.options.pastChats
+    const chat = this.spec.chat
+    if (!search || !chat) throw new Error('past chats are not available in this run')
+    if (this.spec.askAll) throw new Error(prompts.chatRecall.notHere)
+    return search({ project: chat.project?.id, chatId: chat.chatId }, request)
   }
 
   /** Ends the round so the chat can rerun its request at a bigger tier; see ChatService. */

@@ -237,6 +237,11 @@ export interface ColonyState {
   chatReads?: string[]
   /** Apps on the person's Mac they let agents use in this chat (computer use); absent until they allow one. */
   computerApps?: ComputerApp[]
+  /**
+   * Someone other than the person (a channel member, a share's guest) started or wrote into one of this colony's
+   * rounds; never cleared. Their chats stay out of what agents search in past chats.
+   */
+  othersWrote?: boolean
   /** The current round runs with full access (no sandbox); absent when it is confined. */
   fullAccess?: boolean
   /** What the current round's agents were last told they may do; absent in logs from before it was kept. */
@@ -359,6 +364,7 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
       state.team = p.team
       state.tier = p.tier
       if (p.fullAccess) state.fullAccess = true
+      if (p.askAll) state.othersWrote = true
       if (p.access) state.access = p.access
       if (p.chat) state.rounds = [roundOf(p, event)]
       for (const info of p.agents) {
@@ -596,6 +602,7 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
     case 'permissions/changed': {
       const p = event.payload as EventPayloads['permissions/changed']
       // A round someone else wrote into is confined from then on, whatever it started with.
+      if (p.askAll) state.othersWrote = true
       if (p.fullAccess === false || p.askAll) delete state.fullAccess
       else if (p.fullAccess) state.fullAccess = true
       if (p.access) state.access = p.access
@@ -640,6 +647,7 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
       state.tier = p.tier
       if (p.fullAccess) state.fullAccess = true
       else delete state.fullAccess
+      if (p.askAll) state.othersWrote = true
       if (p.access) state.access = p.access
       else delete state.access
       state.status = 'created'

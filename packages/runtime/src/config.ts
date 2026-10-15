@@ -1234,6 +1234,26 @@ export const RECOVERY_GRACE_MS = 60_000
 
 /** The most chats one message search returns, and how much of the matching message shows around the match. */
 export const CHAT_SEARCH_LIMIT = 50
+/**
+ * Agents' past-chat search (chat-recall.ts), after Hermes's session_search: chats one search returns by default and
+ * at most, how many matching rows it ranks, the hits shown per chat (the best chat with the messages either side),
+ * how much of a message a search shows and how much a read or scroll shows (Hermes caps a read at 2,000 after one
+ * returned 74K characters, #114344), messages either side of a scroll's anchor, the head and tail of a read, the
+ * chats a browse lists, and the most one result may hold in all.
+ */
+export const CHAT_RECALL = {
+  chats: 3,
+  maxChats: 10,
+  scan: 300,
+  hitsPerChat: 3,
+  hitChars: 800,
+  messageChars: 2_000,
+  window: 3,
+  head: 2,
+  tail: 4,
+  browse: 10,
+  totalChars: 12_000,
+} as const
 /** The person's past messages the composer learns its suggestions from, most recent first. */
 /** Above this share of control characters in its first bytes, a file without NUL bytes is read as binary. */
 export const READ_BINARY_CONTROL_SHARE = 0.1

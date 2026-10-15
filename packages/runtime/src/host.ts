@@ -13,6 +13,7 @@ import type {
 import type { Advisor } from './advisor.ts'
 import type { ModelError } from './agent.ts'
 import type { BrowserHub } from './browser.ts'
+import type { ChatRecallRequest } from './chat-recall.ts'
 import type { ComputerHub } from './computer/driver.ts'
 import type { MediaTools } from './media.ts'
 import type { AgentTool } from './omp/agent-core.ts'
@@ -241,6 +242,8 @@ export interface ColonyHost {
   ): Promise<string>
   /** The person's kept memories best matching `query`, for this chat's scope (recall). */
   recallMemory(query: string): string | Promise<string>
+  /** The person's past chats this round may read, searched, scrolled or read (search_chats). */
+  searchChats(request: ChatRecallRequest): Promise<string>
   /** Ends this round and has the chat rerun its request at a bigger tier, keeping the work so far. */
   escalate(by: string, to: 'solo' | 'team', reason: string): Promise<string>
 }

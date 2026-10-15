@@ -63,7 +63,7 @@ const BUILD = [
   ...ACCESS_GROUPS.remote,
   ...ACCESS_GROUPS.computer,
 ]
-const USER = ['reply_user', 'check_in', 'ask_user', 'remember', 'recall']
+const USER = ['reply_user', 'check_in', 'ask_user', 'remember', 'recall', 'search_chats']
 /** Structural search and rewrite, and language servers: loaded on demand, as omp marks them discoverable. */
 const CODE_INTEL = ['ast_grep', 'ast_edit', 'lsp']
 /** Code cells whose state lasts the round: loaded on demand, as omp marks its eval discoverable. */
