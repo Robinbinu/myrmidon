@@ -111,6 +111,13 @@ const BUDGET_NAMES: Record<BudgetScope, string> = {
   global: 'your monthly budget',
 }
 
+/**
+ * The care full access asks for, for an agent given it mid-round (its system prompt still describes the sandbox).
+ * After the full access safety section below (Codex's danger-full-access template, OpenHands' explicit consent).
+ */
+const FULL_CARE =
+  "Rewind covers only the project folder, so a change elsewhere cannot be undone from here. Act as carefully as the person would at their own keyboard: change only what the task needs, and never delete or overwrite what you did not create without asking. Calls the person's rules say to ask about still wait for their approval."
+
 const capitalized = (text: string) => `${text.charAt(0).toUpperCase()}${text.slice(1)}`
 
 export const prompts = {
@@ -782,6 +789,7 @@ ${roster}`,
       ask: readonly string[]
       project?: string
       confined?: boolean
+      freed?: boolean
     }) =>
       [
         'The person changed what you may do, so your last step was stopped before it finished.',
@@ -791,6 +799,9 @@ ${roster}`,
         p.confined
           ? 'Full access is off: commands run in the sandbox again, file tools reach only the project and your scratch directory, and the web only the public internet.'
           : '',
+        p.freed
+          ? `Full access is on: there is no sandbox from your next call, so commands run as the person and file tools reach any path they can. ${FULL_CARE}`
+          : '',
         'Check what your last step managed to do, then carry on within these rules, or tell the person what you cannot do now.',
       ]
         .filter(Boolean)
@@ -798,21 +809,22 @@ ${roster}`,
     /**
      * What the person changed about what this agent may do: `since` its last answer (opening a round), or `now` (mid-round).
      * After Codex's environment-context update and Claude Code's permission-mode notices: the new settings, stated as
-     * facts, so an agent does not hold to a refusal the old ones forced.
+     * facts, so an agent does not hold to a refusal the old ones forced. `full`: the round has full access now. Gained
+     * mid-round, the system prompt still describes the sandbox, so the notice carries full access's care too.
      */
-    accessChanged: (c: AccessChange, when: 'since' | 'now') => {
+    accessChanged: (c: AccessChange, when: 'since' | 'now', full: boolean) => {
       const preset = { 'read-only': 'Read only', ask: 'Ask', auto: 'Auto', full: 'Full access' } as const
       const code = (list: readonly string[]) => list.map((t) => `\`${t}\``).join(', ')
       const fullSaid = c.fullAccess !== undefined && (c.preset?.to === 'full' || c.preset?.from === 'full')
       const parts = [
         c.fullAccess === true
-          ? 'full access is now on (no sandbox; your commands run as the person, and your file tools reach any path they can)'
+          ? `full access is now on (no sandbox${when === 'now' ? ' from your next call' : ''}; your commands run as the person, and your file tools reach any path they can${when === 'now' ? '; a command or server already running keeps the sandbox it started in' : ''})`
           : '',
         c.fullAccess === false
           ? 'full access is now off (commands run in the sandbox again, and file tools reach only the project, your scratch directory and the folders opened for reading)'
           : '',
         c.preset && !fullSaid
-          ? `the preset is now ${preset[c.preset.to]} (was ${preset[c.preset.from]})${c.preset.to === 'full' && when === 'now' ? ", but this round keeps the sandbox: full access starts with the person's next message" : ''}`
+          ? `the preset is now ${preset[c.preset.to]} (was ${preset[c.preset.from]})${c.preset.to === 'full' && !full ? ', but this round keeps the sandbox: someone other than the person wrote into it' : ''}`
           : '',
         c.opened.length ? `you may now read ${c.opened.join(', ')}` : '',
         c.closed.length
@@ -832,7 +844,8 @@ ${roster}`,
       const tail = accessLoosened(c)
         ? 'What the old permissions stopped, or what you turned down because of them, may work now: try it. Do not retry a step the person declined: that was their answer, not a permission.'
         : 'Work within the new rules, and tell the person if they stop you doing something the task needs.'
-      return `${head}: ${parts.join('; ')}. ${tail}`
+      const care = c.fullAccess === true && when === 'now' ? ` ${FULL_CARE}` : ''
+      return `${head}: ${parts.join('; ')}.${care} ${tail}`
     },
     serversStopped: (names: readonly string[]) =>
       names.length === 1
