@@ -412,3 +412,120 @@ test('a change mid-round reaches the agent at its next step, without stopping it
   expect(p.access?.rules).toEqual([{ kind: 'command', target: 'bun test', decision: 'allow' }])
   await chats.stopAll()
 })
+
+/**
+ * The lead's first model call waits for `release`; `seen` keeps each call's newest messages. `steps` answers the
+ * calls after the first, in order, and the lead signs off after them.
+ */
+function heldLead(steps: MockContent[][]) {
+  const resolver = models([])
+  let release!: () => void
+  const held = new Promise<void>((r) => {
+    release = r
+  })
+  let calls = 0
+  const seen: string[] = []
+  const lead = createMockModel({
+    handler: async (ctx) => {
+      calls++
+      seen.push(JSON.stringify(ctx.messages.slice(-3)))
+      if (calls === 1) {
+        await held
+        return { content: [tool('list_artifacts', {})] }
+      }
+      return { content: steps[calls - 2] ?? [tool('reply_user', { text: 'Done.', final: true })] }
+    },
+  })
+  resolver.register('mock/lead', { model: lead.model, streamFn: lead.stream })
+  return { resolver, release, seen, calls: () => calls }
+}
+
+test.skipIf(detectSandbox().kind === 'none')(
+  'switching a running chat to Full access frees its next step at once, and the agent is told',
+  async () => {
+    const settings = new SettingsStore(home)
+    settings.set({ ...settings.get(), permissions: { fs_write: 'ask' } })
+    const lead = heldLead([
+      [tool('shell', { command: `touch "${outside}/cmd.txt"` })],
+      [tool('fs_write', { path: `${outside}/file.txt`, content: 'hi' })],
+    ])
+    const chats = new ChatService(runtime, { resolver: lead.resolver, settings })
+    const { chatId, colonyId } = await chats.send('Write outside', config)
+    const before = await waitFor(colonyId, (s) => s.status === 'running' && lead.calls() === 1)
+    expect(before.fullAccess).toBeUndefined()
+    await chats.setChatPermissions(chatId, { preset: 'full', rules: [] })
+    lead.release()
+    // The ask rule from Settings still asks under full access.
+    const asking = await waitFor(colonyId, (s) => pending(s).length > 0)
+    expect(pending(asking).map((a) => a.tool)).toEqual(['fs_write'])
+    expect(existsSync(join(outside, 'file.txt'))).toBe(false)
+    await chats.decideApproval(colonyId, pending(asking)[0]?.id ?? '', true)
+    const s = await waitFor(colonyId)
+    expect(s.status).toBe('completed')
+    expect(s.fullAccess).toBe(true)
+    const change = (await events(colonyId)).find((e) => e.type === 'permissions/changed')
+    const p = change?.payload as EventPayloads['permissions/changed']
+    expect(p.fullAccess).toBe(true)
+    expect(p.access).toMatchObject({ preset: 'full', fullAccess: true })
+    // Gaining access stops nobody: the step in progress carries on, and the next ones run without the sandbox.
+    expect(p.interrupted).toEqual([])
+    expect(existsSync(join(outside, 'cmd.txt'))).toBe(true)
+    expect(existsSync(join(outside, 'file.txt'))).toBe(true)
+    const [, shell, write] = await results(colonyId)
+    expect(shell?.output).toStartWith('exit 0')
+    expect(write?.ok).toBe(true)
+    // Told before the step that used it, as a fact of this round rather than of the next.
+    expect(lead.seen[1]).toContain('The person just changed what you may do: full access is now on')
+    expect(lead.seen[1]).toContain('still wait for their approval')
+    expect(lead.seen[1]).not.toContain('next message')
+    expect((await chats.list())[0]?.fullAccess).toBe(true)
+    await chats.stopAll()
+  },
+)
+
+test('switching a running chat from Full access back confines its next step at once, and the agent is told', async () => {
+  const settings = new SettingsStore(home)
+  const lead = heldLead([
+    [tool('fs_write', { path: `${outside}/late.txt`, content: 'x' })],
+    [tool('fs_write', { path: `${outside}/later.txt`, content: 'x' })],
+  ])
+  const chats = new ChatService(runtime, { resolver: lead.resolver, settings })
+  const { chatId, colonyId } = await chats.send('Write outside', config, undefined, {
+    permissions: { preset: 'full', rules: [] },
+  })
+  await waitFor(colonyId, (s) => s.fullAccess === true && lead.calls() === 1)
+  await chats.setChatPermissions(chatId, { preset: 'auto', rules: [] })
+  lead.release()
+  const s = await waitFor(colonyId)
+  expect(s.fullAccess).toBeUndefined()
+  const change = (await events(colonyId)).find((e) => e.type === 'permissions/changed')
+  const p = change?.payload as EventPayloads['permissions/changed']
+  expect(p.fullAccess).toBe(false)
+  expect(p.access?.fullAccess).toBeUndefined()
+  expect(existsSync(join(outside, 'late.txt'))).toBe(false)
+  expect(existsSync(join(outside, 'later.txt'))).toBe(false)
+  expect(lead.seen.slice(1).join('\n')).toContain('Full access is off')
+  expect((await chats.list())[0]?.fullAccess).toBeUndefined()
+  await chats.stopAll()
+})
+
+test('a round after Full access was switched off runs sandboxed and opens by saying so', async () => {
+  const settings = new SettingsStore(home)
+  const told = watching([
+    [tool('reply_user', { text: 'Done.', final: true })],
+    [tool('fs_write', { path: `${outside}/next.txt`, content: 'x' })],
+    [tool('reply_user', { text: 'Could not.', final: true })],
+  ])
+  const chats = new ChatService(runtime, { resolver: told, settings })
+  const one = await chats.send('Hello', config, undefined, { permissions: { preset: 'full', rules: [] } })
+  expect((await waitFor(one.colonyId)).fullAccess).toBe(true)
+  await chats.setChatPermissions(one.chatId, { preset: 'auto', rules: [] })
+  const two = await chats.send('Write outside', config, one.chatId)
+  const s = await waitFor(two.colonyId)
+  expect(s.fullAccess).toBeUndefined()
+  expect(existsSync(join(outside, 'next.txt'))).toBe(false)
+  expect(told.seen.find((m) => m.includes('[user] Write outside'))).toContain(
+    'Since your last answer the person changed what you may do: full access is now off',
+  )
+  await chats.stopAll()
+})

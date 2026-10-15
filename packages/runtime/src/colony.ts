@@ -600,7 +600,7 @@ export class ColonyRun implements ColonyHost {
     const out: Record<string, string> = {}
     for (const name of agents) {
       const change = accessChange(told, now, roleOf(this.spec, name))
-      if (change) out[name] = prompts.colony.accessChanged(change, when)
+      if (change) out[name] = prompts.colony.accessChanged(change, when, !!now.fullAccess)
     }
     return out
   }
@@ -1016,11 +1016,12 @@ export class ColonyRun implements ColonyHost {
    * New permission levels from the person (any of global, project, chat), applied to this round at once. If they got
    * stricter (a deny or ask rule added, a tool group taken away, a stricter preset, full access taken back), an agent
    * mid-turn is stopped, so a call the person just took back cannot go ahead, and told what changed. Calls waiting
-   * for the person are decided again. Full access gained waits for the next round.
+   * for the person are decided again. Full access gained holds from the next call on, so the mode the person picked
+   * is the one agents run under; a command already running keeps the sandbox it started in.
    */
   async applyRules(next: {
     permissions: PermissionLevels
-    /** Whether the round would get full access now (`false` takes it back). */
+    /** Whether the round would get full access now (`true` gives it, `false` takes it back). */
     fullAccess?: boolean
     /** The folders the person now lets agents read (Settings and the project); they apply from the next read. */
     reads?: string[]
@@ -1030,9 +1031,17 @@ export class ColonyRun implements ColonyHost {
     const readsBefore = JSON.stringify(this.access().reads ?? [])
     if (next.reads) spec.reads = next.reads
     const before = levelsOf(spec)
-    const confined = next.fullAccess === false && this.fullAccess
+    const wasFull = this.fullAccess
+    const fullAfter = fullAccessIn({
+      ...spec,
+      permissions: next.permissions,
+      ...(next.fullAccess !== undefined ? { fullAccess: next.fullAccess } : {}),
+    })
+    const confined = wasFull && !fullAfter
+    const freed = !wasFull && fullAfter
     const readsChanged = JSON.stringify(this.access().reads ?? []) !== readsBefore
-    if (!confined && !readsChanged && JSON.stringify(before) === JSON.stringify(next.permissions)) return
+    if (!confined && !freed && !readsChanged && JSON.stringify(before) === JSON.stringify(next.permissions))
+      return
     const t = tightened(before, next.permissions)
     const allows = (levels: PermissionLevels) =>
       rulesIn(levels).flatMap((r) => (r.decision === 'allow' ? [r.target] : []))
@@ -1045,7 +1054,7 @@ export class ColonyRun implements ColonyHost {
         ...next.permissions.project,
         ...(project.permissions?.read ? { read: project.permissions.read } : {}),
       }
-    if (confined) spec.fullAccess = false
+    if (next.fullAccess !== undefined) spec.fullAccess = next.fullAccess
     this.toolsChanged()
     const off = [...t.denied, ...t.groups.flatMap((g) => ACCESS_GROUPS[g])]
     const stricter = off.length > 0 || t.asked.length > 0 || !!t.preset || confined
@@ -1059,6 +1068,7 @@ export class ColonyRun implements ColonyHost {
         allow: allowed,
         ...(t.preset ? { project: t.preset } : {}),
         ...(confined ? { fullAccess: false } : {}),
+        ...(freed ? { fullAccess: true } : {}),
         interrupted: interrupted.map((a) => a.name),
         access: this.access(),
       },
@@ -1068,6 +1078,7 @@ export class ColonyRun implements ColonyHost {
       ask: t.asked,
       ...(t.preset ? { project: t.preset } : {}),
       confined,
+      freed,
     })
     for (const a of interrupted) a.interrupt('the person changed permissions', note)
     // Everyone else hears of it too: steered into a step in progress, or waiting for whatever wakes them next.
