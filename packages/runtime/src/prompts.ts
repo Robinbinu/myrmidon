@@ -1786,7 +1786,7 @@ Reply with JSON only: {"lines": ["...", "...", "..."]}.`,
     /** run_checks with nothing to run: `project` when the round has a project, else the agent's scratch folder. */
     noChecks: (project: boolean) =>
       project
-        ? 'this project defines no checks (no check, typecheck, lint or test script in package.json, no Cargo.toml, go.mod, or pyproject with ruff, mypy or pytest); run its commands with shell'
+        ? 'this project defines no checks (no check, typecheck, lint or test script in package.json, no Cargo.toml, go.mod, or pyproject with ruff, mypy or pytest). That does not mean it has no tests: look for test files and run them with shell (bun test, npx vitest, pytest)'
         : 'nothing to check in your scratch folder: run_checks runs what a package.json (check, typecheck, lint or test scripts), tsconfig.json, Cargo.toml, go.mod or pyproject (ruff, mypy, pytest) there defines. Add one, or run your code with shell',
     /** run_checks(only) naming a check that is not there; `has`: the checks there are. */
     noSuchCheck: (only: string, has: readonly string[], project: boolean) =>
@@ -3509,12 +3509,14 @@ Reply with JSON only: {"lines": ["...", "...", "..."]}.`,
       },
     },
     run_checks: {
-      /** `full`: the round runs without the sandbox. */
-      description: (full: boolean) =>
+      /** `full`: the round runs without the sandbox; `none`: the round's project defines no checks. */
+      description: (full: boolean, none = false) =>
         `Run the project's own checks${full ? '' : ' in the sandbox'} (outside a project, your scratch folder's) and ` +
         'get a short pass or fail per check, with the failing output: its `check` script if it has one, otherwise ' +
-        'typecheck, lint and test, from its package.json, tsconfig.json, Cargo.toml, go.mod or pyproject. Run it ' +
-        'after you change code and before you say you are done, then fix what fails. only runs one check by name.',
+        'typecheck, lint and test, from its package.json, tsconfig.json, Cargo.toml, go.mod or pyproject. ' +
+        (none
+          ? 'This project defines none, so run its tests with shell instead.'
+          : 'Run it after you change code and before you say you are done, then fix what fails. only runs one check by name.'),
       params: {
         only: '"check", "typecheck", "lint", "test" or "build" (build runs only when asked; default: all but build)',
       },

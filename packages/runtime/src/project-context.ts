@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { BUN_TEST_SCAN } from './config.ts'
 import { type ProjectInstructions, readProjectInstructions } from './instructions.ts'
 import { vcsIsPureJj } from './omp/natives.ts'
 import { SKIP_DIRS } from './workspace.ts'
@@ -42,7 +43,48 @@ function packageRunner(root: string): string {
   return 'npm run'
 }
 
-/** The project's own check commands, from its manifests: package.json scripts, Cargo, Go, Python, Make. */
+const TEST_FILE = /\.(test|spec)\.[cm]?[jt]sx?$/
+
+/**
+ * Whether the project has a Bun test file (one importing bun:test), looked for breadth-first within BUN_TEST_SCAN.
+ * Bun projects often name no test script, since `bun test` finds the files itself; without this, agents read "no
+ * checks" as "no tests" and verified edits with one-off scripts while the project's own tests sat unrun.
+ */
+function hasBunTests(root: string): boolean {
+  let seen = 0
+  let level = [root]
+  for (let depth = 0; depth <= BUN_TEST_SCAN.maxDepth && level.length > 0; depth++) {
+    const next: string[] = []
+    for (const dir of level) {
+      let entries: import('node:fs').Dirent[]
+      try {
+        entries = readdirSync(dir, { withFileTypes: true })
+      } catch {
+        continue
+      }
+      for (const e of entries) {
+        if (++seen > BUN_TEST_SCAN.maxEntries) return false
+        if (e.name.startsWith('.') || SKIP_DIRS.has(e.name)) continue
+        const path = join(dir, e.name)
+        if (e.isDirectory()) next.push(path)
+        else if (e.isFile() && TEST_FILE.test(e.name)) {
+          try {
+            if (readFileSync(path, 'utf8').includes('bun:test')) return true
+          } catch {
+            // An unreadable file is not evidence either way.
+          }
+        }
+      }
+    }
+    level = next
+  }
+  return false
+}
+
+/**
+ * The project's own check commands, from its manifests: package.json scripts, Cargo, Go, Python, Make; and `bun test`
+ * for a package with Bun test files and no test script.
+ */
 export function projectChecks(root: string): ProjectCheck[] {
   const checks: ProjectCheck[] = []
   const read = (name: string) => {
@@ -62,6 +104,8 @@ export function projectChecks(root: string): ProjectCheck[] {
     } catch {
       // A package.json that does not parse has no usable scripts.
     }
+    if (!checks.some((c) => c.name === 'test' || c.name === 'check') && hasBunTests(root))
+      checks.push({ name: 'test', command: 'bun test' })
   }
   if (read('Cargo.toml') !== undefined)
     checks.push({ name: 'typecheck', command: 'cargo check' }, { name: 'test', command: 'cargo test' })

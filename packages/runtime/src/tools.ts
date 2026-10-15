@@ -3533,7 +3533,11 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     name: 'run_checks',
     tier: 'exec',
     description: prompts.tools.run_checks.description(false),
-    describe: (f) => prompts.tools.run_checks.description(f.access.fullAccess),
+    describe: (f) =>
+      prompts.tools.run_checks.description(
+        f.access.fullAccess,
+        f.access.project !== undefined && f.context.checks.length === 0,
+      ),
     parameters: type({ 'only?': type('string').describe(prompts.tools.run_checks.params.only) }),
     async run(args, agent, host) {
       if (host.sandbox.kind === 'none' && !host.unsafeNoSandbox)
