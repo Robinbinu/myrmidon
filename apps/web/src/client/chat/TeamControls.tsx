@@ -13,6 +13,7 @@ import { Button, cn, POPUP, Segmented, Select } from '../ui/primitives.tsx'
 import { AGENT_MIN_WINDOW } from '../ui-config.ts'
 import { type HelperMode, helperMode, helpersLabel, withHelperMode } from './helpers.ts'
 import { ModelPicker, PickerHost, windowLabel } from './ModelPicker.tsx'
+import { effectiveName, thinkingFit } from './thinking.ts'
 
 const PILL = cn('inline-flex h-7 min-w-0 items-center gap-1.5 px-2.5', POPUP)
 
@@ -175,21 +176,37 @@ const EFFORT = [
   },
 ] as const
 
-/** How hard the lead thinks per step. */
-export function ThinkingChip(props: { config: TeamConfig; onConfig(c: TeamConfig): void }) {
+/** How hard the lead thinks per step, offering only the levels its model has and saying what it gets instead. */
+export function ThinkingChip(props: {
+  config: TeamConfig
+  /** The lead's model: what it lacks is not offered, and a level it is sent instead shows on the chip. */
+  model?: ModelOption
+  onConfig(c: TeamConfig): void
+}) {
   const current = EFFORT.find((e) => e.key === (props.config.thinking ?? 'auto')) ?? EFFORT[0]
+  const fit = thinkingFit(props.model, props.config.thinking)
+  const shown = EFFORT.filter((e) => e.key === 'auto' || fit.offered.includes(e.key))
+  const value = fit.effective
+    ? effectiveName(fit.effective)
+    : current.key === 'auto'
+      ? copy.teamControls.thinking.label
+      : current.title
   return (
     <ChipMenu
       label={copy.teamControls.thinking.label}
       icon={<current.icon className="size-3.5 shrink-0" />}
-      value={current.key === 'auto' ? copy.teamControls.thinking.label : current.title}
+      value={value}
     >
       {(close) => (
         <>
-          <MenuHead title={copy.teamControls.thinking.label} note={current.title} />
+          <MenuHead
+            title={copy.teamControls.thinking.label}
+            note={fit.effective ? effectiveName(fit.effective) : current.title}
+          />
           <EffortRuler level={current.level} />
+          {fit.note && <p className="px-2 pb-1.5 text-caption leading-snug text-muted">{fit.note}</p>}
           <MenuList label={copy.teamControls.thinking.label}>
-            {EFFORT.map((e) => (
+            {shown.map((e) => (
               <Option
                 key={e.key}
                 icon={<e.icon className="size-4" />}
@@ -294,15 +311,27 @@ export function ReviewChip(props: {
  * Thinking, reviewer and helpers folded into one chip, for a toolbar too narrow for all three: it opens the team panel,
  * and its tooltip reads out the three settings.
  */
-export function TeamChip(props: { config: TeamConfig; review?: ReviewMode; open: boolean; onClick(): void }) {
+export function TeamChip(props: {
+  config: TeamConfig
+  /** The lead's model, so the summary names the thinking level it actually gets. */
+  model?: ModelOption
+  review?: ReviewMode
+  open: boolean
+  onClick(): void
+}) {
   const thinking = EFFORT.find((e) => e.key === (props.config.thinking ?? 'auto')) ?? EFFORT[0]
+  const effective = thinkingFit(props.model, props.config.thinking).effective
   const reviewer =
     props.review === 'off'
       ? copy.teamControls.reviewer.valueOff
       : props.review === 'always'
         ? copy.teamControls.reviewer.valueAlways
         : copy.teamControls.reviewer.valueAuto
-  const summary = copy.teamControls.team.summary(thinking.title, reviewer, helpersLabel(props.config))
+  const summary = copy.teamControls.team.summary(
+    effective ? effectiveName(effective) : thinking.title,
+    reviewer,
+    helpersLabel(props.config),
+  )
   return (
     <button
       type="button"

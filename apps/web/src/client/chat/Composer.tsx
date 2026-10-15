@@ -38,6 +38,7 @@ import { ModelPicker, PickerHost, visibleBounds } from './ModelPicker.tsx'
 import { withoutDatedAliases } from './model-list.ts'
 import { nextWord } from './suggest.ts'
 import { HelpersChip, HelpersEditor, ReviewChip, Row, TeamChip, ThinkingChip } from './TeamControls.tsx'
+import { thinkingFit } from './thinking.ts'
 import { idleRoom, naturalWidth, shouldFold } from './toolbar-fit.ts'
 import { useModelWord, useSuggester } from './use-suggester.ts'
 
@@ -106,6 +107,10 @@ export function TeamSettings(props: {
       (m) => m && providerOf(m) === judging,
     ) && props.models.some((m) => !m.hidden && m.provider !== judging)
   const reviewOff = props.review === 'off'
+  const thinking = thinkingFit(
+    swarm ? undefined : props.models.find((m) => m.ref === config.leadModel),
+    config.thinking,
+  )
 
   return (
     <div className="flex flex-col gap-3">
@@ -154,11 +159,15 @@ export function TeamSettings(props: {
             />
           )}
         </Row>
-        <Row label={copy.composer.thinkingLabel} hint={copy.composer.thinkingHint} setting="team.thinking">
+        <Row
+          label={copy.composer.thinkingLabel}
+          hint={thinking.note ?? copy.composer.thinkingHint}
+          setting="team.thinking"
+        >
           <Segmented
             id="composer-thinking"
             value={config.thinking ?? 'auto'}
-            options={[...THINKING]}
+            options={THINKING.filter((o) => o.value === 'auto' || thinking.offered.includes(o.value))}
             onChange={(v) => {
               const { thinking: _, ...rest } = config
               props.onConfig(v === 'auto' ? rest : { ...rest, thinking: v })
@@ -396,8 +405,10 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
 
   const { config } = props
   // omp names a model's provider as it names the account signed in for it (anthropic, openai-codex, …).
-  const leadProvider =
-    props.models.find((m) => m.ref === config.leadModel)?.provider ?? config.leadModel.split('/')[0] ?? ''
+  const leadOption = props.models.find((m) => m.ref === config.leadModel)
+  const leadProvider = leadOption?.provider ?? config.leadModel.split('/')[0] ?? ''
+  // A swarm has no lead: its peers' models each take the thinking level as they can.
+  const thinkingModel = config.mode === 'swarm' ? undefined : leadOption
   const leadLimit = limitNotice(limits.snapshot, leadProvider)
   const leadPlan = planLevel(limits.snapshot, leadProvider)
 
@@ -769,13 +780,18 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
               {narrow ? (
                 <TeamChip
                   config={config}
+                  {...(thinkingModel ? { model: thinkingModel } : {})}
                   {...(review ? { review } : {})}
                   open={showTeam}
                   onClick={() => setShowTeam(!showTeam)}
                 />
               ) : (
                 <>
-                  <ThinkingChip config={config} onConfig={props.onConfig} />
+                  <ThinkingChip
+                    config={config}
+                    {...(thinkingModel ? { model: thinkingModel } : {})}
+                    onConfig={props.onConfig}
+                  />
                   <ReviewChip
                     models={props.models}
                     config={config}

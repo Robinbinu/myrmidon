@@ -384,12 +384,26 @@ export async function post<T>(path: string, body: unknown): Promise<T> {
   return data as T
 }
 
+/** omp's thinking efforts, least to most; a model is sent one of these (runtime thinking.ts). */
+export type Effort = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+/** The levels the thinking picker offers; Auto is the absence of one. */
+export type ThinkingChoice = 'low' | 'medium' | 'high'
+
+export interface ModelThinking {
+  /** The effort each choice is sent as: itself when the model has it, else the nearest it has. */
+  levels: Record<ThinkingChoice, Effort>
+  /** omp only guesses the model reasons: Auto leaves its thinking off. */
+  unverified?: true
+}
+
 export interface ModelOption {
   ref: string
   provider: string
   id: string
   name: string
   reasoning: boolean
+  /** What each thinking level is sent as on this model; absent when it takes no thinking level. */
+  thinking?: ModelThinking
   contextWindow?: number
   /** Where `contextWindow` came from: set by the person, the provider, models.dev, or the model's name; absent for a guess. */
   windowSource?: 'set' | 'provider' | 'catalog' | 'name'

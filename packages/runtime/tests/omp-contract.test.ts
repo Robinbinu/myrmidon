@@ -10,7 +10,13 @@ import {
 } from '../src/omp/agent-core.ts'
 import { AssistantMessageEventStream, isContextOverflow, type } from '../src/omp/ai.ts'
 import { parseMetricLines } from '../src/omp/autoresearch.ts'
-import { classifyModel, getBundledModel, getBundledProviders } from '../src/omp/catalog.ts'
+import {
+  clampThinkingLevelForModel,
+  classifyModel,
+  getBundledModel,
+  getBundledProviders,
+  getSupportedEfforts,
+} from '../src/omp/catalog.ts'
 import { loadComputerSupervisor } from '../src/omp/computer.ts'
 import { loadDap } from '../src/omp/dap.ts'
 import { loadPythonPrelude, loadPythonRunner } from '../src/omp/eval.ts'
@@ -107,6 +113,17 @@ describe('pi-catalog', () => {
     const model = getBundledModel('anthropic' as never, 'claude-sonnet-4-5' as never)
     expect(model).toMatchObject({ provider: 'anthropic', api: 'anthropic-messages' })
     expect(model?.contextWindow).toBeGreaterThan(0)
+  })
+
+  test("a model's thinking ladder, and a level it lacks clamped to the nearest below (else its lowest)", () => {
+    const deepseek = getBundledModel('deepseek' as never, 'deepseek-v4-flash' as never)
+    expect<readonly string[]>(getSupportedEfforts(deepseek)).toEqual(['low', 'high', 'max'])
+    expect<string | undefined>(clampThinkingLevelForModel(deepseek, 'medium' as never)).toBe('low')
+    const r1 = getBundledModel('openrouter' as never, 'deepseek/deepseek-r1' as never)
+    expect<string | undefined>(clampThinkingLevelForModel(r1, 'low' as never)).toBe('high')
+    const plain = getBundledModel('groq' as never, 'llama-3.3-70b-versatile' as never)
+    expect<readonly string[]>(getSupportedEfforts(plain)).toEqual([])
+    expect(clampThinkingLevelForModel(plain, 'high' as never)).toBeUndefined()
   })
 })
 

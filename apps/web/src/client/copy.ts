@@ -947,7 +947,27 @@ export const copy = {
       medium: { title: 'Balanced', hint: 'Thinks before it acts' },
       high: { title: 'Deep', hint: 'Thinks hard at every step; slower' },
     },
-    thinking: { label: 'Thinking' },
+    /** The level a model is sent when it lacks the one picked, named as the picker names its own. */
+    effortName: {
+      minimal: 'Fastest',
+      low: 'Fast',
+      medium: 'Balanced',
+      high: 'Deep',
+      xhigh: 'Deeper',
+      max: 'Deepest',
+    },
+    thinking: {
+      label: 'Thinking',
+      off: 'Off',
+      clamped: (model: string, chosen: string, effective: string) =>
+        `${model} has no ${chosen} level, so it thinks at ${effective}`,
+      none: (model: string) =>
+        `${model} doesn’t think step by step; this applies to crewmates whose models do`,
+      own: (model: string) =>
+        `${model} sets its own thinking; this applies to crewmates whose models take a level`,
+      unverified: (model: string) =>
+        `Auto leaves thinking off on ${model}, which may not reason; pick a level to turn it on`,
+    },
     review: {
       off: { title: 'Off', hint: 'The lead’s answer completes the run' },
       auto: { title: 'Auto', hint: 'The lead asks for a check when the work deserves it' },
