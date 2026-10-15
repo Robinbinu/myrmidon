@@ -24,7 +24,7 @@ import {
   UserPlus,
 } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
-import { useEffect, useMemo, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { ColonyMap } from './ColonyMap.tsx'
 import { ArtifactViewer } from './chat/ArtifactViewer.tsx'
 import { Markdown } from './chat/Markdown.tsx'
@@ -78,11 +78,42 @@ function agentOf(e: MyrEvent): string | undefined {
   return agent ?? p.from ?? p.author ?? p.by
 }
 
-/** Builds the activity stream (newest first) from the log up to the replay cursor. */
-export function buildItems(events: readonly MyrEvent[], cursor: number, agent?: string): Item[] {
-  const calls = new Map<string, Item & { kind: 'tool' }>()
-  const items: Item[] = []
-  for (const e of events.slice(0, cursor)) {
+/** The activity stream built so far: items (oldest first) from the log's first `count` events, the last being `last`. */
+export interface ItemFold {
+  readonly agent?: string
+  readonly count: number
+  readonly last?: MyrEvent
+  /** Items in log order; a tool call's item is replaced, not changed, when its result comes in. */
+  readonly items: Item[]
+  /** Where each tool call's item is in `items`. */
+  readonly calls: Map<string, number>
+  /** The newest `MAX_ACTIVITY_ITEMS` items, newest first, as handed out for this fold. */
+  readonly shown: Item[]
+}
+
+/**
+ * The activity stream up to the replay cursor, built on from `prev` when the log only grew and the cursor and filter
+ * stayed, else from the start. Items already built keep their identity, so the rows showing them need not re-render.
+ */
+export function foldItems(
+  prev: ItemFold | undefined,
+  events: readonly MyrEvent[],
+  cursor: number,
+  agent?: string,
+): ItemFold {
+  const on =
+    prev !== undefined &&
+    prev.agent === agent &&
+    events.length >= prev.count &&
+    events[prev.count - 1] === prev.last &&
+    cursor >= prev.count
+  const end = Math.min(cursor, events.length)
+  if (on && end === prev.count) return prev
+  // Built on in place: a fold is replaced by the next one, never read again.
+  let items = on ? prev.items : []
+  let calls = on ? prev.calls : new Map<string, number>()
+  for (let i = on ? prev.count : 0; i < end; i++) {
+    const e = events[i] as MyrEvent
     const name = agentOf(e)
     // The runtime signs the reviewer's task decisions and notes `verifier`, a name no crewmate can take.
     const who =
@@ -110,20 +141,20 @@ export function buildItems(events: readonly MyrEvent[], cursor: number, agent?: 
       }
       case 'tool/call': {
         const p = e.payload as EventPayloads['tool/call']
-        const item = {
+        calls.set(p.callId, items.length)
+        items.push({
           ...base,
           kind: 'tool' as const,
           tool: p.tool,
           args: (p.args ?? {}) as Record<string, unknown>,
-        }
-        calls.set(p.callId, item)
-        items.push(item)
+        })
         break
       }
       case 'tool/result': {
         const p = e.payload as EventPayloads['tool/result']
-        const call = calls.get(p.callId)
-        if (call) Object.assign(call, { ok: p.ok, output: p.output })
+        const at = calls.get(p.callId)
+        const call = at === undefined ? undefined : items[at]
+        if (at !== undefined && call) items[at] = { ...call, ok: p.ok, output: p.output } as Item
         break
       }
       case 'mail/sent': {
@@ -260,8 +291,28 @@ export function buildItems(events: readonly MyrEvent[], cursor: number, agent?: 
         break
       }
     }
+    // Only the newest items are shown, so older ones are let go now and then rather than kept for the whole log.
+    if (items.length > 2 * MAX_ACTIVITY_ITEMS) {
+      const cut = items.length - MAX_ACTIVITY_ITEMS
+      items = items.slice(cut)
+      const kept = new Map<string, number>()
+      for (const [call, at] of calls) if (at >= cut) kept.set(call, at - cut)
+      calls = kept
+    }
   }
-  return items.slice(-MAX_ACTIVITY_ITEMS).reverse()
+  return {
+    agent,
+    count: end,
+    last: events[end - 1],
+    items,
+    calls,
+    shown: items.slice(-MAX_ACTIVITY_ITEMS).reverse(),
+  }
+}
+
+/** Builds the activity stream (newest first) from the log up to the replay cursor. */
+export function buildItems(events: readonly MyrEvent[], cursor: number, agent?: string): Item[] {
+  return foldItems(undefined, events, cursor, agent).shown
 }
 
 /** Full colony view in the style of a coding-agent console: agents, a live activity stream, and a replay bar. */
@@ -274,7 +325,11 @@ export function ColonyScreen({ id }: { id: string; compact?: boolean }) {
   const m = colonyMetrics(state)
   const reviewed = reviewVerdicts(state)
   const run = runPhase({ status: state.status, ...stopCause(state) })
-  const items = useMemo(() => buildItems(events, cursor, agent), [events, cursor, agent])
+  const activity = useRef<ItemFold>(undefined)
+  const items = useMemo(() => {
+    activity.current = foldItems(activity.current, events, cursor, agent)
+    return activity.current.shown
+  }, [events, cursor, agent])
   const agents = Object.values(state.agents)
   const tasks = Object.values(state.tasks).filter((t) => t.status !== 'deleted')
 
@@ -444,10 +499,7 @@ export function RunTime({ createdAt, endedAt }: { createdAt?: string; endedAt?: 
     return () => clearInterval(timer)
   }, [running])
   return (
-    <Stat
-      label={copy.colonyScreen.stats.time}
-      value={duration(colonyWallMs({ createdAt, endedAt }, now))}
-    />
+    <Stat label={copy.colonyScreen.stats.time} value={duration(colonyWallMs({ createdAt, endedAt }, now))} />
   )
 }
 
@@ -513,19 +565,24 @@ function ActivityStream({ items, filtered }: { items: Item[]; filtered: boolean 
       <ol className="mx-auto flex max-w-3xl flex-col gap-1.5">
         {items.map((item) => (
           <li key={item.id}>
-            {item.kind === 'tool' ? (
-              <ToolRow item={item} />
-            ) : item.kind === 'say' ? (
-              <SayRow item={item} />
-            ) : (
-              <EventRow item={item} />
-            )}
+            <Row item={item} />
           </li>
         ))}
       </ol>
     </div>
   )
 }
+
+/** Memoized on the item: a batch of events adds a few rows, and the hundreds already shown keep their items. */
+const Row = memo(function Row({ item }: { item: Item }) {
+  return item.kind === 'tool' ? (
+    <ToolRow item={item} />
+  ) : item.kind === 'say' ? (
+    <SayRow item={item} />
+  ) : (
+    <EventRow item={item} />
+  )
+})
 
 function RowMeta({ agent, time }: { agent: string; time: string }) {
   return (

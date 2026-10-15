@@ -99,6 +99,13 @@ export const MAX_ACTIVITY_ITEMS = 500
 export const REPLAY_SPEEDS = [1, 4, 16, 64]
 /** How often a running colony's elapsed time in its header moves on; it reads in whole seconds. */
 export const COLONY_CLOCK_MS = 1000
+/** A reply being written re-renders what shows it at most this often (25 times a second), however fast it streams. */
+export const STREAM_RENDER_MS = 40
+/** The opt-in responsiveness log (perf.ts): the storage key that turns it on, and the tag its console lines carry. */
+export const PERF_LOG_KEY = 'myr-perf'
+export const PERF_LOG_TAG = '[myr-perf]'
+/** A frame this long after the one before counts as the page stalling, in the responsiveness log. */
+export const LONG_FRAME_MS = 50
 /** Stroke widths of the crew map's links, in px: a pair that traded one message, and the busiest pair. */
 export const MAP_LINK_WIDTH = { min: 1.25, max: 6 } as const
 /** The crew map's arrowheads, in px at a 1px line; they grow by this much per px of line. */
