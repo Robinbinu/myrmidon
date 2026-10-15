@@ -63,6 +63,7 @@ async function round(
   onAnswer: (text: string, answers?: QuestionAnswers) => Promise<unknown> = async () => {},
 ) {
   const { RoundView } = await import('../src/client/chat/RoundView.tsx')
+  const { LiveReplies } = await import('../src/client/use-colony.ts')
   const state = foldColony('colony-q', events)
   const head = events.at(-1)?.seq ?? 0
   const colony = {
@@ -73,7 +74,7 @@ async function round(
     live: true,
     setCursor() {},
     setLive() {},
-    streams: {},
+    streams: new LiveReplies(),
   }
   const view = await mount(
     <RoundView

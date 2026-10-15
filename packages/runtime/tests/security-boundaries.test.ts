@@ -70,16 +70,15 @@ describe('the file tools stay in the workspace', () => {
 
   // Known gap, found writing this file (2026-10-15): realPath() resolves the deepest path that exists, and a link
   // whose target is missing does not "exist", so the link itself is taken as the real path. fs_write then follows it
-  // and creates the file outside the project. `failing`: this flips to a failure the day the gap is closed, so the
-  // marker comes off with the fix.
-  test.failing('a dangling link in the project cannot make a write land outside it', () => {
+  // and created the file outside the project; realPath now follows such a link before judging it.
+  test('a dangling link in the project cannot make a write land outside it', () => {
     symlinkSync(join(outside, 'planted.txt'), join(project, 'dangling.txt'))
     symlinkSync(join(outside, 'missing-dir'), join(project, 'dangling-dir'))
     expect(() => ws.resolveInWorkdir(agent, 'dangling.txt')).toThrow('outside your project')
     expect(() => ws.resolveInWorkdir(agent, 'dangling-dir/x.txt')).toThrow('outside your project')
   })
 
-  test.failing("a dangling link in an agent's scratch cannot make a write land outside it", () => {
+  test("a dangling link in an agent's scratch cannot make a write land outside it", () => {
     symlinkSync(join(outside, 'planted.png'), join(ws.scratch(agent), 'image.png'))
     expect(() => ws.resolveInScratch(agent, 'image.png')).toThrow('escapes your scratch directory')
   })
