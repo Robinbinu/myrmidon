@@ -208,29 +208,6 @@ export const PROVIDER_ALIASES: Record<string, string> = {
   'google-antigravity': 'google',
   'google-gemini-cli': 'google',
 }
-/**
- * Corrections to omp's request shape (a model's `compat`) for chat-completions models of a provider whose API refuses
- * what omp's catalog sends, optionally only for one model lineage (omp's identity class). Groq refuses
- * `reasoning_content` on an assistant message, which omp puts on Kimi's tool-call turns (a "." when there was no
- * thinking; an earlier model's thinking reaches the model as text either way). Groq's Qwen takes `reasoning_effort`
- * none, low, medium or high, not Qwen's `enable_thinking`.
- */
-export const MODEL_COMPAT_FIXES: readonly {
-  readonly provider: string
-  readonly class?: string
-  readonly compat: Readonly<Record<string, unknown>>
-}[] = [
-  { provider: 'groq', compat: { requiresReasoningContentForToolCalls: false } },
-  {
-    provider: 'groq',
-    class: 'qwen',
-    compat: {
-      thinkingFormat: 'openai',
-      reasoningDisableMode: 'none-effort',
-      reasoningEffortMap: { minimal: 'low' },
-    },
-  },
-]
 
 // Tools (tools.ts)
 

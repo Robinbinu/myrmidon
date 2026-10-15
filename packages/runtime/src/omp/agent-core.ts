@@ -23,4 +23,4 @@ export {
   type ToolResultShakeRegion,
   tokenizerEncodingForModel,
 } from '@oh-my-pi/pi-agent-core'
-export { estimateImageContentTokens } from '@oh-my-pi/pi-agent-core/image-tokens'
+export { base64ImageSize } from '@oh-my-pi/pi-agent-core/image-tokens'

@@ -1,4 +1,4 @@
-import { MODEL_COMPAT_FIXES, PROBE_FRESH_MS } from './config.ts'
+import { PROBE_FRESH_MS } from './config.ts'
 import type { StreamFn } from './omp/agent-core.ts'
 import { completeSimple, getEnvApiKey, type Model } from './omp/ai.ts'
 import { getBundledModel, getBundledProviders } from './omp/catalog.ts'
@@ -45,14 +45,14 @@ export class ModelResolver {
         throw new Error(`unknown model ${JSON.stringify(ref)}: add its provider in Settings → Models`)
       return {
         ref,
-        model: withCompatFixes(this.windows ? this.windows.apply(model as Model) : (model as Model)),
+        model: this.windows ? this.windows.apply(model as Model) : (model as Model),
       }
     }
     if (!(getBundledProviders() as string[]).includes(provider)) {
       throw new Error(`unknown model provider ${JSON.stringify(provider)}`)
     }
     try {
-      return { ref, model: withCompatFixes(getBundledModel(provider as never, id) as Model) }
+      return { ref, model: getBundledModel(provider as never, id) as Model }
     } catch {
       throw new Error(`unknown model ${JSON.stringify(ref)}`)
     }
@@ -112,17 +112,6 @@ export class ModelResolver {
     }
     return key
   }
-}
-
-/** A chat-completions model with `MODEL_COMPAT_FIXES` applied (config.ts): its provider's API refuses omp's shape. */
-export function withCompatFixes(model: Model): Model {
-  // A model without resolved compat has pi-ai resolve all of it per request; a partial one would replace that.
-  if (model.api !== 'openai-completions' || !model.compat) return model
-  const fixes = MODEL_COMPAT_FIXES.filter(
-    (f) => f.provider === model.provider && (!f.class || f.class === model.identity?.class),
-  )
-  if (fixes.length === 0) return model
-  return { ...model, compat: Object.assign({}, model.compat, ...fixes.map((f) => f.compat)) } as Model
 }
 
 type StreamOptions = Parameters<StreamFn>[2]

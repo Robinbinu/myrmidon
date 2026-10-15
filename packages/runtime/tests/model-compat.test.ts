@@ -111,12 +111,15 @@ test('Qwen on Groq is told reasoning_effort, never enable_thinking', async () =>
   const context: Context = { messages: [{ role: 'user', content: 'Say ok.', timestamp: 1 }] }
   // A title or a probe turns thinking off; the saved request sent `enable_thinking: false` here.
   await completeSimple(qwen, context, { apiKey: 'gsk-test', disableReasoning: true })
-  await completeSimple(qwen, context, { apiKey: 'gsk-test', reasoning: 'minimal' as never })
+  await completeSimple(qwen, context, { apiKey: 'gsk-test', reasoning: 'low' as never })
   await completeSimple(qwen, context, { apiKey: 'gsk-test', reasoning: 'high' as never })
   await completeSimple(qwen, context, { apiKey: 'gsk-test' })
+  // Qwen 3.6 thinks or not: Groq's card takes only `default` and `none`.
+  const qwen36 = at(new ModelResolver().resolve('groq/qwen/qwen3.6-27b').model, url)
+  await completeSimple(qwen36, context, { apiKey: 'gsk-test', reasoning: 'high' as never })
   for (const body of bodies) expect(body).not.toContainKey('enable_thinking')
   // Groq's Qwen takes none, low, medium and high; without one it does not think.
-  expect(bodies.map((b) => b.reasoning_effort)).toEqual(['none', 'low', 'high', undefined])
+  expect(bodies.map((b) => b.reasoning_effort)).toEqual(['none', 'low', 'high', undefined, 'default'])
 })
 
 test('other providers keep the catalog’s request shape', () => {

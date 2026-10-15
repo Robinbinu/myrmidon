@@ -5,9 +5,10 @@
  *   bun .github/scripts/omp-bump.ts set <version>     pins every @oh-my-pi package to <version>, patch included
  *   bun .github/scripts/omp-bump.ts changelog <from>  what the installed omp packages changed after <from>, as Markdown
  *
- * Every @oh-my-pi package is pinned exactly, all at one version, as omp releases them together. The patch on pi-ai
- * (package.json patchedDependencies) is named for the version it applies to, so `set` renames it; whether it still
- * applies shows at the next `bun install`.
+ * Every @oh-my-pi package is pinned exactly, all at one version, as omp releases them together. Each patch on an omp
+ * package (package.json patchedDependencies) is named for the version it applies to, so `set` renames it. `bun install`
+ * applies a patch by its line numbers without checking the lines around them, so one that no longer fits can land on
+ * the wrong lines without an error: the patch tests (oauth-page, catalog-patch, lsp-patch) are what show it.
  */
 import { existsSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'

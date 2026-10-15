@@ -158,7 +158,7 @@ describe('pi-natives', () => {
 describe('snapcompact', () => {
   test('its budgets are numbers and its pieces are functions', () => {
     for (const n of [
-      snapcompact.FRAME_DATA_BYTES_BUDGET,
+      snapcompact.frameDataBytesBudget(undefined),
       snapcompact.FRAME_TOKEN_ESTIMATE,
       snapcompact.MAX_FRAMES_DEFAULT,
     ])
