@@ -337,8 +337,13 @@ export function chatLevel(
   return state.chatGrants?.length ? { rules: rulesFromGrants(state.chatGrants) } : undefined
 }
 
-/** Mutating fold step. Pure with respect to everything except `state`. Unknown types are ignored. */
+/**
+ * Mutating fold step. Pure with respect to everything except `state`. Unknown types are ignored, and so is an event at
+ * or before the state's position: `seq` is the log's only order, so one delivered twice (a replay, a subscriber that
+ * read the log and then heard it appended) or late counts once, whoever folds it.
+ */
 export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
+  if (event.seq > 0 && event.seq <= state.lastSeq) return state
   const base = { seq: event.seq, id: event.id, time: event.time }
   state.lastSeq = event.seq
   switch (event.type) {
