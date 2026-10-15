@@ -1,10 +1,11 @@
-# Proves Myrmidon builds and passes its suite on macOS; Linux and Windows run by hand until they are supported.
-# See docs/ci.md.
+# Proves Myrmidon builds and passes its suite on macOS; Linux and Windows run by hand until they are supported. On
+# develop, main and pull requests to main it then builds the macOS app and smoke-tests the package (docs/ci.md,
+# docs/verification.md). No job uses a secret or spends money on a model.
 name: CI
 
 on:
   push:
-    branches: [develop, 'xp-*']
+    branches: [develop, main, 'xp-*']
   pull_request:
     branches: [main, develop]
   workflow_dispatch:
@@ -26,6 +27,10 @@ on:
         description: Bun version to run with, to try a newer one (the repository's floor by default)
         type: string
         default: 1.3.14
+      smoke:
+        description: Also build the macOS app and smoke-test the package (scripts/smoke-desktop.ts)
+        type: boolean
+        default: false
 
 concurrency:
   group: ci-${{ github.ref }}-${{ inputs.os || 'all' }}-${{ inputs.bun || '' }}
@@ -124,3 +129,37 @@ jobs:
           code=0
           wait $tests || code=$?
           exit $code
+
+  # Tier 3 (docs/verification.md): the release build, unpacked and launched with an empty HOME, its server, its leash
+  # and its signatures checked. After the suite, so a red suite does not also spend macOS minutes on a build.
+  smoke-desktop:
+    name: macOS app smoke test
+    needs: check
+    if: >-
+      ${{ (github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main')) ||
+      (github.event_name == 'pull_request' && github.base_ref == 'main') ||
+      (github.event_name == 'workflow_dispatch' && inputs.smoke) }}
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ inputs.bun || '1.3.14' }}
+
+      - name: Restore Bun packages and the Electrobun toolchain
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            ~/.bun/install/cache
+            ~/.hutch/npm
+          key: ${{ runner.os }}-${{ runner.arch }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: ${{ runner.os }}-${{ runner.arch }}-bun-
+
+      - run: bun install --frozen-lockfile
+
+      # Builds the release (sidecar, then electrobun build --env=stable, signed ad hoc: no Developer ID, no
+      # notarization), then runs the checks; it prints the server's log when the app's server does not start.
+      - name: Build and smoke-test the macOS app
+        run: bun run smoke:desktop
