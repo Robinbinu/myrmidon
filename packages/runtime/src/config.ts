@@ -860,6 +860,24 @@ export const SETUP_ENV_KEYS: Readonly<Record<string, string>> = {
   xai: 'XAI_API_KEY',
 }
 
+// The myrmidon command (cli-command.ts)
+
+/**
+ * Where the desktop app links the `myrmidon` command, and the login file it adds that folder to PATH in. Both in the
+ * person's home, so installing needs no password (VS Code's and Cursor's /usr/local/bin needs an administrator).
+ * `appBinary` is how a link into a copy of the app ends, so only such a link is ever replaced or removed.
+ */
+export const CLI_COMMAND = {
+  name: 'myrmidon',
+  folder: '.local/bin',
+  profile: '.zprofile',
+  /** zsh is macOS's login shell; /etc/zprofile's path_helper runs before ~/.zprofile, so its PATH comes first. */
+  shell: '/bin/zsh',
+  /** How long asking a login shell for its PATH may take before it counts as not having the folder. */
+  probeMs: 5_000,
+  appBinary: /\/[^/]*Myrmidon[^/]*\.app\/Contents\/Resources\/app\/sidecar\/myrmidon$/,
+} as const
+
 // Project context (instructions.ts, git.ts)
 
 /** The most instruction text read from a project, how deep its @imports are followed, and how many folders are searched for nested files. */

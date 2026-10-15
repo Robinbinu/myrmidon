@@ -63,6 +63,8 @@ export const CHOREOGRAPHY: Record<SetupScreen, Choreography> = {
   channels: { place: 'side', gaze: 'controls', rest: EMOTIONS.ready },
   // Sends itself a test notification and reacts to it.
   alerts: { place: 'side', gaze: 'controls', rest: EMOTIONS.ready },
+  // Watches the Install button; nods once the command is in.
+  command: { place: 'side', gaze: 'controls', rest: EMOTIONS.curious },
   // Celebrates, then settles where the home screen keeps it.
   ready: { place: 'center', gaze: 'pointer', rest: EMOTIONS.happy, enter: 'celebrate' },
 }

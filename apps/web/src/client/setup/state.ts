@@ -1,4 +1,10 @@
-import { SETUP_STEPS, type SetupHave, type SetupState, type SetupStep } from '@myrmidon/protocol'
+import {
+  SETUP_STEPS,
+  type SetupHave,
+  type SetupSkip,
+  type SetupState,
+  type SetupStep,
+} from '@myrmidon/protocol'
 import { copy } from '../copy.ts'
 import { desktop } from '../ui/desktop.ts'
 import { NOTIFY_KEY, readStored } from '../ui/hooks.ts'
@@ -23,11 +29,23 @@ export function returnFromAddress(search: string = location.search): SetupReturn
   return value === 'home' || value === 'settings' ? value : undefined
 }
 
-/** What the server says about setup: where the person is with it, and what exists already. */
+/** What the server says about setup: where the person is with it, what exists already, and what does not apply. */
 export interface SetupView {
   setup: SetupState
   have: SetupHave
+  /** Steps with nothing to set up on this Myrmidon (the myrmidon command outside the desktop app): left out. */
+  skip?: SetupSkip
 }
+
+/** The screens this Myrmidon shows, in order: every one but the steps it skips. */
+export function screensFor(view: Pick<SetupView, 'skip'>): SetupScreen[] {
+  const skip: readonly string[] = view.skip ?? []
+  return SETUP_SCREENS.filter((s) => !skip.includes(s))
+}
+
+/** The steps this Myrmidon shows. */
+export const stepsFor = (view: Pick<SetupView, 'skip'>): SetupStep[] =>
+  SETUP_STEPS.filter((s) => !view.skip?.includes(s))
 
 /**
  * done: its thing exists (or, for a step with nothing to be missing, the person went through it); later: Set up
@@ -88,13 +106,13 @@ export const STATUS_DOT: Record<StepStatus, string> = {
 
 /** Where the assistant opens: the first step not set up and not gone through yet, or Ready once there is none. */
 export function resumeAt(view: SetupView): SetupScreen {
-  return SETUP_STEPS.find((s) => !isDone(s, view) && !view.setup.steps[s]) ?? 'ready'
+  return stepsFor(view).find((s) => !isDone(s, view) && !view.setup.steps[s]) ?? 'ready'
 }
 
 /** Whether the assistant takes the place of the home screen: until it is finished, or when the address names it. */
 export function opensOnLoad(view: SetupView, search: string = location.search): SetupScreen | undefined {
   const named = screenFromAddress(search)
-  if (named) return named
+  if (named && screensFor(view).includes(named)) return named
   return view.setup.finishedAt ? undefined : resumeAt(view)
 }
 
@@ -106,16 +124,22 @@ export function opensOnLoad(view: SetupView, search: string = location.search): 
 export function leftToSetUp(view: SetupView): SetupStep[] {
   if (!view.setup.finishedAt || view.setup.dismissedAt) return []
   const here = withAlerts(view)
-  return SETUP_STEPS.filter((s) => stepStatus(s, here) === 'later')
+  return stepsFor(view).filter((s) => stepStatus(s, here) === 'later')
 }
 
-export function nextScreen(screen: SetupScreen): SetupScreen {
-  return SETUP_SCREENS[Math.min(SETUP_SCREENS.indexOf(screen) + 1, SETUP_SCREENS.length - 1)] ?? 'ready'
+export function nextScreen(
+  screen: SetupScreen,
+  screens: readonly SetupScreen[] = SETUP_SCREENS,
+): SetupScreen {
+  return screens[Math.min(screens.indexOf(screen) + 1, screens.length - 1)] ?? 'ready'
 }
 
-export function previousScreen(screen: SetupScreen): SetupScreen | undefined {
-  const at = SETUP_SCREENS.indexOf(screen)
-  return at > 0 ? SETUP_SCREENS[at - 1] : undefined
+export function previousScreen(
+  screen: SetupScreen,
+  screens: readonly SetupScreen[] = SETUP_SCREENS,
+): SetupScreen | undefined {
+  const at = screens.indexOf(screen)
+  return at > 0 ? screens[at - 1] : undefined
 }
 
 export interface Starter {

@@ -77,6 +77,7 @@ import {
   ShieldQuestion,
   SlidersHorizontal,
   Smile,
+  SquareChevronRight,
   SquareTerminal,
   Star,
   Store,
@@ -265,6 +266,8 @@ export const FEATURE_ICONS = {
   personalShell: Terminal,
   /** Commands agents run in their sandbox. */
   agentShell: SquareTerminal,
+  /** The myrmidon command in a terminal, installed from the desktop app (Settings → General, its setup step). */
+  cliCommand: SquareChevronRight,
   /** The live record of what the crew did. */
   activity: Activity,
   /** Keyboard shortcuts: the shortcuts sheet (⌘/) and its list in Settings. */

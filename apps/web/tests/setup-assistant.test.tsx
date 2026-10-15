@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from 'bun:test'
-import { SETUP_STEPS, type SetupState } from '@myrmidon/protocol'
+import { SETUP_STEPS, type SetupState, type SetupStep } from '@myrmidon/protocol'
 import { MotionConfig } from 'motion/react'
 import { act } from 'react'
 import type { TeamConfig } from '../src/client/api.ts'
@@ -310,6 +310,10 @@ function fakeServer(
     saveFails?: boolean
     /** The default crew saved already, as Settings or another window left it. */
     team?: Record<string, unknown>
+    /** Steps this Myrmidon skips; the myrmidon command, as for a server run from source, unless given. */
+    skip?: SetupStep[]
+    /** What /api/cli-command answers, and what installing it changes it to. */
+    command?: { state: string; link: string; target?: string; profileBlock: boolean }
   } = {},
 ) {
   const state = { setup: structuredClone(start), projects: structuredClone(answers.projects ?? []) }
@@ -334,7 +338,22 @@ function fakeServer(
         if (body.step) state.setup.steps = { ...state.setup.steps, [body.step]: body.mark }
         if (body.finish) state.setup.finishedAt = '2026-10-09T10:00:00Z'
       }
-      return Response.json({ setup: state.setup, have: answers.have ?? {} })
+      return Response.json({
+        setup: state.setup,
+        have: answers.have ?? {},
+        skip: answers.skip ?? ['command'],
+      })
+    }
+    if (url.pathname === '/api/cli-command') {
+      puts.push({ command: method })
+      if (method === 'POST' && answers.command)
+        answers.command = {
+          ...answers.command,
+          state: 'installed',
+          target: '/Applications/Myrmidon.app/Contents/Resources/app/sidecar/myrmidon',
+          profileBlock: true,
+        }
+      return Response.json(answers.command ?? {})
     }
     if (url.pathname === '/api/projects') return Response.json({ projects: state.projects })
     const permissions = url.pathname.match(/^\/api\/projects\/([^/]+)\/permissions$/)
@@ -385,6 +404,7 @@ async function showSetup(
     have?: SetupView['have']
     config?: Partial<TeamConfig>
     onConfig?(c: TeamConfig): void
+    skip?: SetupStep[]
   } = {},
 ) {
   const { Setup } = await import('../src/client/setup/Setup.tsx')
@@ -402,7 +422,7 @@ async function showSetup(
     <MotionConfig reducedMotion="always" skipAnimations>
       <ToastProvider>
         <Setup
-          initial={{ setup: start, have: extra.have ?? {} }}
+          initial={{ setup: start, have: extra.have ?? {}, skip: extra.skip ?? ['command'] }}
           screen={screen}
           theme="system"
           onTheme={() => {}}
@@ -568,6 +588,63 @@ test('notifications refused: it says how to allow them later, marks alerts later
   } finally {
     await unmount()
   }
+})
+
+test('in the desktop app, the myrmidon command step explains itself, changes nothing on Continue, and installs on yes', async () => {
+  const link = '/Users/robin/.local/bin/myrmidon'
+  const command = { state: 'missing', link, profileBlock: false }
+  const first = fakeServer({ steps: { welcome: 'done' } }, { skip: [], command: { ...command } })
+  const one = await showSetup('alerts', { steps: { welcome: 'done' } }, { skip: [] })
+  try {
+    await settle()
+    // Listed after Alerts, and reached from it.
+    expect(Object.keys(listed())).toContain('Terminal command')
+    await act(async () => button('Continue').click())
+    await settle()
+    expect(heading()).toBe('The myrmidon command')
+    expect(document.body.textContent).toContain('~/.zprofile')
+    expect(document.querySelector('[role="status"][data-state]')?.textContent).toBe('Not installed.')
+    await act(async () => button('Continue').click())
+    await settle()
+    // Going past it installs nothing.
+    expect(first.puts).toContainEqual({ step: 'command', mark: 'done' })
+    expect(first.puts).not.toContainEqual({ command: 'POST' })
+    expect(heading()).toBe('You’re ready')
+  } finally {
+    await one.unmount()
+  }
+
+  const second = fakeServer({ steps: { welcome: 'done' } }, { skip: [], command: { ...command } })
+  const two = await showSetup('command', { steps: { welcome: 'done' } }, { skip: [] })
+  try {
+    await settle()
+    await act(async () => button('Install').click())
+    await settle()
+    expect(second.puts).toContainEqual({ command: 'POST' })
+    expect(document.querySelector('[role="status"][data-state]')?.textContent).toBe(`Installed at ${link}.`)
+    expect(document.body.textContent).toContain('open a new terminal window')
+    expect(button('Remove')).toBeTruthy()
+  } finally {
+    await two.unmount()
+  }
+})
+
+test('run from source, the step is left out: not listed, not walked to, not on Ready', async () => {
+  fakeServer({ steps: { welcome: 'done' } })
+  const { unmount } = await showSetup('alerts', { steps: { welcome: 'done' } })
+  try {
+    await settle()
+    expect(Object.keys(listed())).not.toContain('Terminal command')
+    await act(async () => button('Continue').click())
+    await settle()
+    expect(heading()).toBe('You’re ready')
+    expect(document.body.textContent).not.toContain('Terminal command')
+  } finally {
+    await unmount()
+  }
+  // Named in the address, it opens where setup resumes instead.
+  expect(opensOnLoad({ setup: { steps: {} }, have: {}, skip: ['command'] }, '?setup=command')).toBe('welcome')
+  expect(opensOnLoad({ setup: { steps: {} }, have: {}, skip: [] }, '?setup=command')).toBe('command')
 })
 
 /* ------------------------------------------------------------------ one step on its own */

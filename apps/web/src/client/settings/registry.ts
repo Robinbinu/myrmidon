@@ -192,6 +192,14 @@ export const SETTINGS = {
     keywords: kw.keepAwake,
     keys: ['power.keepAwake'],
   },
+  'general.cliCommand': {
+    page: 'general',
+    control: 'button',
+    label: copy.cliCommand.label,
+    help: copy.cliCommand.hint,
+    keywords: kw.cliCommand,
+    keys: ['cli.command'],
+  },
   'general.setup': {
     page: 'general',
     control: 'button',

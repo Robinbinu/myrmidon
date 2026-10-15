@@ -52,6 +52,7 @@ import { ToolLibraryList } from './chat/MadeTools.tsx'
 import { ModelPicker, windowLabel } from './chat/ModelPicker.tsx'
 import { modelName, usersOf, withoutModel } from './chat/model-list.ts'
 import { SpecialistEditor } from './chat/SpecialistEditor.tsx'
+import { CliCommandControls, useCliCommand } from './cli-command.tsx'
 import { copy } from './copy.ts'
 import {
   AddSkills,
@@ -1088,6 +1089,7 @@ function General(props: {
             />
           </SettingField>
         )}
+        <CliCommandRow />
         {props.onRunSetup && (
           <SettingField id="general.setup" inline>
             <Button icon={<FEATURE_ICONS.setup className="size-3.5" />} onClick={props.onRunSetup}>
@@ -1098,7 +1100,8 @@ function General(props: {
         {props.onOpenSetupStep && (
           <SettingField id="general.setupStep">
             <div className="flex flex-wrap gap-1.5">
-              {SETUP_STEPS.filter((s) => s !== 'welcome').map((s) => (
+              {/* The myrmidon command has its own row above, which also says when this Myrmidon cannot install it. */}
+              {SETUP_STEPS.filter((s) => s !== 'welcome' && s !== 'command').map((s) => (
                 <Button key={s} size="sm" onClick={() => props.onOpenSetupStep?.(s)}>
                   {copy.setup.steps[s]}
                 </Button>
@@ -1109,6 +1112,16 @@ function General(props: {
       </Card>
       {props.data && <TelemetrySettings data={props.data} update={props.update} />}
     </>
+  )
+}
+
+/** The myrmidon command in a terminal: where it is installed, or why it cannot be, with Install and Remove. */
+function CliCommandRow() {
+  const command = useCliCommand()
+  return (
+    <SettingField id="general.cliCommand">
+      <CliCommandControls command={command} />
+    </SettingField>
   )
 }
 

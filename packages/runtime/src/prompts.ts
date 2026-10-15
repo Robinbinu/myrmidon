@@ -1395,6 +1395,17 @@ Reply with JSON only: {"title": "..."} or {"title": null}.`,
       `The person asked:\n${o.asked.map((a) => `- ${a}`).join('\n')}${o.answer ? `\n\nThe crew answered:\n${o.answer}` : ''}`,
   },
 
+  /** The myrmidon command the desktop app installs (cli-command.ts): why it cannot, and the block it adds to ~/.zprofile. */
+  cliCommand: {
+    unavailable:
+      'Only the desktop app can install the myrmidon command. This Myrmidon runs from its source code (a development build).',
+    taken: (link: string) =>
+      `${link} is already there and is not Myrmidon's. Move it away first, then install again.`,
+    blockStart: '# >>> myrmidon command >>>',
+    blockNote: '# Added by the Myrmidon app so the myrmidon command is found. Settings → General removes it.',
+    blockEnd: '# <<< myrmidon command <<<',
+  },
+
   /** Keeping the computer awake while a round runs (keep-awake.ts): the reason the system's power report shows. */
   keepAwake: {
     reason: 'Myrmidon is running a round',

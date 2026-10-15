@@ -11,6 +11,7 @@ export const SETUP_STEPS = [
   'voice',
   'channels',
   'alerts',
+  'command',
 ] as const
 export type SetupStep = (typeof SETUP_STEPS)[number]
 
@@ -28,6 +29,12 @@ export interface SetupState {
 
 /** What exists already, however it was set up (the assistant or Settings): a step whose thing exists shows as done. */
 export type SetupHave = Partial<Record<SetupStep, boolean>>
+
+/**
+ * Steps with nothing to set up on this Myrmidon, which the assistant leaves out: installing the myrmidon command
+ * needs the desktop app, so a development build or a server run from source skips it.
+ */
+export type SetupSkip = readonly SetupStep[]
 
 export const isSetupStep = (value: unknown): value is SetupStep =>
   typeof value === 'string' && (SETUP_STEPS as readonly string[]).includes(value)
