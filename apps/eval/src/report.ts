@@ -74,12 +74,44 @@ export interface Metrics {
   /** Agent turns started before the first task existed; high numbers mean slow planning. */
   turnsBeforeFirstTask?: number
   verificationRounds: number
+  /**
+   * For a trial that edited files: whether a test run that went through came after its last edit (run_checks, or a
+   * shell test command that exited 0). False means the agent finished on an edit it never tested.
+   */
+  testedAfterEdit?: boolean
   judge?: { pass: boolean; score?: number }
   finalReply?: string
 }
 
 type Payload = Record<string, unknown>
 const payload = (e: MyrEvent) => e.payload as Payload
+
+const EDIT_TOOLS = new Set(['fs_edit', 'fs_write', 'ast_edit'])
+/** A shell command that runs a test suite, in the runners the fixtures and most projects use. */
+const TEST_COMMAND =
+  /\b(bun|npm|pnpm|yarn|npx|bunx)\s+(run\s+)?test\b|\bpytest\b|\bvitest\b|\bjest\b|\b(cargo|go)\s+test\b/
+
+/** Whether a test run that went through came after the last edit; undefined when nothing was edited. */
+function testedAfterEdit(events: readonly MyrEvent[]): boolean | undefined {
+  const calls = events.filter((e) => e.type === 'tool/call')
+  const lastEdit = calls.findLast((e) => EDIT_TOOLS.has(String(payload(e).tool)))
+  if (!lastEdit) return undefined
+  const tests = new Set(
+    calls
+      .filter((e) => e.seq > lastEdit.seq)
+      .filter((e) => {
+        const p = payload(e)
+        if (p.tool === 'run_checks') return true
+        const command = (p.args as { command?: unknown } | undefined)?.command
+        return p.tool === 'shell' && typeof command === 'string' && TEST_COMMAND.test(command)
+      })
+      .map((e) => payload(e).callId),
+  )
+  // The run counts when it went through: run_checks found checks, the shell ran (a failing suite still exits).
+  return events.some(
+    (e) => e.type === 'tool/result' && tests.has(payload(e).callId) && payload(e).ok !== false,
+  )
+}
 
 export function metrics(events: readonly MyrEvent[]): Metrics {
   const of = (type: string) => events.filter((e) => e.type === type)
@@ -100,6 +132,7 @@ export function metrics(events: readonly MyrEvent[]): Metrics {
   const replies = of('chat/reply').map(payload)
   const final = replies.filter((r) => r.final).at(-1) ?? replies.at(-1)
   const team = created.team as { mode?: Mode } | undefined
+  const tested = testedAfterEdit(events)
   return {
     ...(created.tier ? { tier: created.tier as Tier } : {}),
     ...(rounds.length > 1 ? { escalated: rounds.map((r) => String(r.tier)).join(' → ') } : {}),
@@ -119,6 +152,7 @@ export function metrics(events: readonly MyrEvent[]): Metrics {
     agents: ((created.agents as unknown[] | undefined)?.length ?? 0) + of('agent/joined').length,
     ...(firstTask ? { turnsBeforeFirstTask: turnStarts.filter((e) => e.seq < firstTask.seq).length } : {}),
     verificationRounds: colonyVerdicts.length,
+    ...(tested === undefined ? {} : { testedAfterEdit: tested }),
     ...(lastVerdict
       ? {
           judge: {
@@ -217,6 +251,10 @@ export interface CaseSummary {
   regressionRate: number
   /** Summed over the trials; absent when a provider reported no price. */
   costUsd?: number
+  /** Trials that ended on an edit no test run followed (Metrics.testedAfterEdit false). */
+  untestedEdits: number
+  /** Tool calls that returned an error, summed over the trials. */
+  failedToolCalls: number
   hardFailures: string[]
 }
 
@@ -250,6 +288,8 @@ export function summarize(results: readonly TrialResult[]): CaseSummary[] {
       ...(rs.every((r) => r.metrics.costUsd !== undefined)
         ? { costUsd: rs.reduce((n, r) => n + (r.metrics.costUsd ?? 0), 0) }
         : {}),
+      untestedEdits: rs.filter((r) => r.metrics.testedAfterEdit === false).length,
+      failedToolCalls: rs.reduce((n, r) => n + r.metrics.failedToolCalls, 0),
       hardFailures: rs.flatMap((r) => [
         ...(r.error ? [`#${r.trial} error: ${r.error}`] : []),
         ...(r.grade.tierMismatch ? [`#${r.trial} tier ${r.metrics.tier}`] : []),
@@ -273,7 +313,8 @@ export function compare(before: readonly CaseSummary[], after: readonly CaseSumm
       `${a.medianSeconds}s → ${b.medianSeconds}s${delta(a.medianSeconds, b.medianSeconds)}, ` +
       `${a.medianTokens} → ${b.medianTokens} tok${delta(a.medianTokens, b.medianTokens)}, ` +
       `${a.medianToolCalls} → ${b.medianToolCalls} tools, ` +
-      `regressions ${pct(a.regressionRate ?? 0)} → ${pct(b.regressionRate ?? 0)}`
+      `regressions ${pct(a.regressionRate ?? 0)} → ${pct(b.regressionRate ?? 0)}, ` +
+      `untested edits ${a.untestedEdits ?? 0} → ${b.untestedEdits}, failed calls ${a.failedToolCalls ?? 0} → ${b.failedToolCalls}`
     )
   })
 }

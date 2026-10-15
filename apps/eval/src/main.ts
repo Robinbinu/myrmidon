@@ -242,7 +242,7 @@ writeFileSync(
 )
 
 console.log(
-  '\ncase [mode]                       pass   pass@k pass^k  median s   median tok  tools  regress   cost $',
+  '\ncase [mode]                       pass   pass@k pass^k  median s   median tok  tools  regress   cost $  untested  failed',
 )
 for (const s of summary)
   console.log(
@@ -250,7 +250,8 @@ for (const s of summary)
       `${(s.passAtK ? 'yes' : 'no').padEnd(6)} ${(s.passHatK ? 'yes' : 'no').padEnd(6)} ` +
       `${String(s.medianSeconds).padStart(8)}   ${s.medianTokens.toLocaleString('en-US').padStart(10)}  ` +
       `${String(s.medianToolCalls).padStart(5)}  ${`${Math.round(s.regressionRate * 100)}%`.padStart(7)}  ` +
-      `${s.costUsd === undefined ? '       ?' : s.costUsd.toFixed(3).padStart(8)}`,
+      `${s.costUsd === undefined ? '       ?' : s.costUsd.toFixed(3).padStart(8)}  ` +
+      `${String(s.untestedEdits).padStart(8)}  ${String(s.failedToolCalls).padStart(6)}`,
   )
 console.log(`\nreport: ${out}`)
 const hard = summary.flatMap((s) => s.hardFailures.map((f) => `${s.case} [${s.mode}] ${f}`))

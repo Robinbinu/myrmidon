@@ -175,6 +175,122 @@ export function restock(items: Item[], sku: string, amount: number): Item[] {
 `
 
 /**
+ * A shop of about thirty files where the names point the wrong way: the tier bug is in customers/loyalty.ts, while
+ * pricing/ and a deprecated legacy/discount.ts look like where discounts live. Twelve filler modules, each with a
+ * passing test, make the repo big enough that reading everything is a cost.
+ */
+function shopFixture(): Record<string, string> {
+  const files: Record<string, string> = {
+    'package.json': PKG('shop-large'),
+    'README.md': '# shop\n\nCheckout, pricing and loyalty for the web shop. Run the tests with `bun test`.\n',
+    'src/legacy/discount.ts': `/**
+ * @deprecated v1 API only: checkout no longer calls this. Kept until the v1 clients are gone.
+ */
+export function discountFor(tier: string): number {
+  return tier === 'gold' ? 0.1 : tier === 'silver' ? 0.05 : 0
+}
+`,
+    'src/pricing/tiers.ts': `export type Tier = 'bronze' | 'silver' | 'gold'
+
+/** Discount per loyalty tier, as a fraction of the subtotal. */
+export const TIER_RATES: Record<Tier, number> = { bronze: 0, silver: 0.05, gold: 0.15 }
+`,
+    'src/pricing/discount.ts': `import { TIER_RATES, type Tier } from './tiers.ts'
+
+/** The discount for a subtotal at a tier, rounded to cents. */
+export function tierDiscount(subtotal: number, tier: Tier): number {
+  return Math.round(subtotal * TIER_RATES[tier] * 100) / 100
+}
+`,
+    'src/customers/loyalty.ts': `import type { Tier } from '../pricing/tiers.ts'
+
+/** The loyalty tier for a points balance: gold above 1000 points, silver from 500, bronze below. */
+export function tierOf(points: number): Tier {
+  if (points >= 500) return 'silver'
+  if (points > 1000) return 'gold'
+  return 'bronze'
+}
+`,
+    'src/customers/loyalty.test.ts': `import { expect, test } from 'bun:test'
+import { tierOf } from './loyalty.ts'
+
+test('silver from 500 points', () => expect(tierOf(600)).toBe('silver'))
+test('bronze below 500', () => expect(tierOf(10)).toBe('bronze'))
+`,
+    'src/checkout/checkout.ts': `import { tierOf } from '../customers/loyalty.ts'
+import { tierDiscount } from '../pricing/discount.ts'
+
+export interface Order {
+  subtotal: number
+  points: number
+}
+
+/** What the customer pays: the subtotal less their tier's discount. */
+export function checkoutTotal(order: Order): number {
+  return Math.round((order.subtotal - tierDiscount(order.subtotal, tierOf(order.points))) * 100) / 100
+}
+`,
+    'src/checkout/checkout.test.ts': `import { expect, test } from 'bun:test'
+import { checkoutTotal } from './checkout.ts'
+
+test('no discount for new customers', () => expect(checkoutTotal({ subtotal: 100, points: 0 })).toBe(100))
+test('silver pays 5% less', () => expect(checkoutTotal({ subtotal: 100, points: 700 })).toBe(95))
+`,
+  }
+  const fillers = [
+    'shipping',
+    'inventory',
+    'emails',
+    'search',
+    'reviews',
+    'wishlist',
+    'returns',
+    'invoices',
+    'tax',
+    'currency',
+    'sessions',
+    'audit',
+  ]
+  for (const [i, name] of fillers.entries()) {
+    files[`src/${name}/${name}.ts`] =
+      `/** ${name}: one of the shop's modules. */\nexport function ${name}Code(id: number): string {\n  return \`${name.slice(0, 3).toUpperCase()}-\${String(id + ${i}).padStart(4, '0')}\`\n}\n`
+    files[`src/${name}/${name}.test.ts`] =
+      `import { expect, test } from 'bun:test'\nimport { ${name}Code } from './${name}.ts'\n\ntest('${name} code', () => expect(${name}Code(1)).toBe('${name.slice(0, 3).toUpperCase()}-${String(1 + i).padStart(4, '0')}'))\n`
+  }
+  return files
+}
+
+const VERSION = `/** Compares two dotted versions: negative when a is older, positive when newer, 0 when equal. */
+export function compareVersions(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0
+}
+`
+
+const CART_TOTAL = `export interface Item {
+  price: number
+  qty: number
+}
+
+/** The cart's total. */
+export function total(items: Item[]): number {
+  return items.reduce((sum, i) => sum + i.price, 0)
+}
+`
+
+// The person's work in progress, in the very function the fix touches: a coupon, and a note to themselves.
+const CART_TOTAL_WIP = `export interface Item {
+  price: number
+  qty: number
+}
+
+/** The cart's total, less an optional coupon. */
+export function total(items: Item[], coupon = 0): number {
+  // TODO(robin): can coupons stack? ask Sam before shipping
+  return Math.max(0, items.reduce((sum, i) => sum + i.price, 0) - coupon)
+}
+`
+
+/**
  * The everyday solo coding workflow: one person, one agent, a small repo. Each case's checks are objective: the
  * project's tests, hidden tests the agent never sees, and `regression` checks that unrelated files and the person's
  * own uncommitted edits are left exactly as they were.
@@ -462,6 +578,103 @@ test('oldest user', () => expect(oldest(users).name).toBe('alan'))
       { kind: 'unchanged', label: 'tests left alone', file: 'src/users.test.ts', regression: true },
       { kind: 'unchanged', label: 'setup left alone', file: 'test/setup.ts', regression: true },
       onlyChanged('only users.ts changed', ['src/users.ts']),
+    ],
+  },
+  {
+    id: 'solo-misleading-names',
+    pillar: 'coding',
+    prompt:
+      "Customers with more than 1000 loyalty points should get the gold discount at checkout, but they're charged the silver rate. Fix it.",
+    tiers: ['solo'],
+    modes: ['orchestrated'],
+    budget: { seconds: 360, tokens: 700_000 },
+    git: true,
+    project: shopFixture(),
+    checks: [
+      hidden(
+        'checkout charges each tier its rate',
+        "import { checkoutTotal } from './src/checkout/checkout.ts'; for (const [points, want] of [[1500, 85], [1001, 85], [1000, 95], [600, 95], [10, 100]]) if (checkoutTotal({ subtotal: 100, points }) !== want) throw new Error(String([points, checkoutTotal({ subtotal: 100, points })]))",
+      ),
+      { kind: 'command', label: 'bun test passes', run: ['bun', 'test'], regression: true },
+      onlyChanged('only the loyalty code and tests changed', [
+        'src/customers/loyalty.ts',
+        'src/customers/loyalty.test.ts',
+        'src/checkout/checkout.test.ts',
+      ]),
+    ],
+  },
+  {
+    id: 'solo-wrong-first-fix',
+    pillar: 'coding',
+    prompt: 'compareVersions says 1.10.0 is older than 1.9.0. Fix it.',
+    tiers: ['solo'],
+    modes: ['orchestrated'],
+    budget: { seconds: 300, tokens: 600_000 },
+    git: true,
+    project: {
+      'package.json': PKG('versions'),
+      'src/version.ts': VERSION,
+      // Joining the parts into one number fixes the first test and breaks the second, which passes today.
+      'src/version.test.ts': `import { expect, test } from 'bun:test'
+import { compareVersions } from './version.ts'
+
+test('a later minor is newer', () => expect(compareVersions('1.10.0', '1.9.0')).toBeGreaterThan(0))
+test('a later minor beats a bigger patch', () => expect(compareVersions('1.2.10', '1.3.0')).toBeLessThan(0))
+test('equal versions', () => expect(compareVersions('2.0.1', '2.0.1')).toBe(0))
+`,
+    },
+    checks: [
+      { kind: 'command', label: 'bun test passes', run: ['bun', 'test'] },
+      hidden(
+        'orders versions part by part',
+        "import { compareVersions as c } from './src/version.ts'; const ok = c('2.0.0', '1.99.99') > 0 && c('1.2.10', '1.3.0') < 0 && c('0.10.1', '0.9.12') > 0 && c('3.4.5', '3.4.5') === 0 && c('1.0.9', '1.0.10') < 0; if (!ok) throw new Error('wrong order')",
+      ),
+      { kind: 'unchanged', label: 'tests left alone', file: 'src/version.test.ts', regression: true },
+      onlyChanged('only version.ts changed', ['src/version.ts']),
+    ],
+  },
+  {
+    id: 'solo-dirty-overlap',
+    pillar: 'coding',
+    prompt: 'total() in src/cart.ts ignores quantities. Fix it.',
+    tiers: ['solo'],
+    modes: ['orchestrated'],
+    budget: { seconds: 240, tokens: 400_000 },
+    git: true,
+    project: {
+      'package.json': PKG('cart'),
+      'src/cart.ts': CART_TOTAL,
+      'src/cart.test.ts': `import { expect, test } from 'bun:test'
+import { total } from './cart.ts'
+
+test('one of each', () => expect(total([{ price: 2, qty: 1 }, { price: 3, qty: 1 }])).toBe(5))
+`,
+    },
+    dirty: { 'src/cart.ts': CART_TOTAL_WIP },
+    checks: [
+      { kind: 'command', label: 'bun test passes', run: ['bun', 'test'] },
+      hidden(
+        'quantities count',
+        "import { total } from './src/cart.ts'; if (total([{ price: 2, qty: 3 }, { price: 1, qty: 1 }]) !== 7) throw new Error('qty ignored')",
+      ),
+      hidden(
+        "the person's uncommitted coupon still works",
+        "import { total } from './src/cart.ts'; if (total([{ price: 4, qty: 1 }], 1) !== 3 || total([{ price: 1, qty: 1 }], 5) !== 0) throw new Error('coupon lost')",
+        true,
+      ),
+      {
+        kind: 'command',
+        label: "the person's TODO note kept",
+        regression: true,
+        run: ['grep', '-qF', 'TODO(robin): can coupons stack? ask Sam before shipping', 'src/cart.ts'],
+      },
+      {
+        kind: 'command',
+        label: 'nothing committed or stashed',
+        regression: true,
+        run: ['sh', '-c', 'test "$(git rev-list --count HEAD)" = 1 && test -z "$(git stash list)"'],
+      },
+      onlyChanged('only the cart files changed', ['src/cart.ts', 'src/cart.test.ts']),
     ],
   },
 ]
