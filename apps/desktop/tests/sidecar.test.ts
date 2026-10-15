@@ -2,7 +2,11 @@ import { afterAll, beforeAll, expect, test } from 'bun:test'
 import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { CELL_WORKER_COMMAND, EMBEDDED_SHELL_COMMAND } from '../../../packages/runtime/src/config.ts'
+import {
+  CELL_WORKER_COMMAND,
+  EMBEDDED_SHELL_COMMAND,
+  LEASH_COMMAND,
+} from '../../../packages/runtime/src/config.ts'
 import { KITTEN_WORKER_COMMAND } from '../../../packages/runtime/src/voice/tts.ts'
 import { asPlatform, executableName } from '../src/platform.ts'
 
@@ -38,6 +42,17 @@ test("the compiled server carries Kitten's worker and the native runtime it load
   expect(run.stdout.toString()).toBe('')
   expect(run.exitCode).not.toBe(0)
 }, 60_000)
+
+test('the compiled server runs as its own leash, so commands it starts on one (full access) run', async () => {
+  // It has no leash.ts on disk: a command started on a leash runs this same executable with LEASH_COMMAND.
+  const run = Bun.spawn([bin, LEASH_COMMAND, '--grace=200', '/bin/echo', 'leashed'], {
+    stdout: 'pipe',
+    stderr: 'pipe',
+  })
+  expect(await new Response(run.stdout).text()).toBe('leashed\n')
+  expect(await new Response(run.stderr).text()).not.toContain('Module not found')
+  expect(await run.exited).toBe(0)
+})
 
 test('the compiled server carries the JavaScript cell runtime, and it runs a cell', async () => {
   const run = (code: string) => ({

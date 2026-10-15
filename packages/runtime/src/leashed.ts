@@ -1,13 +1,13 @@
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { LEASH_GRACE_MS } from './config.ts'
+import { LEASH_COMMAND, LEASH_GRACE_MS } from './config.ts'
 
 const SCRIPT = join(import.meta.dir, 'leash.ts')
-// A compiled Myrmidon (the desktop app's server) or a bundle has no leash.ts beside it, so it carries the source and
-// runs it with `-e`; BUN_BE_BUN makes a compiled binary act as Bun for that.
-const SOURCE = existsSync(SCRIPT)
-  ? undefined
-  : ((await import('./leash.ts', { with: { type: 'text' } })) as unknown as { default: string }).default
+// A compiled Myrmidon (the desktop app's server) has no leash.ts on disk, so it runs itself as the leash
+// (apps/desktop/src/sidecar.ts), as it does its other workers. Not its source text with `-e`: Bun hands the leash's
+// module, not its text, to a text import of a file the bundle also imports as code, and the child then looked for
+// the file inside the parent's own binary ("Module not found /$bunfs/root/leash.ts").
+const RUN_LEASH = existsSync(SCRIPT) ? [SCRIPT] : [LEASH_COMMAND]
 
 /**
  * On Windows every child Bun starts joins a job object that ends it the moment its parent dies: a leash there would
@@ -28,12 +28,7 @@ function envChanges(env: Record<string, string | undefined>): string {
 }
 
 function leash(args: readonly string[]): string[] {
-  return [
-    process.execPath,
-    ...(SOURCE === undefined ? [SCRIPT] : ['-e', SOURCE, '--']),
-    `--grace=${LEASH_GRACE_MS}`,
-    ...args,
-  ]
+  return [process.execPath, ...RUN_LEASH, `--grace=${LEASH_GRACE_MS}`, ...args]
 }
 
 /**
@@ -58,7 +53,6 @@ export function spawnLeashed<
       // twice over could pass Windows' limit on its size).
       env: {
         ...process.env,
-        BUN_BE_BUN: '1',
         ...(options.env ? { MYR_LEASH_ENV: envChanges(options.env) } : {}),
       },
       stdin: 'pipe',
@@ -89,7 +83,6 @@ export function leashRunning(pid: number): Bun.Subprocess<'pipe', 'ignore', 'ign
   return stopsByStdin(
     Bun.spawn(leash([`--pid=${pid}`]), {
       detached: OUTSIDE_JOB,
-      env: { ...process.env, BUN_BE_BUN: '1' },
       stdin: 'pipe',
       stdout: 'ignore',
       stderr: 'ignore',

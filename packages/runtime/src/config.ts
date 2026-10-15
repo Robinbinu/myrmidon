@@ -414,6 +414,9 @@ export const GITHUB = {
  */
 export const CELL_WORKER_COMMAND = 'cell-worker'
 
+/** The argument that makes a compiled Myrmidon run as the leash (leashed.ts) it carries (apps/desktop/src/sidecar.ts). */
+export const LEASH_COMMAND = 'leash'
+
 /**
  * How long one cell may run when the agent names no limit, and the most it may name. A cell past it is stopped with
  * its runtime (a JavaScript loop cannot be interrupted any other way), so its state is lost.

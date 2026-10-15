@@ -153,7 +153,8 @@ function sweepLog(entry: object) {
   if (file) appendFileSync(file, `${JSON.stringify({ leash: process.pid, at: Date.now(), ...entry })}\n`)
 }
 
-async function main() {
+/** The leash's work: runs `argv` after `--grace=`, or adopts `--pid=`; also entered by a compiled Myrmidon. */
+export async function runLeash() {
   const at = process.argv.findIndex((a) => a.startsWith('--grace='))
   const graceMs = Number(process.argv[at]?.slice('--grace='.length))
   const rest = process.argv.slice(at + 1)
@@ -275,4 +276,4 @@ async function main() {
   process.exit(code ?? 128 + (constants.signals[child?.signalCode as NodeJS.Signals] ?? 0))
 }
 
-if (import.meta.main) await main()
+if (import.meta.main) await runLeash()
