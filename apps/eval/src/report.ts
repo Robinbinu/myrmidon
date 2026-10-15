@@ -3,8 +3,12 @@ import type { MyrEvent } from '@myrmidon/protocol'
 export type Tier = 'answer' | 'solo' | 'team'
 export type Mode = 'orchestrated' | 'swarm'
 
-/** A code-based check on one trial. The colony's own judge is the model-based grader (`judge`). */
-export type Check =
+/**
+ * A code-based check on one trial. The colony's own judge is the model-based grader (`judge`). A `regression`
+ * check guards something the request never asked to change (unrelated files, the person's uncommitted edits, the
+ * rest of the suite): its failures count toward the regression rate as well as failing the trial.
+ */
+export type Check = (
   | { kind: 'reply'; label: string; matches: RegExp }
   | { kind: 'artifact'; label: string; name: RegExp; contains?: RegExp }
   | { kind: 'tool'; label: string; used: RegExp }
@@ -15,6 +19,7 @@ export type Check =
   /** A project file must still hold exactly its fixture content (the agent must not "fix" the test). */
   | { kind: 'unchanged'; label: string; file: string }
   | { kind: 'judge'; label: string }
+) & { regression?: boolean }
 
 export interface EvalCase {
   id: string
@@ -29,6 +34,13 @@ export interface EvalCase {
   project?: Record<string, string>
   /** Make the project a git repository with the fixture committed (team rounds then give workers worktrees). */
   git?: boolean
+  /**
+   * Files written after the fixture commit: the person's uncommitted work in progress. An `unchanged` check on one
+   * of them compares against this content.
+   */
+  dirty?: Record<string, string>
+  /** Messages sent in the same chat, each after the previous round ended: a task continued with its history. */
+  followUps?: string[]
   /**
    * A local website served for the trial (deterministic, unlike the live web); `{url}` in the prompt becomes its
    * address.
@@ -124,6 +136,7 @@ export function metrics(events: readonly MyrEvent[]): Metrics {
 export interface CheckResult {
   label: string
   pass: boolean
+  regression?: boolean
 }
 
 export interface Grade {
@@ -156,7 +169,13 @@ export function grade(c: EvalCase, view: TrialView, m: Metrics = metrics(view.ev
         return m.judge?.pass === true
     }
   }
-  const checks = c.checks.map((check): CheckResult => ({ label: check.label, pass: passes(check) }))
+  const checks = c.checks.map(
+    (check): CheckResult => ({
+      label: check.label,
+      pass: passes(check),
+      ...(check.regression ? { regression: true } : {}),
+    }),
+  )
   const breach =
     m.seconds > c.budget.seconds
       ? `${m.seconds}s > ${c.budget.seconds}s`
@@ -194,6 +213,10 @@ export interface CaseSummary {
   medianSeconds: number
   medianTokens: number
   medianToolCalls: number
+  /** Share of trials where a `regression` check failed: something outside the request broke. */
+  regressionRate: number
+  /** Summed over the trials; absent when a provider reported no price. */
+  costUsd?: number
   hardFailures: string[]
 }
 
@@ -222,6 +245,11 @@ export function summarize(results: readonly TrialResult[]): CaseSummary[] {
       medianSeconds: median(rs.map((r) => r.metrics.seconds)),
       medianTokens: median(rs.map((r) => r.metrics.tokens)),
       medianToolCalls: median(rs.map((r) => r.metrics.toolCalls)),
+      regressionRate:
+        rs.filter((r) => r.grade.checks.some((x) => x.regression && !x.pass)).length / rs.length,
+      ...(rs.every((r) => r.metrics.costUsd !== undefined)
+        ? { costUsd: rs.reduce((n, r) => n + (r.metrics.costUsd ?? 0), 0) }
+        : {}),
       hardFailures: rs.flatMap((r) => [
         ...(r.error ? [`#${r.trial} error: ${r.error}`] : []),
         ...(r.grade.tierMismatch ? [`#${r.trial} tier ${r.metrics.tier}`] : []),
@@ -231,7 +259,7 @@ export function summarize(results: readonly TrialResult[]): CaseSummary[] {
   })
 }
 
-/** Side-by-side lines for two reports: pass rate and median time/tokens per case and mode. */
+/** Side-by-side lines for two reports: pass and regression rates, median time/tokens/tool calls per case and mode. */
 export function compare(before: readonly CaseSummary[], after: readonly CaseSummary[]): string[] {
   const pct = (n: number) => `${Math.round(n * 100)}%`
   const delta = (a: number, b: number) =>
@@ -243,7 +271,9 @@ export function compare(before: readonly CaseSummary[], after: readonly CaseSumm
     return (
       `${b.case} [${b.mode}]  pass ${pct(a.passRate)} → ${pct(b.passRate)}, ` +
       `${a.medianSeconds}s → ${b.medianSeconds}s${delta(a.medianSeconds, b.medianSeconds)}, ` +
-      `${a.medianTokens} → ${b.medianTokens} tok${delta(a.medianTokens, b.medianTokens)}`
+      `${a.medianTokens} → ${b.medianTokens} tok${delta(a.medianTokens, b.medianTokens)}, ` +
+      `${a.medianToolCalls} → ${b.medianToolCalls} tools, ` +
+      `regressions ${pct(a.regressionRate ?? 0)} → ${pct(b.regressionRate ?? 0)}`
     )
   })
 }

@@ -122,6 +122,31 @@ test('summaries give pass@k, pass^k and medians, and compare shows the change', 
   expect(s?.passRate).toBeCloseTo(2 / 3)
   const [after] = summarize([trial(1, true, 10), trial(2, true, 10)])
   expect(compare(s ? [s] : [], after ? [after] : [])).toEqual([
-    'heading [orchestrated]  pass 67% → 100%, 20s → 10s (-50%), 2000 → 1500 tok (-25%)',
+    'heading [orchestrated]  pass 67% → 100%, 20s → 10s (-50%), 2000 → 1500 tok (-25%), 1 → 1 tools, regressions 0% → 0%',
   ])
+})
+
+test('a failed regression check counts toward the regression rate, and cost sums over the trials', () => {
+  const trial = (n: number, regressed: boolean): TrialResult => ({
+    case: 'dirty',
+    mode: 'orchestrated',
+    trial: n,
+    metrics: metrics(run()),
+    grade: {
+      checks: [
+        { label: 'tests pass', pass: true },
+        { label: 'your edits kept', pass: !regressed, regression: true },
+      ],
+      pass: !regressed,
+      tierMismatch: false,
+    },
+  })
+  const [s] = summarize([trial(1, true), trial(2, false), trial(3, false), trial(4, false)])
+  expect(s?.regressionRate).toBe(0.25)
+  expect(s?.costUsd).toBeCloseTo(0.12)
+  const g = grade(
+    { ...CASE, checks: [{ kind: 'unchanged', label: 'kept', file: 'a.ts', regression: true }] },
+    { events: run(), artifacts: {}, local: { kept: false } },
+  )
+  expect(g.checks).toEqual([{ label: 'kept', pass: false, regression: true }])
 })

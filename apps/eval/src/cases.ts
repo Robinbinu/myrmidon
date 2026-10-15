@@ -1,4 +1,4 @@
-import type { EvalCase } from './report.ts'
+import type { Check, EvalCase } from './report.ts'
 import { confirmation, formSite, shopSite, tableSite } from './sites.ts'
 
 const SUM_TEST = `import { expect, test } from 'bun:test'
@@ -24,6 +24,447 @@ test('thousands and cents', () => expect(formatCents(123456)).toBe('$1,234.56'))
 test('whole dollars keep two decimals', () => expect(formatCents(500)).toBe('$5.00'))
 test('negative amounts', () => expect(formatCents(-2599)).toBe('-$25.99'))
 `
+
+const PKG = (name: string, scripts?: Record<string, string>) =>
+  `${JSON.stringify({ name, private: true, type: 'module', ...(scripts ? { scripts } : {}) }, null, 2)}\n`
+
+/** Passes when `code` (run with bun in the project) exits 0: a hidden test the agent never sees. */
+const hidden = (label: string, code: string, regression?: boolean): Check => ({
+  kind: 'command',
+  label,
+  run: ['bun', '-e', code],
+  ...(regression ? { regression } : {}),
+})
+
+/** Passes when git shows no changed or new file outside `allowed`: nothing unrelated was touched. */
+const onlyChanged = (label: string, allowed: string[]): Check => ({
+  kind: 'command',
+  label,
+  regression: true,
+  run: [
+    'sh',
+    '-c',
+    `git status --porcelain --untracked-files=all | cut -c4- | ${
+      allowed.length ? `grep -vxF ${allowed.map((f) => `-e '${f}'`).join(' ')} | ` : ''
+    }(! grep -q .)`,
+  ],
+})
+
+/**
+ * Passes when the project's tests fail on a copy with `file` put back to `source` (its committed version when
+ * omitted): the tests the agent wrote catch the bug.
+ */
+const catches = (label: string, file: string, source?: string, test = 'bun test'): Check => ({
+  kind: 'command',
+  label,
+  run: [
+    'sh',
+    '-c',
+    source
+      ? `d=$(mktemp -d) && cp -R . "$d" && cd "$d" && cat > '${file}' <<'MYR_EOF' && ! ${test} >/dev/null 2>&1\n${source}MYR_EOF\n`
+      : `d=$(mktemp -d) && cp -R . "$d" && cd "$d" && git show 'HEAD:${file}' > '${file}' && ! ${test} >/dev/null 2>&1`,
+  ],
+})
+
+const CHUNK = `/** Splits xs into consecutive groups of \`size\`; the last group may be shorter. */
+export function chunk<T>(xs: T[], size: number): T[][] {
+  const out: T[][] = []
+  for (let i = 0; i + size <= xs.length; i += size) out.push(xs.slice(i, i + size))
+  return out
+}
+`
+
+const SLUG = `/** URL slug for a title: lower case, letters and digits, words joined by single dashes. */
+export function slugify(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]/g, '')
+    .trim()
+    .replace(/ /g, '-')
+}
+`
+
+const STRINGS = `export function capitalize(s: string): string {
+  return s[0]!.toUpperCase() + s.slice(1)
+}
+
+export function truncate(s: string, n: number): string {
+  return s.length > n ? \`\${s.slice(0, n - 1)}…\` : s
+}
+`
+
+const CART = `export interface Line {
+  price: number
+  qty: number
+}
+
+/** What the customer pays, VAT included. */
+export function cartTotal(lines: Line[]): number {
+  const net = lines.reduce((n, l) => n + l.price * l.qty, 0)
+  return Math.round(net * (1 + 0.2) * 100) / 100
+}
+`
+
+const INVOICE = `import type { Line } from './cart.ts'
+
+/** The VAT line on an invoice. */
+export function invoiceTax(lines: Line[]): number {
+  const net = lines.reduce((n, l) => n + l.price * l.qty, 0)
+  return Math.round(net * 0.2 * 100) / 100
+}
+`
+
+const RECEIPT = `export const vatLabel = (): string => 'VAT 20%'
+
+export function receiptLine(name: string, amount: number): string {
+  return \`\${name.padEnd(20)}\${amount.toFixed(2).padStart(10)}\`
+}
+`
+
+const DURATION_FIXED = `/** Parses '1h30m', '45m' or '2h' into minutes. */
+export function parseDuration(s: string): number {
+  let total = 0
+  for (const [, n, unit] of s.matchAll(/(\\d+)([hm])/g)) total += Number(n) * (unit === 'h' ? 60 : 1)
+  return total
+}
+`
+
+const DURATION_BUGGY = `/** Parses '1h30m', '45m' or '2h' into minutes. */
+export function parseDuration(s: string): number {
+  const m = s.match(/(\\d+)([hm])$/)
+  return m ? Number(m[1]) * (m[2] === 'h' ? 60 : 1) : 0
+}
+`
+
+const TODO = `export interface Todo {
+  title: string
+  done: boolean
+}
+
+/** How many todos are still open. */
+export function remaining(todos: Todo[]): number {
+  return todos.filter((t) => t.done).length
+}
+
+export function add(todos: Todo[], title: string): Todo[] {
+  return [...todos, { title, done: false }]
+}
+`
+
+const TODO_WIP = `${TODO}
+/** Work in progress: drops finished todos. */
+export function clearDone(todos: Todo[]): Todo[] {
+  return todos.filter((t) => !t.done)
+}
+`
+
+const README = '# todo\n\nA tiny todo list.\n'
+const README_WIP = `${README}\n## Roadmap\n\n- due dates\n- tags (draft, do not ship yet)\n`
+
+const INVENTORY = `export interface Item {
+  sku: string
+  qty: number
+}
+
+/** Adds \`amount\` units of \`sku\` to the stock, creating the item when it is new. */
+export function restock(items: Item[], sku: string, amount: number): Item[] {
+  const found = items.find((i) => i.sku === sku)
+  if (found) return items.map((i) => (i.sku === sku ? { ...i, qty: amount } : i))
+  return [...items, { sku, qty: amount }]
+}
+`
+
+/**
+ * The everyday solo coding workflow: one person, one agent, a small repo. Each case's checks are objective: the
+ * project's tests, hidden tests the agent never sees, and `regression` checks that unrelated files and the person's
+ * own uncommitted edits are left exactly as they were.
+ */
+const SOLO_CASES: EvalCase[] = [
+  {
+    id: 'solo-explain-bug',
+    pillar: 'coding',
+    prompt:
+      "A user reports that chunk([1, 2, 3, 4, 5], 2) returns [[1, 2], [3, 4]] and loses the 5. Find the cause and explain it to me. Don't change any files, I only want the explanation.",
+    tiers: ['solo'],
+    modes: ['orchestrated'],
+    budget: { seconds: 240, tokens: 400_000 },
+    git: true,
+    project: {
+      'package.json': PKG('chunk'),
+      'src/chunk.ts': CHUNK,
+      'src/chunk.test.ts': `import { expect, test } from 'bun:test'
+import { chunk } from './chunk.ts'
+
+test('even split', () => expect(chunk([1, 2, 3, 4], 2)).toEqual([[1, 2], [3, 4]]))
+`,
+    },
+    checks: [
+      {
+        kind: 'reply',
+        label: 'names the loop condition',
+        matches: /i\s*\+\s*size\s*<=?\s*xs\.length|i\s*<\s*xs\.length/,
+      },
+      onlyChanged('no file touched', []),
+    ],
+  },
+  {
+    id: 'solo-narrow-fix',
+    pillar: 'coding',
+    prompt:
+      "slugify('Hello,  World!') should give 'hello-world' but gives 'hello--world'. Fix that in src/slug.ts.",
+    tiers: ['solo'],
+    modes: ['orchestrated'],
+    budget: { seconds: 240, tokens: 400_000 },
+    git: true,
+    project: {
+      'package.json': PKG('slug'),
+      'src/slug.ts': SLUG,
+      'src/strings.ts': STRINGS,
+      'src/slug.test.ts': `import { expect, test } from 'bun:test'
+import { slugify } from './slug.ts'
+
+test('simple title', () => expect(slugify('Hello World')).toBe('hello-world'))
+`,
+    },
+    checks: [
+      hidden(
+        'runs of spaces and punctuation give one dash',
+        "import { slugify } from './src/slug.ts'; for (const [a, b] of [['Hello,  World!', 'hello-world'], ['Rock & Roll', 'rock-roll'], ['  A  b ', 'a-b']]) if (slugify(a) !== b) throw new Error(String([a, slugify(a)]))",
+      ),
+      { kind: 'command', label: 'bun test passes', run: ['bun', 'test'], regression: true },
+      {
+        kind: 'unchanged',
+        label: 'unrelated strings.ts left alone',
+        file: 'src/strings.ts',
+        regression: true,
+      },
+      onlyChanged('only slug files changed', ['src/slug.ts', 'src/slug.test.ts']),
+    ],
+  },
+  {
+    id: 'solo-cross-file',
+    pillar: 'coding',
+    prompt:
+      'VAT goes from 20% to 25%. The rate is hardcoded in several files: put it in one exported constant VAT_RATE in src/config.ts, use that everywhere, and update the tests to match.',
+    tiers: ['solo'],
+    modes: ['orchestrated'],
+    budget: { seconds: 360, tokens: 700_000 },
+    git: true,
+    project: {
+      'package.json': PKG('shop'),
+      'src/cart.ts': CART,
+      'src/invoice.ts': INVOICE,
+      'src/receipt.ts': RECEIPT,
+      'src/shop.test.ts': `import { expect, test } from 'bun:test'
+import { cartTotal } from './cart.ts'
+import { invoiceTax } from './invoice.ts'
+import { receiptLine, vatLabel } from './receipt.ts'
+
+const lines = [{ price: 10, qty: 2 }]
+test('total includes VAT', () => expect(cartTotal(lines)).toBe(24))
+test('invoice tax', () => expect(invoiceTax(lines)).toBe(4))
+test('label', () => expect(vatLabel()).toBe('VAT 20%'))
+test('receipt line', () => expect(receiptLine('Tea', 3.5)).toBe('Tea                       3.50'))
+`,
+    },
+    checks: [
+      hidden(
+        'every place uses 25%',
+        "import { VAT_RATE } from './src/config.ts'; import { cartTotal } from './src/cart.ts'; import { invoiceTax } from './src/invoice.ts'; import { vatLabel } from './src/receipt.ts'; const l = [{ price: 10, qty: 2 }]; if (VAT_RATE !== 0.25 || cartTotal(l) !== 25 || invoiceTax(l) !== 5 || vatLabel() !== 'VAT 25%') throw new Error('not 25%')",
+      ),
+      {
+        kind: 'command',
+        label: 'no hardcoded rate left',
+        run: [
+          'sh',
+          '-c',
+          "! grep -nE '0\\.2([^0-9]|$)|0\\.25|2[05]%' src/cart.ts src/invoice.ts src/receipt.ts",
+        ],
+      },
+      { kind: 'command', label: 'bun test passes', run: ['bun', 'test'], regression: true },
+      onlyChanged('only the VAT files changed', [
+        'src/config.ts',
+        'src/cart.ts',
+        'src/invoice.ts',
+        'src/receipt.ts',
+        'src/shop.test.ts',
+      ]),
+    ],
+  },
+  {
+    id: 'solo-regression-test',
+    pillar: 'coding',
+    prompt:
+      "We just fixed a bug in parseDuration: '1h30m' used to come out as 30 instead of 90. The fix is already in. Add a regression test to src/duration.test.ts so it can't come back. Don't change src/duration.ts.",
+    tiers: ['solo'],
+    modes: ['orchestrated'],
+    budget: { seconds: 240, tokens: 400_000 },
+    git: true,
+    project: {
+      'package.json': PKG('duration'),
+      'src/duration.ts': DURATION_FIXED,
+      'src/duration.test.ts': `import { expect, test } from 'bun:test'
+import { parseDuration } from './duration.ts'
+
+test('minutes', () => expect(parseDuration('45m')).toBe(45))
+test('hours', () => expect(parseDuration('2h')).toBe(120))
+`,
+    },
+    checks: [
+      { kind: 'command', label: 'bun test passes', run: ['bun', 'test'] },
+      catches('the new test fails on the old bug', 'src/duration.ts', DURATION_BUGGY),
+      { kind: 'unchanged', label: 'duration.ts left alone', file: 'src/duration.ts', regression: true },
+      onlyChanged('only the test file changed', ['src/duration.test.ts']),
+    ],
+  },
+  {
+    id: 'solo-failing-test',
+    pillar: 'coding',
+    prompt: "`bun test` is failing. Work out why and fix the cause properly. Don't edit the tests.",
+    tiers: ['solo'],
+    modes: ['orchestrated'],
+    budget: { seconds: 300, tokens: 600_000 },
+    git: true,
+    project: {
+      'package.json': PKG('report'),
+      'src/round.ts':
+        '/** Rounds x to `places` decimal places. */\nexport const roundTo = (x: number, places: number): number =>\n  Math.round(x * (10 * places)) / (10 * places)\n',
+      'src/report.ts':
+        "import { roundTo } from './round.ts'\n\nexport const average = (xs: number[]): number => roundTo(xs.reduce((a, b) => a + b, 0) / xs.length, 2)\n\nexport const percent = (part: number, whole: number): number => roundTo((part / whole) * 100, 1)\n",
+      'src/report.test.ts': `import { expect, test } from 'bun:test'
+import { average, percent } from './report.ts'
+
+test('average to two places', () => expect(average([1, 2, 2])).toBe(1.67))
+test('percent to one place', () => expect(percent(1, 3)).toBe(33.3))
+`,
+    },
+    checks: [
+      { kind: 'command', label: 'bun test passes', run: ['bun', 'test'] },
+      hidden(
+        'roundTo itself is fixed',
+        "import { roundTo } from './src/round.ts'; if (roundTo(1.2345, 2) !== 1.23 || roundTo(2.71828, 3) !== 2.718) throw new Error('roundTo still wrong')",
+      ),
+      { kind: 'unchanged', label: 'tests left alone', file: 'src/report.test.ts', regression: true },
+      onlyChanged('only the rounding code changed', ['src/round.ts', 'src/report.ts']),
+    ],
+  },
+  {
+    id: 'solo-dirty-tree',
+    pillar: 'coding',
+    prompt: 'remaining() in src/todo.ts returns the wrong count. Fix it.',
+    tiers: ['solo'],
+    modes: ['orchestrated'],
+    budget: { seconds: 240, tokens: 400_000 },
+    git: true,
+    project: {
+      'package.json': PKG('todo'),
+      'README.md': README,
+      'src/todo.ts': TODO,
+      'src/todo.test.ts': `import { expect, test } from 'bun:test'
+import { add, remaining } from './todo.ts'
+
+test('add appends an open todo', () => expect(add([], 'milk')).toEqual([{ title: 'milk', done: false }]))
+test('remaining counts open todos', () =>
+  expect(remaining([{ title: 'a', done: true }, { title: 'b', done: false }, { title: 'c', done: false }])).toBe(2))
+`,
+    },
+    dirty: {
+      'src/todo.ts': TODO_WIP,
+      'README.md': README_WIP,
+      'src/draft.ts': "// Robin's notes, not ready\nexport const ideas = ['due dates', 'tags']\n",
+    },
+    checks: [
+      { kind: 'command', label: 'bun test passes', run: ['bun', 'test'] },
+      { kind: 'unchanged', label: 'uncommitted README edit kept', file: 'README.md', regression: true },
+      { kind: 'unchanged', label: 'untracked draft kept', file: 'src/draft.ts', regression: true },
+      {
+        kind: 'command',
+        label: 'uncommitted clearDone kept',
+        regression: true,
+        run: [
+          'bun',
+          '-e',
+          "import { clearDone } from './src/todo.ts'; if (clearDone([{ title: 'a', done: true }]).length !== 0) throw new Error('gone')",
+        ],
+      },
+      {
+        kind: 'command',
+        label: 'nothing committed or stashed',
+        regression: true,
+        run: ['sh', '-c', 'test "$(git rev-list --count HEAD)" = 1 && test -z "$(git stash list)"'],
+      },
+      onlyChanged('only the todo files changed', [
+        'README.md',
+        'src/todo.ts',
+        'src/draft.ts',
+        'src/todo.test.ts',
+      ]),
+    ],
+  },
+  {
+    id: 'solo-continue',
+    pillar: 'coding',
+    prompt:
+      "Look at restock() in src/inventory.ts, something's off with how it handles quantities. Tell me what's wrong, but don't change anything yet.",
+    followUps: ['Makes sense. Go ahead and fix it, and add a test for that case to src/inventory.test.ts.'],
+    tiers: ['solo'],
+    modes: ['orchestrated'],
+    budget: { seconds: 420, tokens: 800_000 },
+    git: true,
+    project: {
+      'package.json': PKG('inventory'),
+      'src/inventory.ts': INVENTORY,
+      'src/inventory.test.ts': `import { expect, test } from 'bun:test'
+import { restock } from './inventory.ts'
+
+test('a new sku is added', () => expect(restock([], 'a', 3)).toEqual([{ sku: 'a', qty: 3 }]))
+`,
+    },
+    checks: [
+      { kind: 'command', label: 'bun test passes', run: ['bun', 'test'] },
+      hidden(
+        'restocking adds to the quantity',
+        "import { restock } from './src/inventory.ts'; const r = restock([{ sku: 'a', qty: 2 }, { sku: 'b', qty: 1 }], 'a', 3); if (r[0].qty !== 5 || r[1].qty !== 1) throw new Error(JSON.stringify(r))",
+      ),
+      catches('the new test catches the old bug', 'src/inventory.ts'),
+      onlyChanged('only the inventory files changed', ['src/inventory.ts', 'src/inventory.test.ts']),
+    ],
+  },
+  {
+    id: 'solo-recover',
+    pillar: 'coding',
+    prompt: 'The tests are red. Get them passing, without editing the tests or the test setup.',
+    tiers: ['solo'],
+    modes: ['orchestrated'],
+    budget: { seconds: 300, tokens: 600_000 },
+    git: true,
+    project: {
+      // Plain `bun test` fails before any test runs: the suite needs the preload its script adds.
+      'package.json': PKG('users', { test: 'bun test --preload ./test/setup.ts' }),
+      'test/setup.ts':
+        "(globalThis as { fixtures?: unknown }).fixtures = {\n  users: [\n    { name: 'ada', age: 36 },\n    { name: 'alan', age: 41 },\n    { name: 'grace', age: 29 },\n  ],\n}\n",
+      'src/users.ts':
+        'export interface User {\n  name: string\n  age: number\n}\n\n/** The oldest user. */\nexport function oldest(users: User[]): User {\n  return users.reduce((a, b) => (b.age < a.age ? b : a))\n}\n',
+      'src/users.test.ts': `import { expect, test } from 'bun:test'
+import { oldest, type User } from './users.ts'
+
+const { users } = (globalThis as unknown as { fixtures: { users: User[] } }).fixtures
+
+test('oldest user', () => expect(oldest(users).name).toBe('alan'))
+`,
+    },
+    checks: [
+      { kind: 'command', label: 'bun run test passes', run: ['bun', 'run', 'test'] },
+      hidden(
+        'oldest is fixed',
+        "import { oldest } from './src/users.ts'; if (oldest([{ name: 'x', age: 1 }, { name: 'y', age: 9 }]).name !== 'y') throw new Error('still youngest')",
+      ),
+      { kind: 'unchanged', label: 'tests left alone', file: 'src/users.test.ts', regression: true },
+      { kind: 'unchanged', label: 'setup left alone', file: 'test/setup.ts', regression: true },
+      onlyChanged('only users.ts changed', ['src/users.ts']),
+    ],
+  },
+]
 
 /**
  * The standard prompts, one or more per pillar. Budgets are generous ceilings that flag runaways, not targets;
@@ -209,4 +650,5 @@ export const CASES: EvalCase[] = [
       { kind: 'reply', label: 'reports the heading', matches: /Example Domain/ },
     ],
   },
+  ...SOLO_CASES,
 ]
