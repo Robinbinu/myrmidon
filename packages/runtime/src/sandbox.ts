@@ -36,6 +36,8 @@ export interface SandboxRun {
   readonly hidden?: readonly string[]
   readonly timeoutMs: number
   readonly env?: Record<string, string>
+  /** Stops the command, and everything it started, when the call it runs for is stopped. */
+  readonly signal?: AbortSignal
 }
 
 export interface SandboxResult {
@@ -43,6 +45,8 @@ export interface SandboxResult {
   readonly stdout: string
   readonly stderr: string
   readonly timedOut: boolean
+  /** Its signal stopped it (or it was stopped before it started). */
+  readonly stopped?: boolean
 }
 
 /** A long-running confined process, such as a dev server. */
@@ -421,23 +425,77 @@ export function killTree(pid: number, signal: 'SIGTERM' | 'SIGKILL') {
   Process.fromPid(pid)?.killTree(constants.signals[signal])
 }
 
+/** The result of a command its signal stopped before it started. */
+const NEVER_STARTED: SandboxResult = { code: null, stdout: '', stderr: '', timedOut: false, stopped: true }
+
+/** Collects a stream's text as it comes, so what a stopped command printed is kept once reading is cut off. */
+async function collect(stream: ReadableStream<Uint8Array>, into: { text: string }) {
+  const decoder = new TextDecoder()
+  for await (const chunk of stream) into.text += decoder.decode(chunk, { stream: true })
+}
+
+/**
+ * Ends a run when it runs too long (`timedOut`) or its signal stops it (`stopped`): `end` stops the command, and
+ * `cut` resolves a moment later, so a run whose output something outside the stopped tree still holds open ends too.
+ */
+function deadline(spec: SandboxRun, end: () => void) {
+  const state = { timedOut: false, stopped: false }
+  let release!: () => void
+  const cut = new Promise<void>((resolve) => {
+    release = () => setTimeout(resolve, SANDBOX_TIMED_OUT_READ_MS).unref?.()
+  })
+  const timer = setTimeout(() => {
+    state.timedOut = true
+    end()
+    release()
+  }, spec.timeoutMs)
+  const onAbort = () => {
+    state.stopped = true
+    end()
+    release()
+  }
+  spec.signal?.addEventListener('abort', onAbort, { once: true })
+  return {
+    state,
+    cut,
+    done() {
+      clearTimeout(timer)
+      spec.signal?.removeEventListener('abort', onAbort)
+    },
+  }
+}
+
+/**
+ * A confined command run to completion. Run too long or stopped, its whole tree goes, not only the shell: a child it
+ * started (`cmd &`, a dev server) kept the output open, and the call waited, until that child ended by itself.
+ */
 async function spawnConfined(argv: string[], spec: SandboxRun, home: string): Promise<SandboxResult> {
+  if (spec.signal?.aborted) return NEVER_STARTED
   const proc = Bun.spawn(argv, {
     cwd: spec.cwd,
     env: confinedEnv(spec, home),
     stdout: 'pipe',
     stderr: 'pipe',
-    timeout: spec.timeoutMs,
-    killSignal: 'SIGKILL',
     windowsHide: true,
   })
-  const [stdout, stderr, code] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ])
-  const timedOut = proc.signalCode === 'SIGKILL'
-  return { code: timedOut ? null : code, stdout: cap(stdout), stderr: cap(stderr), timedOut }
+  // Not once it has exited: its pid may belong to someone else by then.
+  const limit = deadline(spec, () => {
+    if (proc.exitCode === null && !proc.signalCode) killTree(proc.pid, 'SIGKILL')
+  })
+  const out = { text: '' }
+  const err = { text: '' }
+  const reading = Promise.all([collect(proc.stdout, out), collect(proc.stderr, err)])
+  // A command that exited while what it started still writes is not done either: it has until its timeout.
+  const [code] = await Promise.all([proc.exited, Promise.race([reading, limit.cut])])
+  limit.done()
+  const { timedOut, stopped } = limit.state
+  return {
+    code: timedOut || stopped ? null : code,
+    stdout: cap(out.text),
+    stderr: cap(err.text),
+    timedOut,
+    ...(stopped ? { stopped: true } : {}),
+  }
 }
 
 /** No confinement: the command in this OS's shell (Git Bash, else PowerShell, on Windows; see shell.ts). */
@@ -445,31 +503,33 @@ const plainShell = (spec: Omit<SandboxRun, 'timeoutMs'>) => hostShell().argv(spe
 
 /**
  * A command run to completion on a leash: when it times out, the leash stops its whole tree (killing the leash alone
- * would orphan the command), and what it leaves running in the background is stopped when it ends.
+ * would orphan the command), and what it leaves running in the background is stopped when it ends. Its signal stops
+ * it the same way.
  */
 async function runLeashed(
   argv: string[],
   spec: SandboxRun,
   env: Record<string, string | undefined>,
 ): Promise<SandboxResult> {
+  if (spec.signal?.aborted) return NEVER_STARTED
   const proc = spawnLeashed(argv, { cwd: spec.cwd, env, stdout: 'pipe', stderr: 'pipe' })
-  let timedOut = false
-  const timer = setTimeout(() => {
-    timedOut = true
-    proc.stdin.end()
-  }, spec.timeoutMs)
-  const out = { stdout: '', stderr: '' }
-  const read = async (stream: ReadableStream<Uint8Array>, into: 'stdout' | 'stderr') => {
-    const decoder = new TextDecoder()
-    for await (const chunk of stream) out[into] += decoder.decode(chunk, { stream: true })
-  }
-  const reading = Promise.all([read(proc.stdout, 'stdout'), read(proc.stderr, 'stderr')])
+  const limit = deadline(spec, () => proc.stdin.end())
+  const out = { text: '' }
+  const err = { text: '' }
+  const reading = Promise.all([collect(proc.stdout, out), collect(proc.stderr, err)])
   const code = await proc.exited
-  clearTimeout(timer)
+  limit.done()
+  const { timedOut, stopped } = limit.state
   // Once the leash has stopped a command that ran too long, what is left holding its output open is outside the
   // tree it could find (on Windows, a process whose Git Bash parent handed it on and exited): the run ends anyway.
-  await (timedOut ? Promise.race([reading, Bun.sleep(SANDBOX_TIMED_OUT_READ_MS)]) : reading)
-  return { code: timedOut ? null : code, stdout: cap(out.stdout), stderr: cap(out.stderr), timedOut }
+  await (timedOut || stopped ? Promise.race([reading, Bun.sleep(SANDBOX_TIMED_OUT_READ_MS)]) : reading)
+  return {
+    code: timedOut || stopped ? null : code,
+    stdout: cap(out.text),
+    stderr: cap(err.text),
+    timedOut,
+    ...(stopped ? { stopped: true } : {}),
+  }
 }
 
 /**

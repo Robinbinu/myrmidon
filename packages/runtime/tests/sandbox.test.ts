@@ -173,6 +173,72 @@ test('a full-access command that runs too long is stopped, with what it started'
 }, 20_000)
 
 test.skipIf(detectSandbox().kind === 'none')(
+  'a confined command that runs too long is stopped with what it started, not waited out',
+  async () => {
+    const marker = join(root, 'late')
+    const started = Date.now()
+    // The background child keeps the output open: stopping only the shell left the call waiting for it.
+    const r = await Promise.race([
+      detectSandbox().run({
+        command: `(sleep 3 && touch "${marker}") & sleep 30`,
+        cwd: root,
+        writable: [root],
+        timeoutMs: 500,
+      }),
+      Bun.sleep(10_000),
+    ])
+    if (!r) throw new Error(`not stopped: ${JSON.stringify(below(process.pid))}`)
+    expect(r.timedOut).toBe(true)
+    expect(r.code).toBeNull()
+    expect(Date.now() - started).toBeLessThan(5_000)
+    await Bun.sleep(3_500)
+    expect(existsSync(marker)).toBe(false)
+  },
+  20_000,
+)
+
+test.each([
+  ['confined', () => detectSandbox()],
+  ['full-access', () => unconfinedSandbox()],
+] as const)(
+  'a %s command is stopped through its signal, with what it started',
+  async (_, sandbox) => {
+    if (sandbox().kind === 'none') return
+    const marker = join(root, 'late')
+    const stop = new AbortController()
+    const running = sandbox().run({
+      command: `(sleep 3 && touch "${marker}") & sleep 30`,
+      cwd: root,
+      writable: [root],
+      timeoutMs: 60_000,
+      signal: stop.signal,
+    })
+    await Bun.sleep(300)
+    const at = Date.now()
+    stop.abort()
+    const r = await Promise.race([running, Bun.sleep(10_000)])
+    if (!r) throw new Error(`not stopped: ${JSON.stringify(below(process.pid))}`)
+    expect(r.stopped).toBe(true)
+    expect(r.timedOut).toBe(false)
+    expect(r.code).toBeNull()
+    expect(Date.now() - at).toBeLessThan(5_000)
+    await Bun.sleep(3_500)
+    expect(existsSync(marker)).toBe(false)
+    // Already stopped: it never starts.
+    const never = await sandbox().run({
+      command: `touch "${marker}"`,
+      cwd: root,
+      writable: [root],
+      timeoutMs: 5_000,
+      signal: stop.signal,
+    })
+    expect(never.stopped).toBe(true)
+    expect(existsSync(marker)).toBe(false)
+  },
+  30_000,
+)
+
+test.skipIf(detectSandbox().kind === 'none')(
   "a sandboxed command cannot connect to a socket in a hidden folder or another run's /tmp/myr-*, only its own",
   async () => {
     const hidden = join(root, 'h')
