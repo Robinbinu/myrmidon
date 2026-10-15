@@ -1,4 +1,4 @@
-import { existsSync, realpathSync } from 'node:fs'
+import { existsSync, lstatSync, readlinkSync, realpathSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, posix, relative, resolve, sep, win32 } from 'node:path'
 import { SANDBOX_SECRETS, SANDBOX_TOOLCHAINS } from './config.ts'
@@ -31,13 +31,38 @@ export function expandHome(
   return tilde.test(path) ? pathOf(platform).join(home, path.slice(2)) : path
 }
 
-/** The real path of `path`: symlinks resolved in the part that exists, the rest (not created yet) kept. */
+/** Links followed at most while resolving a path, as the system's own limit (ELOOP). */
+const MAX_LINK_HOPS = 40
+
+/**
+ * The real path of `path`: symlinks resolved in the part that exists, the rest (not created yet) kept. A link whose
+ * target is not there yet is followed too, since writing to it, or into it, creates its target.
+ */
 export function realPath(path: string): string {
-  const target = resolve(path)
-  let probe = target
-  // A drive that is not there (Z:\ on Windows) is its own parent.
-  while (!existsSync(probe) && dirname(probe) !== probe) probe = dirname(probe)
-  return join(realOrNone(probe) ?? probe, relative(probe, target))
+  let target = resolve(path)
+  for (let hops = 0; hops <= MAX_LINK_HOPS; hops++) {
+    let probe = target
+    let link: string | undefined
+    // A drive that is not there (Z:\ on Windows) is its own parent. existsSync follows links, so a link to something
+    // not there yet looks missing too; stopping at it matters, since a write to it (or into it) lands at its target.
+    while (!existsSync(probe) && dirname(probe) !== probe) {
+      link = linkTarget(probe)
+      if (link !== undefined) break
+      probe = dirname(probe)
+    }
+    if (link === undefined) return join(realOrNone(probe) ?? probe, relative(probe, target))
+    target = join(resolve(dirname(probe), link), relative(probe, target))
+  }
+  throw new Error(`too many symbolic links: ${path}`)
+}
+
+/** What a symbolic link names, or nothing when `path` is not one. */
+function linkTarget(path: string): string | undefined {
+  try {
+    return lstatSync(path).isSymbolicLink() ? readlinkSync(path) : undefined
+  } catch {
+    return undefined
+  }
 }
 
 /** Whether `path` is `root` or lies inside it; both absolute, compared as `platform`'s file systems compare names. */

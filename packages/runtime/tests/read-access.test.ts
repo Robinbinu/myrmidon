@@ -274,6 +274,15 @@ test('file tools refuse what the sandbox hides, open what the person allowed, an
   symlinkSync(join(home, '.ssh'), join(project, 'keys'))
   expect(() => ws.resolveForRead(agent, 'keys/id_ed25519')).toThrow('outside your project')
 
+  // Nor does a link to a file or folder not there yet: writing through it would create it outside.
+  symlinkSync(join(home, 'planted.sh'), join(project, 'planted-link'))
+  symlinkSync(join(home, 'new-folder'), join(project, 'folder-link'))
+  expect(() => ws.resolveInWorkdir(agent, 'planted-link')).toThrow('outside your project')
+  expect(() => ws.resolveInWorkdir(agent, 'folder-link/inner/file.txt')).toThrow('outside your project')
+  expect(() => ws.resolveInScratch(agent, join(ws.scratch(agent), 'nope'))).not.toThrow()
+  symlinkSync(join(home, 'from-scratch.txt'), join(ws.scratch(agent), 'scratch-link'))
+  expect(() => ws.resolveInScratch(agent, 'scratch-link')).toThrow('escapes your scratch directory')
+
   reads = [join(home, 'notes')]
   expect(ws.resolveForRead(agent, '~/notes/todo.md')).toBe(join(home, 'notes', 'todo.md'))
   // Reading is not writing.
@@ -655,4 +664,37 @@ test('a grant opens exactly the key folder it names; a broader one never opens k
   const ws = new ColonyWorkspace(colony, project, () => false, { dataDir: data, home, reads: () => [ssh] })
   expect(ws.mayRead('lead', join(ssh, 'id_ed25519'))).toBe(true)
   expect(ws.mayRead('lead', join(home, '.zshrc'))).toBe(false)
+})
+
+test('a link to something not there yet is judged by where it points, so a write cannot land outside through it', () => {
+  const base = realpathSync(mkdtempSync(join(tmpdir(), 'myr-dangling-')))
+  try {
+    const inside = join(base, 'inside')
+    const outside = join(base, 'outside')
+    mkdirSync(inside)
+    mkdirSync(outside)
+    // Neither target exists yet: existsSync on the link is false, as for a file not written yet.
+    symlinkSync(join(outside, 'new.txt'), join(inside, 'file-link'))
+    symlinkSync(join(outside, 'new-dir'), join(inside, 'dir-link'))
+    symlinkSync('../outside/relative.txt', join(inside, 'relative-link'))
+    // A link to a dangling link.
+    symlinkSync(join(inside, 'file-link'), join(inside, 'chain-link'))
+
+    expect(realPath(join(inside, 'file-link'))).toBe(join(outside, 'new.txt'))
+    expect(realPath(join(inside, 'dir-link', 'a', 'b.txt'))).toBe(join(outside, 'new-dir', 'a', 'b.txt'))
+    expect(realPath(join(inside, 'relative-link'))).toBe(join(outside, 'relative.txt'))
+    expect(realPath(join(inside, 'chain-link'))).toBe(join(outside, 'new.txt'))
+    for (const name of ['file-link', join('dir-link', 'a', 'b.txt'), 'relative-link', 'chain-link'])
+      expect(reachable(realPath(join(inside, name)), [inside], [])).toBe(false)
+    // Plain missing files and real links still resolve as before.
+    expect(realPath(join(inside, 'not-yet.txt'))).toBe(join(inside, 'not-yet.txt'))
+    symlinkSync(outside, join(inside, 'real-dir-link'))
+    expect(realPath(join(inside, 'real-dir-link', 'x.txt'))).toBe(join(outside, 'x.txt'))
+    // A loop is refused, not followed for ever.
+    symlinkSync(join(inside, 'loop-b'), join(inside, 'loop-a'))
+    symlinkSync(join(inside, 'loop-a'), join(inside, 'loop-b'))
+    expect(() => realPath(join(inside, 'loop-a'))).toThrow()
+  } finally {
+    rmSync(base, { recursive: true, force: true })
+  }
 })

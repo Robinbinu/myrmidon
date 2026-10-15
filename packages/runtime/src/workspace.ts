@@ -1,6 +1,6 @@
 import { chmodSync, existsSync, mkdirSync, realpathSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import type { BlobStore } from '@myrmidon/core'
 import type { ColonyState } from '@myrmidon/protocol'
 import { clockTime, localDate } from './clock.ts'
@@ -173,9 +173,8 @@ export class ColonyWorkspace {
   resolveInScratch(agent: string, path: string): string {
     const root = this.scratch(agent)
     const target = isAbsolute(path) ? path : resolve(root, path)
-    let probe = target
-    while (!existsSync(probe)) probe = dirname(probe)
-    const real = join(realpathSync.native(probe), relative(probe, target))
+    // realPath follows a link whose target is not there yet, so it cannot carry a write out.
+    const real = realPath(target)
     if (real !== root && !real.startsWith(root + sep)) {
       throw new Error(`path escapes your scratch directory: ${path}`)
     }
