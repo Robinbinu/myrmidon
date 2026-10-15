@@ -717,6 +717,14 @@ ${roster}`,
     reviewFailed: (summary: string, report: string) =>
       `THE REVIEWER FOUND PROBLEMS (your summary: ${summary}):\n${report}\nFix them, then ask for another review or send the final answer.`,
     verificationRunning: 'a final verification is already running; wait for its verdicts',
+    /** Final verification asked for while work is open: the run cannot be complete yet (docs/lifecycle.md). */
+    workStillOpen: (p: { tasks: readonly string[]; approvals: readonly string[] }) =>
+      `NOT VERIFIED: the work is not finished yet.\n${[
+        ...p.tasks.map((t) => `- task ${t}`),
+        ...p.approvals.map((a) => `- waiting for the person to approve: ${a}`),
+      ].join(
+        '\n',
+      )}\nWait until the tasks are verified and the person has answered, then request verification again.`,
     notVerified: (conflicts: string) =>
       `NOT VERIFIED: crewmates' changes could not be merged into the project yet.\n${conflicts}\nAsk those crewmates to resolve the conflicts in their worktrees and submit again, then request verification.`,
     verified: (report: string) => `ALL CHECKS PASSED — the colony is complete.\n${report}`,

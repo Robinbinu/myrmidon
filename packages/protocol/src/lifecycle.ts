@@ -47,10 +47,13 @@ export function unfinishedCalls(events: readonly MyrEvent[]): CallRecord[] {
   return [...callRecords(events).values()].filter((c) => c.seq > start && !c.result)
 }
 
-/** Task states that still need someone: not done, not dropped. */
-const OPEN_TASK = new Set<TaskSnapshot['status']>(['pending', 'in_progress', 'submitted', 'rejected'])
+/**
+ * Task states that hold completion back: someone is doing it, it waits for its check, or it was sent back to be redone.
+ * A pending task nobody took is planned work, not work under way: the run's checks say whether it was needed.
+ */
+const OPEN_TASK = new Set<TaskSnapshot['status']>(['in_progress', 'submitted', 'rejected'])
 
-/** What a run still has to do before it may complete: tasks nobody finished, and calls waiting for the person. */
+/** What a run still has to do before it may complete: tasks under way, and calls waiting for the person. */
 export interface OpenWork {
   readonly tasks: readonly TaskSnapshot[]
   readonly approvals: readonly EventPayloads['approval/requested'][]

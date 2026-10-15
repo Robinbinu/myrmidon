@@ -60,7 +60,7 @@ test('an event delivered twice, or after a later one, changes the state once', (
   expect(foldColony('c', [...events, events[3] as MyrEvent])).toEqual(once)
 })
 
-test('open work: unfinished tasks and undecided approvals, never the closing task', () => {
+test('open work: tasks under way and undecided approvals, never planned work or the closing task', () => {
   seq = 0
   const task = (id: string, status: string) =>
     ev('task/changed', {
@@ -72,6 +72,7 @@ test('open work: unfinished tasks and undecided approvals, never the closing tas
     task('task-1', 'verified'),
     task('task-2', 'in_progress'),
     task('task-3', 'deleted'),
+    task('task-4', 'pending'),
     task('task-final', 'in_progress'),
     ev('approval/requested', { id: 'ap1', agent: 'a', tool: 'shell', summary: 'ls' }),
     ev('approval/requested', { id: 'ap2', agent: 'a', tool: 'shell', summary: 'pwd' }),

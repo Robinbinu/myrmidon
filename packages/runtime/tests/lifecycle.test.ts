@@ -6,7 +6,7 @@ import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { ColonyState, EventPayloads, MyrEvent } from '@myrmidon/protocol'
+import type { ColonyState, EventPayloads, MyrEvent, TaskSnapshot } from '@myrmidon/protocol'
 import {
   bootRuntime,
   ColonyRun,
@@ -155,4 +155,69 @@ test('a resume after a crash between a call and its transcript keeps the recorde
   // The repair is kept, so a later resume reads a whole conversation too.
   const kept = readFileSync(transcript, 'utf8')
   expect(kept.indexOf('"toolResult"')).toBeGreaterThan(kept.indexOf('"toolCall"'))
+}, 30_000)
+
+test('a run is not completed while a task is still being worked on or a call waits for the person', async () => {
+  const resolver = new ModelResolver()
+  scripted(resolver, 'mock/lead', [
+    [
+      tool('create_task', { subject: 'Check out.txt', assignee: 'worker' }),
+      tool('publish_artifact', { name: 'out.txt', content: 'ok\n' }),
+    ],
+    ['the worker is checking'],
+  ])
+  // The worker claims the task and is still working on it: its next model call never returns.
+  let calls = 0
+  const worker = createMockModel({
+    handler: async () => {
+      calls += 1
+      if (calls === 1) return { content: [tool('claim_task', { id: 'task-1', revision: 1 })] }
+      await new Promise(() => {})
+      return { content: ['never'] }
+    },
+  })
+  resolver.register('mock/worker', { model: worker.model, streamFn: worker.stream })
+  const spec = parseColonySpec({
+    name: 'Open work',
+    mission: 'Publish out.txt containing ok.',
+    pattern: 'lead-workers',
+    agents: [
+      { name: 'lead', role: 'lead', model: 'mock/lead' },
+      { name: 'worker', role: 'worker', model: 'mock/worker' },
+    ],
+    acceptance: [{ verifier: 'checks', rules: [{ artifact: 'out.txt', contains: 'ok' }] }],
+    budget: { wall: '60s' },
+  })
+  const run = new ColonyRun(runtime, spec, { resolver, quietMs: 20_000 })
+  await run.start()
+  await until(run, (_, s) => s.tasks['task-1']?.status === 'in_progress' && !!s.artifacts['out.txt'])
+
+  const refused = await run.requestFinalVerification('lead', 'out.txt is published')
+  expect(refused).toContain('task-1')
+  expect(run.state().status).toBe('running')
+  expect(ofType(await read(run), 'verifier/requested')).toHaveLength(0)
+
+  // The task is done, but a call still waits for the person: that holds completion too.
+  await run.appendAtomic((s) => [
+    {
+      type: 'task/changed',
+      actor: { kind: 'system', id: 'myrmidon' },
+      payload: {
+        by: 'scheduler',
+        task: { ...(s.tasks['task-1'] as TaskSnapshot), revision: 3, status: 'verified' },
+      },
+    },
+  ])
+  const asked = run.reviewChange('worker', 'shell', 'shell rm -rf build', {})
+  await until(run, (_, s) => Object.values(s.approvals).some((a) => !a.decided))
+  const waiting = await run.requestFinalVerification('lead', 'out.txt is published')
+  expect(waiting).toContain('shell rm -rf build')
+  expect(run.state().status).toBe('running')
+
+  // Once nothing is open, the run completes through its checks as before.
+  const id = Object.values(run.state().approvals).find((a) => !a.decided)?.id ?? ''
+  await run.decideApproval(id, false)
+  expect((await asked).approved).toBe(false)
+  await run.requestFinalVerification('lead', 'out.txt is published')
+  expect((await run.done).status).toBe('completed')
 }, 30_000)

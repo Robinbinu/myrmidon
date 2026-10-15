@@ -29,9 +29,11 @@ import {
   type EventPayloads,
   emptyColonyState,
   foldColony,
+  hasOpenWork,
   type MyrEvent,
   mentionsIn,
   offersFor,
+  openWork,
   outsideEffects,
   type PermissionCall,
   type PermissionLevels,
@@ -1928,6 +1930,8 @@ export class ColonyRun implements ColonyHost {
 
   async requestFinalVerification(by: string, summary: string): Promise<string> {
     if (this._finalRunning) return prompts.colony.verificationRunning
+    const open = this._openWork()
+    if (open) return open
     this._finalRunning = true
     this._verifying += 1
     try {
@@ -1940,6 +1944,9 @@ export class ColonyRun implements ColonyHost {
       })
       const result = await this._verifier.verifyColony()
       if (result.pass) {
+        // Work can open while the checks run (a task claimed, a call asking the person).
+        const opened = this._openWork()
+        if (opened) return opened
         await this._complete(result.verdicts, by)
         return prompts.colony.verified(result.report)
       }
@@ -1958,6 +1965,21 @@ export class ColonyRun implements ColonyHost {
       this._finalRunning = false
       this._verifying -= 1
     }
+  }
+
+  /**
+   * Why a run outside a chat cannot complete yet: a task someone is still doing, or waiting for its check, or a call
+   * waiting for the person (see `openWork`). In a chat the answer the person got completes the round instead, and the
+   * crew winds down after it (`_complete`).
+   */
+  private _openWork(): string | undefined {
+    if (this.spec.chat) return undefined
+    const work = openWork(this._state)
+    if (!hasOpenWork(work)) return undefined
+    return prompts.colony.workStillOpen({
+      tasks: work.tasks.map((t) => `${t.id} [${t.status}${t.owner ? `, ${t.owner}` : ''}]: ${t.subject}`),
+      approvals: work.approvals.map((a) => a.summary),
+    })
   }
 
   /**
