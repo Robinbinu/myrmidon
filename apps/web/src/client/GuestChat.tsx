@@ -7,7 +7,7 @@ import { FEATURE_ICONS } from './ui/icons.ts'
 import { Logo } from './ui/Logo.tsx'
 import { Banner, Button, Field, TextArea, TextInput } from './ui/primitives.tsx'
 import { GUEST_POLL_MS } from './ui-config.ts'
-import { useColony } from './use-colony.ts'
+import { useColony, useLiveReplies } from './use-colony.ts'
 
 const t = copy.guest
 
@@ -189,7 +189,7 @@ function GuestRounds(props: { colonyId: string }) {
   const colony = useColony(props.colonyId)
   const end = useRef<HTMLDivElement>(null)
   const messages = colony.state.chatMessages.filter((m) => !m.answers)
-  const writing = Object.entries(colony.streams).filter(([, live]) => live.text && !live.done)
+  const writing = Object.entries(useLiveReplies(colony.streams)).filter(([, live]) => live.text && !live.done)
   const count = messages.length + writing.length
   // biome-ignore lint/correctness/useExhaustiveDependencies: a new message or reply moves the page to it
   useEffect(() => {

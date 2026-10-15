@@ -18,18 +18,28 @@ export interface RoundSlice {
   readonly metrics: ColonyMetrics
 }
 
+/** The colony's totals just before `info`'s round began, which that round's own numbers are counted from. */
+export function metricsBefore(id: string, events: readonly MyrEvent[], info: RoundInfo): ColonyMetrics {
+  return colonyMetrics(foldColony(id, events, info.startSeq - 1))
+}
+
 /**
  * A chat colony serves every round of its chat; this cuts one round out of it (the latest without `round`).
- * `full` is the colony's current state, already folded from `events`.
+ * `full` is the colony's current state, already folded from `events`. `before` is `metricsBefore` for the round, for a
+ * caller that slices the same growing log again and again and keeps it rather than folding it once more.
  */
-export function roundSlice(full: ColonyState, events: readonly MyrEvent[], round?: number): RoundSlice {
+export function roundSlice(
+  full: ColonyState,
+  events: readonly MyrEvent[],
+  round?: number,
+  before?: ColonyMetrics,
+): RoundSlice {
   const info = round === undefined ? full.rounds.at(-1) : full.rounds.find((r) => r.round === round)
   if (!info) return { events, state: full, metrics: colonyMetrics(full) }
   const end = info.endSeq ?? Number.POSITIVE_INFINITY
   const inRound = (seq: number) => seq >= info.startSeq && seq <= end
   const latest = info === full.rounds.at(-1)
   const atEnd = latest ? full : foldColony(full.id, events, info.endSeq)
-  const before = foldColony(full.id, events, info.startSeq - 1)
   // The round's agents: those it started with, and any that joined during it.
   const slice = events.filter((e) => inRound(e.seq))
   const names = new Set<string>()
@@ -50,7 +60,7 @@ export function roundSlice(full: ColonyState, events: readonly MyrEvent[], round
     signals: atEnd.signals.filter((s) => inRound(s.seq)),
   }
   const now = colonyMetrics(atEnd)
-  const was = colonyMetrics(before)
+  const was = before ?? metricsBefore(full.id, events, info)
   const scores = state.verdicts.map((v) => v.score).filter((s): s is number => s !== undefined)
   const metrics: ColonyMetrics = {
     wallMs: Math.max(0, Date.parse(info.endedAt ?? new Date().toISOString()) - Date.parse(info.startedAt)),

@@ -8,7 +8,6 @@ import {
   type MyrEvent,
   outsideEffects,
   type QuestionAnswers,
-  roundSlice,
   STOPPED_BY_USER,
   unfinishedCalls,
 } from '@myrmidon/protocol'
@@ -50,7 +49,7 @@ import {
 } from '../ui/pixel.tsx'
 import { Badge, Banner, Button, cn, Dot, IconButton, Skeleton } from '../ui/primitives.tsx'
 import { AGENT_MIN_WINDOW, softSpring, spring } from '../ui-config.ts'
-import type { ColonyView, LiveReply } from '../use-colony.ts'
+import { type ColonyView, type LiveReply, useLiveReplies, useRoundSlice } from '../use-colony.ts'
 import { AgentSheet } from './AgentSheet.tsx'
 import { Approval, LoginCards, MemoryCards, SkillCards } from './ApprovalCards.tsx'
 import { ArtifactViewer } from './ArtifactViewer.tsx'
@@ -182,13 +181,12 @@ export function RoundView(props: {
   retry: 'ready' | 'starting' | 'hidden'
 }) {
   const colony = props.colony
-  const slice = useMemo(
-    () => roundSlice(colony.state, colony.events, props.round),
-    [colony.state, colony.events, props.round],
-  )
+  const slice = useRoundSlice(colony, props.round)
   const { state, events, info } = slice
   // Live cards (approvals, sign-ins, memories, servers) belong to the round that is running now.
   const latest = !info || info === colony.state.rounds.at(-1)
+  // Only the round running now shows replies being written, so only it re-renders as they move on.
+  const replies = useLiveReplies(colony.streams, latest && isRunning(state.status))
   const [file, setFile] = useState<string>()
   const [inspect, setInspect] = useState<string>()
 
@@ -217,7 +215,7 @@ export function RoundView(props: {
   const thread = opening ? rest : state.chatMessages
   const streaming =
     latest && isRunning(state.status)
-      ? Object.entries(colony.streams).filter(
+      ? Object.entries(replies).filter(
           // The whole colony's messages: a reply that began in the last round landed there, not in this one.
           ([agent, live]) =>
             live.text && !colony.state.chatMessages.some((m) => m.from === agent && m.seq > live.since),

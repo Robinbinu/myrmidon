@@ -270,9 +270,13 @@ function WorkspaceBody({
 }) {
   const colony = useColony(colonyId)
   const split = useSplitWidth('myr-inspector-width', { min: 320, max: 640, initial: 440 })
+  // On the log and state, not the view: the view is a new object each time a streamed reply moves on.
   const { state, events } = useMemo(
-    () => (round === undefined ? colony : roundSlice(colony.state, colony.events, round)),
-    [colony, round],
+    () =>
+      round === undefined
+        ? { state: colony.state, events: colony.events }
+        : roundSlice(colony.state, colony.events, round),
+    [colony.state, colony.events, round],
   )
   const pluginTabs = usePluginSlots('workspace.tab')
   const fullAccess = useScope() === 'full'
