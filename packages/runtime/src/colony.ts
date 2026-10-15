@@ -1303,7 +1303,8 @@ export class ColonyRun implements ColonyHost {
     if (this._state.status === 'completed') throw new Error('this round already completed')
     const started = past.find((e) => e.type === 'colony/started')
     const used = started ? Date.parse(past.at(-1)?.time ?? started.time) - Date.parse(started.time) : 0
-    const left = Math.max(this.spec.budget.wallMs - used, this.spec.budget.wallMs / 2)
+    const wall = this.spec.budget.wallMs
+    const left = wall > 0 ? Math.max(wall - used, wall / 2) : 0
     // Like the clock, a resumed round gets at least half its spend and token limits back, so a round a limit
     // stopped can go on.
     const start = this._state.rounds.at(-1)?.startSeq
@@ -1349,7 +1350,7 @@ export class ColonyRun implements ColonyHost {
       agent.turn = newRound ? 0 : (this._state.agents[a.name]?.turns ?? 0)
       this._agents.set(a.name, agent)
     }
-    this._deadline = Date.now() + wallMs
+    this._deadline = wallMs > 0 ? Date.now() + wallMs : Number.POSITIVE_INFINITY
     if (!resumedBecause) this._spentBefore = totals(this._state)
     this._bootstrapAt = Date.now()
     // So the person can see which of their files the agents were told to follow, other tools' rules included.

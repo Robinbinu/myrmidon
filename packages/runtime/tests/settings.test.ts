@@ -13,7 +13,8 @@ test('settings validate and persist, and never hold credentials', () => {
   const dir = home()
   try {
     const store = new SettingsStore(dir)
-    expect(store.get().team.wallMinutes).toBe(30)
+    // No time limit unless the person sets one.
+    expect(store.get().team.wallMinutes).toBe(0)
     expect(store.get().permissions).toEqual({ preset: 'auto', rules: [] })
     expect(store.get().search.provider).toBe('auto')
     expect(() => store.set({ team: { workers: 99 } })).toThrow()

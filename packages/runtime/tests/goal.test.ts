@@ -151,8 +151,8 @@ test('a goal round keeps working until its check passes, then reviews and comple
     check: { kind: 'judge' },
     maxChecks: GOAL.maxChecks,
   })
-  // A goal outlasts one answer's wall.
-  expect(s.budget.wallMs).toBeGreaterThanOrEqual(GOAL.wallMinutes * 60_000)
+  // With no time limit (the default) a goal round has none either.
+  expect(s.budget.wallMs).toBe(0)
 })
 
 test('a goal round stops once its checks run out', async () => {

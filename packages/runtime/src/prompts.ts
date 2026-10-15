@@ -1772,6 +1772,8 @@ Reply with JSON only: {"lines": ["...", "...", "..."]}.`,
   },
 
   toolResults: {
+    /** In place of the time left, when the round has no time limit. */
+    noTimeLimit: 'no time limit',
     // After Claude Code's refusal for a deny rule: final, with the reason, so the agent does not route around it.
     denied: (what: string, why: string) =>
       `${what} is not permitted (${why}). Do not try it another way; if the task needs it, say so to the person`,

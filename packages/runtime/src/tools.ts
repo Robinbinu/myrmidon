@@ -1698,7 +1698,9 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     parameters: type({}),
     async run(_args, agent, host) {
       const s = host.state()
-      const left = Math.max(0, Math.round((host.deadline() - Date.now()) / 1000))
+      const left = Number.isFinite(host.deadline())
+        ? `${Math.max(0, Math.round((host.deadline() - Date.now()) / 1000))}s`
+        : prompts.toolResults.noTimeLimit
       const roster = Object.values(s.agents)
         .map(
           (a) => `- ${a.info.name} (${a.info.role}, ${a.info.model})${a.info.name === agent ? ' ← you' : ''}`,
@@ -1706,7 +1708,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
         .join('\n')
       const acceptance =
         host.spec.acceptance.map((c) => `- ${describeCheck(c)}`).join('\n') || '- none declared'
-      return `MISSION:\n${s.mission}\n\nACCEPTANCE (checked by the verifier, not by agents):\n${acceptance}\n\nTIME LEFT: ${left}s\n\nROSTER:\n${roster}`
+      return `MISSION:\n${s.mission}\n\nACCEPTANCE (checked by the verifier, not by agents):\n${acceptance}\n\nTIME LEFT: ${left}\n\nROSTER:\n${roster}`
     },
   },
   {
@@ -3883,7 +3885,9 @@ export function observeFacts(host: ColonyHost): string {
   const spent = host.spent().cost
   const finals = reviewVerdicts(s).filter((v) => v.target === 'colony')
   return [
-    `time left: ${left}s of ${Math.round(s.budget.wallMs / 1000)}s`,
+    s.budget.wallMs > 0
+      ? `time left: ${left}s of ${Math.round(s.budget.wallMs / 1000)}s`
+      : `time left: ${prompts.toolResults.noTimeLimit}`,
     s.budget.costUsd !== undefined ? `cost: $${spent.toFixed(3)} of $${s.budget.costUsd}` : null,
     `tasks: ${tasks.length} total, unclaimed ${pending.join(', ') || 'none'}, blocked ${blocked.join(', ') || 'none'}, rejected ${rejected.join(', ') || 'none'}`,
     `idle agents: ${idle.join(', ') || 'none'}`,

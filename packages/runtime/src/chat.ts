@@ -872,7 +872,8 @@ export class ChatService {
         judge: config.judgeModel,
         threshold: this.options.settings?.get().verification.threshold ?? 0.7,
       }
-      spec.budget.wallMs = Math.max(spec.budget.wallMs, GOAL.wallMinutes * 60_000)
+      // A goal outlasts one answer's wall; with no wall (0) it has none either.
+      if (spec.budget.wallMs > 0) spec.budget.wallMs = Math.max(spec.budget.wallMs, GOAL.wallMinutes * 60_000)
     }
     const run: ColonyRun = new ColonyRun(this.runtime, spec, {
       resolver: this.options.resolver,
@@ -2149,7 +2150,9 @@ export class ChatService {
     // Without a settings store (tests, bare runtimes) the round keeps the rules from before the setting: direct
     // answers are not reviewed, other final answers always are.
     const review = s?.verification.reviewer
-    const wallMs = Math.round((config.wallMinutes ?? s?.team.wallMinutes ?? 30) * 60_000)
+    // 0 (the default) is no wall clock: the round runs until its work is done, its turns or spend run out, or the person
+    // stops it.
+    const wallMs = Math.round((config.wallMinutes ?? s?.team.wallMinutes ?? 0) * 60_000)
     // The spend limit is set once the chat's project is known, from every level's caps (deliver, budgets.ts).
     const limits = s?.team.tokens ? { tokens: s.team.tokens } : {}
     const models = [...new Set([...roster.map((r) => r.model), config.leadModel])]
@@ -2180,7 +2183,7 @@ export class ChatService {
             ],
       budget:
         tier === 'answer'
-          ? { wallMs: Math.min(wallMs, 4 * 60_000), maxTurns: 4, ...limits }
+          ? { wallMs: wallMs > 0 ? Math.min(wallMs, 4 * 60_000) : 0, maxTurns: 4, ...limits }
           : { wallMs, maxTurns: s?.team.maxTurns ?? 40, ...limits },
       observer: { intervalMs: (s?.observer.intervalSeconds ?? 45) * 1000 },
       ...(review ? { review } : {}),

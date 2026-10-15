@@ -153,6 +153,31 @@ test('orchestrated: workers sleep until assigned, the final answer verifies itse
   await chats.stopAll()
 })
 
+test('a round has no time limit unless the person sets one, and agents are told so', async () => {
+  const resolver = new ModelResolver()
+  scripted(resolver, 'mock/clockless', [
+    [tool('read_task', {})],
+    [tool('reply_user', { text: 'Done.', final: true })],
+  ])
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), quietMs: QUIET_MS })
+  const { colonyId } = await chats.send('Take your time', solo('mock/clockless'))
+  const s = await waitFor(colonyId)
+  // It ends the usual way, waiting on the person, never on a clock.
+  expect(s.statusReason).toBe('awaiting your reply')
+  expect(s.budget.wallMs).toBe(0)
+  const read = (await events(colonyId))
+    .filter((e) => e.type === 'tool/result')
+    .map((e) => e.payload as EventPayloads['tool/result'])
+    .find((r) => r.tool === 'read_task')
+  expect(read?.output).toContain('TIME LEFT: no time limit')
+  // No clock means no "time is running out" nudges.
+  expect(
+    (await events(colonyId)).some(
+      (e) => e.type === 'observer/signal' && (e.payload as { kind?: string }).kind === 'deadline',
+    ),
+  ).toBe(false)
+})
+
 test('crew messages are a conversation: a question left unanswered gets a reminder, and replies thread', async () => {
   const resolver = new ModelResolver()
   const prompts: Record<string, string[]> = {}

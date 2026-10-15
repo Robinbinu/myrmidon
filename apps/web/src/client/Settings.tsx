@@ -2458,7 +2458,7 @@ function TeamSection(props: {
           <NumberField
             label={copy.settings.team.timeLimit}
             value={t.wallMinutes}
-            min={1}
+            min={0}
             max={240}
             suffix={copy.settings.team.units.minutes}
             onChange={(v) => props.update((s) => ({ ...s, team: { ...s.team, wallMinutes: v } }))}

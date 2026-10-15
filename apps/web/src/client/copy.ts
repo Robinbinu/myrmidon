@@ -3640,7 +3640,7 @@ export const copy = {
       title: 'Crew & budget',
       intro: 'Defaults for every new chat. You can still change the crew per message.',
       timeLimit: 'Time limit per run',
-      timeLimitHint: 'The crew stops when this runs out, reviewed or not.',
+      timeLimitHint: 'The crew stops when this runs out, reviewed or not. 0 means no limit, the default.',
       spendLimit: 'Spend limit per run',
       /** The default is the runtime's DEFAULT_COST_USD. */
       spendLimitHint:
