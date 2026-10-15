@@ -29,6 +29,9 @@ export function answerText(choices: readonly QuestionChoice[], answers: readonly
     .join('\n')
 }
 
+/** Why a card nobody answered on can no longer be answered: it says so in place of its buttons. */
+export type ClosedBecause = 'ended' | 'replied' | 'newer'
+
 /** What the server keeps of the answers: only what was said, per question. */
 export const picksOf = (answers: readonly Answer[]): QuestionPick[] =>
   answers.map((a) => ({
@@ -48,6 +51,8 @@ export function QuestionCard(props: {
   plan?: string
   /** The round is waiting on these questions; otherwise they were answered or set aside. */
   open: boolean
+  /** Why questions left unanswered are closed (the round ended unless said otherwise). */
+  closed?: ClosedBecause
   /** What the person answered, from the chat: shown as picked, after a reload too. */
   answered?: readonly QuestionPick[]
   /** Agents that have read the answer. */
@@ -57,6 +62,7 @@ export function QuestionCard(props: {
 }) {
   const [answers, setAnswers] = useState<Answer[]>(() => props.choices.map(() => blank))
   const [sending, setSending] = useState<'no' | 'yes' | 'sent'>('no')
+  const [failed, setFailed] = useState<string>()
   const others = useRef<(HTMLInputElement | null)[]>([])
   const live = props.open && sending !== 'sent' && !props.answered
   // Once answered, the card shows what the chat recorded; until then (or while sending), what is being picked.
@@ -96,9 +102,13 @@ export function QuestionCard(props: {
   const send = (text: string, picks?: QuestionPick[]) => {
     if (sending !== 'no') return
     setSending('yes')
+    setFailed(undefined)
     props.onAnswer(text, picks).then(
       () => setSending('sent'),
-      () => setSending('no'),
+      (err: unknown) => {
+        setSending('no')
+        setFailed(err instanceof Error ? err.message : String(err))
+      },
     )
   }
 
@@ -232,6 +242,16 @@ export function QuestionCard(props: {
             {sending === 'yes' ? copy.questions.sending : copy.questions.send(props.choices.length)}
           </Button>
         </div>
+      )}
+      {live && failed && (
+        <p role="alert" className="text-small text-bad-ink">
+          {copy.questions.failed(failed)}
+        </p>
+      )}
+      {!live && !props.answered && (
+        <p className="border-t border-line pt-3 text-footnote text-muted" aria-live="polite">
+          {sending === 'sent' ? copy.questions.sent : copy.questions[props.closed ?? 'ended']}
+        </p>
       )}
       {props.answered && (
         <div
