@@ -700,6 +700,16 @@ Open work, in the order it will be done:
          a mermaid block shows as source).
       Not needed: desktop (Cua Driver covers computer use), terminal keys/sixel/width (no TUI), pi-voice (own stack).
       Each goes through packages/runtime/src/omp/natives.ts.
+12ac. - [ ] **Task 7: optimize multi-agent orchestration** (asked 2026-10-15; start after Task 5 lifecycle hardening
+      and Task 6 solo-quality benchmark land, since it changes the same scheduling code and needs their baseline).
+      Measure with the eval harness (solo vs orchestrated vs swarm on one corpus, repeated trials, DeepSeek models):
+      quality, wall time, cost, duplicate effort, failure recovery. Test, don't assume: over-orchestration of solo
+      tasks; late parallel dispatch; coordination waits; duplicate work / conflicting edits; late partial results to
+      the lead; failed/blocked tasks delaying unrelated work; reviewers repeating work; fixed delays where events would
+      do. Build bounded concurrency and dependency-aware scheduling (start workers when ready, no needless barriers,
+      clear ownership) and structured outcomes (files changed, checks run, blockers, evidence-based confidence). Keep
+      the colony history, task graph, permissions, approvals, notes, workspaces and artifacts. More agents is not the
+      goal: the mode that reliably finishes with least overhead is.
 12l. - [x] **Full access, no sandbox** (asked 2026-10-09, like Hermes) — global switch in Settings → Tools (default on)
       and a per-project Full access; lifts the command sandbox, file-path limits and the private-address rule; approvals
       still apply; channel members and read-only projects stay sandboxed. Left: Windows (unconfined commands still use
