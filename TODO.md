@@ -720,6 +720,17 @@ Open work, in the order it will be done:
       kept. Failure matrix: auth, quota/rate limit, transient provider failure/timeout, invalid tool args, missing
       executables, permission denial/approval expiry, browser/computer-use disconnect, partial failures,
       cancellation in flight, repeated actions/duplicate results.
+12ae. - [ ] **Task 10: long-session context, memory and continuation** (asked 2026-10-15; start after Task 5 lifecycle
+      and Task 6 solo-quality land: same eval harness, prompt assembly and resume code; DeepSeek for eval runs).
+      Inspect per-agent JSONL transcripts, compaction, memory recall, project instructions, tool-output retention,
+      resume, prompt assembly. Reproducible evals: follow-up on an earlier task; remembering approved decisions;
+      project context after a restart; continuing a multistep coding task; large command outputs and long event
+      histories; current repo state vs old conversational claims; correcting stale assumptions when files or command
+      results disagree; no leaks between projects or chats. Improve retrieval and compaction from measured failures:
+      keep recent decision-critical content intact, paths and code exact, older information recoverable; no repeated
+      tool output, stale summaries or irrelevant memories crowding the task; enough progress recorded to continue
+      after a restart. Judge correctness and token cost together, never compression ratio alone. Tests for context
+      restoration, privacy boundaries and long-context behaviour.
 12l. - [x] **Full access, no sandbox** (asked 2026-10-09, like Hermes) — global switch in Settings → Tools (default on)
       and a per-project Full access; lifts the command sandbox, file-path limits and the private-address rule; approvals
       still apply; channel members and read-only projects stay sandboxed. Left: Windows (unconfined commands still use
