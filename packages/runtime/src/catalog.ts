@@ -1,6 +1,7 @@
 import { titleModel } from './chat-titles.ts'
 import type { OmpRuntime } from './omp/runtime.ts'
 import type { SettingsStore } from './settings.ts'
+import { type ModelThinking, modelThinking } from './thinking.ts'
 import type { ContextWindows, WindowSource } from './windows.ts'
 
 /** A model the user can pick. */
@@ -10,6 +11,8 @@ export interface ModelOption {
   readonly id: string
   readonly name: string
   readonly reasoning: boolean
+  /** What each thinking level is sent as on this model; absent when it takes none (thinking.ts). */
+  readonly thinking?: ModelThinking
   readonly contextWindow?: number
   /** Where `contextWindow` came from; absent when it is omp's default guess. */
   readonly windowSource?: WindowSource
@@ -35,12 +38,14 @@ export function buildCatalog(
     const hidden = hiddenRefs.has(ref) || hiddenProviders.has(m.provider)
     if (!includeHidden && hidden) continue
     const window = windows?.of(m) ?? { tokens: m.contextWindow ?? undefined }
+    const thinking = modelThinking(m)
     out.push({
       ref,
       provider: m.provider,
       id: m.id,
       name: m.name ?? m.id,
       reasoning: m.reasoning === true,
+      ...(thinking ? { thinking } : {}),
       ...(window.tokens ? { contextWindow: window.tokens } : {}),
       ...(window.source ? { windowSource: window.source } : {}),
       hidden,

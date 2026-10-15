@@ -3,6 +3,7 @@ import { levelsOf, presetOf } from './permissions.ts'
 import type { ProjectContext } from './project-context.ts'
 import { prompts } from './prompts.ts'
 import type { AgentSpec, ColonySpec } from './spec.ts'
+import type { Effort } from './thinking.ts'
 
 const LOOK = [
   'read_notes',
@@ -363,8 +364,6 @@ export interface Environment {
   /** Secrets reach the model as placeholders (Settings → Permissions; provider-secrets.ts). */
   readonly secretsHidden?: boolean
 }
-
-type Effort = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
 
 /**
  * How hard a reasoning model thinks per step. Planning and solo work decide the outcome, so they think hard;

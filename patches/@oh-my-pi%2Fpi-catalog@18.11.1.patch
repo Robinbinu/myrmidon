@@ -1,11 +1,7 @@
-diff --git a/node_modules/@oh-my-pi/pi-catalog/.bun-tag-c984eb3d770adaf1 b/.bun-tag-c984eb3d770adaf1
-new file mode 100644
-index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
 diff --git a/src/provider-models/openai-compat.ts b/src/provider-models/openai-compat.ts
-index b25c78aebb4dc247433511f33b7bf7b23478f57c..b4fa973ea738f00d01346e99cab19fae734a963d 100644
 --- a/src/provider-models/openai-compat.ts
 +++ b/src/provider-models/openai-compat.ts
-@@ -1215,7 +1215,33 @@ export interface GroqModelManagerConfig {
+@@ -1282,7 +1282,33 @@
  }
  
  export function groqModelManagerOptions(config?: GroqModelManagerConfig): ModelManagerOptions<"openai-completions"> {

@@ -11,13 +11,13 @@ import {
 import type { AgentMessage, StreamFn, ToolResultShakeRegion } from './omp/agent-core.ts'
 import {
   applyShakeRegions,
+  base64ImageSize,
   type CompactionSettings,
   calculateContextTokens,
   collectShakeRegions,
   DEFAULT_COMPACTION_SETTINGS,
   DEFAULT_RESERVE_TOKENS,
   DEFAULT_SHAKE_CONFIG,
-  estimateImageContentTokens,
   generateSummary,
   resolveBudgetReserveTokens,
   resolveThresholdTokens,
@@ -88,6 +88,7 @@ interface Shaken {
   readonly index: number
   readonly region: ToolResultShakeRegion
   readonly placeholder: string
+  readonly placeholderTokens: number
 }
 
 const keepTokens = (window: number, settings: CompactionSettings) =>
@@ -111,11 +112,13 @@ const archiveOverhead = (shape: snapcompact.Shape) =>
  * its base64 data.
  */
 function estimate(messages: readonly AgentMessage[], model: Model): number {
+  let tokenizer: Tokenizer | undefined
   let images = 0
   const parts = messages.map((m) =>
     JSON.stringify(m, (_key, value) => {
       if (value?.type === 'image' && typeof value.data === 'string') {
-        images += estimateImageContentTokens(value)
+        tokenizer ??= new Tokenizer(model)
+        images += imageTokens(tokenizer, value)
         return { type: 'image' }
       }
       return value
@@ -123,6 +126,10 @@ function estimate(messages: readonly AgentMessage[], model: Model): number {
   )
   return tokensOf(parts, model) + images
 }
+
+/** One image's input tokens at the reading model's catalog image rule, from the pixel size in its header. */
+const imageTokens = (tokenizer: Tokenizer, image: ImageContent) =>
+  tokenizer.imageTokens(base64ImageSize(image.data), image.detail)
 
 export class ContextCompactor {
   private _fold?: Fold
@@ -324,11 +331,12 @@ export class ContextCompactor {
       const images = (region.entry.message as ToolResultMessage).content.filter(
         (c): c is ImageContent => c.type === 'image',
       )
-      const tokens = region.tokens + images.reduce((n, c) => n + estimateImageContentTokens(c), 0)
+      const tokens = region.tokens + images.reduce((n, c) => n + imageTokens(tokenizer, c), 0)
       if (tokens < SHAKE_MIN_TOKENS) continue
       const placeholder = prompts.compaction.shaken(region.label, tokens, images.length)
-      plan.push({ index: Number(region.entry.id), region, placeholder })
-      freed += tokens - tokenizer.countTokens(placeholder)
+      const placeholderTokens = tokenizer.countTokens(placeholder)
+      plan.push({ index: Number(region.entry.id), region, placeholder, placeholderTokens })
+      freed += tokens - placeholderTokens
     }
     const minSavings = Math.min(DEFAULT_SHAKE_CONFIG.minSavings, Math.floor(threshold * SHAKE_MIN_SHARE))
     return plan.length > 0 && freed >= minSavings ? plan : undefined
@@ -337,14 +345,14 @@ export class ContextCompactor {
   /** Elides the planned tool results from the request; returns the tokens freed. */
   private _shake(messages: readonly AgentMessage[], plan: readonly Shaken[]): number {
     let freed = 0
-    for (const { index, region, placeholder } of plan) {
+    for (const { index, region, placeholder, placeholderTokens } of plan) {
       const stored = messages[index] as AgentMessage
       const current = region.entry.message as ToolResultMessage
       const before = this._estimate([current])
       // omp's shake rewrites the message in place; here the stored conversation stays whole, so it works on a copy.
       const copy = { ...current, content: [...current.content] }
       ;(region.entry as { message: AgentMessage }).message = copy as AgentMessage
-      applyShakeRegions([{ region, replacement: placeholder }])
+      applyShakeRegions([{ region, replacement: placeholder, replacementTokens: placeholderTokens }])
       copy.content = copy.content.filter((c) => c.type !== 'image')
       // A result that was only images has no text for omp's shake to replace.
       if (!copy.content.some((c) => c.type === 'text' && c.text === placeholder)) {
@@ -395,27 +403,25 @@ export class ContextCompactor {
     const room = settled - base - archiveOverhead(shape)
     if (room <= 0) return undefined
     const frameCost = Math.max(snapcompact.FRAME_TOKEN_ESTIMATE, shape.frameTokenEstimate)
+    const frameBytes = snapcompact.frameDataBytesBudget(model)
     const maxFrames = Math.max(
       1,
       Math.min(
         Math.floor(room / frameCost),
         snapcompact.MAX_FRAMES_DEFAULT,
-        snapcompact.maxFramesForDataBudget(shape),
-        snapcompact.providerFrameBudget(model.provider),
+        snapcompact.maxFramesForDataBudget(shape, frameBytes),
+        snapcompact.providerFrameBudget(model),
       ),
     )
     const result = await snapcompact.compact(preparation, { model, shape, maxFrames, includeThinking: false })
     const archive = snapcompact.getPreservedArchive(result.preserveData)
-    if (archive && snapcompact.frameDataBytes(archive.frames) > snapcompact.FRAME_DATA_BYTES_BUDGET)
-      return undefined
+    if (archive && snapcompact.frameDataBytes(archive.frames) > frameBytes) return undefined
     const fold: Fold = {
       upTo: cut,
       method: 'snapcompact',
       text: result.summary,
       ...(result.preserveData ? { archive: result.preserveData } : {}),
-      blocks: archive
-        ? snapcompact.historyBlocks(archive, { maxFrameDataBytes: snapcompact.FRAME_DATA_BYTES_BUDGET })
-        : [],
+      blocks: archive ? snapcompact.historyBlocks(archive, { maxFrameDataBytes: frameBytes }) : [],
     }
     // The text edges have a floor of their own: on a small window they can cost more than the summary would.
     const after = base + this._estimate([this._foldMessage(fold)])

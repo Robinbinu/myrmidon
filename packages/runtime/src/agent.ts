@@ -30,7 +30,6 @@ import {
   preloaded,
   speaksForColony,
   startsAwake,
-  thinkingFor,
   toolsFor,
   withCompanions,
 } from './patterns.ts'
@@ -41,6 +40,7 @@ import { hideInContext, restoreSecrets, secretsHidden } from './provider-secrets
 import { redactDeep } from './secrets.ts'
 import type { AgentSpec } from './spec.ts'
 import { rulesFor, StreamRuleGuard } from './stream-rules.ts'
+import { agentEffort } from './thinking.ts'
 import { buildAgentTools, matchTools } from './tools.ts'
 import { noWebTools } from './web.ts'
 
@@ -175,9 +175,7 @@ export class ColonyAgent {
         model: resolved.model,
         tools,
         ...(history.length ? { messages: history } : {}),
-        ...(resolved.model.reasoning
-          ? { thinkingLevel: thinkingFor(host.spec, spec) as NonNullable<AgentState['thinkingLevel']> }
-          : {}),
+        thinkingLevel: this._effort(resolved.model),
       },
       getApiKey: (m) => resolver.apiKey(m),
       // Everything that came in while a step ran is read at the next one, as when someone looks at a busy chat; one
@@ -243,12 +241,13 @@ export class ColonyAgent {
     const resolved = this.resolver.resolve(ref)
     this._agent.setModel(resolved.model)
     this._stream = resolved.streamFn
-    this._agent.setThinkingLevel(
-      resolved.model.reasoning
-        ? (thinkingFor(this.host.spec, this.spec) as NonNullable<AgentState['thinkingLevel']>)
-        : undefined,
-    )
+    this._agent.setThinkingLevel(this._effort(resolved.model))
     ;(this.spec as { model: string }).model = ref
+  }
+
+  /** How hard `model` thinks for this agent (thinking.ts). */
+  private _effort(model: Model): AgentState['thinkingLevel'] {
+    return agentEffort(model, this.host.spec, this.spec) as AgentState['thinkingLevel']
   }
 
   /** On-demand tools this agent loaded with find_tools; the rest stay out of its model calls. */

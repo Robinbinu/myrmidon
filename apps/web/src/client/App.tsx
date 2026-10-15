@@ -72,6 +72,7 @@ import { RuleSheet } from './chat/RuleSheet.tsx'
 import { ImportedChatBlock, ImportNote, ImportSessions } from './chat/SessionImport.tsx'
 import { ShareChat } from './chat/ShareChat.tsx'
 import { Sidebar, type View } from './chat/Sidebar.tsx'
+import { thinkingFit } from './chat/thinking.ts'
 import { Workspace } from './chat/Workspace.tsx'
 import { copy } from './copy.ts'
 import { useScope } from './DeviceGate.tsx'
@@ -1038,11 +1039,13 @@ export function App() {
           throw new Error('bad thinking')
         }
         const { thinking: _old, ...rest } = config
-        updateConfig(arg === 'auto' ? rest : { ...rest, thinking: arg as 'low' | 'medium' | 'high' })
-        return toast(
-          arg === 'auto' ? copy.app.toasts.thinkingAuto : copy.app.toasts.thinkingLevel(arg),
-          'success',
-        )
+        const level = arg === 'auto' ? undefined : (arg as 'low' | 'medium' | 'high')
+        updateConfig(level ? { ...rest, thinking: level } : rest)
+        // Said when the lead's model takes the level otherwise, as the thinking chip shows.
+        const lead = config.mode === 'swarm' ? undefined : models.find((m) => m.ref === config.leadModel)
+        const note = thinkingFit(lead, level).note
+        const said = arg === 'auto' ? copy.app.toasts.thinkingAuto : copy.app.toasts.thinkingLevel(arg)
+        return toast(note ? `${said}. ${note}` : said, 'success')
       }
       case 'export': {
         if (!chat) return toast(copy.app.toasts.openChatToExport, 'info')
