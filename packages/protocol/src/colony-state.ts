@@ -891,13 +891,18 @@ export function stopCause(state: Pick<ColonyState, 'status' | 'statusReason' | '
   return state.statusReason === AWAITING_USER ? { awaiting: true } : {}
 }
 
-export function colonyMetrics(state: ColonyState, now = Date.now()): ColonyMetrics {
-  const agents = Object.values(state.agents)
+/** How long the colony has run: until it ended, or until `now` while it still runs. */
+export function colonyWallMs(state: Pick<ColonyState, 'createdAt' | 'endedAt'>, now = Date.now()): number {
   const start = state.createdAt ? Date.parse(state.createdAt) : now
   const end = state.endedAt ? Date.parse(state.endedAt) : now
+  return Math.max(0, end - start)
+}
+
+export function colonyMetrics(state: ColonyState, now = Date.now()): ColonyMetrics {
+  const agents = Object.values(state.agents)
   const scores = state.verdicts.map((v) => v.score).filter((s): s is number => s !== undefined)
   return {
-    wallMs: Math.max(0, end - start),
+    wallMs: colonyWallMs(state, now),
     tokens: agents.reduce((n, a) => n + a.tokens, 0),
     cost: agents.every((a) => a.costKnown) ? agents.reduce((n, a) => n + a.cost, 0) : undefined,
     turns: agents.reduce((n, a) => n + a.turns, 0),

@@ -1,6 +1,7 @@
 import {
   type ColonyState,
   colonyMetrics,
+  colonyWallMs,
   DELIVERED_VERIFIER,
   type EventPayloads,
   type MyrEvent,
@@ -34,7 +35,7 @@ import { FEATURE_ICONS } from './ui/icons.ts'
 import { AgentAvatar } from './ui/pixel.tsx'
 import { Badge, Banner, cn, Dot, Empty, Tabs, tabPanel, toneFor } from './ui/primitives.tsx'
 import { agentPhase, runPhase } from './ui/status.ts'
-import { MAX_ACTIVITY_ITEMS, REPLAY_SPEEDS, spring } from './ui-config.ts'
+import { COLONY_CLOCK_MS, MAX_ACTIVITY_ITEMS, REPLAY_SPEEDS, spring } from './ui-config.ts'
 import { useColony } from './use-colony.ts'
 
 type Tab = 'activity' | 'board' | 'tasks' | 'files' | 'map' | 'verdicts'
@@ -297,7 +298,7 @@ export function ColonyScreen({ id }: { id: string; compact?: boolean }) {
           {state.statusReason && <p className="truncate text-callout text-muted">{state.statusReason}</p>}
         </div>
         <div className="flex flex-wrap gap-4 text-callout tabular-nums text-muted">
-          <Stat label={copy.colonyScreen.stats.time} value={duration(m.wallMs)} />
+          <RunTime createdAt={state.createdAt} endedAt={state.endedAt} />
           <Stat label={copy.colonyScreen.stats.tokens} value={compact(m.tokens)} />
           <Stat label={copy.colonyScreen.stats.cost} value={money(m.cost, m.tokens)} />
           <Stat label={copy.colonyScreen.stats.toolCalls} value={String(m.toolCalls)} />
@@ -426,6 +427,27 @@ export function ColonyScreen({ id }: { id: string; compact?: boolean }) {
         )}
       </AnimatePresence>
     </div>
+  )
+}
+
+/**
+ * The colony's elapsed time. The log only moves when something happens, so while the colony runs (no end yet) this
+ * keeps its own clock; it ticks here alone rather than re-rendering the whole screen, and stops once the run ends.
+ */
+export function RunTime({ createdAt, endedAt }: { createdAt?: string; endedAt?: string }) {
+  const running = createdAt !== undefined && endedAt === undefined
+  const [now, setNow] = useState(Date.now)
+  useEffect(() => {
+    if (!running) return
+    setNow(Date.now())
+    const timer = setInterval(() => setNow(Date.now()), COLONY_CLOCK_MS)
+    return () => clearInterval(timer)
+  }, [running])
+  return (
+    <Stat
+      label={copy.colonyScreen.stats.time}
+      value={duration(colonyWallMs({ createdAt, endedAt }, now))}
+    />
   )
 }
 
