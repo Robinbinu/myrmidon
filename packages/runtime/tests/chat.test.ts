@@ -1402,7 +1402,7 @@ test('a worker that stops while holding its task is reminded to finish it', asyn
   await chats.stopAll()
 })
 
-test('agents call MCP tools: read-only ones run at once, others wait for the person, and calls are logged', async () => {
+test('agents call MCP tools under Auto: reads and ordinary writes run at once, and calls are logged', async () => {
   const { McpHub } = await import('../src/mcp.ts')
   const hub = new McpHub(join(home, 'agent'))
   opened.push(hub)
@@ -1421,11 +1421,9 @@ test('agents call MCP tools: read-only ones run at once, others wait for the per
   judge(resolver)
   const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), mcp: hub })
   const { colonyId } = await chats.send('Echo something', { ...solo('mock/solo'), judgeModel: 'mock/judge' })
-  const waiting = await waitFor(colonyId, (x) => Object.values(x.approvals).some((a) => !a.decided))
-  const approvals = Object.values(waiting.approvals)
-  expect(approvals.map((a) => a.tool)).toEqual([shout])
-  await chats.decideApproval(colonyId, approvals[0]?.id ?? '', true)
-  await waitFor(colonyId)
+  // Under Auto (the default) a write whose name says nothing destructive runs too; one that deletes or sends would ask.
+  const done = await waitFor(colonyId)
+  expect(Object.values(done.approvals)).toEqual([])
   const results = (await events(colonyId))
     .filter((e) => e.type === 'tool/result')
     .map((e) => e.payload as EventPayloads['tool/result'])

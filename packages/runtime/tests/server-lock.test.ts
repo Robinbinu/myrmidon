@@ -18,7 +18,12 @@ test('one server per home: a second process cannot claim it until the first has 
       ],
       { stdout: 'pipe', stderr: 'inherit' },
     )
-    const said = await first.stdout.getReader().read()
+    const reader = first.stdout.getReader()
+    const said = await reader.read()
+    // Let go of the pipe before the child goes: a reader left holding it keeps Bun's event loop waking on its end, and
+    // a parallel test worker spun at full CPU for good, never reporting.
+    reader.releaseLock()
+    await first.stdout.cancel()
     expect(new TextDecoder().decode(said.value).trim()).toBe('true')
     expect(claimServerHome(home)).toBe(false)
     // Killed, with no chance to let go itself: the OS does.

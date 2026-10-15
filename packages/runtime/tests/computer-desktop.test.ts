@@ -113,7 +113,9 @@ const textOf = (r: AgentToolResult) =>
   r.content.flatMap((c) => (c.type === 'text' ? [c.text] : [])).join('\n')
 
 /** A round's host as far as the desktop tool uses it. */
-function fakeHost(options: { decide?: (summary: string) => boolean; rules?: PermissionRule[] } = {}) {
+function fakeHost(
+  options: { decide?: (summary: string) => boolean; rules?: PermissionRule[]; preset?: 'auto' | 'full' } = {},
+) {
   const events: EventDraft[] = []
   const cards: { summary: string; offers: boolean }[] = []
   let apps: ComputerApp[] = []
@@ -122,7 +124,7 @@ function fakeHost(options: { decide?: (summary: string) => boolean; rules?: Perm
     id: 'colony-test',
     spec: {},
     permit: (_agent: string, call: PermissionCall) =>
-      decide({ global: { preset: 'full', rules: [] }, chat: { rules } }, call),
+      decide({ global: { preset: options.preset ?? 'auto', rules: [] }, chat: { rules } }, call),
     boundary: 'b0undary',
     blobs: new BlobStore(join(home, 'blobs')),
     workspace: { scratch: () => home },
@@ -172,7 +174,11 @@ test('looking at the screen asks once per chat, then a read-only script runs wit
   expect(runs).toHaveLength(2)
 })
 
-test('a script that acts asks every time, even under full access, until the person allows desktop for the chat', async () => {
+test('a script that acts asks every time under Auto, until the person allows desktop for the chat; Full access never asks', async () => {
+  const full = fakeHost({ preset: 'full' })
+  await run(full.host, { code: 'const win = await desktop.window({ app: "Notes" })\nawait win.type("milk")' })
+  expect(full.cards.filter((c) => c.summary.startsWith('Let the agent run this script'))).toHaveLength(0)
+  runs.length = 0
   const { host, cards, allowForChat } = fakeHost()
   const code = 'const win = await desktop.window({ app: "Notes" })\nawait win.type("milk")'
   await run(host, { code })

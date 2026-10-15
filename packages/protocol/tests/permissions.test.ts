@@ -40,14 +40,16 @@ const mcp = (tool: string, readOnly = false): PermissionCall => ({
 })
 
 describe('presets', () => {
-  test('Auto runs edits and ordinary commands, asks before destructive ones and MCP writes', () => {
+  test('Auto runs edits, ordinary commands and MCP writes, and asks before destructive ones', () => {
     expect(decide(auto, edit()).decision).toBe('allow')
     expect(decide(auto, shell('bun test')).decision).toBe('allow')
     expect(decide(auto, shell('git push origin main')).decision).toBe('ask')
     expect(decide(auto, shell('cd x && rm -rf build')).decision).toBe('ask')
-    expect(decide(auto, mcp('mcp__github_create_issue')).decision).toBe('ask')
+    // An MCP write is not destructive in itself: Auto runs it (the person's "don't ask me"), Ask asks.
+    expect(decide(auto, mcp('mcp__github_create_issue')).decision).toBe('allow')
     expect(decide(auto, mcp('mcp__github_list_issues', true)).decision).toBe('allow')
-    expect(decide(auto, edit('outside')).decision).toBe('ask')
+    // Outside the project is the sandbox's call (a confined agent cannot write there); Auto itself does not ask.
+    expect(decide(auto, edit('outside')).decision).toBe('allow')
   })
 
   test('no preset anywhere means Auto, from the default', () => {
@@ -848,4 +850,49 @@ test("git's abbreviated long options are read as git reads them", () => {
   ])
     expect([line, readOnlyCommand(line)]).toEqual([line, false])
   expect(readOnlyCommand('git log --oneline')).toBe(true)
+})
+
+test('Full access asks for nothing, Auto only before what destroys: past the rules the person wrote', () => {
+  const calls: PermissionCall[] = [
+    { tool: 'shell', kind: 'command', command: 'npm install left-pad' },
+    { tool: 'fs_write', kind: 'edit', where: 'outside' },
+    { tool: 'mcp__x__write', kind: 'mcp', mcp: { server: 'x', readOnly: false } },
+  ]
+  for (const preset of ['auto', 'full'] as const) {
+    const levels: PermissionLevels = { global: { preset, rules: [] } }
+    for (const call of calls)
+      expect([preset, call.tool, decide(levels, call).decision]).toEqual([preset, call.tool, 'allow'])
+    // The person's own rules still hold: a deny denies and an ask asks.
+    const ruled: PermissionLevels = {
+      global: {
+        preset,
+        rules: [
+          { kind: 'command', target: 'git push', decision: 'deny' },
+          { kind: 'command', target: 'npm publish', decision: 'ask' },
+        ],
+      },
+    }
+    expect(decide(ruled, { tool: 'shell', kind: 'command', command: 'git push origin main' }).decision).toBe(
+      'deny',
+    )
+    expect(decide(ruled, { tool: 'shell', kind: 'command', command: 'npm publish' }).decision).toBe('ask')
+    // A channel member's run asks for every change; a read-only project stays read-only.
+    expect(decide(levels, calls[0] as PermissionCall, { askAll: true }).decision).toBe('ask')
+    // What destroys, or acts outside the sandbox (your desktop, another computer), asks under Auto; Full access runs it.
+    for (const call of [
+      { tool: 'desktop', kind: 'other', readOnly: false, asks: true },
+      { tool: 'ssh', kind: 'ssh', ssh: { host: 'box' }, command: 'ls' },
+      { tool: 'mcp__notes_delete', kind: 'mcp', mcp: { server: 'notes', readOnly: false } },
+      { tool: 'shell', kind: 'command', command: 'rm -rf build' },
+      // GitHub writes publish to the world: Auto treats them as not undoable.
+      { tool: 'github', kind: 'command', command: 'gh issue create --title x', readOnly: false, asks: true },
+    ] as PermissionCall[])
+      expect(decide(levels, call).decision).toBe(preset === 'auto' ? 'ask' : 'allow')
+    const readOnly: PermissionLevels = { ...levels, project: { preset: 'read-only', rules: [] } }
+    expect(decide(readOnly, { tool: 'fs_write', kind: 'edit', where: 'project' }).decision).toBe('deny')
+  }
+  // Ask is the preset that asks: changes and commands that do more than look wait for the person.
+  const ask: PermissionLevels = { global: { preset: 'ask', rules: [] } }
+  for (const call of calls) expect(decide(ask, call).decision).toBe('ask')
+  expect(decide(ask, { tool: 'shell', kind: 'command', command: 'ls' }).decision).toBe('allow')
 })

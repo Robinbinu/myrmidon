@@ -263,8 +263,26 @@ export function decide(
 }
 
 /** What a preset does with a call no rule names (the table in the design doc). */
+/** A tool whose name says it destroys or reaches out for good: delete, remove, send, publish, pay… (Auto asks). */
+export function destructiveToolName(tool: string): boolean {
+  return DESTRUCTIVE_TOOL_WORDS.test(tool)
+}
+
+const DESTRUCTIVE_TOOL_WORDS =
+  /(^|[_\-.])(delete|del|remove|rm|drop|destroy|purge|wipe|erase|truncate|kill|terminate|revoke|send|post|publish|pay|payment|payout|charge|transfer|refund)(?=$|[_\-.]|s\b)/i
+
 export function presetDecision(preset: PermissionPreset, call: PermissionCall): RuleDecision {
-  if (call.asks) return 'ask'
+  // Auto and Full access are the person's "do it without asking", past their own rules (checked before this). Full
+  // access asks nothing. Auto asks only before what destroys or cannot be undone (a command, wherever it runs, or an
+  // MCP tool named for it), before a tool that always asks (acting on the person's own desktop), and before a command
+  // on another computer: both are outside every sandbox, which Auto keeps.
+  const unasked = preset === 'auto' || preset === 'full'
+  if (preset === 'auto') {
+    if (call.command !== undefined && destructiveCommand(call.command)) return 'ask'
+    if (call.kind === 'mcp' && !call.mcp?.readOnly && destructiveToolName(call.tool)) return 'ask'
+    if (call.asks) return 'ask'
+  }
+  if (call.asks) return preset === 'full' ? 'allow' : 'ask'
   switch (call.kind) {
     case 'read':
     case 'colony':
@@ -274,21 +292,19 @@ export function presetDecision(preset: PermissionPreset, call: PermissionCall): 
     case 'proposal':
       return 'ask'
     case 'mcp':
-      return call.mcp?.readOnly || preset === 'full' ? 'allow' : 'ask'
+      return call.mcp?.readOnly || unasked ? 'allow' : 'ask'
     // Another computer is outside every sandbox: only full access or a rule for the host lets a call run unasked.
     case 'ssh':
       return preset === 'full' ? 'allow' : 'ask'
     case 'edit': {
-      if (call.where === 'private' || preset === 'full') return 'allow'
+      if (call.where === 'private' || unasked) return 'allow'
       if (preset === 'read-only') return 'deny'
-      if (preset === 'ask') return 'ask'
-      return call.where === 'outside' ? 'ask' : 'allow'
+      return 'ask'
     }
     case 'command': {
       const line = call.command ?? ''
-      if (preset === 'full' || preset === 'read-only') return 'allow'
-      if (preset === 'ask') return readOnlyCommand(line) ? 'allow' : 'ask'
-      return destructiveCommand(line) ? 'ask' : 'allow'
+      if (unasked || preset === 'read-only') return 'allow'
+      return readOnlyCommand(line) ? 'allow' : 'ask'
     }
   }
 }

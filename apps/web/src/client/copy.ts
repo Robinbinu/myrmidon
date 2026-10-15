@@ -1602,7 +1602,7 @@ export const copy = {
       },
       auto: {
         label: 'Auto',
-        hint: 'Agents edit and run commands in the sandbox; they ask before anything destructive.',
+        hint: 'Agents work in the sandbox without asking; they ask only before anything destructive, or before acting on your desktop or another computer.',
       },
       full: {
         label: 'Full access',
