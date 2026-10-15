@@ -98,6 +98,7 @@ import {
   REVIEW_MAX_CHARS,
   RULE_MAX_TEXT,
   SSH,
+  TOOL_STOP_GRACE_MS,
   TTS_MAX_CHARS,
 } from './config.ts'
 import { DEBUG_ACTIONS, type DebugScope, debugReads, debugSessions } from './debugger.ts'
@@ -192,8 +193,12 @@ interface ToolDef {
   /** For a tool only some of whose calls change things (lsp's rename): this call's tier, which `tier` is the least of. */
   // biome-ignore lint/suspicious/noExplicitAny: arguments are validated against `parameters` by the agent loop
   readonly tierOf?: (args: any) => Tier
+  /**
+   * `signal` is the call's: aborted when the agent's turn is cut short (the round stopped, a turn timeout, an
+   * interrupt). A tool that starts processes stops them with it; any other is abandoned when it fires.
+   */
   // biome-ignore lint/suspicious/noExplicitAny: arguments are validated against `parameters` by the agent loop
-  run(args: any, agent: string, host: ColonyHost): Promise<string | ToolOutput>
+  run(args: any, agent: string, host: ColonyHost, signal?: AbortSignal): Promise<string | ToolOutput>
 }
 
 /** Leading bytes of each raster format, so a text file published under an image name is never sent as one. */
@@ -3617,7 +3622,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       command: type('string').describe(prompts.tools.shell.params.command),
       'timeoutSeconds?': type('number').describe(prompts.tools.shell.params.timeoutSeconds),
     }),
-    async run(args, agent, host) {
+    async run(args, agent, host, signal) {
       if (host.sandbox.kind === 'none' && !host.unsafeNoSandbox)
         throw new Error('shell is disabled: no OS sandbox')
       const cwd = host.workspace.workdir(agent)
@@ -3629,7 +3634,9 @@ export const TOOL_DEFS: readonly ToolDef[] = [
         ...host.workspace.confinement(),
         timeoutMs: Math.min(Math.max(1, args.timeoutSeconds ?? 60), 300) * 1000,
         env: { MYR_MIRROR: host.workspace.mirrorRoot },
+        ...(signal ? { signal } : {}),
       })
+      if (r.stopped) throw new Error(prompts.toolResults.callStopped)
       const status = r.timedOut ? 'TIMED OUT' : `exit ${r.code}`
       return clip(`${status}\n--- stdout\n${r.stdout}\n--- stderr\n${r.stderr}`)
     },
@@ -4241,14 +4248,17 @@ export function mcpBreaker(host: ColonyHost, toolName: string) {
  * A call the agent was told to drop (the person stopped the round or tightened its permissions) ends at once for the
  * agent; an MCP server or plugin that ignores the signal finishes on its own, and its late result is discarded.
  */
-function untilAborted<T>(work: Promise<T>, signal?: AbortSignal): Promise<T> {
+function untilAborted<T>(work: Promise<T>, signal?: AbortSignal, graceMs = 0): Promise<T> {
   if (!signal) return work
-  if (signal.aborted) return Promise.reject(new Error('the call was stopped'))
+  if (signal.aborted && graceMs === 0) return Promise.reject(new Error(prompts.toolResults.callStopped))
   return Promise.race([
     work,
-    new Promise<never>((_, reject) =>
-      signal.addEventListener('abort', () => reject(new Error('the call was stopped')), { once: true }),
-    ),
+    new Promise<never>((_, reject) => {
+      const stop = () =>
+        setTimeout(() => reject(new Error(prompts.toolResults.callStopped)), graceMs).unref?.()
+      if (signal.aborted) stop()
+      else signal.addEventListener('abort', stop, { once: true })
+    }),
   ])
 }
 
@@ -4375,7 +4385,7 @@ function harnessTools(
         concurrency: def.tierOf
           ? (args: unknown) => concurrencyOf({ name: def.name, tier: tierOf(def, args) })
           : concurrencyOf(def),
-        async execute(callId: string, params: unknown): Promise<AgentToolResult> {
+        async execute(callId: string, params: unknown, signal?: AbortSignal): Promise<AgentToolResult> {
           const actor = agentActor(agent)
           await host.append({
             type: 'tool/call',
@@ -4410,7 +4420,9 @@ function harnessTools(
                     key,
                   )
             await host.beforeTool(agent, def.name, params)
-            const run = () => def.run(params ?? {}, agent, host)
+            // A stopped call ends for the agent at once, whatever the tool is still waiting on.
+            const run = () =>
+              untilAborted(def.run(params ?? {}, agent, host, signal), signal, TOOL_STOP_GRACE_MS)
             const result =
               tier === 'read' || IN_PARALLEL.has(def.name) ? await run() : await inCallOrder(host, agent, run)
             output = typeof result === 'string' ? result : result.text

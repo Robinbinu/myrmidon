@@ -1860,6 +1860,9 @@ Reply with JSON only: {"lines": ["...", "...", "..."]}.`,
     speechMade: (file: { name: string; version: number; copy: string }, voice: string, seconds: number) =>
       `Spoke ${seconds.toFixed(1)} s of audio in ${voice}. Published ${file.name} v${file.version} for the person, ` +
       `who can play it in the chat. A copy is in your scratch directory: ${file.copy}.`,
+    /** A call whose turn was cut short (the round stopped, a turn timeout, an interrupt) before it finished. */
+    callStopped:
+      'the call was stopped before it finished; it may have partly run. Check its effect before trying it again',
     alreadyDone: (output: string) =>
       `Already done: the person approved this exact call earlier and it ran, so it was not run again. Its result was:\n${output}`,
     checkIn: 'check-in sent; carry on with your assumption. An answer arrives as a [user] message.',
