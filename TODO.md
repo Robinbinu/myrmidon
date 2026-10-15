@@ -731,6 +731,13 @@ Open work, in the order it will be done:
       tool output, stale summaries or irrelevant memories crowding the task; enough progress recorded to continue
       after a restart. Judge correctness and token cost together, never compression ratio alone. Tests for context
       restoration, privacy boundaries and long-context behaviour.
+12af. - [ ] **Task 12: continuous improvement without regressions** (asked 2026-10-15). Phase 1 runs now (branch
+      verification-tiers): tiered verification (fast tests every change; integration groups for runtime, UI,
+      permissions, lifecycle; macOS packaged-app smoke test in CI; opt-in model evals that never spend by default;
+      perf group; security group), docs/verification.md, and the rule that nothing is marked done without tests or
+      manual validation in the macOS app. Phase 2 after Task 6 lands: apps/eval compares baseline vs candidate
+      (acceptance success, regression rate, time to first useful action, end-to-end latency, unnecessary tool calls,
+      token cost, recovery), regression thresholds, saved comparable reports, trade-offs named rather than one metric.
 12l. - [x] **Full access, no sandbox** (asked 2026-10-09, like Hermes) — global switch in Settings → Tools (default on)
       and a per-project Full access; lifts the command sandbox, file-path limits and the private-address rule; approvals
       still apply; channel members and read-only projects stay sandboxed. Left: Windows (unconfined commands still use
