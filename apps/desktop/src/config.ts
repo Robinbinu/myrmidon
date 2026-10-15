@@ -32,3 +32,7 @@ export const COMPUTER_STOP_KEYS = ['Escape', 'Esc'] as const
  * `launch` (apps/cli/src/main.ts), so the app knows the server.json is its own server's.
  */
 export const LAUNCH_ID_ENV = 'MYRMIDON_LAUNCH_ID'
+
+/** The disk image holds the app with this much room to spare (scripts/make-dmg.ts): a factor and a fixed slack. */
+export const DMG_HEADROOM = 1.25
+export const DMG_SLACK_MB = 20

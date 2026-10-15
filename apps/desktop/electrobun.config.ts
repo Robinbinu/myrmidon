@@ -26,6 +26,9 @@ export default {
       entitlements: { 'com.apple.security.device.audio-input': true },
       // The favicon on Apple's icon grid; scripts/icons.ts renders it from assets/icon.svg.
       icons: 'assets/icon.iconset',
+      // scripts/make-dmg.ts makes the disk image: hdiutil's own sizing now leaves the volume too small for the app
+      // ("No space left on device"), and Electrobun gives it no size.
+      createDmg: false,
     },
     linux: {
       // The 1024 px PNG for desktop entries, window and taskbar.

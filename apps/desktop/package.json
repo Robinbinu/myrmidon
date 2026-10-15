@@ -6,7 +6,7 @@
   "license": "Apache-2.0",
   "scripts": {
     "dev": "electrobun dev",
-    "build": "bun scripts/build-sidecar.ts && electrobun build --env=stable",
+    "build": "bun scripts/build-sidecar.ts && electrobun build --env=stable && bun scripts/make-dmg.ts",
     "sidecar": "bun scripts/build-sidecar.ts",
     "typecheck": "electrobun prepare && tsc --noEmit -p tsconfig.json"
   },
