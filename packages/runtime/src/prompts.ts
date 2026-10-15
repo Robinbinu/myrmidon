@@ -628,7 +628,12 @@ ${roster}`,
   kickoff: {
     mission: (mission: string) =>
       `The colony has started. Mission:\n\n${mission}\n\nStart with read_task and read_messages, then get to work.`,
-    history: (history: string) => `Earlier in this conversation:\n${history}\n\n`,
+    /**
+     * The chat's earlier rounds, for an agent that does not remember them. Like Hermes's compaction handoff: earlier
+     * requests were handled, and only the latest is the task, though it may ask to carry on one that did not finish.
+     */
+    history: (history: string) =>
+      `Earlier in this conversation, for reference: a completed round was answered, so act on the latest request below, which may ask you to carry on one that did not finish.\n${history}\n\n`,
     planFirst:
       '\n\nPlan first: the person wants to approve the plan before any work starts. Work out the approach (for a team: the tasks and who does each), then call ask_user with the whole plan in `plan` (markdown: the steps, and who does each) and a question asking them to approve or change it, and stop. The person sees only what you put in `plan`, so never write "here is the plan" without it. Do not create tasks, publish files, or start the work until they approve.',
     /**
@@ -686,7 +691,7 @@ ${roster}`,
     resumedRestored: (reason: string) =>
       `This round was interrupted (${reason}) and has resumed. Your conversation so far is restored; here is where things stand now.`,
     resumedFresh: (reason: string) =>
-      `This round was interrupted (${reason}) and has resumed. Your earlier context is gone; everything that was recorded is below.`,
+      `This round was interrupted (${reason}) and has resumed. Your earlier context is gone; everything that was recorded is below. What it shows as done is done: check the files before redoing any of it.`,
     resumeRequest: (request: string) => `The request: ${request}\n\n`,
     resumeEffects: (lines: readonly string[]) =>
       lines.length
@@ -1130,10 +1135,17 @@ Reply with ONLY a JSON object: {"note": null} when there is nothing to send, or 
   },
 
   compaction: {
-    /** Heads the summary that replaces the older part of an agent's conversation. */
+    /**
+     * Heads the summary that replaces the older part of an agent's conversation. After Hermes's REFERENCE ONLY prefix
+     * (agent/context_compressor.py): requests in it were handled and only the latest is active, even on a similar topic
+     * (#41607: overlap licensed resuming stale tasks), and tools stay in use (#65848: seven narration-only turns
+     * followed a handoff that did not say so).
+     */
     summaryHeader:
-      '[Summary of your earlier work in this round. The full conversation is kept in the log; this replaces it to fit ' +
-      'your context window.]',
+      '[Summary of your earlier work in this round, for reference. The full conversation is kept in the log; this ' +
+      'replaces it to fit your context window. Work it lists as done is done: do not redo it, and check the files if ' +
+      'unsure. Requests in it were handled; only the latest one is active, and if it changed course, follow it. Keep ' +
+      'using your tools for the active work.]',
     /** Heads snapcompact's archive of the older part, whose own reading guide follows. */
     archiveHeader:
       '[Your earlier work in this round, archived to fit your context window. The full conversation is kept in the log.]',
@@ -1142,13 +1154,22 @@ Reply with ONLY a JSON object: {"note": null} when there is nothing to send, or 
       `[${tool} output elided to fit your context window (~${tokens} tokens${images ? `, ${images} image${images === 1 ? '' : 's'}` : ''}). ` +
       `The round log keeps its text: read_log(tool: "${tool}") finds the call and read_log(entry: n) shows it. Or ` +
       'redo it: read the file again, re-run the command, fetch the page or take the screenshot again.]',
-    /** What the summary must keep, on top of the summarizer's own format (after Qwen Code's compaction). */
-    focus:
+    /**
+     * What the summary must keep, on top of the summarizer's own format (omp's compaction-summary.md, which keeps an
+     * unanswered question word for word and paths, names and errors exactly), after Qwen Code's compaction, with
+     * Hermes's temporal anchoring: a finished action written as a dated past-tense fact, so it never reads as still
+     * to do.
+     */
+    focus: (today: string) =>
       'This agent works in a team round in Myrmidon. Keep, word for word, every message from the person ([user]) and ' +
       'every request or question from a crewmate, in order, including short ones ("ok", "go ahead"). Keep each error ' +
       'with how it was fixed, and any time the person or a crewmate said to do something differently. Keep the task ' +
-      'the agent holds (its id and revision), the files it published, and exactly what it was doing last. The next ' +
-      'step must follow the most recent request, not older or side work.',
+      'the agent holds (its id and revision), the files it published, and exactly what it was doing last. ' +
+      `Write each finished action as a dated, past-tense fact (today is ${today}): "Published report.md on ${today}", ` +
+      'not "publish report.md"; never word finished work as if it still needs doing. Keep file paths, commands, ' +
+      'function names, error messages and code exactly as written. If a question to the person or a request waiting ' +
+      'on them is still unanswered, keep it word for word and say it is open. Say which request is the latest: the ' +
+      'next step must follow it, not older or side work.',
   },
 
   /**
