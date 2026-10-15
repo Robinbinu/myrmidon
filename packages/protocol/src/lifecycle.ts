@@ -47,6 +47,17 @@ export function unfinishedCalls(events: readonly MyrEvent[]): CallRecord[] {
   return [...callRecords(events).values()].filter((c) => c.seq > start && !c.result)
 }
 
+/** A call in a few words for the person: its tool and what it was given to work on ("shell npm publish"). */
+export function describeCall(call: Pick<CallRecord, 'tool' | 'args'>): string {
+  const args = (call.args && typeof call.args === 'object' ? call.args : {}) as Record<string, unknown>
+  const main = ['command', 'code', 'path', 'name', 'url', 'to', 'text']
+    .map((key) => args[key])
+    .find((v): v is string => typeof v === 'string' && v.trim() !== '')
+  if (!main) return call.tool
+  const line = main.trim().split('\n')[0] ?? ''
+  return `${call.tool} ${line.length > 120 ? `${line.slice(0, 120)}…` : line}`
+}
+
 /**
  * Task states that hold completion back: someone is doing it, it waits for its check, or it was sent back to be redone.
  * A pending task nobody took is planned work, not work under way: the run's checks say whether it was needed.

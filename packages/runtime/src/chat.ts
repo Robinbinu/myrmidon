@@ -82,6 +82,7 @@ import type { PluginHost } from './plugin-host.ts'
 import type { ProjectStore } from './projects.ts'
 import { prompts } from './prompts.ts'
 import { chatsAt, grantCovers, keysAt, readFolder, realPath, secretAt } from './read-access.ts'
+import { closeOrphan } from './recovery.ts'
 import { checkRuleFile, draftStreamRule, type RuleDraft, roundOutputs } from './rule-draft.ts'
 import { importedConversation, type SessionImports } from './session-import.ts'
 import type { SettingsStore } from './settings.ts'
@@ -641,23 +642,9 @@ export class ChatService {
         const file = this._ownerFile(r.colonyId)
         const pid = existsSync(file) ? Number(readFileSync(file, 'utf8')) : undefined
         if (pid && pid !== process.pid && alive(pid)) continue
-        // What it was still asking the person can no longer be answered: closed as stopped, as a stop closes them.
-        const past = await this.runtime.ctx.log.read(r.colonyId as never)
-        const decided = new Set(
-          past.filter((e) => e.type === 'approval/decided').map((e) => (e.payload as { id: string }).id),
-        )
-        for (const e of past)
-          if (e.type === 'approval/requested' && !decided.has((e.payload as { id: string }).id))
-            await this.runtime.ctx.log.appendOne(r.colonyId as never, {
-              type: 'approval/decided',
-              actor: { kind: 'system', id: 'myrmidon' },
-              payload: { id: (e.payload as { id: string }).id, approved: false, by: 'stopped' },
-            })
-        await this.runtime.ctx.log.appendOne(r.colonyId as never, {
-          type: 'colony/stopped',
-          actor: { kind: 'system', id: 'myrmidon' },
-          payload: { reason: prompts.chat.interrupted },
-        })
+        // What it was still asking the person can no longer be answered, and none of it still runs: closed as its
+        // own stop would have closed it.
+        await closeOrphan(this.runtime.ctx.log, r.colonyId, prompts.chat.interrupted)
         rmSync(file, { force: true })
       }
     })()

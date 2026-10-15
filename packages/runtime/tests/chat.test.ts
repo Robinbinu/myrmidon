@@ -1035,6 +1035,8 @@ test('a round left running by a Myrmidon that is gone is stopped, and the chat t
   // What it asked can no longer be answered: closed as stopped, so no card offers buttons that do nothing.
   const closed = (await events(colonyId)).find((e) => e.type === 'approval/decided')
   expect(closed?.payload).toMatchObject({ id: 'approval-gone', approved: false, by: 'stopped' })
+  // Its lead was mid-call when it died: it is not shown working in a stopped round.
+  expect(foldColony(colonyId, await events(colonyId)).agents.lead?.status).toBe('stopped')
 
   const next = await chats.send('carry on', solo('mock/lead'), chatId)
   expect(next.started).toBe(true)

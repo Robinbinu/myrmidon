@@ -221,3 +221,60 @@ test('a run is not completed while a task is still being worked on or a call wai
   await run.requestFinalVerification('lead', 'out.txt is published')
   expect((await run.done).status).toBe('completed')
 }, 30_000)
+
+test('a run whose process died is closed whole: nothing of it still looks under way, and what was running is kept', async () => {
+  const { colonyId } = await import('@myrmidon/core')
+  const { hostname } = await import('node:os')
+  const { recoverOrphans } = await import('../src/index.ts')
+  const { foldColony, unfinishedCalls } = await import('@myrmidon/protocol')
+  const id = colonyId('died-mid-run')
+  const system = { kind: 'system', id: 'myrmidon' } as const
+  const lead = { kind: 'agent', id: 'lead' } as const
+  const dead = Bun.spawn(['true'])
+  await dead.exited
+  await runtime.ctx.log.append(id, [
+    {
+      type: 'colony/created',
+      actor: system,
+      payload: {
+        name: 'Died',
+        mission: 'm',
+        pattern: 'blackboard',
+        agents: [{ name: 'lead', role: 'lead', model: 'x/y', tools: [] }],
+        budget: { wallMs: 600_000 },
+      },
+    },
+    { type: 'colony/started', actor: system, payload: { pid: dead.pid, hostname: hostname() } },
+    { type: 'agent/status', actor: system, payload: { agent: 'lead', status: 'working' } },
+    {
+      type: 'server/started',
+      actor: lead,
+      payload: { agent: 'lead', name: 'web', command: 'npm run dev', url: 'http://localhost:5173' },
+    },
+    {
+      type: 'login/requested',
+      actor: lead,
+      payload: { agent: 'lead', site: 'example.com', url: 'https://example.com/login', reason: 'deploy' },
+    },
+    {
+      type: 'approval/requested',
+      actor: lead,
+      payload: { id: 'ap1', agent: 'lead', tool: 'shell', summary: 'make deploy' },
+    },
+    {
+      type: 'tool/call',
+      actor: lead,
+      payload: { agent: 'lead', callId: 'c1', tool: 'shell', args: { command: 'npm publish' } },
+    },
+  ])
+  expect(await recoverOrphans(runtime.ctx.log)).toEqual([id])
+  const events = await runtime.ctx.log.read(id)
+  const s = foldColony(id, events)
+  expect(s.status).toBe('stopped')
+  expect(s.agents.lead?.status).toBe('stopped')
+  expect(s.approvals.ap1?.decided).toMatchObject({ approved: false, by: 'stopped' })
+  expect(s.logins.lead?.finished).toBe('stopped')
+  expect(s.servers.web?.stopped).toBeDefined()
+  // What was running when it died stays visible: the person decides whether it ran before resuming.
+  expect(unfinishedCalls(events).map((c) => c.args)).toEqual([{ command: 'npm publish' }])
+})

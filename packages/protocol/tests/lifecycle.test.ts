@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test'
 import type { MyrEvent } from '../src/index.ts'
 import {
   applyEvent,
+  describeCall,
   emptyColonyState,
   foldColony,
   hasOpenWork,
@@ -98,4 +99,14 @@ test('unfinished calls are those the latest start began and never answered', () 
     ev('tool/result', { agent: 'a', callId: 'c2', tool: 'fs_read', ok: true, output: 'x' }),
   ]
   expect(unfinishedCalls(events).map((c) => c.callId)).toEqual(['c1'])
+})
+
+test('a call reads as its tool and what it worked on', () => {
+  expect(
+    describeCall({ tool: 'shell', args: { command: 'npm publish\necho done', timeoutSeconds: 60 } }),
+  ).toBe('shell npm publish')
+  expect(describeCall({ tool: 'fs_write', args: { path: 'src/a.ts', content: 'x' } })).toBe(
+    'fs_write src/a.ts',
+  )
+  expect(describeCall({ tool: 'claim_task', args: { id: 'task-1' } })).toBe('claim_task')
 })
