@@ -628,8 +628,10 @@ export const SECTIONS: readonly Section[] = [
     },
     {
       key: 'memory',
+      version: 2,
       guard: (f) => f.context.memory.length > 0,
-      render: (f) => say.context.memory(f.context.memory, f.context.memoryMore, has(f, 'recall')),
+      render: (f) =>
+        say.context.memory(f.context.memory, f.context.memoryMore, has(f, 'recall'), has(f, 'remember')),
     },
     {
       key: 'skills',

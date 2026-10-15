@@ -102,8 +102,8 @@ export const GOAL = {
  * (docs/research/2026-10-09-harness-prompts.md §4.3) are you ~150, finish ~80, safety ~200, method ~300, others
  * ~200, person ~200; these sit above them where a heading stacks parts some agents need: the delivery contract under
  * "How you finish", full access or an ask-first project under "Safety", and project rules (or, for a lead with
- * hands-on tools, the lead's method too) under "How to work", and the count of memories left for recall under the
- * person's instructions.
+ * hands-on tools, the lead's method too) under "How to work", and the count of memories left for recall and the rule
+ * that the files, command output and the person's latest message outrank a memory under the person's instructions.
  */
 export const PROMPT_HEADING_WORDS = {
   you: 210,
@@ -112,7 +112,7 @@ export const PROMPT_HEADING_WORDS = {
   method: 710,
   others: 230,
   person: 210,
-  instructions: 100,
+  instructions: 140,
   environment: 260,
 } as const
 /**
@@ -954,6 +954,12 @@ export const MEMORY_EXTRACT_MIN_CHARS = 15
 export const MEMORY_EXTRACT_PERSON_CHARS = 4_000
 export const MEMORY_EXTRACT_ANSWER_CHARS = 1_500
 export const MEMORY_REVIEW_MS = 60_000
+/**
+ * How much of the project's instructions (AGENTS.md…) the extractor reads so it suggests nothing they say, and the
+ * share of a suggestion's words one of their sentences must hold for it to count as already said there.
+ */
+export const MEMORY_EXTRACT_INSTRUCTIONS_CHARS = 6_000
+export const MEMORY_INSTRUCTIONS_OVERLAP = 0.8
 /**
  * Tidying memories up (reflect): the most kept memories it reads and merges it suggests per pass; after a round, it
  * runs at most this often, and only when two kept memories of one scope overlap at least this much.

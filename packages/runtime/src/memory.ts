@@ -78,6 +78,40 @@ export function sensitive(text: string): boolean {
   )
 }
 
+/**
+ * What stops being true once the setup is fixed, after Hermes's do-not-capture list (agent/background_review.py): a
+ * claim that a tool is broken or unusable, or a failure from how one machine is set up. Saved, these "harden into
+ * refusals the agent cites against itself for months after the actual problem was fixed". Narrow on purpose: a
+ * lasting lesson ("the API tests need the local database") reads differently.
+ */
+const NEVER_SAVE = [
+  /\b(?:is|are|was|were|seems?|looks?)\s+(?:broken|unusable|not working)\b/i,
+  /\b(?:does(?:n['’]t| not)|do(?:n['’]t| not)|did(?:n['’]t| not))\s+work\b/i,
+  /\b(?:can(?:not|['’]t)|could(?:n['’]t| not))\s+be used\b/i,
+  /\bcommand not found\b|\bnot installed\b|\bisn['’]t installed\b|\bis not available\b|\bisn['’]t available\b/i,
+]
+
+/** Whether a text is the kind of claim memory never keeps (see NEVER_SAVE); the person may still write one. */
+export function neverSave(text: string): boolean {
+  return NEVER_SAVE.some((re) => re.test(text))
+}
+
+/**
+ * Whether a memory says what the project's own instructions (AGENTS.md…) already say, which agents read every round:
+ * nearly all its words are in one sentence of them (omp's sharpshooter "exclude anything the project's docs state").
+ */
+export function inInstructions(text: string, instructions: string, overlap: number): boolean {
+  const mine = new Set(terms(text))
+  if (mine.size < 3) return false
+  return instructions.split(/\n+|(?<=[.!?;:])\s+/).some((piece) => {
+    const theirs = new Set(terms(piece))
+    if (theirs.size < 3) return false
+    let both = 0
+    for (const w of mine) if (theirs.has(w)) both++
+    return both / mine.size >= overlap
+  })
+}
+
 function kindOf(kind: string): MemoryKind {
   if (!(MEMORY_KINDS as readonly string[]).includes(kind))
     throw new Error(`kind is ${MEMORY_KINDS.join(', ')}`)

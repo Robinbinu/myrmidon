@@ -88,7 +88,7 @@ import {
 import type { ToolLibrary } from './made-tools.ts'
 import type { McpHub } from './mcp.ts'
 import type { MediaTools } from './media.ts'
-import { type MemoryStore, sensitive } from './memory.ts'
+import { type MemoryStore, neverSave, sensitive } from './memory.ts'
 import { ModelResolver } from './models.ts'
 import { pickName } from './names.ts'
 import { FactualObserver } from './observer.ts'
@@ -1504,6 +1504,7 @@ export class ColonyRun implements ColonyHost {
     if (input.scope === 'project' && !project)
       throw new Error('this chat has no project; use scope "everywhere"')
     if (sensitive(input.text)) throw new Error(prompts.colony.memorySensitive)
+    if (neverSave(input.text)) throw new Error(prompts.colony.memoryNeverSave)
     const kept = new Map(store.kept(this.spec.chat?.project?.id).map((m) => [m.id, m]))
     const ids = [...new Set(input.replaces ?? [])]
     const unknown = ids.filter((id) => !kept.has(id))

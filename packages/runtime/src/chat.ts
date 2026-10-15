@@ -63,6 +63,7 @@ import {
 } from './config.ts'
 import { parseGoal } from './goal.ts'
 import type { HookStore } from './hooks.ts'
+import { readProjectInstructions } from './instructions.ts'
 import type { KeepAwake } from './keep-awake.ts'
 import type { ToolLibrary } from './made-tools.ts'
 import type { McpHub } from './mcp.ts'
@@ -330,6 +331,16 @@ function conversation(previous: readonly RoundRef[]): string {
       })
       .join('\n\n')
   )
+}
+
+/** A project's own instructions (AGENTS.md…) as agents read them, or nothing when it has none or cannot be read. */
+function projectGuide(path: string): string | undefined {
+  try {
+    return readProjectInstructions(path)?.text || undefined
+  } catch (err) {
+    console.warn(`reading ${path}'s instructions failed: ${err instanceof Error ? err.message : err}`)
+    return undefined
+  }
 }
 
 function newChatId() {
@@ -1073,6 +1084,7 @@ export class ChatService {
       const project = run.spec.chat?.project
       const known = store.list().filter((m) => !m.project || m.project === project?.id)
       const answer = finalAnswer(events, from)
+      const instructions = project ? projectGuide(project.path) : undefined
       const suggestions = await this._cheaply(lead, (model) =>
         extractMemories({
           resolver: this.options.resolver,
@@ -1081,6 +1093,7 @@ export class ChatService {
           ...(answer ? { answer } : {}),
           ...(project ? { project: { id: project.id, name: project.name } } : {}),
           known,
+          ...(instructions ? { instructions } : {}),
         }),
       )
       const byId = new Map(known.map((m) => [m.id, m]))
