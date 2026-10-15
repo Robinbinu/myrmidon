@@ -1,6 +1,7 @@
 import type { BlobStore, EventLog } from '@myrmidon/core'
 import type {
   ActorRef,
+  CallRecord,
   ColonyId,
   ColonyState,
   EventDraft,
@@ -48,6 +49,11 @@ export interface ColonyHost {
   readonly fullAccess: boolean
   /** Live projection; current as of the last committed event. */
   state(): ColonyState
+  /**
+   * A tool call of this agent the log recorded before the round was resumed (see `readTranscript`): resuming answers an
+   * unfinished step from it instead of running the call again.
+   */
+  recordedCall?(agent: string, callId: string): CallRecord | undefined
   append(draft: EventDraft): Promise<MyrEvent>
   /**
    * Builds events from current state and appends them only if no other event landed in between.

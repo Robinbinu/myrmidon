@@ -1092,6 +1092,11 @@ Reply with ONLY a JSON object: {"note": null} when there is nothing to send, or 
       `\nAlso matching, not loaded: ${names.join(', ')}. Ask for them by name to load them.`,
     /** Stands in for tool output from an earlier round of the chat, which a new round leaves out. */
     elided: (size: number) => `[output from an earlier round elided, ${size} chars]`,
+    /** A resumed step's call that started before the round stopped and never recorded a result. */
+    interruptedCall: (tool: string) =>
+      `[interrupted] This ${tool} call had started when the round stopped, and no result was recorded: it may have run, in part or in full. Check its effect before running it again.`,
+    /** A resumed step's call that never started: its siblings in the same step did. */
+    neverRan: '[not run] The round stopped before this call started; it had no effect.',
   },
 
   compaction: {

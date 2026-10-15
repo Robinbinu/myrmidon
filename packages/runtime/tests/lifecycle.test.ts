@@ -3,7 +3,7 @@
  * injects one fault with scripted models and checks the invariant it could break.
  */
 import { afterEach, beforeEach, expect, test } from 'bun:test'
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ColonyState, EventPayloads, MyrEvent } from '@myrmidon/protocol'
@@ -106,3 +106,53 @@ test.skipIf(detectSandbox().kind === 'none')(
   },
   30_000,
 )
+
+test('a resume after a crash between a call and its transcript keeps the recorded result instead of running it again', async () => {
+  const script = [[tool('publish_artifact', { name: 'hello.txt', content: 'hello\n' })], ['all done']]
+  const spec = () =>
+    parseColonySpec({
+      name: 'Crash after publish',
+      mission: 'Publish hello.txt once.',
+      agents: [{ name: 'solo', model: 'mock/solo', tools: ['publish_artifact'] }],
+      budget: { wall: '60s' },
+    })
+  const first = new ModelResolver()
+  scripted(first, 'mock/solo', script)
+  const run = new ColonyRun(runtime, spec(), { resolver: first, quietMs: 20_000 })
+  await run.start()
+  await until(run, (events) =>
+    ofType(events, 'agent/turn').some((t) => t.phase === 'end' && t.trigger === 'kickoff'),
+  )
+  await run.stop('test: the process is about to die')
+  await run.done
+  // The process died after logging the call's result but before its transcript got it: the transcript ends on the
+  // assistant's call.
+  const transcript = join(run.workspace.colonyDir, 'agents', 'solo.jsonl')
+  const lines = readFileSync(transcript, 'utf8').trim().split('\n')
+  const callAt = lines.findIndex((l) => l.includes('"toolCall"'))
+  expect(callAt).toBeGreaterThan(-1)
+  writeFileSync(transcript, `${lines.slice(0, callAt + 1).join('\n')}\n`)
+
+  const second = new ModelResolver()
+  const seen: string[] = []
+  const mock = createMockModel({
+    handler: (ctx: LlmContext) => {
+      seen.push(JSON.stringify(ctx.messages))
+      const n = ctx.messages.filter((m) => m.role === 'assistant').length
+      return { content: script[n] ?? ['nothing more to do'] }
+    },
+  })
+  second.register('mock/solo', { model: mock.model, streamFn: mock.stream })
+  const resumed = new ColonyRun(runtime, spec(), { resolver: second, quietMs: 20_000, resumeId: run.id })
+  await resumed.resume('Myrmidon restarted during this run')
+  await until(resumed, () => seen.length > 0)
+  await until(resumed, (events) => ofType(events, 'agent/turn').filter((t) => t.phase === 'end').length >= 2)
+  await resumed.stop('test over')
+  const final = await resumed.done
+  // Published once: the resumed agent saw the call's recorded result and went on from there.
+  expect(final.artifacts['hello.txt']).toHaveLength(1)
+  expect(seen[0]).toContain('"toolResult"')
+  // The repair is kept, so a later resume reads a whole conversation too.
+  const kept = readFileSync(transcript, 'utf8')
+  expect(kept.indexOf('"toolResult"')).toBeGreaterThan(kept.indexOf('"toolCall"'))
+}, 30_000)

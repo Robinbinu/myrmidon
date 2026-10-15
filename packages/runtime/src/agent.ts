@@ -1,6 +1,6 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { type AgentStatus, type EventId, recipientsOf } from '@myrmidon/protocol'
+import { type AgentStatus, type CallRecord, type EventId, recipientsOf } from '@myrmidon/protocol'
 import { ContextCompactor } from './compaction.ts'
 import { ANTHROPIC_MEMBERS, anthropicToolsetPayload, computerProtocol } from './computer/actions.ts'
 import { COMPUTER_TOOL, computerMember } from './computer/tool.ts'
@@ -120,7 +120,9 @@ export class ColonyAgent {
     options: { restore?: boolean; compact?: boolean } = {},
   ) {
     this._transcript = join(host.workspace.colonyDir, 'agents', `${spec.name}.jsonl`)
-    const restored = options.restore ? readTranscript(this._transcript) : []
+    const restored = options.restore
+      ? readTranscript(this._transcript, (callId) => host.recordedCall?.(spec.name, callId))
+      : []
     const history = options.compact ? compactTranscript(restored) : restored
     this.restored = history.length
     const resolved = resolver.resolve(spec.model)
@@ -800,10 +802,16 @@ function render(items: readonly InboxItem[]): string {
 }
 
 /**
- * Reads an agent's transcript for a resume. A crash can leave the last assistant message with tool calls
- * that never got results; that unfinished step is dropped so the conversation is valid to continue.
+ * Reads an agent's transcript for a resume. A crash can leave the last assistant message with tool calls that never
+ * got results. With nothing of them in the log they never ran, and that unfinished step is dropped so the conversation
+ * is valid to continue. Once one of them ran (`recorded`, from the log), dropping the step would have the model ask
+ * for it again: the step is kept, each call answered with its recorded result, or as interrupted when it started and
+ * recorded none, and the repaired transcript is written back so a later resume reads it whole too.
  */
-export function readTranscript(path: string): AgentMessage[] {
+export function readTranscript(
+  path: string,
+  recorded?: (callId: string) => CallRecord | undefined,
+): AgentMessage[] {
   if (!existsSync(path)) return []
   const messages: AgentMessage[] = []
   for (const line of readFileSync(path, 'utf8').split('\n')) {
@@ -817,9 +825,9 @@ export function readTranscript(path: string): AgentMessage[] {
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i] as { role?: string; content?: unknown }
     if (m.role !== 'assistant' || !Array.isArray(m.content)) continue
-    const calls = (m.content as { type: string; id?: string }[])
-      .filter((c) => c.type === 'toolCall')
-      .map((c) => c.id)
+    const calls = (m.content as { type: string; id?: string; name?: string }[]).filter(
+      (c) => c.type === 'toolCall',
+    )
     const answered = new Set(
       messages
         .slice(i + 1)
@@ -827,10 +835,42 @@ export function readTranscript(path: string): AgentMessage[] {
           (r as { role?: string }).role === 'toolResult' ? [(r as { toolCallId?: string }).toolCallId] : [],
         ),
     )
-    if (calls.some((id) => !answered.has(id))) messages.length = i
+    const open = calls.filter((c) => !answered.has(c.id))
+    if (open.length === 0) break
+    if (!recorded || !open.some((c) => c.id && recorded(c.id))) {
+      messages.length = i
+      break
+    }
+    // Results go right after the step's own results, before anything that came in after them.
+    let at = i + 1
+    while ((messages[at] as { role?: string } | undefined)?.role === 'toolResult') at++
+    messages.splice(at, 0, ...open.map((c) => recoveredResult(c, c.id ? recorded(c.id) : undefined)))
+    try {
+      writeFileSync(path, messages.map((msg) => `${JSON.stringify(msg)}\n`).join(''))
+    } catch (err) {
+      // The repaired conversation is used anyway; the next resume repairs it again from the log.
+      console.error(`transcript repair could not be saved (${path}):`, err)
+    }
     break
   }
   return messages
+}
+
+/** The result a resumed step's call gets: what the log recorded, or that it was interrupted or never ran. */
+function recoveredResult(call: { id?: string; name?: string }, record: CallRecord | undefined): AgentMessage {
+  const text = record?.result
+    ? record.result.output
+    : record
+      ? prompts.agent.interruptedCall(record.tool)
+      : prompts.agent.neverRan
+  return {
+    role: 'toolResult',
+    toolCallId: call.id ?? '',
+    toolName: call.name ?? record?.tool ?? '',
+    content: [{ type: 'text', text }],
+    isError: !record?.result?.ok,
+    timestamp: Date.now(),
+  } as AgentMessage
 }
 
 /**
