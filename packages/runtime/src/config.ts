@@ -9,6 +9,12 @@ import type { CompactionMethod } from '@myrmidon/protocol'
 
 /** The longest one agent turn may run; a safety net only: one turn can include many model calls and large file writes. */
 export const TURN_TIMEOUT_MS = 15 * 60_000
+/**
+ * How long a stopped tool call may still take to finish on its own before the agent moves on without it: long enough
+ * for a write or a message already under way to land (its real result is then kept, so it is not repeated), short
+ * enough that a call stuck waiting cannot hold a stopped turn open.
+ */
+export const TOOL_STOP_GRACE_MS = 2_000
 /** Retries for a transient model failure (rate limit, overload, timeout) before the person is asked. */
 export const MODEL_RETRIES = 2
 /** The most fallback models the person may line up after the lead's model, and after the crew's. */

@@ -2349,6 +2349,11 @@ export const copy = {
     aTeam: 'a crew',
     oneAgent: 'one agent with every tool',
     escalatedNext: 'The next run picks it up with these files and notes.',
+    /** A run that stopped (Myrmidon quit or crashed) while these calls were running, with no result recorded. */
+    interrupted: (n: number) =>
+      n === 1 ? 'It stopped while this was running:' : `It stopped while these ${n} were running:`,
+    interruptedHint:
+      'They may have finished, in part or not at all. Check before you resume: resuming tells the agent it was cut off, so it checks before running anything again. Try again starts the request over instead.',
     effects: (n: number) => `Already done before it stopped (${n})`,
     effectsHint:
       'These reached outside Myrmidon and a rewind cannot undo them. Resuming tells the agents, so they check before repeating any.',

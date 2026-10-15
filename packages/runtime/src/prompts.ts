@@ -724,6 +724,14 @@ ${roster}`,
     reviewFailed: (summary: string, report: string) =>
       `THE REVIEWER FOUND PROBLEMS (your summary: ${summary}):\n${report}\nFix them, then ask for another review or send the final answer.`,
     verificationRunning: 'a final verification is already running; wait for its verdicts',
+    /** Final verification asked for while work is open: the run cannot be complete yet (docs/lifecycle.md). */
+    workStillOpen: (p: { tasks: readonly string[]; approvals: readonly string[] }) =>
+      `NOT VERIFIED: the work is not finished yet.\n${[
+        ...p.tasks.map((t) => `- task ${t}`),
+        ...p.approvals.map((a) => `- waiting for the person to approve: ${a}`),
+      ].join(
+        '\n',
+      )}\nWait until the tasks are verified and the person has answered, then request verification again.`,
     notVerified: (conflicts: string) =>
       `NOT VERIFIED: crewmates' changes could not be merged into the project yet.\n${conflicts}\nAsk those crewmates to resolve the conflicts in their worktrees and submit again, then request verification.`,
     verified: (report: string) => `ALL CHECKS PASSED — the colony is complete.\n${report}`,
@@ -1105,6 +1113,11 @@ Reply with ONLY a JSON object: {"note": null} when there is nothing to send, or 
       `\nAlso matching, not loaded: ${names.join(', ')}. Ask for them by name to load them.`,
     /** Stands in for tool output from an earlier round of the chat, which a new round leaves out. */
     elided: (size: number) => `[output from an earlier round elided, ${size} chars]`,
+    /** A resumed step's call that started before the round stopped and never recorded a result. */
+    interruptedCall: (tool: string) =>
+      `[interrupted] This ${tool} call had started when the round stopped, and no result was recorded: it may have run, in part or in full. Check its effect before running it again.`,
+    /** A resumed step's call that never started: its siblings in the same step did. */
+    neverRan: '[not run] The round stopped before this call started; it had no effect.',
   },
 
   compaction: {
@@ -1884,6 +1897,9 @@ Reply with JSON only: {"lines": ["...", "...", "..."]}.`,
     speechMade: (file: { name: string; version: number; copy: string }, voice: string, seconds: number) =>
       `Spoke ${seconds.toFixed(1)} s of audio in ${voice}. Published ${file.name} v${file.version} for the person, ` +
       `who can play it in the chat. A copy is in your scratch directory: ${file.copy}.`,
+    /** A call whose turn was cut short (the round stopped, a turn timeout, an interrupt) before it finished. */
+    callStopped:
+      'the call was stopped before it finished; it may have partly run. Check its effect before trying it again',
     alreadyDone: (output: string) =>
       `Already done: the person approved this exact call earlier and it ran, so it was not run again. Its result was:\n${output}`,
     checkIn: 'check-in sent; carry on with your assumption. An answer arrives as a [user] message.',

@@ -16,8 +16,11 @@ import {
   accessOf,
   applyEvent,
   asksSomething,
+  type CallRecord,
   type ColonyId,
   type ColonyState,
+  callKey,
+  callRecords,
   crewOf,
   DELIVERED_VERIFIER,
   decide,
@@ -26,9 +29,11 @@ import {
   type EventPayloads,
   emptyColonyState,
   foldColony,
+  hasOpenWork,
   type MyrEvent,
   mentionsIn,
   offersFor,
+  openWork,
   outsideEffects,
   type PermissionCall,
   type PermissionLevels,
@@ -394,6 +399,13 @@ export class ColonyRun implements ColonyHost {
 
   state() {
     return this._state
+  }
+
+  /** The tool calls the log held when this round was resumed or continued, by agent and call id. */
+  private _calls?: ReadonlyMap<string, CallRecord>
+
+  recordedCall(agent: string, callId: string): CallRecord | undefined {
+    return this._calls?.get(callKey(agent, callId))
   }
 
   deadline() {
@@ -1255,7 +1267,9 @@ export class ColonyRun implements ColonyHost {
    */
   async continueRound(): Promise<void> {
     if (!this.options.resumeId) throw new Error('continueRound needs a colony built with resumeId')
-    for (const e of await this.log.read(this.id)) applyEvent(this._state, e)
+    const past = await this.log.read(this.id)
+    for (const e of past) applyEvent(this._state, e)
+    this._calls = callRecords(past)
     if (this._state.status === 'running') throw new Error('this colony is already running a round')
     await this.preflight()
     // Agents remember their earlier answers: a refusal the old permissions forced would stand unless they hear why not.
@@ -1311,6 +1325,7 @@ export class ColonyRun implements ColonyHost {
     if (!this.options.resumeId) throw new Error('resume needs a colony built with resumeId')
     const past = await this.log.read(this.id)
     for (const e of past) applyEvent(this._state, e)
+    this._calls = callRecords(past)
     if (this._state.status === 'completed') throw new Error('this round already completed')
     const started = past.find((e) => e.type === 'colony/started')
     const used = started ? Date.parse(past.at(-1)?.time ?? started.time) - Date.parse(started.time) : 0
@@ -1926,6 +1941,8 @@ export class ColonyRun implements ColonyHost {
 
   async requestFinalVerification(by: string, summary: string): Promise<string> {
     if (this._finalRunning) return prompts.colony.verificationRunning
+    const open = this._openWork()
+    if (open) return open
     this._finalRunning = true
     this._verifying += 1
     try {
@@ -1938,6 +1955,9 @@ export class ColonyRun implements ColonyHost {
       })
       const result = await this._verifier.verifyColony()
       if (result.pass) {
+        // Work can open while the checks run (a task claimed, a call asking the person).
+        const opened = this._openWork()
+        if (opened) return opened
         await this._complete(result.verdicts, by)
         return prompts.colony.verified(result.report)
       }
@@ -1956,6 +1976,21 @@ export class ColonyRun implements ColonyHost {
       this._finalRunning = false
       this._verifying -= 1
     }
+  }
+
+  /**
+   * Why a run outside a chat cannot complete yet: a task someone is still doing, or waiting for its check, or a call
+   * waiting for the person (see `openWork`). In a chat the answer the person got completes the round instead, and the
+   * crew winds down after it (`_complete`).
+   */
+  private _openWork(): string | undefined {
+    if (this.spec.chat) return undefined
+    const work = openWork(this._state)
+    if (!hasOpenWork(work)) return undefined
+    return prompts.colony.workStillOpen({
+      tasks: work.tasks.map((t) => `${t.id} [${t.status}${t.owner ? `, ${t.owner}` : ''}]: ${t.subject}`),
+      approvals: work.approvals.map((a) => a.summary),
+    })
   }
 
   /**

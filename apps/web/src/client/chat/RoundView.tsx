@@ -2,6 +2,7 @@ import {
   type ChatEntry,
   type ColonyMetrics,
   type ColonyState,
+  describeCall,
   describeEffect,
   type EventPayloads,
   type MyrEvent,
@@ -9,6 +10,7 @@ import {
   type QuestionAnswers,
   roundSlice,
   STOPPED_BY_USER,
+  unfinishedCalls,
 } from '@myrmidon/protocol'
 import {
   ArrowDown,
@@ -1445,6 +1447,28 @@ function AlreadyDone(props: { events: readonly MyrEvent[] }) {
   )
 }
 
+/**
+ * Calls a run was in the middle of when it stopped without recording their result (Myrmidon quit or crashed): it is
+ * not safe to assume they ran or did not, so the person is told plainly before they resume or try again.
+ */
+function Interrupted(props: { events: readonly MyrEvent[] }) {
+  const calls = useMemo(() => unfinishedCalls(props.events), [props.events])
+  if (calls.length === 0) return null
+  return (
+    <div className="mt-1.5">
+      <div className="text-callout font-medium">{copy.outcome.interrupted(calls.length)}</div>
+      <ul className="mt-1 flex max-h-32 flex-col gap-0.5 overflow-auto font-mono text-small">
+        {calls.map((c) => (
+          <li key={`${c.agent}:${c.callId}`} className="truncate" title={describeCall(c)}>
+            <span className="text-muted">{c.agent}:</span> {describeCall(c)}
+          </li>
+        ))}
+      </ul>
+      <p className="mt-1 text-small text-fg-2">{copy.outcome.interruptedHint}</p>
+    </div>
+  )
+}
+
 /** Live elapsed time on the run card, as an LED readout. */
 function Elapsed({ ms }: { ms: number }) {
   const s = Math.floor(ms / 1000)
@@ -1496,6 +1520,7 @@ function Halted(props: {
           )}
           <span className="text-callout">{byYou ? copy.outcome.stoppedByYou : state.statusReason}</span>
         </div>
+        <Interrupted events={props.events} />
         <AlreadyDone events={props.events} />
         {last && !last.pass && (
           <details className="mt-1 text-fg-2">
