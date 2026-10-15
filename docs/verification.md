@@ -46,6 +46,11 @@ While others run, use `bun run test:changed` or named files, and for the one ful
 `bun test --parallel=2 --timeout 60000`. A timeout seen only under that load is noise; rerun the file alone before
 treating it as a failure. The same goes for tier 3, which builds the whole app: run it once, at the end.
 
+**A stuck parallel run** (a worker at ~100% CPU that never reports): `sample <worker pid> 5` shows where it spins.
+A loop in `kevent64` means a leaked pipe or handle, e.g. a test that kills a child but keeps its stdout reader open,
+so the event loop wakes on the pipe forever. Release the reader and cancel the stream in the test. `bun run test`
+stops such a run after `TEST_WALL_S`; a bare `bun test --parallel` does not.
+
 **When it fails:** read the failing test's output; rerun just that file (`bun test <path>`), then the whole run. A
 failure only in the parallel run usually means a file leaning on another file's state (AGENTS.md). Never weaken,
 skip or delete a test to get green; if the test is wrong, say why in the commit. Known local exception: the PTY
