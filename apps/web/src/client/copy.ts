@@ -1985,6 +1985,68 @@ export const copy = {
     copied: 'Copied',
   },
 
+  /** Visual answers: charts, diagrams, tables, trees, figures and widgets an agent draws in a reply. */
+  visuals: {
+    kinds: {
+      chart: 'Chart',
+      mermaid: 'Diagram',
+      table: 'Table',
+      tree: 'JSON',
+      svg: 'Figure',
+      widget: 'Widget',
+      image: 'Picture',
+    },
+    /** The line a channel, a voice call or a copied message gets in a visual's place. */
+    fallback: (kind: string, title?: string) => `[${kind}${title ? `: ${title}` : ''}]`,
+    drawing: (kind: string) => `Drawing the ${kind.toLowerCase()}…`,
+    showSource: 'Source',
+    hideSource: 'Hide source',
+    copySource: 'Copy source',
+    download: 'Download',
+    downloadAs: (format: string) => `Download as ${format}`,
+    /** File names for downloads, before their extension. */
+    fileName: (kind: string) => kind.toLowerCase(),
+    cantDraw: (kind: string, why: string) => `Couldn’t draw this ${kind.toLowerCase()}: ${why}`,
+    errors: {
+      tooLarge: (chars: number) => `it is longer than ${chars.toLocaleString()} characters`,
+      notJson: 'it is not valid JSON',
+      notObject: 'it should be a JSON object',
+      chartNoMark: 'it is not a Vega-Lite spec (it has no mark, layer, concat, facet or repeat)',
+      chartNotLite: 'it is a Vega spec; only Vega-Lite is drawn',
+      chartUrl: 'its data must be inline values; it may not load anything by address',
+      chartRows: (max: number) => `it has more than ${max.toLocaleString()} data rows`,
+      tableShape: 'it should be a list of rows, or {"columns": [...], "rows": [...]}',
+      tableEmpty: 'it has no rows',
+      tableSize: (rows: number, columns: number) =>
+        `it has more than ${rows.toLocaleString()} rows or ${columns} columns`,
+      empty: 'it is empty',
+      notSvg: 'it is not an SVG image',
+      render: (message: string) => message.split('\n')[0]?.slice(0, 200) || 'the renderer stopped',
+    },
+    table: {
+      filter: 'Filter rows',
+      sortBy: (column: string) => `Sort by ${column}`,
+      shown: (shown: number, total: number) => `${shown.toLocaleString()} of ${total.toLocaleString()} rows`,
+      showAll: 'Show all',
+      noMatches: 'No rows match.',
+    },
+    tree: {
+      more: (n: number) => `${n.toLocaleString()} more…`,
+      items: (n: number) => (n === 1 ? '1 item' : `${n.toLocaleString()} items`),
+      keys: (n: number) => (n === 1 ? '1 key' : `${n.toLocaleString()} keys`),
+      toggle: (key: string) => `Open or close ${key}`,
+    },
+    widget: {
+      label: (title?: string) => (title ? `Interactive widget: ${title}` : 'Interactive widget'),
+      left: 'This widget tried to open another page, so it was stopped. Reload it to run it again.',
+      reload: 'Reload',
+    },
+    /** A cell's displays under its step. */
+    cellRan: (language: string) => `Ran a ${language === 'py' ? 'Python' : 'JavaScript'} cell that showed`,
+    cellShowed: (n: number) => (n === 1 ? '1 result' : `${n} results`),
+    imageFailed: 'The picture could not be loaded.',
+  },
+
   artifactViewer: {
     tabs: {
       preview: 'Preview',

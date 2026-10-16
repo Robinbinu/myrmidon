@@ -19,6 +19,7 @@ import {
   Cable,
   CalendarClock,
   CalendarRange,
+  ChartColumnBig,
   Compass,
   Container,
   Cpu,
@@ -84,6 +85,7 @@ import {
   SlidersHorizontal,
   Smile,
   SquareChevronRight,
+  SquareFunction,
   SquareTerminal,
   Star,
   Store,
@@ -254,6 +256,10 @@ export const FEATURE_ICONS = {
   voiceProviders: AudioWaveform,
   /** Phone calls on the SMS channel's Twilio number, and a call card that was one. */
   phoneCalls: PhoneIncoming,
+  /** Visual answers: a chart, diagram, table, tree, figure or widget an agent drew in a reply or a cell displayed. */
+  visuals: ChartColumnBig,
+  /** Code cells: an agent's eval tool, the step of a cell that displayed something. */
+  codeCells: SquareFunction,
   /** The web: search, fetching pages, a page an agent opened. */
   web: Globe,
   /** Pictures agents make and edit (generate_image): the image model in Settings → Tools. */

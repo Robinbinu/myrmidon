@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto'
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
+  CELL_DISPLAYS,
   CELL_EXIT_DRAIN_MS,
   CELL_IMAGE_CHARS,
   CELL_IMAGES,
@@ -72,11 +73,27 @@ export interface CellImage {
   readonly mimeType: string
 }
 
+/**
+ * Something display() showed, for the person to see drawn: a JSON value, a picture (an SVG one too, which the model
+ * is not sent), or a Vega-Lite chart (Altair's).
+ */
+export type CellShown =
+  | { readonly kind: 'json'; readonly value: unknown }
+  | {
+      readonly kind: 'image'
+      readonly data: string
+      readonly mimeType: string
+      readonly encoding: 'base64' | 'text'
+    }
+  | { readonly kind: 'chart'; readonly spec: unknown }
+
 export interface CellResult {
   /** False when the cell threw, ran out of time, or its runtime stopped: the text says which. */
   readonly ok: boolean
   readonly text: string
   readonly images: readonly CellImage[]
+  /** What display() showed, in order, up to CELL_DISPLAYS. */
+  readonly shown: readonly CellShown[]
 }
 
 type Ending =
@@ -99,6 +116,22 @@ class Output {
   private _left = 0
   readonly images: CellImage[] = []
   private _imagesLeft = 0
+  readonly shown: CellShown[] = []
+
+  private _lastJson: string | undefined
+
+  show(item: CellShown) {
+    // A cell that displays a value and then ends on it (`display(rows); rows`) shows it once.
+    if (item.kind === 'json') {
+      let key: string | undefined
+      try {
+        key = JSON.stringify(item.value)
+      } catch {}
+      if (key !== undefined && key === this._lastJson) return
+      this._lastJson = key
+    } else this._lastJson = undefined
+    if (this.shown.length < CELL_DISPLAYS) this.shown.push(item)
+  }
 
   add(text: string) {
     const room = Math.max(0, CELL_OUTPUT_CHARS - this._text.length)
@@ -108,12 +141,14 @@ class Output {
 
   image(data: unknown, mimeType: unknown) {
     if (typeof data !== 'string' || typeof mimeType !== 'string' || !mimeType.startsWith('image/')) return
-    if (this.images.length < CELL_IMAGES && data.length <= CELL_IMAGE_CHARS)
+    if (this.images.length < CELL_IMAGES && data.length <= CELL_IMAGE_CHARS) {
       this.images.push({ data, mimeType })
-    else this._imagesLeft += 1
+      this.show({ kind: 'image', data, mimeType, encoding: 'base64' })
+    } else this._imagesLeft += 1
   }
 
   json(value: unknown) {
+    this.show({ kind: 'json', value })
     let text: string
     try {
       text = JSON.stringify(value, null, 2) ?? String(value)
@@ -459,6 +494,12 @@ function pyDisplay(out: Output, bundle: Record<string, unknown>) {
   if (isRecord(image)) out.image(image.data, image.mimeType)
   for (const type of ['image/png', 'image/jpeg'])
     if (typeof bundle[type] === 'string') out.image(bundle[type], type)
+  // Shown to the person only: the model reads the bundle's text, as before.
+  const svg = bundle['image/svg+xml']
+  if (typeof svg === 'string' && svg.length <= CELL_IMAGE_CHARS)
+    out.show({ kind: 'image', data: svg, mimeType: 'image/svg+xml', encoding: 'text' })
+  const chart = Object.keys(bundle).find((k) => /^application\/vnd\.vegalite\.v\d+\+json$/.test(k))
+  if (chart && isRecord(bundle[chart])) out.show({ kind: 'chart', spec: bundle[chart] })
   const text = str(bundle['text/markdown']) ?? str(bundle['text/plain'])
   if (text !== undefined) out.add(text.endsWith('\n') ? text : `${text}\n`)
   else if (bundle['application/json'] !== undefined) out.json(bundle['application/json'])
@@ -573,18 +614,18 @@ export class CellKernels {
     const ending = await runtime.exec(args.code, seconds * 1000, out)
     const body = out.render()
     const text = (...parts: string[]) => [...notes, ...parts].filter(Boolean).join('\n')
-    const images = out.images
+    const { images, shown } = out
     switch (ending.kind) {
       case 'ok':
-        return { ok: true, text: text(body || say.noOutput), images }
+        return { ok: true, text: text(body || say.noOutput), images, shown }
       case 'error':
-        return { ok: false, text: text(body, ending.error), images }
+        return { ok: false, text: text(body, ending.error), images, shown }
       case 'timeout':
-        return { ok: false, text: text(body, say.timedOut(seconds)), images }
+        return { ok: false, text: text(body, say.timedOut(seconds)), images, shown }
       case 'crashed':
-        return { ok: false, text: text(body, say.crashed(ending.why)), images }
+        return { ok: false, text: text(body, say.crashed(ending.why)), images, shown }
       case 'stopped':
-        return { ok: false, text: text(body, say.stopped), images }
+        return { ok: false, text: text(body, say.stopped), images, shown }
     }
   }
 

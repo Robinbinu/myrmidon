@@ -224,6 +224,12 @@ export const channelCopy = {
     nothingRunning: 'Nothing is running.',
     unknown: (name: string, p: string) => `I don't know ${p}${name}. ${p}help lists the commands.`,
   },
+  /**
+   * A chart, table, tree, figure or widget an answer drew in the app, which a channel cannot show: one line in its
+   * place (a diagram's Mermaid source is sent as it is).
+   */
+  visual: (kind: 'chart' | 'mermaid' | 'table' | 'tree' | 'svg' | 'widget', title?: string) =>
+    `[${{ chart: 'Chart', mermaid: 'Diagram', table: 'Table', tree: 'Data', svg: 'Figure', widget: 'Interactive widget' }[kind]}${title ? `: ${title}` : ''}, in the Myrmidon app]`,
   status: {
     working: 'Working…',
     starting: 'Starting',

@@ -527,6 +527,25 @@ test('a round shows a status line that follows the work, then the answer and its
   expect(pieces[0]).toStartWith('Here they are:')
 })
 
+test("an answer's chart reaches a channel as a line naming it, its words and a diagram's source kept", async () => {
+  const { adapter, chats, say, pair } = await setup()
+  await pair(ALICE)
+  await say(ALICE, 'chart the visitors')
+  await until(() => chats.sends.length === 1)
+  const spec = JSON.stringify({ title: 'Visitors by park', mark: 'bar', data: { values: [{ a: 1 }] } })
+  chats.emit('col-chat-1', 'chat/reply', {
+    agent: 'lead',
+    text: `Zion leads.\n\n\`\`\`chart\n${spec}\n\`\`\`\n\n\`\`\`mermaid\ngraph TD\n  A-->B\n\`\`\``,
+    final: true,
+  })
+  chats.emit('col-chat-1', 'colony/completed', {})
+  await until(() => adapter.to('100').some((t) => t.includes('Zion leads.')))
+  const answer = adapter.to('100').find((t) => t.includes('Zion leads.')) ?? ''
+  expect(answer).toContain('[Chart: Visitors by park, in the Myrmidon app]')
+  expect(answer).not.toContain('"mark"')
+  expect(answer).toContain('A-->B')
+})
+
 test('approvals go to the owner with buttons; only the owner decides, and "always" changes the rule', async () => {
   const { adapter, chats, say, pair } = await setup()
   await pair(ALICE)

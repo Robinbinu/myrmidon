@@ -14,6 +14,16 @@ import type {
  * (after omp's goal mode and `/loop --until`). `checks`: the project's own checks pass; `command`: the command exits 0;
  * `judge`: the reviewer (`judge`, passing at `threshold`) finds the condition holds. At most `maxChecks` checks.
  */
+/**
+ * One thing an eval cell's display() showed: a JSON value (drawn as a table when it is a list of records, else as a
+ * tree), a picture stored with the chat, or a Vega-Lite chart (Altair's output). `json` is the value as JSON text, cut
+ * to a bound; a cut one is not valid JSON and is shown as text.
+ */
+export type CellDisplay =
+  | { kind: 'json'; json: string }
+  | { kind: 'image'; blob: string; mimeType: string }
+  | { kind: 'chart'; json: string }
+
 export interface RoundGoal {
   condition: string
   check: { kind: 'checks' } | { kind: 'command'; run: string } | { kind: 'judge' }
@@ -670,6 +680,8 @@ export interface EventPayloads {
      * old and new text a replacement carries), for the person's diff.
      */
     change?: { before: string; after: string }
+    /** What an eval cell's display() showed, in order, for the person to see drawn (the model reads them as text). */
+    displays?: CellDisplay[]
   }
   /** A message in the team chat, which everyone on the crew is in; `replyTo` is the number (seq) it answers. */
   'board/posted': { agent: string; text: string; mentions: string[]; replyTo?: number }

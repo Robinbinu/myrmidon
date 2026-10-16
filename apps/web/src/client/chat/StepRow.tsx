@@ -12,6 +12,7 @@ import { softSpring } from '../ui-config.ts'
 import { DiffLines } from './ApprovalCards.tsx'
 import { useOpenProjectFile } from './ProjectFiles.tsx'
 import type { Step, StepKind } from './steps.ts'
+import { CellDisplays } from './visuals/CellDisplays.tsx'
 
 const STEP_STYLE: Record<StepKind, { icon: typeof Search; color: string }> = {
   search: { icon: Search, color: 'text-fg-2' },
@@ -28,6 +29,7 @@ const STEP_STYLE: Record<StepKind, { icon: typeof Search; color: string }> = {
   advice: { icon: FEATURE_ICONS.advisor, color: 'text-muted' },
   computer: { icon: FEATURE_ICONS.computerUse, color: 'text-warn-ink' },
   computerSetup: { icon: FEATURE_ICONS.computerUse, color: 'text-warn-ink' },
+  cell: { icon: FEATURE_ICONS.codeCells, color: 'text-fg-2' },
 }
 
 /** One line of the activity feed: kind icon, who, what, when. `hideAgent` drops the name in a one-agent view. */
@@ -63,7 +65,16 @@ export function StepRow({ step, hideAgent }: { step: Step; hideAgent?: boolean }
       >
         <style.icon className="size-3" />
       </span>
-      {step.shot ? (
+      {step.displays ? (
+        // Open from the start: what a cell showed is why it is a step at all.
+        <details open className="group min-w-0 break-words pt-0.5">
+          <summary className="list-none marker:hidden hover:text-fg">
+            {!hideAgent && <span className="text-muted">{step.agent} · </span>}
+            {step.lead} <span className="font-semibold text-fg">{step.strong}</span>
+          </summary>
+          <CellDisplays colony={step.displays.colony} displays={step.displays.items} />
+        </details>
+      ) : step.shot ? (
         <details
           className="group min-w-0 break-words pt-0.5"
           onToggle={(e) => e.currentTarget.open && setShotOpened(true)}

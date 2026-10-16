@@ -1,16 +1,20 @@
+import { visualFallback, visualKind } from '@myrmidon/protocol'
 import { Check, Copy, ExternalLink } from 'lucide-react'
 import { Fragment, type MouseEvent, type ReactNode } from 'react'
 import { copy } from '../copy.ts'
 import { useCopy } from '../ui/hooks.ts'
 import { copyAction, openContextMenu } from '../ui/Menu.tsx'
+import { INLINE_IMAGE_MAX_CHARS } from '../ui-config.ts'
 import { openLinkHere } from './browser-links.ts'
+import { DataTable } from './visuals/DataTable.tsx'
+import { VisualFence, VisualImage } from './visuals/Visual.tsx'
 
 // A link's label stops at the next `[`, and its address at a `(` that does not open a balanced pair, which every
 // later link's `](` is: each attempt then scans only up to the next link instead of rescanning the rest of the line
 // from every bracket, so long lines stay linear. Addresses keep `[`, `]` and one level of parentheses
 // (`http://[::1]:5173`, `?f[x]=1`, `wiki/Foo_(bar)`).
 const INLINE =
-  /(`[^`\n]+`|\*\*[^*\n]+\*\*|(?<![\w*])[*_][^*_\s][^*_\n]*(?<!\s)[*_](?![\w*])|\[[^[\]\n]+\]\((?:[^\s()]|\([^\s()]*\))+\)|https?:\/\/[^\s<>()]+[^\s<>().,;:!?'"])/g
+  /(`[^`\n]+`|!\[[^[\]\n]*\]\(data:image\/(?:png|jpeg|gif|webp);base64,[A-Za-z0-9+/=]+\)|\*\*[^*\n]+\*\*|(?<![\w*])[*_][^*_\s][^*_\n]*(?<!\s)[*_](?![\w*])|\[[^[\]\n]+\]\((?:[^\s()]|\([^\s()]*\))+\)|https?:\/\/[^\s<>()]+[^\s<>().,;:!?'"])/g
 
 const LINK =
   'font-medium text-accent-fg underline decoration-accent/30 underline-offset-2 hover:decoration-accent break-words'
@@ -22,7 +26,24 @@ function inline(text: string): ReactNode[] {
     const token = m[0]
     const at = m.index ?? 0
     if (at > last) out.push(text.slice(last, at))
-    if (token.startsWith('`')) {
+    if (token.startsWith('![')) {
+      const alt = token.slice(2, token.indexOf(']('))
+      const src = token.slice(token.indexOf('](') + 2, -1)
+      const type = /^data:image\/(\w+)/.exec(src)?.[1] ?? 'png'
+      out.push(
+        src.length <= INLINE_IMAGE_MAX_CHARS ? (
+          <VisualImage
+            key={at}
+            inline
+            src={src}
+            alt={alt}
+            name={`${copy.visuals.fileName(copy.visuals.kinds.image)}.${type}`}
+          />
+        ) : (
+          alt
+        ),
+      )
+    } else if (token.startsWith('`')) {
       out.push(
         <code key={at} className="rounded-md border border-line bg-code px-1.5 py-px font-mono text-[0.86em]">
           {token.slice(1, -1)}
@@ -89,9 +110,13 @@ function linkMenu(e: MouseEvent<HTMLAnchorElement>) {
   ])
 }
 
+/** A reply with each visual put as one line naming it, for where it cannot be drawn (see visualFallback). */
+export const withoutVisuals = (text: string) =>
+  visualFallback(text, (kind, title) => copy.visuals.fallback(copy.visuals.kinds[kind], title))
+
 /** The words of Markdown without its markup, for reading out (a screen reader would say every `*` and `#`). */
 export function plainText(text: string): string {
-  return text
+  return withoutVisuals(text)
     .replace(/^```.*$/gm, '')
     .replace(/^[ \t]{0,3}(#{1,6}|>|[-*]|\d+\.)[ \t]+/gm, '')
     .replace(/\[([^[\]\n]+)\]\((?:[^\s()]|\([^\s()]*\))+\)/g, '$1')
@@ -146,8 +171,19 @@ export function Markdown({ text }: { text: string }) {
       const body: string[] = []
       i++
       while (i < lines.length && !(lines[i] as string).startsWith('```')) body.push(lines[i++] as string)
+      // While a reply streams, its last fence may not be closed yet.
+      const closed = i < lines.length
       i++
-      blocks.push(<CodeBlock key={key++} lang={lang} code={body.join('\n')} />)
+      const code = body.join('\n')
+      const block = <CodeBlock lang={lang} code={code} />
+      const kind = visualKind(lang)
+      blocks.push(
+        kind ? (
+          <VisualFence key={key++} kind={kind} lang={lang} code={code} closed={closed} codeBlock={block} />
+        ) : (
+          <Fragment key={key++}>{block}</Fragment>
+        ),
+      )
       continue
     }
     if (/^\s*\|.*\|\s*$/.test(line) && /^\s*\|?\s*:?-{2,}/.test(lines[i + 1] ?? '')) {
@@ -156,33 +192,15 @@ export function Markdown({ text }: { text: string }) {
       const rows: string[][] = []
       while (i < lines.length && /^\s*\|.*\|\s*$/.test(lines[i] as string))
         rows.push(CELLS(lines[i++] as string))
+      // Sortable, and filterable when long; cells keep their inline markup, sorting reads their text.
       blocks.push(
-        <div key={key++} className="my-3 overflow-x-auto rounded-lg border border-line">
-          <table className="w-full border-collapse text-reading">
-            <thead className="bg-fill">
-              <tr>
-                {head.map((h, n) => (
-                  // biome-ignore lint/suspicious/noArrayIndexKey: table cells are positional
-                  <th key={n} className="border-b border-line px-3 py-2 text-left font-semibold">
-                    {inline(h)}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r, n) => (
-                // biome-ignore lint/suspicious/noArrayIndexKey: table rows are positional
-                <tr key={n} className="border-b border-line last:border-0">
-                  {r.map((c, m) => (
-                    // biome-ignore lint/suspicious/noArrayIndexKey: table cells are positional
-                    <td key={m} className="px-3 py-2 align-top">
-                      {inline(c)}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div key={key++} className="my-3 overflow-hidden rounded-lg border border-line">
+          <DataTable
+            columns={head}
+            rows={rows.map((r) => head.map((_, m) => r[m] ?? ''))}
+            render={(c) => inline(String(c ?? ''))}
+            renderHead={(h) => inline(h)}
+          />
         </div>,
       )
       continue
