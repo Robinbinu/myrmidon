@@ -20,19 +20,16 @@ const TALK = ['message', 'create_group', 'update_group', 'append_note']
 const HOLD = ['claim_task', 'release_task', 'submit_task']
 const BROWSER = [
   'browser_open',
-  'request_login',
-  'browser_tabs',
-  'browser_downloads',
-  'browser_extract',
-  'browser_network',
-  'browser_upload',
+  'browser_read',
   'browser_snapshot',
-  'browser_click',
-  'browser_type',
-  'browser_press',
+  'browser_act',
+  'browser_tabs',
+  'browser_extract',
   'browser_screenshot',
-  'browser_console',
-  'browser_eval',
+  'browser_files',
+  'browser_debug',
+  'request_takeover',
+  'request_login',
 ]
 /** `mcp` stands for every tool of the connected MCP servers. */
 const BUILD = [
@@ -139,6 +136,8 @@ function baseRoleTools(spec: ColonySpec, agent: AgentSpec): string[] {
         ...review,
       ]
     const plugin = speaksForColony(spec, agent) ? PLUGIN : []
+    // The lead of a company's round may propose changing the saved company; the person decides.
+    const company = spec.company && isLead(spec, agent) ? ['propose_company_change'] : []
     // A job the lead delegated: it works on its brief and reports to the lead with one typed result, never to the
     // person. A read-only job (research, a review) gets no hands to change anything.
     if (spec.tier === 'solo' && agent.role === 'worker')
@@ -164,6 +163,7 @@ function baseRoleTools(spec: ColonySpec, agent: AgentSpec): string[] {
         ...escalation,
         ...review,
         ...plugin,
+        ...company,
       ]
     if (spec.team?.mode === 'swarm')
       return [
@@ -199,6 +199,7 @@ function baseRoleTools(spec: ColonySpec, agent: AgentSpec): string[] {
         ...USER,
         ...review,
         ...plugin,
+        ...company,
         ...spawn,
         ...(spec.agents.length > 1 ? ['dismiss_crewmate'] : []),
       ]
@@ -222,6 +223,7 @@ const ON_DEMAND = new Set([
   'github',
   'autoresearch',
   'request_login',
+  'request_takeover',
   'start_server',
   'server_logs',
   'stop_server',
@@ -294,7 +296,7 @@ export function preloaded(request: string, names: readonly string[]): string[] {
   )
   return names.filter(
     (n) =>
-      (browser && (n.startsWith('browser_') || n === 'request_login')) ||
+      (browser && (n.startsWith('browser_') || n === 'request_login' || n === 'request_takeover')) ||
       (server && ['start_server', 'server_logs', 'stop_server'].includes(n)) ||
       (plugin && (PLUGIN.includes(n) || n === 'read_docs')) ||
       (code && CODE_INTEL.includes(n)) ||

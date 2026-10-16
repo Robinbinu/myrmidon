@@ -112,7 +112,7 @@ test('a chat that did real work notes where it left off once quiet, and a fork t
   expect(seen.notes).toBe(1)
   const logged = (await runtime.ctx.log.read(first.colonyId as never)).find((e) => e.type === 'chat/handoff')
   expect(logged?.actor).toEqual({ kind: 'system', id: 'myrmidon' })
-  expect((logged?.payload as EventPayloads['chat/handoff']).text).toBe(NOTE)
+  expect((logged?.payload as EventPayloads['chat/handoff'] | undefined)?.text).toBe(NOTE)
 
   // A fork starts in a colony of its own: its agent has none of the conversation, so it gets the history and the note.
   const fork = await chats.send('carry on', config, undefined, { forkOf: first.chatId })

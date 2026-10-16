@@ -1563,66 +1563,67 @@ test.skipIf(!findChrome())('browser_extract reads tables, links and repeating it
   site.stop(true)
 })
 
-test.skipIf(!findChrome())('browser_network lists requests, failures and API bodies', async () => {
-  const site = Bun.serve({
-    port: 0,
-    fetch: (req) => {
-      const path = new URL(req.url).pathname
-      if (path === '/api/items') return Response.json([{ id: 1, name: 'Lamp' }])
-      if (path === '/missing.js') return new Response('nope', { status: 404 })
-      return new Response(
-        `<title>App</title><script src="/missing.js"></script><script>fetch('/api/items').then(r => r.json())</script>`,
-        { headers: { 'content-type': 'text/html' } },
-      )
-    },
-  })
-  const base = `http://localhost:${site.port}`
-  // The test site stands in for a server the run started: agents reach no other localhost port.
-  const browser = new BrowserHub(join(home, 'browser'), undefined, {
-    localPorts: () => new Set([site.port as number]),
-  })
-  opened.push(browser)
-  const resolver = new ModelResolver()
-  let apiId = '0'
-  const model = createMockModel({
-    handler: (ctx: LlmContext) => {
-      const text = JSON.stringify(ctx.messages.at(-1))
-      const m = /#(\d+) GET 200 fetch/.exec(text)
-      if (m?.[1]) apiId = m[1]
-      const n = ctx.messages.filter((x) => x.role === 'assistant').length
-      const steps = [
-        [tool('browser_open', { url: `${base}/` })],
-        [tool('browser_network', { only: 'failed' })],
-        [tool('browser_network', { only: 'api' })],
-        [tool('browser_network', { body: Number(apiId) })],
-        [tool('reply_user', { text: 'Done.', final: true })],
-      ]
-      return { content: steps[n] ?? ['done'] }
-    },
-  })
-  resolver.register('mock/netdebug', { model: model.model, streamFn: model.stream })
-  judge(resolver)
-  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), browser })
-  const { colonyId } = await chats.send('Debug the app', {
-    ...solo('mock/netdebug'),
-    judgeModel: 'mock/judge',
-  })
-  await waitFor(colonyId)
-  const out = (await events(colonyId))
-    .filter((e) => e.type === 'tool/result')
-    .map((e) => e.payload as EventPayloads['tool/result'])
-    .filter((r) => r.tool === 'browser_network')
-    .map((r) => r.output)
-  // Chrome aborts a 404 script after its response: both the status and the failure are shown.
-  expect(out[0]).toMatch(
-    /GET 404( FAILED \(net::ERR_ABORTED\))? script \d+ms http:\/\/localhost:\d+\/missing\.js/,
-  )
-  expect(out[0]).not.toContain('/api/items')
-  expect(out[1]).toMatch(/GET 200 fetch \d+ms .*\/api\/items/)
-  expect(out[2]).toContain('[{"id":1,"name":"Lamp"}]')
-  await browser.close()
-  site.stop(true)
-})
+test.skipIf(!findChrome())(
+  "browser_debug reads a page's network requests, one response body, and its console",
+  async () => {
+    const site = Bun.serve({
+      port: 0,
+      fetch: (req) => {
+        const path = new URL(req.url).pathname
+        if (path === '/api/items') return Response.json([{ id: 1, name: 'Lamp' }])
+        if (path === '/missing.js') return new Response('nope', { status: 404 })
+        return new Response(
+          `<title>App</title><script src="/missing.js"></script><script>console.warn('app started'); fetch('/api/items').then(r => r.json())</script>`,
+          { headers: { 'content-type': 'text/html' } },
+        )
+      },
+    })
+    const base = `http://localhost:${site.port}`
+    // The test site stands in for a server the run started: agents reach no other localhost port.
+    const browser = new BrowserHub(join(home, 'browser'), undefined, {
+      localPorts: () => new Set([site.port as number]),
+    })
+    opened.push(browser)
+    const resolver = new ModelResolver()
+    let apiId = '0'
+    const model = createMockModel({
+      handler: (ctx: LlmContext) => {
+        const text = JSON.stringify(ctx.messages.at(-1))
+        const m = /reqid=(\d+) GET \S+\/api\/items/.exec(text)
+        if (m?.[1]) apiId = m[1]
+        const n = ctx.messages.filter((x) => x.role === 'assistant').length
+        const steps = [
+          [tool('browser_open', { url: `${base}/` })],
+          [tool('browser_debug', { kind: 'network' })],
+          [tool('browser_debug', { kind: 'network', request: Number(apiId) })],
+          [tool('browser_debug', { kind: 'console' })],
+          [tool('reply_user', { text: 'Done.', final: true })],
+        ]
+        return { content: steps[n] ?? ['done'] }
+      },
+    })
+    resolver.register('mock/netdebug', { model: model.model, streamFn: model.stream })
+    judge(resolver)
+    const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), browser })
+    const { colonyId } = await chats.send('Debug the app', {
+      ...solo('mock/netdebug'),
+      judgeModel: 'mock/judge',
+    })
+    await waitFor(colonyId)
+    const out = (await events(colonyId))
+      .filter((e) => e.type === 'tool/result')
+      .map((e) => e.payload as EventPayloads['tool/result'])
+      .filter((r) => r.tool === 'browser_debug')
+      .map((r) => r.output)
+    expect(out[0]).toMatch(/reqid=\d+ GET http:\/\/localhost:\d+\/missing\.js \[[^\]]*404/)
+    expect(out[0]).toMatch(/reqid=\d+ GET http:\/\/localhost:\d+\/api\/items \[[^\]]*200/)
+    expect(out[1]).toContain('[{"id":1,"name":"Lamp"}]')
+    expect(out[2]).toContain('app started')
+    await browser.close()
+    site.stop(true)
+  },
+  60_000,
+)
 
 // create_tool makes commands too, so it is offered only with the OS sandbox.
 test.skipIf(!findChrome() || detectSandbox().kind === 'none')(
@@ -1728,26 +1729,22 @@ test.skipIf(!findChrome())('browser tabs, downloads and uploads', async () => {
   opened.push(browser)
   const resolver = new ModelResolver()
   let snapshot = ''
-  const refFor = (name: string) =>
-    new RegExp(`\\[(e\\d+)\\][^\\n]*${name}|${name}[^\\n]*\\[(e\\d+)\\]`).exec(snapshot)
-  const ref = (name: string) => {
-    const m = refFor(name)
-    return m?.[1] ?? m?.[2] ?? 'e0'
-  }
+  // The uid of the element named `name` in the latest snapshot the agent got.
+  const uid = (name: string) => new RegExp(`uid=(\\S+) [\\w-]+ \\\\?"${name}`).exec(snapshot)?.[1] ?? '0_0'
   const agentModel = createMockModel({
     handler: (ctx: LlmContext) => {
       const last = ctx.messages.at(-1) as { content?: { text?: string }[] } | undefined
       const text = last?.content?.map((c) => c.text ?? '').join('') ?? ''
-      if (text.includes('url:')) snapshot = text
+      if (text.includes('uid=')) snapshot = text
       const n = ctx.messages.filter((m) => m.role === 'assistant').length
       const steps = [
         () => [tool('browser_open', { url: `${base}/` })],
-        () => [tool('browser_click', { ref: ref('Get data') })],
-        () => [tool('browser_downloads', {})],
-        () => [tool('browser_click', { ref: ref('Open other') })],
+        () => [tool('browser_act', { steps: [{ click: uid('Get data') }] })],
+        () => [tool('browser_files', {})],
+        () => [tool('browser_act', { steps: [{ click: uid('Open other') }] })],
         () => [tool('browser_tabs', { switch: 1 })],
         () => [tool('fs_write', { path: 'report.txt', content: 'hello' })],
-        () => [tool('browser_upload', { ref: ref('Report'), path: 'report.txt' })],
+        () => [tool('browser_files', { upload: uid('Report'), path: 'report.txt' })],
         () => [tool('browser_tabs', { close: 2 })],
         () => [tool('reply_user', { text: 'Done.', final: true })],
       ]
@@ -1758,18 +1755,24 @@ test.skipIf(!findChrome())('browser tabs, downloads and uploads', async () => {
   judge(resolver)
   const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), browser })
   const { colonyId } = await chats.send('Use the site', { ...solo('mock/surfer'), judgeModel: 'mock/judge' })
+  // Choosing a file hands it to the site: the person approves it (the default preset is Auto).
+  const asked = await waitFor(colonyId, (s) => Object.values(s.approvals).some((a) => !a.decided))
+  const card = Object.values(asked.approvals).find((a) => !a.decided)
+  expect(card?.tool).toBe('browser_files')
+  expect(card?.summary).toContain('report.txt')
+  await chats.decideApproval(colonyId, card?.id ?? '', true)
   await waitFor(colonyId)
   const out = (await events(colonyId))
     .filter((e) => e.type === 'tool/result')
     .map((e) => e.payload as EventPayloads['tool/result'])
   const of = (tool: string, i = 0) => out.filter((r) => r.tool === tool)[i]?.output ?? ''
-  expect(of('browser_downloads')).toContain('downloads/data.csv (8 bytes)')
+  expect(of('browser_files', 0)).toContain('downloads/data.csv (8 bytes)')
   // The link with target=_blank opened a second tab and the browser switched to it.
-  expect(of('browser_click', 1)).toContain('Second page')
+  expect(of('browser_act', 1)).toContain('Second page')
   expect(of('browser_tabs', 0)).toMatch(/\* 1\. Home — http/)
   expect(of('browser_tabs', 0)).toMatch(/ {2}2\. Other — http/)
-  expect(of('browser_upload')).toContain('Chose report.txt')
-  expect(of('browser_upload')).toContain('title: got report.txt')
+  expect(of('browser_files', 1)).toContain('Chose report.txt')
+  expect(of('browser_files', 1)).toContain('title: got report.txt')
   expect(of('browser_tabs', 1)).not.toContain('Other')
   await browser.close()
   site.stop(true)
@@ -1842,10 +1845,12 @@ test.skipIf(!findChrome())(
         if (seen.length === 1)
           return { content: [tool('publish_artifact', { name: 'index.html', content: page })] }
         if (seen.length === 2) return { content: [tool('browser_open', { url: 'artifact:index.html' })] }
-        const ref = /button \\"Go\\" \[(e\d+)\]/.exec(last)?.[1]
-        if (ref) return { content: [tool('browser_click', { ref })] }
+        const uid = /uid=(\S+) button \\"Go\\"/.exec(last)?.[1]
+        if (uid) return { content: [tool('browser_act', { steps: [{ click: uid }] })] }
         if (last.includes('Clicked') && !last.includes('clicked ok'))
-          return { content: [tool('browser_console', {}), tool('browser_screenshot', {})] }
+          return {
+            content: [tool('browser_debug', { kind: 'console' }), tool('browser_screenshot', {})],
+          }
         return { content: [tool('reply_user', { text: 'Tested.', final: true })] }
       },
     })
@@ -1862,8 +1867,8 @@ test.skipIf(!findChrome())(
       .map((e) => e.payload as EventPayloads['tool/result'])
     const out = (tool: string) => results.find((r) => r.tool === tool)
     expect(out('browser_open')?.output).toContain('title: Counter')
-    expect(out('browser_click')?.output).toContain('button "Clicked"')
-    expect(out('browser_console')?.output).toContain('clicked ok')
+    expect(out('browser_act')?.output).toContain('button "Clicked"')
+    expect(out('browser_debug')?.output).toContain('clicked ok')
     expect(out('browser_screenshot')?.ok).toBe(true)
     // Each action left a keyframe to replay.
     const frames = (await events(colonyId)).filter((e) => e.type === 'browser/keyframe')
@@ -1893,7 +1898,7 @@ test.skipIf(!findChrome())(
         tool('publish_artifact', { name: 'index.html', content: page }),
       ],
       [tool('browser_open', { url: 'artifact:index.html' })],
-      [tool('browser_console', {})],
+      [tool('browser_debug', { kind: 'console' })],
       [tool('reply_user', { text: 'Tested.', final: true })],
     ])
     judge(resolver)
@@ -1911,7 +1916,7 @@ test.skipIf(!findChrome())(
     // Served from the colony's own origin, not from the person's disk.
     expect(page_?.output).toContain('.artifacts.localhost/index.html')
     expect(page_?.output).not.toContain('file://')
-    expect(results.find((r) => r.tool === 'browser_console')?.output).not.toContain('CORS')
+    expect(results.find((r) => r.tool === 'browser_debug')?.output).not.toContain('CORS')
     await browser.close()
   },
   60_000,
@@ -3372,7 +3377,7 @@ test('on-demand tools stay out of model calls until find_tools loads them', asyn
   expect(before).toContain('fs_read')
   expect(before).not.toContain('browser_open')
   expect(after).toContain('browser_open')
-  expect(after).toContain('browser_click')
+  expect(after).toContain('browser_act')
   expect(after?.length).toBeGreaterThan(before?.length ?? 0)
   await chats.stopAll()
 })

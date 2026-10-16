@@ -12,20 +12,20 @@ BUNDLE="$OUT/bundle"
 mkdir -p "$OUT/stills" "$ASSETS"
 
 # One bundle for every render below, so the project is built once.
-npx remotion bundle --out-dir="$BUNDLE"
+bunx remotion bundle --out-dir="$BUNDLE"
 
 # Masters: near-lossless renders everything else is encoded from.
-npx remotion render "$BUNDLE" Film "$OUT/film-master.mp4" --crf=12
-npx remotion render "$BUNDLE" HeroLoop "$OUT/hero-master.mp4" --crf=12 --muted
-npx remotion still "$BUNDLE" Film "$OUT/film-poster.png" --frame=4360 --image-format=png
-npx remotion still "$BUNDLE" Social "$OUT/social-preview.png" --image-format=png
+bunx remotion render "$BUNDLE" Film "$OUT/film-master.mp4" --crf=12
+bunx remotion render "$BUNDLE" HeroLoop "$OUT/hero-master.mp4" --crf=12 --muted
+bunx remotion still "$BUNDLE" Film "$OUT/film-poster.png" --frame=4360 --image-format=png
+bunx remotion still "$BUNDLE" Social "$OUT/social-preview.png" --image-format=png
 
 # README stills, one per beat: name and the film frame that tells it best (see SHOTLIST.md).
 STILLS=(film-ask:1088 film-crew:2235 film-review:2590 film-trust:2960 film-call:3598 film-reach:3800)
 for pair in "${STILLS[@]}"; do
   name="${pair%%:*}"
   frame="${pair##*:}"
-  npx remotion still "$BUNDLE" Film "$OUT/stills/$name.png" --frame="$frame" --image-format=png
+  bunx remotion still "$BUNDLE" Film "$OUT/stills/$name.png" --frame="$frame" --image-format=png
   "$FFMPEG" -y -v error -i "$OUT/stills/$name.png" -vf "scale=1600:-1:flags=lanczos" -c:v libwebp -quality 88 \
     -compression_level 6 "$ASSETS/$name.webp"
 done
@@ -52,8 +52,8 @@ rm -f "$PASSLOG"*
 "$FFMPEG" -y -v error -i "$OUT/film-master.mp4" -i "$OUT/soundtrack.wav" -map 0:v -map 1:a -c:v libx264 -preset slow \
   -tune animation -crf 17 -pix_fmt yuv420p -c:a aac -b:a 192k -movflags +faststart "$OUT/myrmidon-film-hq.mp4"
 
-# The two README posters that show providers' and channels' marks (see src/stills; `npm run stills` does all eight).
-node scripts/stills.mjs feature-models feature-channels
+# The two README posters that show providers' and channels' marks (see src/stills; `bun run stills` does all eight).
+bun scripts/stills.mjs feature-models feature-channels
 
 # README hero loop: animated WebP, with a GIF fallback.
 "$FFMPEG" -y -v error -i "$OUT/hero-master.mp4" -vf "fps=24,scale=1200:-1:flags=lanczos" \

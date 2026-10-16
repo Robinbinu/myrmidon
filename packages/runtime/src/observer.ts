@@ -88,13 +88,17 @@ export class FactualObserver {
         idle.length > 0 &&
         this._once(`unclaimed-${t.id}-${t.revision}`),
     )
-    if (unclaimed.length > 0) {
+    // A task meant for someone nudges only them: waking the rest (a company's later stages) costs turns for nothing.
+    const open = unclaimed.some((t) => !t.assignee)
+    const meant = new Set(unclaimed.flatMap((t) => (t.assignee ? [t.assignee] : [])))
+    const nudged = idle.filter((a) => open || meant.has(a.info.name))
+    if (unclaimed.length > 0 && nudged.length > 0) {
       out.push(
         this._signal(
           'unclaimed',
           'info',
           prompts.observer.unclaimed(unclaimed.map((t) => `${t.id} (${t.subject})`).join(', ')),
-          idle.map((a) => a.info.name),
+          nudged.map((a) => a.info.name),
         ),
       )
     }

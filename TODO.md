@@ -16,6 +16,22 @@ An item checked without either carries `unverified: …` until it gets one. Tier
       the DMG's wrapper unpacks and an update installs). The DMG's own app verifies. Advisory in
       `scripts/smoke-desktop.ts` (`--strict-archive` makes it block); make it blocking once fixed.
 
+## Browser agent follow-ups (browser-v2, 2026-10-16)
+
+- [ ] **Agents in the person's own Chrome** — chrome-devtools-mcp `--autoConnect` fails on this Mac (macOS 27: the
+      engine cannot read `~/Library/Application Support/Google/Chrome/DevToolsActivePort`, "Operation not permitted";
+      upstream #3089). Build the Myrmidon relay extension (MV3, `debugger` + `tabs` + `tabGroups`, after omp's
+      `browser/relay/bridge.ts`, a per-launch token always required), the per-chat consent toggle (audit event, Stop
+      button, agent-opened tabs only), and its stricter defaults (every consequential act asks even under Full access,
+      watch mode on sensitive sites, no browser_debug). The Computer view says it is not available yet.
+- [ ] **Mask known secret values in browser snapshots** (after Playwright MCP's `--secrets`, using secrets.ts).
+- [ ] **Compaction rule for browser results** — older browser_* results become `[page saved: web/x.md, url]`.
+- [ ] **(Task 8) Sandboxed agents reach local ports with curl, bypassing the browser's port rules** — in the browsing
+      eval an agent refused by browser_open/web_fetch on `localhost:47180` (not its own server) fetched and POSTed the
+      same page with `curl` in its shell; the sandbox does not apply the per-round localhost port rule. Close it in
+      the sandbox profile (loopback only to the round's own servers), or the browser rules mean little.
+- [ ] **Remove the `request_login` alias** one release after browser-v2 (request_takeover replaces it).
+
 ## Done this session (not listed below)
 
 - [x] **Projects** (b67c0f1 + UI): pick a folder (folder browser, since the page can't open a native picker); a
@@ -848,6 +864,15 @@ Open work, in the order it will be done:
       (`bun run eval --suite crew`, DeepSeek); only an exploratory develop baseline ran (2 trials, solo ≈ default
       ≈ fastest; team ≈3-5x tokens, swarm ≈10x, same pass rate; crew-blocked-part times out in every mode);
       resuming a round with open jobs fails them instead of restoring the helpers; per-provider HTTP semaphore.
+      - [ ] **Company gates wait for this** (company mode, branch company-mode, 2026-10-16). A company's playbook
+        stages run as tasks with `blockedBy`, and the only gate now is the minimal one: a stage's task must be
+        submitted with its output and pass the task check before the next stage starts. Once Task 7's typed outcomes
+        land, give stages real gates (docs/research/2026-10-15-mirofish-gstack-company-mode.md §3.4): `checks` on the
+        stage's typed result, `review` verdicts from a fresh-context reviewer role, `person` approval cards,
+        `fresh-reviews` with a tree fingerprint, a retry cap that hands a stage to the person, scope conditions
+        (`skipWhen`, paths) computed by the harness, and per-stage spend on a stage strip. Also: per-role hit-rate
+        stats across runs for "consider removing" (gstack's 0 findings in 10 runs, never-gate roles), a company arm in
+        the 12ac eval, swarm and org-mode readings of the same company file, and adding gstack to prompt-library/.
 12ad. - [ ] **Task 8: tool reliability and error recovery** (asked 2026-10-15). Phase 1 (audit + failure matrix,
       docs/research/2026-10-15-tool-failure-matrix.md, branch tool-failure-audit) runs now; phase 2 (implementation)
       starts after Task 5 lifecycle hardening lands, since it shares cancellation, timeouts and duplicate handling.

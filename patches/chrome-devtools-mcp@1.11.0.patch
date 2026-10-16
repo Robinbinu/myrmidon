@@ -1,0 +1,14 @@
+diff --git a/build/src/third_party/index.js b/build/src/third_party/index.js
+index d5a03922a5a381e185cc647c68896a59cadd7ebc..6a19cf95fdafc66181b06adadd258a70a1927683 100644
+--- a/build/src/third_party/index.js
++++ b/build/src/third_party/index.js
+@@ -72752,7 +72752,8 @@ async function getBiDiConnection(connectionTransport, url, options, logger) {
+  * SPDX-License-Identifier: Apache-2.0
+  */
+ const getWebSocketTransportClass = async () => {
+-    return isNode
++    // Myrmidon runs this server on Bun, whose node:http cannot hand `ws` the 101 upgrade; Bun's own WebSocket can.
++    return isNode && typeof Bun === 'undefined'
+         ? (await Promise.resolve().then(function () { return NodeWebSocketTransport$1; })).NodeWebSocketTransport
+         : (await Promise.resolve().then(function () { return BrowserWebSocketTransport$1; }))
+             .BrowserWebSocketTransport;

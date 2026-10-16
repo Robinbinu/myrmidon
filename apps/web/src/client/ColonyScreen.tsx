@@ -30,6 +30,7 @@ import { Markdown } from './chat/Markdown.tsx'
 import { copy } from './copy.ts'
 import { describeEvent } from './describe.ts'
 import { useRunClock } from './run-clock.ts'
+import { AvatarScope } from './ui/avatar-bag.ts'
 import { clock, compact, duration, money } from './ui/hooks.ts'
 import { FEATURE_ICONS } from './ui/icons.ts'
 import { AgentAvatar } from './ui/pixel.tsx'
@@ -316,7 +317,15 @@ export function buildItems(events: readonly MyrEvent[], cursor: number, agent?: 
 }
 
 /** Full colony view in the style of a coding-agent console: agents, a live activity stream, and a replay bar. */
-export function ColonyScreen({ id }: { id: string; compact?: boolean }) {
+export function ColonyScreen(props: { id: string; compact?: boolean }) {
+  return (
+    <AvatarScope value={props.id}>
+      <ColonyScreenBody id={props.id} />
+    </AvatarScope>
+  )
+}
+
+function ColonyScreenBody({ id }: { id: string }) {
   const colony = useColony(id)
   const { state, events, cursor } = colony
   const [tab, setTab] = useState<Tab>('activity')

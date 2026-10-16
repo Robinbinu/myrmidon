@@ -1,5 +1,6 @@
-import { DELIVERED_VERIFIER, type EventPayloads, type MyrEvent } from '@myrmidon/protocol'
+import { type CellDisplay, DELIVERED_VERIFIER, type EventPayloads, type MyrEvent } from '@myrmidon/protocol'
 import { copy } from '../copy.ts'
+import { siteOf } from './activity.ts'
 
 export type StepKind =
   | 'search'
@@ -16,6 +17,7 @@ export type StepKind =
   | 'advice'
   | 'computer'
   | 'computerSetup'
+  | 'cell'
 
 export interface Step {
   readonly id: string
@@ -33,6 +35,8 @@ export interface Step {
   readonly change?: { readonly before?: string; readonly after: string }
   /** A desktop step's screenshot (computer use), stored with the round. */
   readonly shot?: { readonly colony: string; readonly blob: string }
+  /** What a code cell's display() calls showed, drawn under the step. */
+  readonly displays?: { readonly colony: string; readonly items: readonly CellDisplay[] }
 }
 
 const cut = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}…` : s)
@@ -51,6 +55,7 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
   const out: Step[] = []
   const asked = new Map<string, EventPayloads['approval/requested']>()
   const edits = new Map<string, Record<string, unknown>>()
+  const cells = new Map<string, string>()
   for (const e of events) {
     const base = { id: e.id, time: e.time }
     switch (e.type) {
@@ -96,6 +101,8 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
         } else if (p.tool === 'fs_edit' || p.tool === 'fs_write') {
           // Shown once it went through: an edit can still wait for the person, be denied, or fail.
           edits.set(p.callId, args)
+        } else if (p.tool === 'eval') {
+          cells.set(p.callId, String(args.language ?? 'js'))
         } else if (p.tool === 'shell') {
           out.push({
             ...base,
@@ -126,6 +133,16 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
               : { after: String(args.content ?? '') },
           })
         }
+        // Only a cell that showed something is a step: the rest stays among the agent's tool calls.
+        if (p.ok && p.tool === 'eval' && p.displays?.length)
+          out.push({
+            ...base,
+            kind: 'cell',
+            agent: p.agent,
+            lead: copy.visuals.cellRan(cells.get(p.callId) ?? 'js'),
+            strong: copy.visuals.cellShowed(p.displays.length),
+            displays: { colony: e.colonyId, items: p.displays },
+          })
         if (!p.ok)
           out.push({
             ...base,
@@ -595,6 +612,21 @@ export function currentStep(events: readonly MyrEvent[]): string | undefined {
         computer: copy.steps.now.usingMac,
         open_app: copy.steps.now.usingMac,
         list_apps: copy.steps.now.usingMac,
+      }
+      // A browser step says where: the page the agent's browser shows, or the one it is opening.
+      if (p.tool.startsWith('browser_') || p.tool === 'request_takeover' || p.tool === 'request_login') {
+        const shown = events
+          .slice(0, i)
+          .findLast(
+            (k) =>
+              k.type === 'browser/keyframe' &&
+              (k.payload as EventPayloads['browser/keyframe']).agent === p.agent,
+          )
+        const url =
+          typeof args.url === 'string'
+            ? args.url
+            : ((shown?.payload as EventPayloads['browser/keyframe'] | undefined)?.url ?? '')
+        return copy.steps.now.doing(p.agent, copy.steps.now.browsing(siteOf(url)))
       }
       return copy.steps.now.doing(p.agent, what[p.tool] ?? copy.steps.now.using(p.tool))
     }

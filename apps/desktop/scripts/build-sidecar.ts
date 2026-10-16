@@ -10,11 +10,12 @@
  * which needs that platform's oh-my-pi addon installed: `bun install --os='*' --cpu='*'` installs them all. Into
  * apps/desktop/dist/<platform>-<arch> (where the build hook looks), or the folder given.
  */
-import { copyFileSync, mkdirSync, readdirSync } from 'node:fs'
+import { copyFileSync, cpSync, mkdirSync, readdirSync, rmSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import type { BunPlugin } from 'bun'
 import tailwind from 'bun-plugin-tailwind'
+import { buildVisualLibs } from '../../web/src/visual-libs.ts'
 import { desktopCopy } from '../src/copy.ts'
 import { executableName, onnxRuntimeLibraries, sidecarDist, sidecarTarget } from '../src/platform.ts'
 
@@ -64,13 +65,26 @@ const jsonAsString: BunPlugin = {
   },
 }
 
+// The drawing libraries of visual answers, which the server bundles on first use when run from source, are bundled
+// here and carried in the executable as text (apps/web/src/visual-libs.ts).
+const visualLibs = await buildVisualLibs()
+const visualLibsCarried: BunPlugin = {
+  name: 'visual-libs-carried',
+  setup(build) {
+    build.onLoad({ filter: /[\\/]visual-libs-prebuilt\.ts$/ }, () => ({
+      contents: `export const prebuiltVisualLibs = ${JSON.stringify(visualLibs)}`,
+      loader: 'ts',
+    }))
+  },
+}
+
 // Minified, not bytecode: Bun stores bytecode beside the source for every module, which made the executable three
 // times the size (~290 MB) for a start ~0.4 s quicker, and a slower first launch while macOS checks the larger file.
 const result = await Bun.build({
   entrypoints: [join(repo, 'apps/desktop/src/sidecar.ts')],
   target: 'bun',
   minify: true,
-  plugins: [tailwind, ortBesideExecutable, jsonAsString],
+  plugins: [tailwind, ortBesideExecutable, jsonAsString, visualLibsCarried],
   // An optional import oh-my-pi makes only for legacy pi plugins, which Myrmidon does not use.
   external: ['omp-legacy-pi-modules'],
   compile: { target: target.bun, outfile: join(dist, executableName('myrmidon', target.platform)) },
@@ -117,4 +131,10 @@ if (target.platform === 'darwin' && process.platform === 'darwin') {
     }
   }
 }
+// The agents' browser engine, chrome-devtools-mcp, goes beside the executable as its package's build, where
+// packages/runtime/src/cdm.ts looks first; the server runs it on its own Bun (BUN_BE_BUN).
+const cdm = dirname(Bun.resolveSync('chrome-devtools-mcp/package.json', join(repo, 'packages/runtime')))
+rmSync(join(dist, 'chrome-devtools-mcp'), { recursive: true, force: true })
+cpSync(join(cdm, 'build'), join(dist, 'chrome-devtools-mcp', 'build'), { recursive: true })
+copyFileSync(join(cdm, 'package.json'), join(dist, 'chrome-devtools-mcp', 'package.json'))
 console.log(dist)

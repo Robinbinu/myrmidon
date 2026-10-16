@@ -61,6 +61,14 @@
   /* Crew map links: 3:1 on the window, as WCAG asks of lines that carry meaning. */
   --edge: #86868b;
   --code-bg: #f5f5f7;
+  /* Chart series, in a fixed order (visual answers): a categorical palette checked for colour-blind separation on
+     the content surface; series 3-5 sit under 3:1 on white, so charts keep their legend and labels. */
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-4: #eda100;
+  --series-5: #e87ba4;
+  --series-6: #008300;
   --add: #e6f6ec;
   --del: #fdecec;
   /* The mascot's dot screen stays a dark display in both themes, so its pixels glow; in light mode it sits in a
@@ -92,6 +100,15 @@
   --screen-live: #3ddc84;
   /* Worker characters' eyes, and text on an agent's colour: dark on bright fills, white on deep ones. */
   --character-ink: #16161a;
+  /* The characters' small extras, drawn on or next to an agent's colour: an eye's glint, blushing cheeks, gold (crowns,
+     halos, stars), a sprout's green and a bow's pink. */
+  --character-shine: #ffffff;
+  --character-blush: #ff6f9c;
+  --character-gold: #ffcf3f;
+  --character-leaf: #3fcf8e;
+  --character-bow: #ff5d8f;
+  /* A hairline round a character, so its palest colours still hold their shape on a light page; none on dark ones. */
+  --character-edge: rgb(0 0 0 / 0.12);
   --on-bright: #0b0b0d;
   --on-deep: #ffffff;
   /* The Myrmidon mark: amber pixel eyes on a dark glass tile. */
@@ -151,6 +168,7 @@
    writes this one block out for both cases. */
 :root {
   @variant dark-tokens {
+    --character-edge: transparent;
     --window: #0b0b0e;
     --content: #111114;
     --raised: #18181c;
@@ -194,6 +212,12 @@
     --idle: #5c5c66;
     --edge: #6e6e78;
     --code-bg: #0c0c0f;
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+    --series-4: #c98500;
+    --series-5: #d55181;
+    --series-6: #008300;
     --add: #0f2a1d;
     --del: #351719;
     /* "Black" is a grey here, so text a program prints in it still reads on the dark background. */

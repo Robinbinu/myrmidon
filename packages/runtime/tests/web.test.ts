@@ -383,7 +383,8 @@ test.skipIf(!findChrome())(
       await navigate(tab, tab.page, `http://localhost:${own.port}/`)
       expect(await tab.page.title()).toBe('Mine')
       await tab.page.waitForNetworkIdle({ idleTime: 300, timeout: 5_000 }).catch(() => {})
-      expect(tab.logs.some((l) => l.includes(`blocked: ${otherUrl}pixel.png`))).toBe(true)
+      // The agent's own proxy refused the picture from the other local server, and said why.
+      expect(tab.refusal(0)).toContain(`localhost:${other.port} is not a server`)
       await expect(navigate(tab, tab.page, otherUrl)).rejects.toThrow(
         `localhost:${other.port} is not a server`,
       )

@@ -10,7 +10,8 @@
  *   bun run eval --compare before.json after.json
  *
  * It spends real tokens, so it never runs as part of `bun test`. Point it at a test server (`myr serve --home
- * <dir>`) to keep eval chats out of your own list; they are titled "[eval] …" either way. A server started
+ * <dir>`) to keep eval chats out of your own list; for the browser cases start it with MYR_BROWSER_LOCAL_PORTS=47180
+ * and run this with EVAL_SITE_PORT=47180, so the agents' browsers may open the local test sites; they are titled "[eval] …" either way. A server started
  * without --dev needs its token in MYR_TOKEN. Exits 1 when a run picks the wrong tier or breaches its budget.
  */
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
@@ -142,7 +143,10 @@ function teamConfig(mode: Mode) {
 async function runTrial(c: EvalCase, mode: Mode, trial: number): Promise<TrialResult> {
   let dir: string | undefined
   let projectId: string | undefined
-  const site = c.site ? Bun.serve({ port: 0, fetch: c.site }) : undefined
+  // A server started with MYR_BROWSER_LOCAL_PORTS lets agents' browsers open this port (EVAL_SITE_PORT).
+  const site = c.site
+    ? Bun.serve({ port: Number(process.env.EVAL_SITE_PORT) || 0, fetch: c.site })
+    : undefined
   try {
     if (c.project) {
       dir = realpathSync.native(mkdtempSync(join(tmpdir(), `myr-eval-${c.id}-`)))
@@ -179,7 +183,21 @@ async function runTrial(c: EvalCase, mode: Mode, trial: number): Promise<TrialRe
     const settle = async (after: number): Promise<boolean> => {
       for (;;) {
         log = await events(colonyId)
-        const rounds = foldColony(colonyId, log).rounds
+        const state = foldColony(colonyId, log)
+        // The harness stands in for the person: it approves what the agent asks (a browser case checks that it
+        // asked), and a takeover case ends once the agent has handed its browser over, since nobody is there to sign in.
+        if (c.person !== undefined)
+          for (const a of Object.values(state.approvals).filter((x) => !x.decided))
+            await call('POST', `/api/colonies/${colonyId}/approvals/${a.id}`, {
+              approved: c.person === 'approve',
+            })
+        if (c.endOnTakeover && Object.keys(state.logins).length) {
+          await call('POST', `/api/chats/${sent.chatId}/stop`, {})
+          await Bun.sleep(2000)
+          log = await events(colonyId)
+          return false
+        }
+        const rounds = state.rounds
         const last = rounds.at(-1)
         if (rounds.length > after && last?.endSeq !== undefined && !last.escalated) return true
         if (Date.now() > deadline) {

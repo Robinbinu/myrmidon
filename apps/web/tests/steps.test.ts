@@ -41,6 +41,27 @@ test('a judged round still shows the judge approving it', () => {
   ])
 })
 
+test('a code cell that displayed something is a step carrying its displays; one that showed nothing is not', () => {
+  const displays = [{ kind: 'json', json: '[{"a":1}]' }]
+  const inChat = (e: MyrEvent) => ({ ...e, colonyId: 'c9' }) as MyrEvent
+  const steps = deriveSteps([
+    inChat(
+      ev('tool/call', { agent: 'kai', callId: 'k1', tool: 'eval', args: { language: 'py', code: 'x' } }),
+    ),
+    inChat(ev('tool/result', { agent: 'kai', callId: 'k1', tool: 'eval', ok: true, output: '[]', displays })),
+    ev('tool/call', { agent: 'kai', callId: 'k2', tool: 'eval', args: { language: 'js', code: '1' } }),
+    ev('tool/result', { agent: 'kai', callId: 'k2', tool: 'eval', ok: true, output: '1' }),
+  ])
+  expect(steps).toEqual([
+    expect.objectContaining({
+      kind: 'cell',
+      lead: copy.visuals.cellRan('py'),
+      strong: copy.visuals.cellShowed(1),
+      displays: { colony: 'c9', items: displays },
+    }),
+  ])
+})
+
 test('event lines name the final answer and check-ins in plain words, never the runtime ids', () => {
   const verdict = ev('verifier/verdict', {
     target: 'colony',

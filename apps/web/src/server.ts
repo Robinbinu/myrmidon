@@ -38,15 +38,22 @@ import {
   type ChatShelf,
   type CliCommand,
   CliCommandError,
+  COMPANY_TEMPLATES,
+  CompanyInvalidError,
+  type CompanyStore,
   type ComputerHub,
   CUSTOM_APIS,
   type CustomApi,
   canLeadACrew,
   channelSendTool,
   childCommands,
+  companyTemplate,
   defaultModelRef,
   detectSetup,
   dismissSetup,
+  draftCompany,
+  estimateCompany,
+  exportCompany,
   findProjectFiles,
   finishSetup,
   firstSetup,
@@ -66,6 +73,7 @@ import {
   guestSummary,
   type HookStore,
   hostShell,
+  importCompany,
   importFromOmp,
   type LiveInput,
   type LocalServer,
@@ -159,6 +167,7 @@ import {
 import { Logins } from './logins.ts'
 import { buildPluginUI, uiStamp } from './plugin-ui.ts'
 import { foregroundCommand } from './terminal-foreground.ts'
+import { visualLibs } from './visual-libs.ts'
 
 export interface ServeOptions {
   readonly home: string
@@ -210,6 +219,8 @@ export interface ServeOptions {
   /** Project folders chats can work in. */
   readonly projects?: ProjectStore
   readonly specialists?: SpecialistStore
+  /** Saved companies (Settings → Companies), the same store the chat runtime runs them from. */
+  readonly companies?: CompanyStore
   readonly skillProposals?: SkillProposalStore
   /** Tools agents made that the person chose to keep. */
   readonly library?: ToolLibrary
@@ -505,6 +516,26 @@ function mcpConfig(raw: Record<string, unknown>): McpServerConfig {
   return type === 'stdio'
     ? { type, ...(command ? { command } : {}), ...(args?.length ? { args } : {}), ...(env ? { env } : {}) }
     : { type, ...(url ? { url } : {}), ...(headers ? { headers } : {}) }
+}
+
+/** A company that could not be saved: the message, and every problem with where it is when there are several. */
+function companyError(err: unknown): {
+  error: string
+  problems?: readonly { path: string; message: string }[]
+} {
+  return err instanceof CompanyInvalidError
+    ? { error: err.message, problems: err.problems }
+    : { error: err instanceof Error ? err.message : String(err) }
+}
+
+/** Runs a save, answering with the saved company and the whole list, or what was wrong with it. */
+function companyResult(save: () => unknown, store: CompanyStore): Response {
+  try {
+    const company = save()
+    return Response.json({ company, companies: store.list() }, { headers: { 'cache-control': 'no-store' } })
+  } catch (err) {
+    return Response.json(companyError(err), { status: 400, headers: { 'cache-control': 'no-store' } })
+  }
 }
 
 /** A specialist as the page sends it; the store checks the values themselves. */
@@ -1125,6 +1156,12 @@ export function startServer(options: ServeOptions): WebServer {
       '/': index,
       // The desktop app's see-through window over the screen while an agent drives the Mac (ComputerOverlay.tsx).
       '/overlay': index,
+      // Mermaid and Vega for visual answers, apart from the page's bundle (visual-libs.ts). Library code only, as
+      // public as the page itself.
+      '/visual-libs.js': async () =>
+        new Response(await visualLibs(), {
+          headers: { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-cache' },
+        }),
       // The entry page's line. The rules' greeting comes back at once; with the model writing it, `pending` asks the
       // page to come back shortly for the model's own.
       '/api/greeting': guard(async (req) => {
@@ -2064,6 +2101,155 @@ export function startServer(options: ServeOptions): WebServer {
           if (!options.specialists.remove(req.params.id ?? ''))
             return json({ error: 'no such specialist' }, 404)
           return json({ specialists: options.specialists.list() })
+        }),
+      },
+      // Companies (Settings → Companies): list, create from a template, a draft or an import, edit, version, share.
+      '/api/companies': {
+        GET: guard(() =>
+          json({
+            companies: options.companies?.list() ?? [],
+            templates: COMPANY_TEMPLATES.map((t) => ({ id: t.id, ...t.company })),
+          }),
+        ),
+        POST: guard(async (req) => {
+          const store = options.companies
+          if (!store) return json({ error: 'companies need the chat runtime' }, 503)
+          const body = (await req.json().catch(() => ({}))) as {
+            template?: unknown
+            company?: unknown
+            note?: unknown
+          }
+          return companyResult(() => {
+            if (typeof body.template === 'string') {
+              const t = companyTemplate(body.template)
+              if (!t) throw new Error('no such template')
+              return store.save(t.company, { template: t.id })
+            }
+            return store.save(body.company, typeof body.note === 'string' ? { note: body.note } : {})
+          }, store)
+        }),
+      },
+      '/api/companies/draft': {
+        POST: guard(async (req) => {
+          if (!options.resolver) return json({ error: 'drafting needs the model runtime' }, 503)
+          const body = (await req.json().catch(() => ({}))) as { description?: unknown; model?: unknown }
+          if (typeof body.description !== 'string' || typeof body.model !== 'string')
+            return json({ error: 'description and model are required' }, 400)
+          try {
+            const company = await draftCompany({
+              resolver: options.resolver,
+              model: body.model,
+              description: body.description,
+            })
+            return json({ company })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 422)
+          }
+        }),
+      },
+      '/api/companies/import': {
+        POST: guard(async (req) => {
+          const body = (await req.json().catch(() => ({}))) as { text?: unknown }
+          if (typeof body.text !== 'string') return json({ error: 'text is required' }, 400)
+          try {
+            return json(importCompany(body.text))
+          } catch (err) {
+            return json(companyError(err), 400)
+          }
+        }),
+      },
+      '/api/companies/:id': {
+        GET: guard((req) => {
+          const company = options.companies?.get(req.params.id ?? '')
+          if (!company) return json({ error: 'no such company' }, 404)
+          return json({ company, history: options.companies?.history(company.id) ?? [] })
+        }),
+        PUT: guard(async (req) => {
+          const store = options.companies
+          if (!store) return json({ error: 'companies need the chat runtime' }, 503)
+          const body = (await req.json().catch(() => ({}))) as { company?: unknown; note?: unknown }
+          return companyResult(
+            () =>
+              store.save(body.company, {
+                id: req.params.id ?? '',
+                ...(typeof body.note === 'string' ? { note: body.note } : {}),
+              }),
+            store,
+          )
+        }),
+        DELETE: guard((req) => {
+          const store = options.companies
+          if (!store) return json({ error: 'companies need the chat runtime' }, 503)
+          if (!store.remove(req.params.id ?? '')) return json({ error: 'no such company' }, 404)
+          return json({ companies: store.list() })
+        }),
+      },
+      '/api/companies/:id/rollback': {
+        POST: guard(async (req) => {
+          const store = options.companies
+          if (!store) return json({ error: 'companies need the chat runtime' }, 503)
+          const { version } = (await req.json().catch(() => ({}))) as { version?: unknown }
+          if (typeof version !== 'number') return json({ error: 'version must be a number' }, 400)
+          return companyResult(() => store.rollback(req.params.id ?? '', version), store)
+        }),
+      },
+      '/api/companies/:id/export': {
+        GET: guard((req) => {
+          const company = options.companies?.get(req.params.id ?? '')
+          if (!company) return json({ error: 'no such company' }, 404)
+          const file = `${company.id.replace(/-[a-z0-9]+$/, '') || 'company'}.company.yaml`
+          return new Response(exportCompany(company), {
+            headers: {
+              'content-type': 'application/yaml; charset=utf-8',
+              'content-disposition': `attachment; filename="${file}"`,
+              'cache-control': 'no-store',
+            },
+          })
+        }),
+      },
+      // What one playbook run is expected to cost on the models the crew panel would give each tier.
+      '/api/companies/:id/estimate': {
+        POST: guard(async (req) => {
+          const company = options.companies?.get(req.params.id ?? '')
+          if (!company) return json({ error: 'no such company' }, 404)
+          const body = (await req.json().catch(() => ({}))) as Record<string, unknown>
+          const config = normalizeTeamConfig(body)
+          if (!config.leadModel) return json({ error: 'leadModel is required' }, 400)
+          const smart =
+            config.tierModels?.smart ??
+            options.settings?.get().team.workerModel ??
+            config.roster[0]?.model ??
+            config.leadModel
+          const models = { frontier: config.leadModel, smart, fast: config.tierModels?.fast ?? smart }
+          const price = (ref: string) => {
+            try {
+              const cost = options.resolver?.resolve(ref).model.cost
+              return cost && (cost.input > 0 || cost.output > 0)
+                ? { input: cost.input, output: cost.output }
+                : undefined
+            } catch {
+              return undefined
+            }
+          }
+          return json({ estimate: estimateCompany(company, models, price), models })
+        }),
+      },
+      '/api/colonies/:id/company-proposals/:proposal': {
+        POST: guard(async (req) => {
+          if (!options.chats) return json({ error: 'this server was started without the chat runtime' }, 503)
+          const { approve } = (await req.json().catch(() => ({}))) as { approve?: unknown }
+          if (typeof approve !== 'boolean') return json({ error: 'approve must be true or false' }, 400)
+          try {
+            return json(
+              await options.chats.decideCompanyProposal(
+                req.params.id ?? '',
+                req.params.proposal ?? '',
+                approve,
+              ),
+            )
+          } catch (err) {
+            return json(companyError(err), 409)
+          }
         }),
       },
       '/api/projects/:id/budget': {

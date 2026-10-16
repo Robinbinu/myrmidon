@@ -1,4 +1,4 @@
-// Proves the film's text never collides: `node scripts/check-overlaps.mjs [composition] [--every N] [--from F] [--to F]`.
+// Proves the film's text never collides: `bun scripts/check-overlaps.mjs [composition] [--every N] [--from F] [--to F]`.
 // Renders frames with the composition's debug probe on (src/components/Debug.tsx), which measures every text element
 // and everything laid over the scene, and reports:
 //   - text that overlaps other text,

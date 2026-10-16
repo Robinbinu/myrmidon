@@ -52,7 +52,7 @@ import { Badge, Banner, Button, cn, Dot, IconButton, Skeleton } from '../ui/prim
 import { AGENT_MIN_WINDOW, softSpring, spring } from '../ui-config.ts'
 import { type ColonyView, type LiveReply, useLiveReplies, useRoundSlice } from '../use-colony.ts'
 import { AgentSheet } from './AgentSheet.tsx'
-import { Approval, LoginCards, MemoryCards, SkillCards } from './ApprovalCards.tsx'
+import { Approval, CompanyProposalCards, LoginCards, MemoryCards, SkillCards } from './ApprovalCards.tsx'
 import { ArtifactViewer } from './ArtifactViewer.tsx'
 import { MadeMedia, mediaOf, type SentFile, SentFiles } from './Attachments.tsx'
 import { awaitingApproval, type Pending, roundApprovals } from './approvals.ts'
@@ -405,6 +405,7 @@ export function RoundView(props: {
           <LiveServers state={state} />
           <LoginCards state={state} />
           <MemoryCards state={state} />
+          <CompanyProposalCards state={state} colonyId={props.colonyId} />
           <SkillCards state={state} />
         </>
       )}

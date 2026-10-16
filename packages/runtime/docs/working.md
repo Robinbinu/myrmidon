@@ -23,7 +23,7 @@ ranked version under "How to work"; this page is the longer method behind it.
   before publishing. Fix files with `fs_edit` (small targeted replacements), not by rewriting them whole.
 - **Web pages.** One self-contained file unless asked otherwise; responsive; real content; no broken links or
   console errors. Test what you publish in the real browser: `browser_open("artifact:index.html")`, click
-  through it with the refs from the snapshot, read `browser_console`, and check a `browser_screenshot`.
+  through it with `browser_act` and the uids from the snapshot, read the console with `browser_debug`, and check a `browser_screenshot`.
 - **Interactive sites.** When `web_fetch` cannot see a page's content (logins aside, which you never do),
   `browser_open` renders it with JavaScript.
 - **Writing.** Lead with the answer, then the support. Concrete and specific; no filler.

@@ -42,6 +42,7 @@ import {
   switchGateway,
   type TeamConfig,
 } from './api.ts'
+import { CompaniesSection } from './CompaniesSection.tsx'
 import { ComputerSection } from './ComputerUse.tsx'
 import { CHANNEL_GROUPS } from './channel-logos.ts'
 import { type ChannelConnection, channelStatusText } from './channel-status.ts'
@@ -733,6 +734,7 @@ export function Settings(props: {
                 )}
                 {section === 'mascot' && data && <MascotSection data={data} update={update} />}
                 {section === 'specialists' && <SpecialistsSection models={props.models} />}
+                {section === 'companies' && <CompaniesSection models={props.models} config={props.config} />}
                 {section === 'devices' && <DevicesSection />}
                 {section === 'gateways' && <GatewaysSection />}
                 {section === 'channels' && <ChannelsSection initial={props.initialChannel} />}

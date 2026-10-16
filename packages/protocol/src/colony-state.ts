@@ -1,3 +1,4 @@
+import type { CompanyRef } from './companies.ts'
 import type { EventId, MyrEvent } from './event.ts'
 import type {
   AgentInfo,
@@ -217,6 +218,13 @@ export interface ColonyState {
   receipts: Record<string, string>
   /** Skills proposed from this colony's work, and whether the person kept them (unset while undecided). */
   skillProposals: Record<string, EventPayloads['skill/proposed'] & { seq: number; kept?: boolean }>
+  /** The company the latest round's crew was made from, if any. */
+  company?: CompanyRef
+  /** Changes to the saved company agents proposed, and the person's answer (unset while undecided). */
+  companyProposals: Record<
+    string,
+    EventPayloads['company/proposed'] & { time: string; decided?: EventPayloads['company/decided'] }
+  >
   /** Project folder snapshots of this round, and the latest rewind (if any). */
   checkpoints: {
     start?: string
@@ -316,6 +324,7 @@ export function emptyColonyState(id: string): ColonyState {
     approvals: {},
     receipts: {},
     skillProposals: {},
+    companyProposals: {},
     servers: {},
     worktrees: {},
     jobs: {},
@@ -375,6 +384,7 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
       if (p.fullAccess) state.fullAccess = true
       if (p.askAll) state.othersWrote = true
       if (p.access) state.access = p.access
+      if (p.company) state.company = p.company
       if (p.chat) state.rounds = [roundOf(p, event)]
       for (const info of p.agents) {
         state.agents[info.name] = {
@@ -431,6 +441,17 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
     case 'memory/proposed': {
       const p = event.payload as EventPayloads['memory/proposed']
       state.memories[p.id] = { ...p, time: event.time }
+      break
+    }
+    case 'company/proposed': {
+      const p = event.payload as EventPayloads['company/proposed']
+      state.companyProposals[p.id] = { ...p, time: event.time }
+      break
+    }
+    case 'company/decided': {
+      const p = event.payload as EventPayloads['company/decided']
+      const proposal = state.companyProposals[p.id]
+      if (proposal) proposal.decided = p
       break
     }
     case 'memory/decided': {
@@ -683,6 +704,8 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
       if (p.askAll) state.othersWrote = true
       if (p.access) state.access = p.access
       else delete state.access
+      if (p.company) state.company = p.company
+      else delete state.company
       state.status = 'created'
       delete state.statusReason
       delete state.endedAt

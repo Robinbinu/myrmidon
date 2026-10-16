@@ -26,6 +26,7 @@ import {
   Checkpoints,
   CliCommand,
   ColonyRun,
+  CompanyStore,
   ComputerHub,
   ContextWindows,
   claimServerHome,
@@ -381,7 +382,7 @@ async function main() {
         .start()
         .catch((err) => console.error(c.yellow(`plugins: ${err instanceof Error ? err.message : err}`)))
       const mcp = new McpHub(omp.agentDir, () => plugins.mcpServers())
-      const browser = new BrowserHub(join(home, 'browser'))
+      const browser = new BrowserHub(join(home, 'browser'), undefined, browserLocalPorts(process.env))
       const computer = new ComputerHub(home, {
         mcp,
         enabled: () => settings.get().computerUse.enabled,
@@ -393,6 +394,7 @@ async function main() {
       const ssh = new SshHub({ controlDir: join(home, 'ssh') })
       const projects = new ProjectStore(home)
       const specialists = new SpecialistStore(home)
+      const companies = new CompanyStore(home)
       const skillProposals = new SkillProposalStore(home)
       const library = new ToolLibrary(join(home, 'tools'))
       // Recall matches by meaning too only once the person picks an embedding model (Settings → Memory).
@@ -458,6 +460,7 @@ async function main() {
         ssh,
         projects,
         specialists,
+        companies,
         skillProposals,
         library,
         checkpoints,
@@ -481,6 +484,7 @@ async function main() {
         telemetry,
         projects,
         specialists,
+        companies,
         skillProposals,
         library,
         memory,
@@ -782,4 +786,22 @@ async function ask(request: string | undefined) {
     process.exitCode = info.status === 'completed' ? 0 : 1
     return
   }
+}
+
+/**
+ * Loopback ports every agent's browser may open on a test server, from MYR_BROWSER_LOCAL_PORTS ("47100-47199" or
+ * "8080,8081"): the eval harness serves its local sites there. Unset, agents reach only their own round's servers.
+ */
+function browserLocalPorts(env: Record<string, string | undefined>): {
+  localPorts?: () => ReadonlySet<number>
+} {
+  const spec = env.MYR_BROWSER_LOCAL_PORTS?.trim()
+  if (!spec) return {}
+  const ports = new Set<number>()
+  for (const part of spec.split(',')) {
+    const [a, b] = part.split('-').map((x) => Number(x.trim()))
+    if (!a || a < 1024 || a > 65535) continue
+    for (let p = a; p <= Math.min(b && b >= a ? b : a, 65535); p++) ports.add(p)
+  }
+  return { localPorts: () => ports }
 }

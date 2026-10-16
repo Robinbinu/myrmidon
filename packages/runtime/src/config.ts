@@ -107,14 +107,18 @@ export const GOAL = {
  * "How you finish", full access or an ask-first project under "Safety", and project rules (or, for a lead with
  * hands-on tools, the lead's method too) under "How to work", and the count of memories left for recall and the rule
  * that the files, command output and the person's latest message outrank a memory under the person's instructions.
+ * "Talking to the person" also carries the visual answers line (~60 words) for every speaker; its formats live in
+ * reply_user's text parameter instead, read where the reply is written.
+ * "How to work" and the roles below also carry the browsing rules (about 45 words) for agents with a browser of
+ * their own.
  */
 export const PROMPT_HEADING_WORDS = {
   you: 210,
   finish: 150,
   safety: 350,
-  method: 710,
+  method: 760,
   others: 230,
-  person: 210,
+  person: 270,
   instructions: 140,
   environment: 260,
 } as const
@@ -124,17 +128,17 @@ export const PROMPT_HEADING_WORDS = {
  * 500-700, swarm peer 800-1,000; each consolidated safety section (~250 words) is most of the difference.
  */
 export const PROMPT_ROLE_WORDS = {
-  answer: 650,
-  solo: 1340,
+  answer: 700,
+  solo: 1460,
   // A delegated job's helper also carries how to finish with report_result and run its checks once (omp's yield).
-  crewmate: 1060,
-  'team-lead': 940,
-  'team-lead-hands-on': 1620,
-  'team-worker': 1180,
-  'swarm-peer': 1070,
-  'colony-lead': 1000,
-  'colony-worker': 1000,
-  'colony-peer': 1000,
+  crewmate: 1110,
+  'team-lead': 980,
+  'team-lead-hands-on': 1730,
+  'team-worker': 1230,
+  'swarm-peer': 1120,
+  'colony-lead': 1050,
+  'colony-worker': 1050,
+  'colony-peer': 1050,
 } as const
 
 /**
@@ -434,6 +438,12 @@ export const CELL_OUTPUT_CHARS = 20_000
 export const CELL_IMAGES = 2
 export const CELL_IMAGE_CHARS = 2_000_000
 /**
+ * What one cell's display() calls show the person, drawn in the chat (tables, trees, charts, pictures): how many,
+ * and the most JSON text each keeps in the log (a longer one is cut and shown as text).
+ */
+export const CELL_DISPLAYS = 8
+export const CELL_DISPLAY_JSON_CHARS = 60_000
+/**
  * The longest line a runtime may write without a line break (a frame with a picture is one line): past it the runtime
  * is stopped as runaway rather than held whole in memory.
  */
@@ -486,11 +496,8 @@ export const OSV = {
 
 // Browser (browser.ts)
 
-/** The longest page snapshot an agent gets; past it, the agent scrolls or evaluates the part it needs. */
+/** The longest full page snapshot an agent gets (browser_snapshot full); past it, browser_read reads the page by part. */
 export const SNAPSHOT_CHARS = 12_000
-/** Console lines and network requests kept per tab, oldest dropped first, so a chatty page cannot grow without end. */
-export const BROWSER_LOG_LIMIT = 200
-export const BROWSER_NETWORK_LIMIT = 300
 /** The headless browser's window, a common laptop size, so pages lay out as a person would see them. */
 export const BROWSER_VIEWPORT = { width: 1280, height: 800 }
 /** The longest text a person controlling an agent's tab can paste into it at once. */
@@ -498,6 +505,21 @@ export const BROWSER_PASTE_MAX_CHARS = 100_000
 /** How long the browser's proxy waits on one address of a host before trying its next one. */
 export const BROWSER_CONNECT_MS = 5_000
 
+// The agents' browser engine (cdm.ts, browser-agent.ts)
+
+/** chrome-devtools-mcp's version, pinned in packages/runtime/package.json; its tool schemas change between releases. */
+export const CDM_VERSION = '1.11.0'
+/** How long the engine may take to start and answer its handshake (Node's first start reads ~14 MB of JS). */
+export const CDM_START_MS = 30_000
+/** How long one engine call may take: a slow page's navigation is the longest. */
+export const CDM_CALL_MS = 45_000
+/**
+ * The compact snapshot an agent acts from (interactive elements, headings, alerts): small, since the page's text
+ * goes to a file instead (Manus's "visible elements plus whole-page Markdown").
+ */
+export const BROWSER_COMPACT_CHARS = 4_000
+/** Headings of a page's outline returned with it; the rest are in the saved file. */
+export const BROWSER_OUTLINE_LINES = 60
 // The person's own browser (person-browser.ts)
 
 /** Tabs open at once in the person's browser; each is a live page in the shared Chrome. */
@@ -1647,4 +1669,36 @@ export const TELEMETRY = {
   timeoutMs: 10_000,
   /** Spans one round sends at most; a longer round sends its first ones and says how many it left out. */
   maxSpans: 5_000,
+} as const
+
+// Companies (companies.ts): saved crews of roles, each its own crewmate, with a playbook of stages
+
+export const COMPANY = {
+  /** A lead and up to MAX_WORKERS crewmates: every role is its own agent. */
+  maxRoles: MAX_WORKERS + 1,
+  maxStages: 12,
+  /** A role's prompt (roles/<name>.md), like a specialist's instructions. */
+  maxPromptChars: 8_000,
+  maxResponsibilities: 10,
+  /** Saved versions kept per company; the oldest snapshot goes once there are more. */
+  maxVersions: 50,
+  /** An imported file larger than this is refused before it is parsed. */
+  maxImportBytes: 512 * 1024,
+  /** The most a company's own per-run cap may be, in USD. */
+  maxRunUsd: 1_000,
+  /** Proposals to change the saved company (hire, fire, re-role) one round may make. */
+  maxProposals: 3,
+  /** Drafting a company from a description: tries, and how long each may take. */
+  draftAttempts: 3,
+  draftMs: 120_000,
+  /**
+   * The expected cost shown before a run: typical tokens for one staffed stage (its role reads its brief and inputs and
+   * works) and for the lead coordinating, priced at each role's model. A rough guide, never a cap.
+   */
+  estimate: {
+    stageInput: 120_000,
+    stageOutput: 8_000,
+    leadInput: 80_000,
+    leadOutput: 6_000,
+  },
 } as const

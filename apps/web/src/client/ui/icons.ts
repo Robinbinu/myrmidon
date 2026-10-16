@@ -15,9 +15,11 @@ import {
   BookMarked,
   Brain,
   Bug,
+  Building2,
   Cable,
   CalendarClock,
   CalendarRange,
+  ChartColumnBig,
   Compass,
   Container,
   Cpu,
@@ -83,6 +85,7 @@ import {
   SlidersHorizontal,
   Smile,
   SquareChevronRight,
+  SquareFunction,
   SquareTerminal,
   Star,
   Store,
@@ -181,7 +184,7 @@ export const FEATURE_ICONS = {
   devices: MonitorSmartphone,
   /** An agent's computer: the browser and desktop it drives. */
   computer: ScreenShare,
-  /** The person's own browser in the workspace, with tabs, kept apart from the agents' browsers. */
+  /** The browser place: the agents' live tabs and the person's own browser, and an agent busy browsing. */
   browser: Compass,
   /** Computer use: agents controlling the person's own Mac (Settings → Computer use, its banner and steps). */
   computerUse: MousePointerClick,
@@ -213,6 +216,8 @@ export const FEATURE_ICONS = {
   telemetry: SatelliteDish,
   /** Specialists the person keeps. */
   specialists: UserCog,
+  /** Companies: saved crews of roles with a playbook (Settings → Companies, the crew panel's picker, their cards). */
+  company: Building2,
   /** What agents remember across chats. */
   memory: BookMarked,
   /** Skills: playbooks agents load, learn and propose. */
@@ -251,6 +256,10 @@ export const FEATURE_ICONS = {
   voiceProviders: AudioWaveform,
   /** Phone calls on the SMS channel's Twilio number, and a call card that was one. */
   phoneCalls: PhoneIncoming,
+  /** Visual answers: a chart, diagram, table, tree, figure or widget an agent drew in a reply or a cell displayed. */
+  visuals: ChartColumnBig,
+  /** Code cells: an agent's eval tool, the step of a cell that displayed something. */
+  codeCells: SquareFunction,
   /** The web: search, fetching pages, a page an agent opened. */
   web: Globe,
   /** Pictures agents make and edit (generate_image): the image model in Settings → Tools. */
