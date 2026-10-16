@@ -350,3 +350,47 @@ test.skipIf(sandbox.kind !== 'sandbox-exec' && sandbox.kind !== 'bubblewrap')(
   },
   60_000,
 )
+
+test('display() values come back for the person as well as in the text the model reads', async () => {
+  const r = await js(
+    'display([{ city: "Oslo", temp: 4 }, { city: "Lima", temp: 19 }]); display({ a: { b: 1 } }); 1',
+  )
+  expect(r.ok).toBe(true)
+  expect(r.shown).toEqual([
+    {
+      kind: 'json',
+      value: [
+        { city: 'Oslo', temp: 4 },
+        { city: 'Lima', temp: 19 },
+      ],
+    },
+    { kind: 'json', value: { a: { b: 1 } } },
+  ])
+  expect(r.text).toContain('"city": "Oslo"')
+}, 30_000)
+
+test('the eval tool hands display() values on as displays, pictures stored with the chat', async () => {
+  const { host: h } = host('allow')
+  const put: Uint8Array[] = []
+  Object.assign(h as unknown as object, {
+    blobs: {
+      put: async (bytes: Uint8Array) => {
+        put.push(bytes)
+        return { hash: `h${put.length}`, size: bytes.length }
+      },
+    },
+  })
+  // A one-pixel PNG.
+  const png =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
+  const code = `display({ n: 1 }); display({ type: "image", data: "${png}", mimeType: "image/png" }); 2`
+  expect(await evalTool?.run({ language: 'js', code }, 'kai', h)).toMatchObject({
+    displays: [
+      { kind: 'json', json: '{"n":1}' },
+      { kind: 'image', blob: 'h1', mimeType: 'image/png' },
+    ],
+  })
+  expect(Buffer.from(put[0] ?? []).toString('base64')).toBe(png)
+  // A cell that shows nothing stays plain text, as before.
+  expect(await evalTool?.run({ language: 'js', code: '3' }, 'kai', h)).toBe('3')
+}, 30_000)

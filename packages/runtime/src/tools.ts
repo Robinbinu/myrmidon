@@ -10,6 +10,7 @@ import {
 } from 'node:fs'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import {
+  type CellDisplay,
   type ColonyState,
   type ConversationLine,
   conversationsOf,
@@ -56,7 +57,7 @@ import {
   switchPage,
   watched,
 } from './browser.ts'
-import { CELL_LANGUAGES, type CellAccess, type CellScope, cellKernels } from './cells.ts'
+import { CELL_LANGUAGES, type CellAccess, type CellScope, type CellShown, cellKernels } from './cells.ts'
 import { clockTime, localDate } from './clock.ts'
 import {
   astEdit,
@@ -79,6 +80,7 @@ import {
 } from './computer/tool.ts'
 import {
   AUTORESEARCH,
+  CELL_DISPLAY_JSON_CHARS,
   FETCH_SHOWN_CHARS,
   FIND_TOOLS_LIMIT,
   GITHUB,
@@ -179,6 +181,8 @@ interface ToolOutput {
   readonly usage?: UsageInfo
   /** The lines a hashline edit changed, for the person's diff (its arguments carry no old and new text). */
   readonly change?: { readonly before: string; readonly after: string }
+  /** What an eval cell's display() showed, drawn for the person under the step (the model reads the text). */
+  readonly displays?: readonly CellDisplay[]
 }
 
 interface ToolDef {
@@ -437,6 +441,30 @@ async function keyframe(
     // Replay is a convenience; a failed capture must not fail the agent's action.
     console.error(`[${agent}] keyframe failed:`, err instanceof Error ? err.message : err)
   }
+}
+
+/**
+ * A cell's displays as the log keeps them: pictures stored with the chat (the log holds their hash), JSON as text cut
+ * to CELL_DISPLAY_JSON_CHARS. A value that cannot be written as JSON (a cycle) is left out; its text is in the output.
+ */
+async function storeDisplays(host: ColonyHost, shown: readonly CellShown[]): Promise<CellDisplay[]> {
+  const out: CellDisplay[] = []
+  for (const item of shown) {
+    if (item.kind === 'image') {
+      const bytes =
+        item.encoding === 'base64' ? Buffer.from(item.data, 'base64') : new TextEncoder().encode(item.data)
+      const { hash } = await host.blobs.put(new Uint8Array(bytes))
+      out.push({ kind: 'image', blob: hash, mimeType: item.mimeType })
+      continue
+    }
+    let json: string | undefined
+    try {
+      json = JSON.stringify(item.kind === 'json' ? item.value : item.spec)
+    } catch {}
+    if (json === undefined) continue
+    out.push({ kind: item.kind, json: json.slice(0, CELL_DISPLAY_JSON_CHARS) })
+  }
+  return out
 }
 
 /** Where a published artifact opens in the agents' browsers: the colony's own origin, so relative links resolve. */
@@ -3681,7 +3709,10 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       const code = await guardProjectCommand(host, agent, 'eval', args.code, true)
       const r = await cellKernels.run(scope, { ...args, code })
       if (!r.ok) throw new Error(clip(r.text))
-      return r.images.length ? { text: clip(r.text), images: r.images } : clip(r.text)
+      const displays = await storeDisplays(host, r.shown)
+      return r.images.length || displays.length
+        ? { text: clip(r.text), images: r.images, ...(displays.length ? { displays } : {}) }
+        : clip(r.text)
     },
   },
   {
@@ -4416,6 +4447,7 @@ function harnessTools(
           let images: ToolOutput['images'] = []
           let usage: UsageInfo | undefined
           let change: ToolOutput['change']
+          let displays: ToolOutput['displays']
           let ok = true
           const tier = tierOf(def, params)
           // Calls that write get receipts; commands may rightly run twice, and reads change nothing.
@@ -4452,6 +4484,7 @@ function harnessTools(
               images = result.images
               usage = result.usage
               change = result.change
+              displays = result.displays
             }
             const preface = typeof result === 'string' ? '' : (result.preface ?? '')
             // Long pages are saved under web/ in scratch, and the browser's downloads under downloads/; reading one
@@ -4483,6 +4516,7 @@ function harnessTools(
               output: clip(output, 8_000),
               ...(usage ? { usage } : {}),
               ...(ok && change ? { change } : {}),
+              ...(ok && displays?.length ? { displays: [...displays] } : {}),
             },
           })
           return {

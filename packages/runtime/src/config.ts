@@ -414,6 +414,12 @@ export const CELL_OUTPUT_CHARS = 20_000
 export const CELL_IMAGES = 2
 export const CELL_IMAGE_CHARS = 2_000_000
 /**
+ * What one cell's display() calls show the person, drawn in the chat (tables, trees, charts, pictures): how many,
+ * and the most JSON text each keeps in the log (a longer one is cut and shown as text).
+ */
+export const CELL_DISPLAYS = 8
+export const CELL_DISPLAY_JSON_CHARS = 60_000
+/**
  * The longest line a runtime may write without a line break (a frame with a picture is one line): past it the runtime
  * is stopped as runaway rather than held whole in memory.
  */
