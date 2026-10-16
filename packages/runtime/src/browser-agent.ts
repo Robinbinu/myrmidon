@@ -301,7 +301,7 @@ const INJECTION: readonly [RegExp, string][] = [
     'imitates a system or assistant message',
   ],
   [
-    /\b(send|paste|post|email|upload|share|copy|enter|type|reveal|exfiltrate)\b[^.\n]{0,60}\b(cookies?|passwords?|tokens?|api[ _-]?keys?|credentials?|secrets?|session (id|token)|one[- ]time (code|password)|otp|2fa code|private key)\b/i,
+    /\b(send|paste|post|upload|share|forward|leak|reveal|exfiltrate)\b[^.\n]{0,60}\b(cookies?|passwords?|tokens?|api[ _-]?keys?|credentials?|secrets?|session (id|token)|one[- ]time (code|password)|otp|2fa code|private key)\b/i,
     'asks for credentials or secrets to be sent',
   ],
   [

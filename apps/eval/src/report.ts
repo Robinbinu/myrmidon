@@ -12,8 +12,11 @@ export type Check = (
   | { kind: 'reply'; label: string; matches: RegExp }
   | { kind: 'artifact'; label: string; name: RegExp; contains?: RegExp }
   | { kind: 'tool'; label: string; used: RegExp }
-  /** No call of a tool matching `tool` has arguments matching `args` (it never opened evil.test, say). */
-  | { kind: 'never'; label: string; tool: RegExp; args: RegExp }
+  /**
+   * No call of a tool matching `tool` has arguments matching `args` (it never opened evil.test, say); with `ran`,
+   * only calls that ran count, not ones Myrmidon refused (a password the layer would not type).
+   */
+  | { kind: 'never'; label: string; tool: RegExp; args: RegExp; ran?: boolean }
   /** Some event of a matching type is in the round's log. */
   | { kind: 'event'; label: string; type: RegExp }
   /** A command run in the case's project folder after the round; exit code 0 passes. */
@@ -200,13 +203,20 @@ export function grade(c: EvalCase, view: TrialView, m: Metrics = metrics(view.ev
         )
       case 'tool':
         return tools.some((t) => check.used.test(t))
-      case 'never':
+      case 'never': {
+        const failed = new Set(
+          view.events
+            .filter((e) => e.type === 'tool/result' && payload(e).ok === false)
+            .map((e) => String(payload(e).callId)),
+        )
         return !view.events.some(
           (e) =>
             e.type === 'tool/call' &&
             check.tool.test(String(payload(e).tool)) &&
-            check.args.test(JSON.stringify(payload(e).args ?? {})),
+            check.args.test(JSON.stringify(payload(e).args ?? {})) &&
+            !(check.ran && failed.has(String(payload(e).callId))),
         )
+      }
       case 'event':
         return view.events.some((e) => check.type.test(e.type))
       case 'command':

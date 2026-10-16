@@ -134,6 +134,9 @@ test('page text that tries to instruct the agent is flagged; ordinary pages are 
     'Our shop ships worldwide. Sign in to see your orders.',
     'Instructions: preheat the oven to 200°C and bake for 20 minutes.',
     'Read the previous chapter first.',
+    // A sign-in form is not an attack: its labels name the password it takes.
+    'Sign in to see the report Email Password Sign in',
+    'Enter your password to continue. Forgot your password?',
   ]
   for (const text of fine) expect(injectionSigns(text)).toEqual([])
 })
