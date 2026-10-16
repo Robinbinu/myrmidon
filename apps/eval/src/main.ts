@@ -6,7 +6,8 @@
  *   bun run eval --compare before.json after.json
  *
  * It spends real tokens, so it never runs as part of `bun test`. Point it at a test server (`myr serve --home
- * <dir>`) to keep eval chats out of your own list; they are titled "[eval] …" either way. A server started
+ * <dir>`) to keep eval chats out of your own list; for the browser cases start it with MYR_BROWSER_LOCAL_PORTS=47180
+ * and run this with EVAL_SITE_PORT=47180, so the agents' browsers may open the local test sites; they are titled "[eval] …" either way. A server started
  * without --dev needs its token in MYR_TOKEN. Exits 1 when a run picks the wrong tier or breaches its budget.
  */
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
@@ -103,7 +104,10 @@ function teamConfig(mode: Mode) {
 async function runTrial(c: EvalCase, mode: Mode, trial: number): Promise<TrialResult> {
   let dir: string | undefined
   let projectId: string | undefined
-  const site = c.site ? Bun.serve({ port: 0, fetch: c.site }) : undefined
+  // A server started with MYR_BROWSER_LOCAL_PORTS lets agents' browsers open this port (EVAL_SITE_PORT).
+  const site = c.site
+    ? Bun.serve({ port: Number(process.env.EVAL_SITE_PORT) || 0, fetch: c.site })
+    : undefined
   try {
     if (c.project) {
       dir = realpathSync.native(mkdtempSync(join(tmpdir(), `myr-eval-${c.id}-`)))

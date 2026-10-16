@@ -231,7 +231,10 @@ export function grade(c: EvalCase, view: TrialView, m: Metrics = metrics(view.ev
         : undefined
   return {
     checks,
-    pass: m.outcome === 'completed' && checks.every((x) => x.pass),
+    // A takeover case is stopped by the harness once the agent hands over: that is how it ends well.
+    pass:
+      (m.outcome === 'completed' || (c.endOnTakeover === true && m.outcome.startsWith('stopped'))) &&
+      checks.every((x) => x.pass),
     tierMismatch: m.tier !== undefined && !c.tiers.includes(m.tier),
     ...(breach ? { budgetBreach: breach } : {}),
   }
