@@ -1,7 +1,6 @@
 import {
   type ColonyState,
   colonyMetrics,
-  colonyWallMs,
   DELIVERED_VERIFIER,
   type EventPayloads,
   type MyrEvent,
@@ -30,12 +29,13 @@ import { ArtifactViewer } from './chat/ArtifactViewer.tsx'
 import { Markdown } from './chat/Markdown.tsx'
 import { copy } from './copy.ts'
 import { describeEvent } from './describe.ts'
+import { useRunClock } from './run-clock.ts'
 import { clock, compact, duration, money } from './ui/hooks.ts'
 import { FEATURE_ICONS } from './ui/icons.ts'
 import { AgentAvatar } from './ui/pixel.tsx'
 import { Badge, Banner, cn, Dot, Empty, Tabs, tabPanel, toneFor } from './ui/primitives.tsx'
 import { agentPhase, runPhase } from './ui/status.ts'
-import { COLONY_CLOCK_MS, MAX_ACTIVITY_ITEMS, REPLAY_SPEEDS, spring } from './ui-config.ts'
+import { MAX_ACTIVITY_ITEMS, REPLAY_SPEEDS, spring } from './ui-config.ts'
 import { useColony } from './use-colony.ts'
 
 type Tab = 'activity' | 'board' | 'tasks' | 'files' | 'map' | 'verdicts'
@@ -490,17 +490,7 @@ export function ColonyScreen({ id }: { id: string; compact?: boolean }) {
  * keeps its own clock; it ticks here alone rather than re-rendering the whole screen, and stops once the run ends.
  */
 export function RunTime({ createdAt, endedAt }: { createdAt?: string; endedAt?: string }) {
-  const running = createdAt !== undefined && endedAt === undefined
-  const [now, setNow] = useState(Date.now)
-  useEffect(() => {
-    if (!running) return
-    setNow(Date.now())
-    const timer = setInterval(() => setNow(Date.now()), COLONY_CLOCK_MS)
-    return () => clearInterval(timer)
-  }, [running])
-  return (
-    <Stat label={copy.colonyScreen.stats.time} value={duration(colonyWallMs({ createdAt, endedAt }, now))} />
-  )
+  return <Stat label={copy.colonyScreen.stats.time} value={duration(useRunClock({ createdAt, endedAt }))} />
 }
 
 function Stat({ label, value }: { label: string; value: string }) {

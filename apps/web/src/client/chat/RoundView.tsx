@@ -34,6 +34,7 @@ import { type ReactNode, useEffect, useMemo, useState } from 'react'
 import type { ModelOption } from '../api.ts'
 import { copy } from '../copy.ts'
 import { PluginSlot, usePluginSlots } from '../plugins.tsx'
+import { useRunClock } from '../run-clock.ts'
 import { compact, duration, type FollowLatest, useCopy, useStickToBottom } from '../ui/hooks.ts'
 import { FEATURE_ICONS } from '../ui/icons.ts'
 import { copyAction, openContextMenu } from '../ui/Menu.tsx'
@@ -1189,7 +1190,7 @@ function RunCard(props: {
               {spend(state, m, running)}
             </span>
           </span>
-          {running && <Elapsed ms={m.wallMs} />}
+          {running && <Elapsed createdAt={state.createdAt} endedAt={state.endedAt} />}
           <motion.span animate={{ rotate: expanded ? 0 : -90 }} transition={spring} className="text-muted">
             <ChevronDown className="size-4" />
           </motion.span>
@@ -1478,9 +1479,9 @@ function Interrupted(props: { events: readonly MyrEvent[] }) {
   )
 }
 
-/** Live elapsed time on the run card, as an LED readout. */
-function Elapsed({ ms }: { ms: number }) {
-  const s = Math.floor(ms / 1000)
+/** Live elapsed time on the run card, as an LED readout; it ticks on its own between events (useRunClock). */
+function Elapsed(run: { createdAt?: string; endedAt?: string }) {
+  const s = Math.floor(useRunClock(run) / 1000)
   const text = `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
   return <DotMatrix text={text} dot={2} className="mr-1 text-fg-2" />
 }
