@@ -1,7 +1,12 @@
 import type { MyrEvent } from '@myrmidon/protocol'
 
 export type Tier = 'answer' | 'solo' | 'team'
-export type Mode = 'orchestrated' | 'swarm'
+/**
+ * How the trial's crew is set up. `orchestrated`: the person's default, a lead that starts alone with three
+ * crewmates on call and brings them in when the work needs it; `solo`: one agent and no crew; `team`: the lead and
+ * crewmates from the start (helpers "always"); `swarm`: three equal peers from the start.
+ */
+export type Mode = 'orchestrated' | 'swarm' | 'solo' | 'team'
 
 /**
  * A code-based check on one trial. The colony's own judge is the model-based grader (`judge`). A `regression`
@@ -81,6 +86,17 @@ export interface Metrics {
   testedAfterEdit?: boolean
   judge?: { pass: boolean; score?: number }
   finalReply?: string
+  /** Agents other than the one that speaks for the round that took at least one turn. */
+  helpers: number
+  /** Seconds from the round's start to the first helper's first turn; absent when none worked. */
+  firstHelperSeconds?: number
+  /** Project files edited by more than one agent: duplicated or conflicting effort. */
+  sharedEdits: number
+  /** Reviews of the round's work that were asked for or run (verifier/requested). */
+  reviews: number
+  /** Delegated jobs that finished, and how many of those reported done (job/finished). */
+  jobs: number
+  jobsDone: number
 }
 
 type Payload = Record<string, unknown>
@@ -133,6 +149,22 @@ export function metrics(events: readonly MyrEvent[]): Metrics {
   const final = replies.filter((r) => r.final).at(-1) ?? replies.at(-1)
   const team = created.team as { mode?: Mode } | undefined
   const tested = testedAfterEdit(events)
+  const speaker = String(
+    (created.agents as { name?: string; role?: string }[] | undefined)?.find((a) => a.role === 'lead')
+      ?.name ?? 'lead',
+  )
+  const helperTurns = turnStarts.filter((e) => payload(e).agent !== speaker)
+  const firstHelper = helperTurns[0]
+  const editors = new Map<string, Set<string>>()
+  for (const e of of('tool/call')) {
+    const p = payload(e)
+    const path = (p.args as { path?: unknown } | undefined)?.path
+    if (!EDIT_TOOLS.has(String(p.tool)) || typeof path !== 'string') continue
+    // Worktrees put each agent's copy under its own folder; the project-relative tail names the file.
+    const file = path.replace(/^.*\/worktrees\/[^/]+\//, '').replace(/^\.\//, '')
+    editors.set(file, (editors.get(file) ?? new Set()).add(String(p.agent)))
+  }
+  const finished = of('job/finished').map(payload)
   return {
     ...(created.tier ? { tier: created.tier as Tier } : {}),
     ...(rounds.length > 1 ? { escalated: rounds.map((r) => String(r.tier)).join(' → ') } : {}),
@@ -164,6 +196,14 @@ export function metrics(events: readonly MyrEvent[]): Metrics {
         }
       : {}),
     ...(typeof final?.text === 'string' ? { finalReply: final.text } : {}),
+    helpers: new Set(helperTurns.map((e) => payload(e).agent)).size,
+    ...(firstHelper && start
+      ? { firstHelperSeconds: Math.round((Date.parse(firstHelper.time) - Date.parse(start.time)) / 1000) }
+      : {}),
+    sharedEdits: [...editors.values()].filter((by) => by.size > 1).length,
+    reviews: of('verifier/requested').length,
+    jobs: finished.length,
+    jobsDone: finished.filter((j) => (j.result as { status?: string } | undefined)?.status === 'done').length,
   }
 }
 
@@ -255,6 +295,12 @@ export interface CaseSummary {
   untestedEdits: number
   /** Tool calls that returned an error, summed over the trials. */
   failedToolCalls: number
+  /** Medians of the crew metrics (Metrics.helpers, sharedEdits, reviews), and helpers' start where any worked. */
+  medianHelpers: number
+  medianFirstHelperSeconds?: number
+  sharedEdits: number
+  reviews: number
+  jobs: number
   hardFailures: string[]
 }
 
@@ -290,6 +336,19 @@ export function summarize(results: readonly TrialResult[]): CaseSummary[] {
         : {}),
       untestedEdits: rs.filter((r) => r.metrics.testedAfterEdit === false).length,
       failedToolCalls: rs.reduce((n, r) => n + r.metrics.failedToolCalls, 0),
+      medianHelpers: median(rs.map((r) => r.metrics.helpers ?? 0)),
+      ...(rs.some((r) => r.metrics.firstHelperSeconds !== undefined)
+        ? {
+            medianFirstHelperSeconds: median(
+              rs.flatMap((r) =>
+                r.metrics.firstHelperSeconds === undefined ? [] : [r.metrics.firstHelperSeconds],
+              ),
+            ),
+          }
+        : {}),
+      sharedEdits: rs.reduce((n, r) => n + (r.metrics.sharedEdits ?? 0), 0),
+      reviews: rs.reduce((n, r) => n + (r.metrics.reviews ?? 0), 0),
+      jobs: rs.reduce((n, r) => n + (r.metrics.jobs ?? 0), 0),
       hardFailures: rs.flatMap((r) => [
         ...(r.error ? [`#${r.trial} error: ${r.error}`] : []),
         ...(r.grade.tierMismatch ? [`#${r.trial} tier ${r.metrics.tier}`] : []),
@@ -314,7 +373,9 @@ export function compare(before: readonly CaseSummary[], after: readonly CaseSumm
       `${a.medianTokens} → ${b.medianTokens} tok${delta(a.medianTokens, b.medianTokens)}, ` +
       `${a.medianToolCalls} → ${b.medianToolCalls} tools, ` +
       `regressions ${pct(a.regressionRate ?? 0)} → ${pct(b.regressionRate ?? 0)}, ` +
-      `untested edits ${a.untestedEdits ?? 0} → ${b.untestedEdits}, failed calls ${a.failedToolCalls ?? 0} → ${b.failedToolCalls}`
+      `untested edits ${a.untestedEdits ?? 0} → ${b.untestedEdits}, failed calls ${a.failedToolCalls ?? 0} → ${b.failedToolCalls}, ` +
+      `helpers ${a.medianHelpers ?? 0} → ${b.medianHelpers}, shared edits ${a.sharedEdits ?? 0} → ${b.sharedEdits}, ` +
+      `reviews ${a.reviews ?? 0} → ${b.reviews}`
     )
   })
 }
