@@ -1,5 +1,5 @@
-import { ChevronRight, Columns2, Folder, Rows2 } from 'lucide-react'
-import { type ReactNode, useMemo, useState } from 'react'
+import { ChevronRight, Columns2, Folder, Rows2, X } from 'lucide-react'
+import { Fragment, type ReactNode, useMemo, useState } from 'react'
 import { copy } from '../copy.ts'
 import { FEATURE_ICONS } from '../ui/icons.ts'
 import { CountBadge, cn } from '../ui/primitives.tsx'
@@ -16,6 +16,27 @@ export interface DiffFile {
 }
 
 export type DiffMode = 'unified' | 'split'
+
+/** A note the person pinned to a line of the diff, for the next /review (after omp's /annotate). */
+export interface DiffNote {
+  id: string
+  path: string
+  /** The line in the file after the change. */
+  line: number
+  text: string
+}
+
+/** Notes pinned to a diff's lines, with how to pin and unpin them; absent where notes are not taken. */
+export interface DiffNotes {
+  list: readonly DiffNote[]
+  pin(path: string, line: number, text: string): Promise<void>
+  unpin(id: string): Promise<void>
+}
+
+/** One file's share of DiffNotes. */
+interface FileNotes extends DiffNotes {
+  path: string
+}
 
 export const STATUS: Record<string, { label: string; className: string; title: string }> = {
   A: {
@@ -128,6 +149,104 @@ const ROW = {
 } as const
 const SIGN = { add: '+', del: '−', context: ' ' } as const
 
+/** A new-side line number that pins a note to its line when notes are taken. */
+function PinNum({ n, onPin }: { n?: number; onPin?: (line: number) => void }) {
+  if (n === undefined || !onPin) return <Num {...(n !== undefined ? { n } : {})} />
+  return (
+    <td className="w-10 border-r border-line p-0 text-right align-top">
+      <button
+        type="button"
+        onClick={() => onPin(n)}
+        title={copy.diffView.notes.pinLine(n)}
+        aria-label={copy.diffView.notes.pinLine(n)}
+        className="w-full select-none px-1.5 text-right tabular-nums text-muted/70 hover:bg-accent-soft hover:text-accent-fg"
+      >
+        {n}
+      </button>
+    </td>
+  )
+}
+
+/** The notes pinned to `line`, and the box writing one, under the line they belong to. */
+function NoteRows(props: {
+  line: number
+  cols: number
+  notes: FileNotes
+  composing: boolean
+  onDone(): void
+}) {
+  const t = copy.diffView.notes
+  const [text, setText] = useState('')
+  const [busy, setBusy] = useState(false)
+  const pinned = props.notes.list.filter((n) => n.line === props.line)
+  if (!pinned.length && !props.composing) return null
+  return (
+    <tr>
+      <td colSpan={props.cols} className="border-y border-accent/30 bg-accent-soft/30 px-3 py-1.5 font-sans">
+        {pinned.map((n) => (
+          <div key={n.id} className="flex items-start gap-2 text-callout">
+            <FEATURE_ICONS.diffNotes className="mt-0.5 size-3.5 shrink-0 text-accent-fg" />
+            <span className="min-w-0 flex-1 whitespace-pre-wrap">{n.text}</span>
+            <button
+              type="button"
+              onClick={() => void props.notes.unpin(n.id)}
+              aria-label={t.unpin(n.line)}
+              className="shrink-0 rounded-md px-1 text-muted hover:bg-fill hover:text-fg"
+            >
+              <X className="size-3.5" />
+            </button>
+          </div>
+        ))}
+        {props.composing && (
+          <form
+            className="flex items-start gap-2 py-1"
+            onSubmit={async (e) => {
+              e.preventDefault()
+              if (!text.trim()) return
+              setBusy(true)
+              try {
+                await props.notes.pin(props.notes.path, props.line, text.trim())
+                setText('')
+                props.onDone()
+              } finally {
+                setBusy(false)
+              }
+            }}
+          >
+            <textarea
+              // biome-ignore lint/a11y/noAutofocus: the box opens because the person asked to write in it
+              autoFocus
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') props.onDone()
+              }}
+              rows={2}
+              placeholder={t.placeholder(props.line)}
+              aria-label={t.placeholder(props.line)}
+              className="min-w-0 flex-1 rounded-md border border-line bg-surface px-2 py-1 text-callout"
+            />
+            <button
+              type="submit"
+              disabled={busy || !text.trim()}
+              className="rounded-md bg-accent px-2 py-1 text-callout text-on-accent disabled:opacity-50"
+            >
+              {t.pin}
+            </button>
+            <button
+              type="button"
+              onClick={props.onDone}
+              className="rounded-md px-2 py-1 text-callout text-muted hover:bg-fill"
+            >
+              {t.cancel}
+            </button>
+          </form>
+        )}
+      </td>
+    </tr>
+  )
+}
+
 function Num({ n }: { n?: number }) {
   return (
     <td className="w-10 select-none border-r border-line px-1.5 text-right align-top tabular-nums text-muted/70">
@@ -164,8 +283,9 @@ function Code({ line, wrap }: { line?: DiffLine; wrap?: boolean }) {
 }
 
 /** One file's hunks with old/new line numbers, unified or side by side. */
-export function FilePatch({ text, mode }: { text: string; mode: DiffMode }) {
+export function FilePatch({ text, mode, notes }: { text: string; mode: DiffMode; notes?: FileNotes }) {
   const hunks = useMemo(() => parseFilePatch(text), [text])
+  const [composing, setComposing] = useState<number>()
   if (hunks.length === 0) return <p className="px-3 py-2 text-small text-muted">{copy.diffView.binary}</p>
   return (
     <div className="overflow-x-auto">
@@ -185,7 +305,13 @@ export function FilePatch({ text, mode }: { text: string; mode: DiffMode }) {
         )}
         <tbody>
           {hunks.map((h) => (
-            <HunkRows key={h.header} header={h.header} lines={h.lines} mode={mode} />
+            <HunkRows
+              key={h.header}
+              header={h.header}
+              lines={h.lines}
+              mode={mode}
+              {...(notes ? { notes, composing, onCompose: setComposing } : {})}
+            />
           ))}
         </tbody>
       </table>
@@ -193,7 +319,32 @@ export function FilePatch({ text, mode }: { text: string; mode: DiffMode }) {
   )
 }
 
-function HunkRows({ header, lines, mode }: { header: string; lines: DiffLine[]; mode: DiffMode }) {
+function HunkRows({
+  header,
+  lines,
+  mode,
+  notes,
+  composing,
+  onCompose,
+}: {
+  header: string
+  lines: DiffLine[]
+  mode: DiffMode
+  notes?: FileNotes
+  composing?: number | undefined
+  onCompose?(line: number | undefined): void
+}) {
+  const pin = notes && onCompose ? (line: number) => onCompose(line) : undefined
+  const below = (line: number | undefined, cols: number) =>
+    notes && line !== undefined ? (
+      <NoteRows
+        line={line}
+        cols={cols}
+        notes={notes}
+        composing={composing === line}
+        onDone={() => onCompose?.(undefined)}
+      />
+    ) : null
   return (
     <>
       <tr>
@@ -204,20 +355,29 @@ function HunkRows({ header, lines, mode }: { header: string; lines: DiffLine[]; 
       {mode === 'split'
         ? sideBySide(lines).map((r, i) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: rows of a fixed hunk
-            <tr key={i}>
-              <Num {...(r.left?.old !== undefined ? { n: r.left.old } : {})} />
-              <Code wrap {...(r.left ? { line: r.left.kind === 'add' ? undefined : r.left } : {})} />
-              <Num {...(r.right?.new !== undefined ? { n: r.right.new } : {})} />
-              <Code wrap {...(r.right ? { line: r.right.kind === 'del' ? undefined : r.right } : {})} />
-            </tr>
+            <Fragment key={i}>
+              <tr>
+                <Num {...(r.left?.old !== undefined ? { n: r.left.old } : {})} />
+                <Code wrap {...(r.left ? { line: r.left.kind === 'add' ? undefined : r.left } : {})} />
+                <PinNum
+                  {...(r.right?.new !== undefined ? { n: r.right.new } : {})}
+                  {...(pin ? { onPin: pin } : {})}
+                />
+                <Code wrap {...(r.right ? { line: r.right.kind === 'del' ? undefined : r.right } : {})} />
+              </tr>
+              {below(r.right?.new, 4)}
+            </Fragment>
           ))
         : lines.map((l, i) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: rows of a fixed hunk
-            <tr key={i}>
-              <Num {...(l.old !== undefined ? { n: l.old } : {})} />
-              <Num {...(l.new !== undefined ? { n: l.new } : {})} />
-              <Code line={l} />
-            </tr>
+            <Fragment key={i}>
+              <tr>
+                <Num {...(l.old !== undefined ? { n: l.old } : {})} />
+                <PinNum {...(l.new !== undefined ? { n: l.new } : {})} {...(pin ? { onPin: pin } : {})} />
+                <Code line={l} />
+              </tr>
+              {below(l.new, 3)}
+            </Fragment>
           ))}
     </>
   )
@@ -333,6 +493,8 @@ export function FileDiff(props: {
   name?: string
   /** Opens the file itself, where it can be (not one the change deleted). */
   onOpen?(): void
+  /** Notes pinned to this diff's lines, when the person may pin them. */
+  notes?: DiffNotes
 }) {
   const s = STATUS[props.file.status] ?? { label: props.file.status, className: 'text-fg-2', title: '' }
   return (
@@ -382,7 +544,19 @@ export function FileDiff(props: {
       </div>
       {props.open && (
         <div className="border-t border-line">
-          <FilePatch text={props.text} mode={props.mode} />
+          <FilePatch
+            text={props.text}
+            mode={props.mode}
+            {...(props.notes
+              ? {
+                  notes: {
+                    ...props.notes,
+                    path: props.file.path,
+                    list: props.notes.list.filter((n) => n.path === props.file.path),
+                  },
+                }
+              : {})}
+          />
         </div>
       )}
     </div>
@@ -397,6 +571,8 @@ export function DiffView(props: {
   open?: string
   /** Opens a changed file itself (a project chat's change list). */
   onOpen?(path: string): void
+  /** Notes the person pins to lines for the next /review; absent where none are taken. */
+  notes?: DiffNotes
 }) {
   const sections = useMemo(() => splitPatch(props.patch), [props.patch])
   const [mode, setMode] = useDiffMode()
@@ -441,6 +617,7 @@ export function DiffView(props: {
             mode={mode}
             open={open.has(f.path)}
             {...(props.onOpen ? { onOpen: () => props.onOpen?.(f.path) } : {})}
+            {...(props.notes ? { notes: props.notes } : {})}
             onToggle={() =>
               setOpen((s) => {
                 const next = new Set(s)

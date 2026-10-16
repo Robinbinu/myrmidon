@@ -48,6 +48,7 @@ import { type ChatRecallRequest, type ChatRecallScope, recallChats } from './cha
 import type { ChatPlace, ChatShelf } from './chat-shelf.ts'
 import { nameChat } from './chat-titles.ts'
 import type { Checkpoints } from './checkpoints.ts'
+import { reviewScope } from './code-review.ts'
 import { type Attachment, ColonyRun, RoundClosingError, type Runtime, SETTLE_MS } from './colony.ts'
 import type { ComputerHub } from './computer/driver.ts'
 import {
@@ -199,6 +200,11 @@ export interface SendOptions {
    * holds, its checks run out, or the person stops it (ColonySpec.goal). It starts a round of its own.
    */
   readonly goal?: boolean
+  /**
+   * /review: reviewers in parallel over the project's changes (code-review.ts); `target` is what the person named (a
+   * branch, commit, range, pull request, files), empty for the uncommitted work or else the branch. Its own round.
+   */
+  readonly codeReview?: { readonly target?: string }
   /** A new chat's project; later rounds stay in the chat's project. */
   readonly project?: string
   /** Fixes the size: an escalated round reruns its request at the tier its agent asked for. */
@@ -493,6 +499,57 @@ export class ChatService {
       payload: { closed: 0 },
     })
     return { closed: 0 }
+  }
+
+  /**
+   * What a /review round reviews (code-review.ts): the chat's project repository at the target the person named, its
+   * files grouped for the reviewers, and the notes the person pinned to lines of the diff.
+   */
+  private async _reviewPlan(
+    previous: readonly RoundRef[],
+    source: readonly RoundRef[],
+    options: SendOptions,
+  ) {
+    const earlier = (previous.at(-1) ?? source.at(-1))?.state
+    const projectId = earlier?.chat?.project?.id ?? options.project
+    const path = projectId ? this._project(projectId, false)?.path : undefined
+    if (!path) throw new Error(prompts.chat.reviewNeedsProject)
+    const scope = await reviewScope(path, options.codeReview?.target ?? '')
+    if (!scope.files.length && !scope.mode.startsWith('pull request'))
+      throw new Error(prompts.chat.reviewNothing(scope.mode))
+    const notes = Object.values(earlier?.annotations ?? {}).map((n) => ({
+      path: n.path,
+      line: n.line,
+      text: n.text,
+    }))
+    return { scope, groups: scope.groups.length ? scope.groups : [[]], notes }
+  }
+
+  /** Pins a note to a line of the chat's diff for its next /review (omp's /annotate); returns the note's id. */
+  async annotate(chatId: string, note: { path: string; line: number; text: string }): Promise<string> {
+    const latest = (await this.rounds(chatId)).at(-1)
+    if (!latest) throw new Error('no such chat')
+    const text = note.text.trim()
+    if (!text) throw new Error('a note needs text')
+    const id = `note-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
+    await this._appendTo(latest.id, {
+      type: 'chat/annotated',
+      actor: { kind: 'user', id: 'user' },
+      payload: { id, path: note.path, line: Math.max(1, Math.floor(note.line)), text },
+    })
+    return id
+  }
+
+  /** Takes a pinned note back. */
+  async unannotate(chatId: string, id: string): Promise<void> {
+    const latest = (await this.rounds(chatId)).at(-1)
+    if (!latest) throw new Error('no such chat')
+    if (!latest.state.annotations?.[id]) throw new Error('no such note')
+    await this._appendTo(latest.id, {
+      type: 'chat/unannotated',
+      actor: { kind: 'user', id: 'user' },
+      payload: { id },
+    })
   }
 
   /** The person asked to learn a skill from a chat (/learn): its latest round is read now, whatever its size. */
@@ -832,6 +889,7 @@ export class ChatService {
     if (live && live.state().status === 'running') {
       // Steering would drop the goal: its checks belong to the round it starts.
       if (goal) throw new Error(prompts.chat.goalWhileRunning)
+      if (options.codeReview) throw new Error(prompts.chat.reviewWhileRunning)
       try {
         // Their message steers a round someone else started: from now on it asks too, as if they had started it.
         if (options.askAll) await live.askForAll()
@@ -867,7 +925,9 @@ export class ChatService {
     const to = latestState ? addressedIn(message, latestState) : []
     // Magic words in the person's prose (magic-words.ts): orchestrate makes it a team round, ultrathink thinks hardest.
     const words = magicWordsIn(message)
-    const orchestrate = words.includes('orchestrate') && !to.length
+    // /review: reviewers in parallel over the project's changes, one group of files each (code-review.ts).
+    const reviewing = options.codeReview ? await this._reviewPlan(previous, source, options) : undefined
+    const orchestrate = (words.includes('orchestrate') || reviewing !== undefined) && !to.length
     // The lead starts at once and sizes the work itself (escalate); tests and reruns may fix the size instead.
     const sized =
       to.length || orchestrate
@@ -878,18 +938,34 @@ export class ChatService {
             : await (this.options.classify ?? leadFirst)(message, history)))
     // A goal is worked toward with tools and checked: never a direct answer.
     const tier = goal && sized === 'answer' ? 'solo' : sized
-    const spec = this.buildSpec(
-      id,
-      message,
-      orchestrate ? orchestrated(config) : config,
-      previous,
-      history,
-      tier,
-      to,
-    )
+    const team = reviewing
+      ? reviewTeam(config, reviewing.groups.length)
+      : orchestrate
+        ? orchestrated(config)
+        : config
+    const spec = this.buildSpec(id, message, team, previous, history, tier, to)
     if (spec.chat) Object.assign(spec.chat, extra)
     if (words.includes('ultrathink')) spec.ultrathink = true
-    if (orchestrate && spec.tier === 'team' && spec.pattern === 'lead-workers') spec.orchestrate = true
+    if (orchestrate && !reviewing && spec.tier === 'team' && spec.pattern === 'lead-workers')
+      spec.orchestrate = true
+    if (reviewing && spec.pattern === 'lead-workers') {
+      // Reviewers read and report; they never change the code they review.
+      const reviewers = spec.agents.filter((a) => a.role !== 'lead')
+      for (const r of reviewers) {
+        r.withoutTools = [...new Set([...(r.withoutTools ?? []), ...REVIEW_HANDS_OFF])]
+        r.instructions = prompts.codeReview.reviewer
+        r.specialty = 'reviewer'
+      }
+      spec.codeReview = {
+        ...reviewing.scope,
+        files: [...reviewing.scope.files],
+        groups: reviewing.groups.map((files, i) => ({
+          reviewer: reviewers[i]?.name ?? reviewers[0]?.name ?? 'lead',
+          files: files.map((f) => f.path),
+        })),
+        notes: reviewing.notes,
+      }
+    }
     // The note of where the chat (or, for a fork, the chat it came from) left off, if it covers the latest round.
     const before = (previous.length ? previous : source).at(-1)
     const note = before?.state.handoff
@@ -2377,6 +2453,34 @@ export class ChatService {
         ...(crewmates.length ? { crewmates } : {}),
       },
     }
+  }
+}
+
+/** What a reviewer may not use: anything that edits the project, commits, or runs code that could. */
+const REVIEW_HANDS_OFF = [
+  'fs_write',
+  'fs_edit',
+  'ast_edit',
+  'split_commits',
+  'propose',
+  'eval',
+  'debug',
+  'autoresearch',
+  'start_server',
+]
+
+/**
+ * The team a /review round gets: a lead and one reviewer per group of files (at most CODE_REVIEW.maxReviewers), on the
+ * reviewer model the person picked (the judge), as omp's reviewers run on its slow model; the person's roster is not
+ * used, so the crew is reviewers only.
+ */
+function reviewTeam(config: TeamConfig, reviewers: number): TeamConfig {
+  const model = config.judgeModel || config.leadModel
+  return {
+    ...config,
+    mode: 'orchestrated',
+    roster: Array.from({ length: Math.max(1, reviewers) }, () => ({ role: 'reviewer', model })),
+    extraWorkers: 0,
   }
 }
 

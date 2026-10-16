@@ -851,8 +851,11 @@ export function App() {
     chatId = activeChat,
     delivery: Delivery = 'steer',
     files: readonly File[] = [],
-    /** `plan`: plan mode (/plan); `goal`: goal mode (/goal), the text being `<condition>: <request>`. */
-    how: { plan?: boolean; goal?: boolean } = {},
+    /**
+     * `plan`: plan mode (/plan); `goal`: goal mode (/goal), the text being `<condition>: <request>`; `review`: a /review
+     * round with reviewers in parallel, over what the person named ('' for the default).
+     */
+    how: { plan?: boolean; goal?: boolean; review?: string } = {},
     answers?: QuestionAnswers,
   ) => {
     // A caller waiting on the send (a question card) must not take a send that never went out as sent.
@@ -875,6 +878,7 @@ export function App() {
           delivery,
           ...(how.plan ? { plan: true } : {}),
           ...(how.goal ? { goal: true } : {}),
+          ...(how.review !== undefined ? { review: how.review } : {}),
           ...(!chatId && newProject ? { project: newProject } : {}),
           ...(!chatId && forkOf ? { forkOf } : {}),
           ...(!chatId && imported ? { importOf: imported.id } : {}),
@@ -1076,6 +1080,9 @@ export function App() {
         return leaveSettings(() => openSettings(name === 'mcp' ? 'tools' : 'general'))
       default: {
         const found = allCommands().find((c) => c.name === name)
+        // /review in a project chat runs reviewers in parallel over its changes; elsewhere it follows the skill alone.
+        if (found?.workflow && name === 'review' && (chat?.project || newProject))
+          return send(found.workflow(arg), activeChat, 'steer', [], { review: arg })
         if (found?.workflow) return send(found.workflow(arg))
         if (found?.prompt !== undefined) return send(expandCommand({ prompt: found.prompt }, arg))
       }

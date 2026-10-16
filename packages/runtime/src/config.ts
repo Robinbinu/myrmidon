@@ -385,6 +385,17 @@ export const FIND = {
  * plan, a subject of at most `subjectMaxChars` (omp's SUMMARY_MAX_CHARS), and body lines past `bodyLineMaxChars`
  * warned about.
  */
+/**
+ * /review (code-review.ts), after omp's: reviewers in parallel, one per group of files, at most `maxReviewers`, about
+ * `filesPerReviewer` files each; the lead is told the files and line counts of at most `listedFiles` files, and a new
+ * file's lines are counted only up to `countBytes`.
+ */
+export const CODE_REVIEW = {
+  maxReviewers: 4,
+  filesPerReviewer: 6,
+  listedFiles: 80,
+  countBytes: 1_000_000,
+} as const
 export const COMMIT_SPLIT = { maxCommits: 12, subjectMaxChars: 72, bodyLineMaxChars: 100 } as const
 export const GITHUB = {
   commandMs: 60_000,

@@ -150,6 +150,17 @@ export interface ColonySpec {
    * tasks and checks each phase before the next, after omp's orchestrate notice.
    */
   orchestrate?: boolean
+  /**
+   * A /review round (code-review.ts): what is reviewed, the reviewers' file groups, and the notes the person pinned to
+   * lines of the diff. Its lead hands one group to each reviewer and merges what they find into one verdict.
+   */
+  codeReview?: {
+    mode: string
+    diff: string
+    files: { path: string; added: number; removed: number }[]
+    groups: { reviewer: string; files: string[] }[]
+    notes: { path: string; line: number; text: string }[]
+  }
   /** Plan mode: present the plan for approval (ask_user) before any work. */
   planFirst?: boolean
   /**

@@ -1015,6 +1015,10 @@ Workflow: read what was referenced and the project's state; plan the phases and 
       `This request started in a smaller round; ${by} moved it here because: ${reason}. Its files and notes are here.`,
     /** A goal message sent to a round already running: a goal starts a round of its own. */
     goalWhileRunning: 'a goal starts its own round: wait for the running one to finish, or stop it first',
+    /** /review (code-review.ts). */
+    reviewNeedsProject: 'a review reads a project’s git repository: open the chat in a project first',
+    reviewNothing: (mode: string) => `nothing to review: ${mode} has no changes`,
+    reviewWhileRunning: 'a review starts its own round: wait for the running one to finish, or stop it first',
     /** A model kept for one project's folder (model-scopes.ts), asked for elsewhere. */
     modelScoped: (ref: string, folder: string) =>
       `${ref} is kept for chats in ${folder}: pick another model for this chat, or change where it is used in Settings → Models & providers`,
@@ -1198,6 +1202,54 @@ Reply with ONLY a JSON object: {"note": null} when there is nothing to send, or 
     handoff: (date: string, text: string) => `Where it left off (noted ${date}):\n${text}`,
     notHere:
       "search_chats is not available in this round: someone other than the person wrote in it, and the person's other chats stay private.",
+  },
+
+  /**
+   * /review (code-review.ts), after omp's review-request prompt (the lead hands out the files) and its reviewer agent
+   * (prompts/agents/reviewer.md: the criteria, the cross-boundary check, P0-P3 and the finding format).
+   */
+  codeReview: {
+    /** A reviewer's standing instructions. */
+    reviewer: `You are a code reviewer. Find the bugs the author wants fixed before merge, in the files your task names.
+Procedure: read your task's files and the patch (the task says how to get it); read the full context of each modified file; report each issue as you find it.
+Read-only: you may run git diff, git log, git show and gh pr diff, and read files; never edit files, commit, or start builds.
+Report only issues that meet ALL of these: provable impact (name the affected code path, no speculation); actionable (a discrete fix, not "consider improving X"); unintentional (clearly not a deliberate design choice); introduced in the patch (never a pre-existing bug); no unstated assumptions about the codebase or the author's intent; proportionate rigor (asks no rigor absent elsewhere in the codebase).
+Cross-boundary: for every type, variant or value the patch sends across a function or module boundary (an event, message, command, enum variant, queue item, payload), find where the receiving side routes it (a switch, router, handler registry, filter chain), confirm a branch or catch-all handles it, and report a silent drop. That place is often outside the diff: read it before deciding the sending side is correct.
+Priority: P0 blocks release or operations, for any input (data corruption, auth bypass); P1 high, fix next cycle (a race under load); P2 medium, fix eventually (an edge case mishandled); P3 nice to have (suboptimal but correct).
+Each finding, in your submission: "[P<0-3>] <imperative title, at most 80 characters> (confidence <0.0-1.0>) <path>:<start>-<end>" (at most 10 lines, overlapping the patch), then one paragraph: the bug, what triggers it, its impact, in a neutral tone; a suggested replacement only when you have concrete code.
+End with your verdict: "Verdict: correct" (no bugs or blockers) or "Verdict: incorrect", a one to three sentence explanation, and "Confidence: <0.0-1.0>". Style, docs and nits never make a change incorrect.
+Every finding must be anchored in the patch and backed by evidence.`,
+    /** The lead's opening for a /review round. */
+    lead: (p: {
+      mode: string
+      diff: string
+      files: readonly { path: string; added: number; removed: number }[]
+      more: number
+      groups: readonly { reviewer: string; files: readonly string[] }[]
+      notes: readonly { path: string; line: number; text: string }[]
+    }) => {
+      const added = p.files.reduce((n, f) => n + f.added, 0)
+      const removed = p.files.reduce((n, f) => n + f.removed, 0)
+      const files = p.files.length
+        ? p.files.map((f) => `| ${f.path} | +${f.added}/-${f.removed} |`).join('\n')
+        : '(the patch names them)'
+      const groups = p.groups.length
+        ? p.groups.map((g) => `- ${g.reviewer}: ${g.files.join(', ')}`).join('\n')
+        : `- ${p.groups[0]?.reviewer ?? 'one reviewer'}: every file the patch changes`
+      const notes = p.notes.length
+        ? `\n\nThe person pinned these notes to lines of the diff; hand each to the reviewer of its file, and answer every one in your report:\n${p.notes.map((n) => `- ${n.path}:${n.line}: ${n.text}`).join('\n')}`
+        : ''
+      return `\n\nCode review request. Mode: ${p.mode}. Get the patch with: ${p.diff}.
+Changed files (${p.files.length}${p.more ? ` shown, ${p.more} more` : ''}, +${added}/-${removed} lines):
+| File | +/- |
+|---|---|
+${files}
+
+Hand the review out in parallel: create one task per reviewer below, all at once, each assigned to its reviewer, naming its files, the command for the patch, and that reviewers stay read-only. Reviewers focus only on their files.
+${groups}${notes}
+
+Do not review the files yourself meanwhile. When every reviewer has submitted, merge their findings: drop duplicates and any finding not anchored in the patch, keep each one's priority and confidence. Then send one report: the verdict first ("correct" or "incorrect", one to three sentences, and your confidence 0.0-1.0), then the findings ordered P0 to P3, each "[P<n>] title (confidence x.x) path:lines" with its paragraph.`
+    },
   },
 
   /** split_commits (commit-split.ts), after omp's commit workflow and its split_commit tool's messages. */

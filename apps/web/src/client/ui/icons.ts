@@ -88,6 +88,7 @@ import {
   SquareChevronRight,
   SquareTerminal,
   Star,
+  StickyNote,
   Store,
   Telescope,
   Terminal,
@@ -323,4 +324,6 @@ export const FEATURE_ICONS = {
   freshSession: Wind,
   /** /commit: the working tree split into atomic commits, previewed first. */
   commitSplit: GitCommitVertical,
+  /** Notes the person pins to lines of a diff for the next /review. */
+  diffNotes: StickyNote,
 } as const

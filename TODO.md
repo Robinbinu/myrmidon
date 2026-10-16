@@ -749,8 +749,20 @@ Open work, in the order it will be done:
          the run). Files stay changed.
          (test: `packages/runtime/tests/checkpoint.test.ts` — "rewind folds the exploration since the checkpoint into
          the report, in the context and the transcript")
-      3. Code review with a verdict: parallel reviewer agents over a branch, commit or uncommitted work, every
+      3. [x] Code review with a verdict: parallel reviewer agents over a branch, commit or uncommitted work, every
          finding ranked P0–P3 with confidence; the person can pin notes to diff lines first (omp /review, /annotate).
+         Done (code-review.ts): `/review [target]` in a project chat makes a team round: the target (uncommitted
+         work, else the branch against its base; a commit, range, branch, `#N` pull request or files) becomes files
+         with +/- lines, grouped by folder (tests with their code) into at most CODE_REVIEW.maxReviewers groups; one
+         read-only reviewer per group on the reviewer model, briefed with omp's reviewer.md (criteria,
+         cross-boundary check, P0–P3, finding format with confidence, verdict); the lead gets omp's review request
+         (mode, file table, one task per reviewer at once) and merges one report, verdict first. Notes: the round's
+         diff (RoundChanges) takes a note on any new-side line number (chat/annotated, removable), and the next
+         /review hands each to its file's reviewer. The built-in review skill still applies. Left: no omp `jj`
+         modes; reviewers' tasks rely on the crew tools as they are (task7 owns how the crew runs).
+         (tests: `packages/runtime/tests/code-review.test.ts` — "/review runs a lead and read-only reviewers in
+         parallel, one group each, with the notes the person pinned"; `apps/web/tests/diff-notes.test.tsx` — "a diff
+         line takes a pinned note for the next /review…")
       4. [x] Atomic commit splitting: split the working tree into dependency-ordered commits with checked messages
          (omp commit). Done (commit-split.ts; omp's topo-sort and summary/scope checks through omp/commit.ts): the
          `split_commits` tool (on demand, shell group) takes groups of changed files with a subject, body and

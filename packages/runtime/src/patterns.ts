@@ -1,4 +1,5 @@
 import { ACCESS_GROUPS, type ColonyState, groupsOff, LEAD_WORK_GROUPS, toolHidden } from '@myrmidon/protocol'
+import { CODE_REVIEW } from './config.ts'
 import { levelsOf, presetOf } from './permissions.ts'
 import type { ProjectContext } from './project-context.ts'
 import { prompts } from './prompts.ts'
@@ -525,10 +526,20 @@ export function kickoff(spec: ColonySpec, state: ColonyState, remembers = false,
     spec.orchestrate && speaker && isLead(spec, speaker)
       ? prompts.kickoff.orchestrate(toolsFor(spec, speaker))
       : ''
+  // A /review round: its lead hands the files out to the reviewers (code-review.ts).
+  const review = spec.codeReview
+  const reviewing =
+    review && speaker && isLead(spec, speaker)
+      ? prompts.codeReview.lead({
+          ...review,
+          files: review.files.slice(0, CODE_REVIEW.listedFiles),
+          more: Math.max(0, review.files.length - CODE_REVIEW.listedFiles),
+        })
+      : ''
   const context = spec.chat.context ? prompts.chat.context(spec.chat.context) : ''
   const spoken = spec.chat.voice ? prompts.chat.spoken : ''
   const changed = agent && spec.chat.accessNotices?.[agent] ? `${spec.chat.accessNotices[agent]}\n\n` : ''
-  const request = `${history}${note}${changed}${context}[user] ${spec.chat.request}${attachedNote(attached)}${spoken}${ultrathink}${plan}${goal}${prewalk}${orchestrate}`
+  const request = `${history}${note}${changed}${context}[user] ${spec.chat.request}${attachedNote(attached)}${spoken}${ultrathink}${plan}${goal}${prewalk}${orchestrate}${reviewing}`
   if (spec.tier === 'answer') return request
   const files = Object.keys(state.artifacts).filter((f) => !attached?.includes(f))
   const carried = files.length > 0 ? prompts.kickoff.carried(files) : ''

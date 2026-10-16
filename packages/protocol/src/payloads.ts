@@ -615,6 +615,10 @@ export interface EventPayloads {
    * open, next, the question still waiting on the person), read when the chat is picked up again.
    */
   'chat/handoff': { round: number; text: string }
+  /** The person pinned a note to a line of the chat's diff (after omp's /annotate), for the next /review. */
+  'chat/annotated': { id: string; path: string; line: number; text: string }
+  /** The person took a pinned note back. */
+  'chat/unannotated': { id: string }
   /**
    * The person reset the provider's stream state (/fresh, after omp's): agents start a new provider session and
    * cache key from their next model call, with their conversation unchanged. `closed`: provider session states closed.

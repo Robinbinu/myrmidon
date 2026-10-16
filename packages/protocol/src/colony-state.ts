@@ -231,6 +231,8 @@ export interface ColonyState {
   handoff?: { round: number; text: string; at: string }
   /** How many times the person reset the provider's stream state for this chat (chat/fresh, the /fresh command). */
   freshes?: number
+  /** Notes the person pinned to lines of the chat's diff (chat/annotated), by id, for /review's reviewers. */
+  annotations?: Record<string, EventPayloads['chat/annotated'] & { time: string }>
   /** Old logs: kinds of step the person allowed for the rest of the chat (see `chatLevel`). */
   chatGrants?: ChatGrant[]
   /** The chat's level of the permission model; absent until the person first sets something for the chat. */
@@ -577,6 +579,19 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
     case 'chat/renamed': {
       const p = event.payload as EventPayloads['chat/renamed']
       state.chatTitle = { title: p.title, at: event.time, ...(p.by ? { by: p.by } : {}) }
+      break
+    }
+    case 'chat/annotated': {
+      const p = event.payload as EventPayloads['chat/annotated']
+      state.annotations = { ...state.annotations, [p.id]: { ...p, time: event.time } }
+      break
+    }
+    case 'chat/unannotated': {
+      const p = event.payload as EventPayloads['chat/unannotated']
+      if (state.annotations?.[p.id]) {
+        const { [p.id]: _gone, ...rest } = state.annotations
+        state.annotations = rest
+      }
       break
     }
     case 'chat/fresh':

@@ -594,6 +594,8 @@ export const copy = {
       'chat/renamed': 'chat renamed',
       'chat/handoff': 'noted where the chat left off',
       'chat/fresh': 'provider state reset',
+      'chat/annotated': 'note pinned to the diff',
+      'chat/unannotated': 'pinned note removed',
       'chat/allowed': 'allowed for this chat',
       'chat/permissions': 'chat permissions set',
       'chat/budget': 'chat budget set',
@@ -3237,6 +3239,15 @@ export const copy = {
   },
 
   diffView: {
+    /** Notes pinned to lines for the next /review (after omp's /annotate). */
+    notes: {
+      pinLine: (n: number) => `Pin a note to line ${n} for the next /review`,
+      placeholder: (n: number) => `Note on line ${n}: what should the reviewers look at?`,
+      pin: 'Pin note',
+      cancel: 'Cancel',
+      pinned: 'Pinned: the next /review answers it',
+      unpin: (n: number) => `Remove the note on line ${n}`,
+    },
     /** git's status letters and what they mean. */
     status: {
       added: { label: 'A', title: 'Added' },
