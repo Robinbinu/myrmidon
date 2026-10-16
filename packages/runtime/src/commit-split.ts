@@ -1,4 +1,5 @@
 import { COMMIT_SPLIT } from './config.ts'
+import { git } from './git.ts'
 import { loadCommit } from './omp/commit.ts'
 import { prompts } from './prompts.ts'
 
@@ -33,17 +34,6 @@ const FILLER = ['comprehensive', 'various', 'several', 'improved', 'enhanced', '
 const META = ['this commit', 'this change', 'updated code', 'modified files']
 /** `type(scope): ` or `type: `, a conventional commit's prefix, whose scope omp checks. */
 const CONVENTIONAL = /^([a-z]+)(?:\(([^)]*)\))?!?:\s/
-
-async function git(cwd: string, args: readonly string[]): Promise<string> {
-  const proc = Bun.spawn(['git', ...args], { cwd, stdout: 'pipe', stderr: 'pipe', stdin: 'ignore' })
-  const [out, err, code] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ])
-  if (code !== 0) throw new Error(`git ${args[0]} failed: ${err.trim() || out.trim() || `exit ${code}`}`)
-  return out
-}
 
 /** Every path the working tree changed against HEAD (staged, unstaged, untracked), with a rename's old path. */
 export async function changedPaths(cwd: string): Promise<{ path: string; from?: string }[]> {
