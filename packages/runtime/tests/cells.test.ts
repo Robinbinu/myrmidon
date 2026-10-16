@@ -367,6 +367,10 @@ test('display() values come back for the person as well as in the text the model
     { kind: 'json', value: { a: { b: 1 } } },
   ])
   expect(r.text).toContain('"city": "Oslo"')
+  // Displayed and then the cell's last value: shown once.
+  expect((await js('const rows = [{ n: 1 }]; display(rows); rows')).shown).toEqual([
+    { kind: 'json', value: [{ n: 1 }] },
+  ])
 }, 30_000)
 
 test('the eval tool hands display() values on as displays, pictures stored with the chat', async () => {

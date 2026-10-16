@@ -118,7 +118,18 @@ class Output {
   private _imagesLeft = 0
   readonly shown: CellShown[] = []
 
+  private _lastJson: string | undefined
+
   show(item: CellShown) {
+    // A cell that displays a value and then ends on it (`display(rows); rows`) shows it once.
+    if (item.kind === 'json') {
+      let key: string | undefined
+      try {
+        key = JSON.stringify(item.value)
+      } catch {}
+      if (key !== undefined && key === this._lastJson) return
+      this._lastJson = key
+    } else this._lastJson = undefined
     if (this.shown.length < CELL_DISPLAYS) this.shown.push(item)
   }
 
