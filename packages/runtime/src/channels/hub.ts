@@ -10,6 +10,7 @@ import {
   type MyrEvent,
   type QuestionChoice,
   roundSlice,
+  visualFallback,
 } from '@myrmidon/protocol'
 import { APPROVAL_MS } from '../config.ts'
 import { prompts } from '../prompts.ts'
@@ -1270,12 +1271,13 @@ export class ChannelHub {
     if (answer) {
       // A streamed draft becomes the answer's first part.
       const draft = tracker.draft?.ref
-      const pieces = chunk(answer.text, tracker.adapter.limits.text)
+      const text = visualFallback(answer.text, t.visual)
+      const pieces = chunk(text, tracker.adapter.limits.text)
       if (draft && pieces.length) {
         await tracker.adapter.edit(draft, { text: pieces[0] ?? '' }).catch(() => {})
         for (const piece of pieces.slice(1))
           await this._deliver(tracker.channel, tracker.adapter, tracker.to, piece)
-      } else await this._deliver(tracker.channel, tracker.adapter, tracker.to, answer.text)
+      } else await this._deliver(tracker.channel, tracker.adapter, tracker.to, text)
     } else if (tracker.stream !== 'progress')
       await this._deliver(tracker.channel, tracker.adapter, tracker.to, line)
     await this._sendFiles(tracker, events, info?.startSeq ?? 0)
