@@ -733,7 +733,7 @@ export function LoginCards({ state }: { state: ColonyState }) {
               icon={<FEATURE_ICONS.computer className="size-3.5" />}
               onClick={() =>
                 window.dispatchEvent(
-                  new CustomEvent('myr:open-view', { detail: { view: 'computer', agent: l.agent } }),
+                  new CustomEvent('myr:open-view', { detail: { view: 'browser', agent: l.agent } }),
                 )
               }
             >

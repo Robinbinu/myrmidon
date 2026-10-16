@@ -511,6 +511,7 @@ export const copy = {
       planningTasks: 'planning tasks',
       writingReply: 'writing a reply',
       usingMac: 'using your Mac',
+      browsing: (site: string) => (site ? `browsing ${site}` : 'browsing'),
       drawing: 'making a picture',
       recording: 'recording audio',
       using: (tool: string) => `using ${tool}`,
@@ -2560,6 +2561,16 @@ export const copy = {
      * Under an agent's browser: it is a browser of the agent's own, and letting agents into the person's Chrome is
      * not there yet (chrome-devtools-mcp's autoConnect cannot read Chrome's debugging port on macOS 27, issue #3089).
      */
+    /** The browser's own tabs strip: the agents browsing in this chat, then the person's own browser. */
+    place: {
+      label: 'Browser tabs',
+      browsing: (site: string) => (site ? `browsing ${site}` : 'browsing'),
+      idle: 'browser open',
+      live: 'Live',
+      mine: 'Your browser',
+      openInBrowser: 'Open in Browser',
+      empty: 'No agent has opened a browser in this chat yet.',
+    },
     ownBrowser:
       'This is a browser of the agent’s own, with its own cookies; nothing here touches your Chrome. Letting agents use your own Chrome, with your consent per chat, is not available yet.',
     modes: {
