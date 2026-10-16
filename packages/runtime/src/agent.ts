@@ -20,9 +20,16 @@ import {
   type AgentEvent,
   type AgentMessage,
   type AgentState,
+  type AgentTurnEndContext,
   type StreamFn,
 } from './omp/agent-core.ts'
-import { type AssistantMessage, isContextOverflow, type Model, streamSimple } from './omp/ai.ts'
+import {
+  type AssistantMessage,
+  isContextOverflow,
+  type Model,
+  streamSimple,
+  type ToolResultMessage,
+} from './omp/ai.ts'
 import { getModelPricingStatus } from './omp/catalog.ts'
 import {
   kickoff,
@@ -214,6 +221,9 @@ export class ColonyAgent {
         }),
     })
     this._agent.subscribe((e) => this._onEvent(e))
+    this._agent.setOnTurnEnd((messages, signal, context) => {
+      if (!signal?.aborted) this._atTurnEnd(messages, context)
+    })
     // A signed-off agent stops before its next model call; aborting once pi has sent it would bill a request and
     // leave an aborted reply in its history. Something written to it meanwhile still gets its answer.
     this._agent.setBeforeModelCall((context) =>
@@ -301,6 +311,113 @@ export class ColonyAgent {
 
   get idle() {
     return !this.working && this.inbox.length === 0
+  }
+
+  /**
+   * The exploration checkpoint this agent holds (the checkpoint tool), after omp's CheckpointState: `kept` is how many
+   * messages stay once it rewinds (through the checkpoint's own step), `report` what rewind will leave in their place.
+   */
+  private _checkpoint?: { goal: string; kept?: number; report?: string; reminded?: boolean }
+  /** Set once a checkpoint has rewound, so a second rewind is told the report is already in place. */
+  private _rewound = false
+
+  /** Marks the point the agent's context goes back to once it rewinds (checkpoint). */
+  checkpoint(goal: string): string {
+    if (this._checkpoint) throw new Error(prompts.checkpoint.active)
+    this._checkpoint = { goal }
+    this._rewound = false
+    return prompts.checkpoint.started(goal)
+  }
+
+  /** Ends the checkpoint: at the end of this step the exploration since it is replaced by `report` (rewind). */
+  rewind(report: string): string {
+    if (!this._checkpoint) throw new Error(this._rewound ? prompts.checkpoint.done : prompts.checkpoint.none)
+    if (!report.trim()) throw new Error(prompts.checkpoint.empty)
+    this._checkpoint.report = report.trim()
+    return prompts.checkpoint.rewinding
+  }
+
+  /**
+   * After each step, as omp's onTurnEnd: notes where a new checkpoint stands, applies a rewind the step asked for, and
+   * reminds an agent that is about to stop with a checkpoint still open. `messages` is the loop's live context.
+   */
+  private _atTurnEnd(messages: AgentMessage[], context?: AgentTurnEndContext) {
+    const cp = this._checkpoint
+    if (!cp) return
+    if (cp.kept === undefined) {
+      const at = messages.findLastIndex(
+        (m) => m.role === 'toolResult' && m.toolName === 'checkpoint' && !m.isError,
+      )
+      if (at < 0) return
+      // The step's other results stay with it: a call never loses its result.
+      let kept = at + 1
+      while (messages[kept]?.role === 'toolResult') kept++
+      cp.kept = kept
+    }
+    if (cp.report !== undefined) return this._applyRewind(messages, cp.kept, cp.goal, cp.report, context)
+    const last = context?.message
+    const stopping =
+      last?.role === 'assistant' && !last.content.some((c) => c.type === 'toolCall') && !context?.willContinue
+    if (stopping && !cp.reminded) {
+      cp.reminded = true
+      this._agent.steer({ role: 'user', content: prompts.checkpoint.remind, timestamp: Date.now() })
+    }
+  }
+
+  /**
+   * Replaces everything after the checkpoint with the report, after omp's applyRewind: messages the agent was sent
+   * meanwhile (the person's, a crewmate's) and the calls that ran beside rewind in its last step are kept after it.
+   */
+  private _applyRewind(
+    messages: AgentMessage[],
+    kept: number,
+    goal: string,
+    report: string,
+    context?: AgentTurnEndContext,
+  ) {
+    const later = messages.slice(kept)
+    const heard = later.filter((m) => m.role === 'user')
+    const step = context?.message
+    const beside = (context?.toolResults ?? []).filter((r) => r.toolName !== 'rewind')
+    const ids = new Set(beside.map((r) => r.toolCallId))
+    const siblings =
+      step?.role === 'assistant' && beside.length
+        ? [
+            {
+              ...step,
+              content: step.content.filter((c) => c.type !== 'toolCall' || ids.has(c.id)),
+            } as AgentMessage,
+            ...(beside as ToolResultMessage[]),
+          ]
+        : []
+    const reportMessage: AgentMessage = {
+      role: 'user',
+      content: prompts.checkpoint.report(report),
+      timestamp: Date.now(),
+    }
+    const next = [...messages.slice(0, kept), reportMessage, ...heard, ...siblings]
+    messages.splice(0, messages.length, ...next)
+    this._agent.replaceMessages(next)
+    this._checkpoint = undefined
+    this._rewound = true
+    this._rewriteTranscript(next)
+    void this.host
+      .append({
+        type: 'agent/rewound',
+        actor: agentActor(this.spec.name),
+        payload: { agent: this.spec.name, goal, report, dropped: later.length - heard.length },
+      })
+      .catch((err) => console.error(`[${this.name}] failed to log a rewind:`, err))
+  }
+
+  /** The transcript a resume reads, made to match the context after a rewind. */
+  private _rewriteTranscript(messages: readonly AgentMessage[]) {
+    try {
+      mkdirSync(join(this._transcript, '..'), { recursive: true })
+      writeFileSync(this._transcript, messages.map((m) => `${JSON.stringify(redactDeep(m))}\n`).join(''))
+    } catch (err) {
+      console.error(`[${this.name}] transcript rewrite failed:`, err)
+    }
   }
 
   /** Quiet items waiting for the next turn. */

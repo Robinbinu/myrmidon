@@ -1181,6 +1181,23 @@ Reply with ONLY a JSON object: {"note": null} when there is nothing to send, or 
       "search_chats is not available in this round: someone other than the person wrote in it, and the person's other chats stay private.",
   },
 
+  /** The checkpoint and rewind tools (agent.ts), after omp's checkpoint.ts and its prompts. */
+  checkpoint: {
+    started: (goal: string) =>
+      `Checkpoint: ${goal}\nFinish exploration and formulate findings, then rewind with them.`,
+    active: 'Checkpoint already active.',
+    none: 'No active checkpoint. Create a checkpoint before calling rewind.',
+    done: 'Checkpoint already completed; continue from the retained rewind report instead of calling rewind again.',
+    empty: 'Report cannot be empty.',
+    rewinding: 'Rewind requested.\nReport captured for context replacement.',
+    /** After omp's checkpoint-active-notice. */
+    remind:
+      '<system-notice>\nExploration checkpoint active.\n- MUST `rewind` with findings once exploration is done.\n- MUST `rewind` before yielding.\n</system-notice>',
+    /** After omp's rewind-report. */
+    report: (report: string) =>
+      `Checkpoint called and rewound. Report retained below. Need explore again → new \`checkpoint\`.\n\nReport:\n${report}`,
+  },
+
   agent: {
     noMatch: (query: string, names: readonly string[]) =>
       `nothing matches "${query}". Tools you can load: ${names.join(', ')}`,
@@ -3303,6 +3320,22 @@ Reply with JSON only: {"lines": ["...", "...", "..."]}.`,
       },
     },
     // After Claude Code's ToolSearch ("query forms: select:Read,Edit ... keyword search, up to max_results").
+    /** After omp's checkpoint.md. */
+    checkpoint: {
+      description:
+        'Context checkpoint: call before exploratory work (many reads, searches, lookups), then rewind with a short ' +
+        'report, so only the report stays in your context and later steps cost less. Rules: you must rewind before ' +
+        'you send your answer or stop; never checkpoint while one is active. Flow: checkpoint(goal), explore, ' +
+        'rewind(report). Files you changed stay changed: only your context goes back.',
+      params: { goal: 'What the exploration is for' },
+    },
+    /** After omp's rewind.md. */
+    rewind: {
+      description:
+        'End the active checkpoint: your context goes back to it, and the exploration since is replaced by your report. ' +
+        'Put everything you will need in the report (findings, file paths and lines, decisions); the rest is gone.',
+      params: { report: 'Your findings: concise, specific, complete enough to carry on from' },
+    },
     find_tools: {
       description:
         'Load tools that stay unloaded until needed, so they are callable from your next step. Ask by what you need ' +

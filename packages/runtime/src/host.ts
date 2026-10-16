@@ -227,6 +227,9 @@ export interface ColonyHost {
   useSkill(agent: string, name: string, file?: string): Promise<string>
   /** Loads an agent's on-demand tools matching `query` (find_tools); says what it loaded. */
   loadTools(agent: string, query: string): string
+  /** Marks the point an agent's context goes back to (checkpoint), and replaces what came since with a report (rewind). */
+  checkpoint(agent: string, goal: string): string
+  rewind(agent: string, report: string): string
   /** Brings the project folder's current state into an agent's worktree; the files it changed there. */
   refreshWork(agent: string): Promise<string[]>
   /** Proposes a memory for the person to keep across chats, maybe in place of kept ones (`replaces`). */

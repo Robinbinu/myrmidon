@@ -740,8 +740,15 @@ Open work, in the order it will be done:
          GLM 5.3 Flash).
          (test: `packages/runtime/tests/hashline.test.ts` — "a hashline agent reads anchored rows and edits by line
          number; the reply carries the new header")
-      2. Context checkpoint / rewind tools: the agent marks a point, explores, then collapses the exploration into
-         a short report (ours rewinds files, not context).
+      2. [x] Context checkpoint / rewind tools: the agent marks a point, explores, then collapses the exploration into
+         a short report (ours rewinds files, not context). Done (agent.ts, after omp's checkpoint.ts and its
+         prompts): `checkpoint(goal)` and `rewind(report)` load on demand together; at the end of the rewind step the
+         messages since the checkpoint step leave the live context and the transcript, replaced by omp's rewind
+         report; mail that came in meanwhile and calls run beside rewind are kept; one checkpoint at a time; an agent
+         stopping with one open is reminded once (omp's checkpoint-active notice). Logged as agent/rewound (a step in
+         the run). Files stay changed.
+         (test: `packages/runtime/tests/checkpoint.test.ts` — "rewind folds the exploration since the checkpoint into
+         the report, in the context and the transcript")
       3. Code review with a verdict: parallel reviewer agents over a branch, commit or uncommitted work, every
          finding ranked P0–P3 with confidence; the person can pin notes to diff lines first (omp /review, /annotate).
       4. Atomic commit splitting: split the working tree into dependency-ordered commits with checked messages

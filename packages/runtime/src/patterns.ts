@@ -15,7 +15,9 @@ const LOOK = [
   'read_log',
 ]
 const WEB = ['web_search', 'web_fetch']
-const READ = ['read_task', ...LOOK, 'observe', ...WEB, 'read_docs', 'use_skill']
+/** Exploring in a fold of the context that collapses into a report: on demand, as omp marks them discoverable. */
+const CHECKPOINT = ['checkpoint', 'rewind']
+const READ = ['read_task', ...LOOK, 'observe', ...WEB, 'read_docs', 'use_skill', ...CHECKPOINT]
 const TALK = ['message', 'create_group', 'update_group', 'append_note']
 const HOLD = ['claim_task', 'release_task', 'submit_task']
 const BROWSER = [
@@ -209,14 +211,18 @@ const ON_DEMAND = new Set([
   ...CODE_INTEL,
   ...CELLS,
   ...CHECKING,
+  ...CHECKPOINT,
   ...MEDIA,
   ...ACCESS_GROUPS.remote,
   ...ACCESS_GROUPS.computer,
   ...PLUGIN,
 ])
 
-/** On-demand tools that only work together, so loading one loads the rest: the computer works in apps open_app opens. */
-const LOADED_TOGETHER: readonly (readonly string[])[] = [ACCESS_GROUPS.computer]
+/**
+ * On-demand tools that only work together, so loading one loads the rest: the computer works in apps open_app opens,
+ * and rewind ends what checkpoint starts.
+ */
+const LOADED_TOGETHER: readonly (readonly string[])[] = [ACCESS_GROUPS.computer, CHECKPOINT]
 
 /** These tool names with the tools that load together with them. */
 export function withCompanions(names: readonly string[]): string[] {

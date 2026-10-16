@@ -1007,6 +1007,18 @@ export class ColonyRun implements ColonyHost {
     return a.loadTools(query)
   }
 
+  checkpoint(agent: string, goal: string): string {
+    const a = this._agents.get(agent)
+    if (!a) throw new Error(`no agent called ${agent}`)
+    return a.checkpoint(goal)
+  }
+
+  rewind(agent: string, report: string): string {
+    const a = this._agents.get(agent)
+    if (!a) throw new Error(`no agent called ${agent}`)
+    return a.rewind(report)
+  }
+
   toolsChanged(made?: { readonly by: string; readonly tool: string }) {
     for (const a of this._agents.values()) a.refreshTools()
     if (made) this._agents.get(made.by)?.load([made.tool])

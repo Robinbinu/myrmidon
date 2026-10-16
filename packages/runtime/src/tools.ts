@@ -2339,6 +2339,26 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     },
   },
   {
+    name: 'checkpoint',
+    tier: 'read',
+    description: prompts.tools.checkpoint.description,
+    parameters: type({
+      goal: type('string').atLeastLength(3).describe(prompts.tools.checkpoint.params.goal),
+    }),
+    async run(args, agent, host) {
+      return host.checkpoint(agent, args.goal)
+    },
+  },
+  {
+    name: 'rewind',
+    tier: 'read',
+    description: prompts.tools.rewind.description,
+    parameters: type({ report: type('string').describe(prompts.tools.rewind.params.report) }),
+    async run(args, agent, host) {
+      return host.rewind(agent, args.report)
+    },
+  },
+  {
     name: 'find_tools',
     tier: 'read',
     description: prompts.tools.find_tools.description,

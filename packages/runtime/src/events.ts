@@ -467,6 +467,17 @@ const defs: EventTypeDefinition[] = [
     schema: Schema.object({ plugin: str(), type: str(), data: Schema.dict(Schema.any()).default({}) }),
   },
   {
+    type: 'agent/rewound',
+    version: 1,
+    actors: ['agent'],
+    schema: Schema.object({
+      agent: str(),
+      goal: str(),
+      report: str(),
+      dropped: Schema.natural().required(),
+    }),
+  },
+  {
     type: 'agent/compacted',
     version: 1,
     actors: ['agent'],

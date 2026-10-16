@@ -519,6 +519,11 @@ export interface EventPayloads {
     tokensAfter?: number
   }
   /**
+   * An agent rewound to its checkpoint (the checkpoint and rewind tools): the exploration since it (`dropped`
+   * messages) left its context, and `report` took its place.
+   */
+  'agent/rewound': { agent: string; goal: string; report: string; dropped: number }
+  /**
    * The prompt an agent starts with, by section: each section's key, the version of its words and a hash of what it
    * rendered, so two runs can be compared by what their agents were told. `totalTokens` is a rough size.
    */
