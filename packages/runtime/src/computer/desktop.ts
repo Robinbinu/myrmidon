@@ -32,7 +32,7 @@ import {
 } from '../omp/computer.ts'
 import { prompts } from '../prompts.ts'
 import { redactSecrets } from '../secrets.ts'
-import { spotlight } from '../tools.ts'
+import { spotlight } from '../spotlight.ts'
 import { DESKTOP_POINT_CALL, desktopPrefix } from './desktop-pointers.ts'
 import type { Holder, Pointer } from './driver.ts'
 import { needGrants } from './grants.ts'

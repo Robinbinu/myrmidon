@@ -23,7 +23,7 @@ import type { AgentTool, AgentToolResult } from '../omp/agent-core.ts'
 import { type ComputerToolCallMetadata, type Model, type } from '../omp/ai.ts'
 import { prompts } from '../prompts.ts'
 import { redactSecrets } from '../secrets.ts'
-import { spotlight } from '../tools.ts'
+import { spotlight } from '../spotlight.ts'
 import {
   type ComputerProtocol,
   type DesktopAction,
