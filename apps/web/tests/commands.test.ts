@@ -147,7 +147,15 @@ test('workflow commands send a message that has the agent follow the built-in sk
     'qa',
     'investigate',
     'retro',
+    'commit',
   ])
+})
+
+test('/commit asks the agent to split the uncommitted changes with split_commits, previewed, never pushed', () => {
+  const send = parseSlash('/commit')?.command.workflow?.('') ?? ''
+  expect(send).toContain('split_commits')
+  expect(send).toContain('Do not push.')
+  expect(parseSlash('/commit')?.command.workflow?.('leave out the lockfile')).toContain('leave out the lockfile')
 })
 
 test("a plugin's command of a workflow's name takes its place: the person installed that one", () => {

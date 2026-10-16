@@ -380,6 +380,12 @@ export const FIND = {
  * The github tool (github.ts), which runs the GitHub CLI where the agent's commands run. Bounds on how long one `gh`
  * call and one run_watch may take, and how often run_watch asks: GitHub's API allows 5,000 calls an hour per person.
  */
+/**
+ * Splitting the working tree into commits (commit-split.ts), after omp's commit workflow: at most `maxCommits` in one
+ * plan, a subject of at most `subjectMaxChars` (omp's SUMMARY_MAX_CHARS), and body lines past `bodyLineMaxChars`
+ * warned about.
+ */
+export const COMMIT_SPLIT = { maxCommits: 12, subjectMaxChars: 72, bodyLineMaxChars: 100 } as const
 export const GITHUB = {
   commandMs: 60_000,
   watchMs: 10 * 60_000,

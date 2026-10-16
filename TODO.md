@@ -751,8 +751,16 @@ Open work, in the order it will be done:
          the report, in the context and the transcript")
       3. Code review with a verdict: parallel reviewer agents over a branch, commit or uncommitted work, every
          finding ranked P0–P3 with confidence; the person can pin notes to diff lines first (omp /review, /annotate).
-      4. Atomic commit splitting: split the working tree into dependency-ordered commits with checked messages
-         (omp commit).
+      4. [x] Atomic commit splitting: split the working tree into dependency-ordered commits with checked messages
+         (omp commit). Done (commit-split.ts; omp's topo-sort and summary/scope checks through omp/commit.ts): the
+         `split_commits` tool (on demand, shell group) takes groups of changed files with a subject, body and
+         dependsOn; without write it checks the plan (every changed file once, no cycle, subject <=72 with no
+         trailing period, omp's filler and meta-phrase rules) and shows it; with write the person sees the whole plan
+         on a card (no preset skips it, only an allow rule), then it commits in dependency order with git add and
+         git commit only, renames kept whole. Never pushes. `/commit` (Workflows) asks for it. Left: files only, not
+         omp's per-hunk splits; no changelog proposals.
+         (test: `packages/runtime/tests/commit-split.test.ts` — "split_commits checks without writing, shows the
+         person the plan before it commits, and never pushes")
       5. [x] Internal paths in file tools: `pr://N`, `issue://N`, `conflict://N` (resolve a merge conflict by writing
          @ours/@theirs/@base), `agent://`, `skill://`. Done (internal-paths.ts; omp's conflict-detect through
          omp/conflicts.ts): fs_read takes pr://N[/diff] (pr://owner/repo/N), issue://N, skill://name[/file],

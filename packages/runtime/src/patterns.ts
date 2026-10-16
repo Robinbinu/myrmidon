@@ -61,6 +61,7 @@ const BUILD = [
   'stop_server',
   'create_tool',
   'github',
+  'split_commits',
   ...BROWSER,
   'mcp',
   ...ACCESS_GROUPS.remote,
@@ -209,6 +210,7 @@ function baseRoleTools(spec: ColonySpec, agent: AgentSpec): string[] {
  */
 const ON_DEMAND = new Set([
   'github',
+  'split_commits',
   'autoresearch',
   'request_login',
   'start_server',
@@ -268,6 +270,10 @@ export function preloaded(request: string, names: readonly string[]): string[] {
     /\bgithub\b|\bpull requests?\b|\bPRs?\b|\bPR ?#?\d+|\bissue ?#\d+|\bCI\b|\bworkflow runs?\b|\bactions? runs?\b/i.test(
       request,
     )
+  const commits =
+    /\b(split\b[^.]{0,30}\bcommits?|atomic commits?|commit (it|this|them|the changes|my changes|everything)|make (the )?commits?)\b/i.test(
+      request,
+    )
   const picture =
     /\b(draw|paint|sketch|illustrat\w*|logos?|pictures?|photos?|posters?|wallpapers?|avatars?|(generate|make|create|design|edit)\b[^.]{0,30}\b(images?|icons?|banners?|art(work)?))\b/i.test(
       request,
@@ -297,6 +303,7 @@ export function preloaded(request: string, names: readonly string[]): string[] {
       (debug && n === 'debug') ||
       (security && n === 'security_scan') ||
       (github && n === 'github') ||
+      (commits && n === 'split_commits') ||
       (picture && n === 'generate_image') ||
       (speech && n === 'tts') ||
       (computer && ACCESS_GROUPS.computer.includes(n)) ||

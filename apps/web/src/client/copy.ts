@@ -1065,6 +1065,13 @@ export const copy = {
         description: 'Review the changes: findings ranked P0–P3 with the line they come from, and a verdict',
         send: (arg: string) => `Use the review skill on ${arg || 'the changes on this branch'}.`,
       },
+      commit: {
+        args: '[what to leave out]',
+        description:
+          'Split the uncommitted changes into atomic commits in dependency order; you see them first, nothing is pushed',
+        send: (arg: string) =>
+          `Split the uncommitted changes into atomic commits with split_commits: check the plan first, then make the commits (I see the plan before anything is written). Do not push.${arg ? ` ${arg}` : ''}`,
+      },
       ship: {
         args: '[what to ship or skip]',
         description: 'Tests, review, version, changelog and commits, then a pull request if you ask for one',
@@ -1919,6 +1926,7 @@ export const copy = {
         rewind: 'Fold exploration into a report',
         learn: 'Capture a lesson',
         manage_skill: 'Propose a learned skill change',
+        split_commits: 'Split changes into commits',
         read_docs: 'Read Myrmidon’s docs',
         read_log: 'Read the run’s log',
         request_review: 'Ask for a review',

@@ -56,6 +56,8 @@ const ICONS: Record<string, LucideIcon> = {
   qa: FEATURE_ICONS.qa,
   investigate: FEATURE_ICONS.investigate,
   retro: FEATURE_ICONS.retro,
+  commit: FEATURE_ICONS.commitSplit,
+  fresh: FEATURE_ICONS.freshSession,
   mcp: FEATURE_ICONS.mcp,
   settings: Settings,
   help: CircleHelp,

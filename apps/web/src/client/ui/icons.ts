@@ -35,6 +35,7 @@ import {
   Footprints,
   Gavel,
   GitBranch,
+  GitCommitVertical,
   Glasses,
   Globe,
   Goal,
@@ -100,6 +101,7 @@ import {
   Volume2,
   Wallet,
   Waypoints,
+  Wind,
   Workflow,
   Wrench,
   Zap,
@@ -317,4 +319,8 @@ export const FEATURE_ICONS = {
   keyRotation: IterationCw,
   /** Models kept for one project's folder (Settings → Models & providers → Your models). */
   scopedModels: FolderLock,
+  /** /fresh: a new provider session for the chat, its conversation unchanged. */
+  freshSession: Wind,
+  /** /commit: the working tree split into atomic commits, previewed first. */
+  commitSplit: GitCommitVertical,
 } as const

@@ -1200,6 +1200,45 @@ Reply with ONLY a JSON object: {"note": null} when there is nothing to send, or 
       "search_chats is not available in this round: someone other than the person wrote in it, and the person's other chats stay private.",
   },
 
+  /** split_commits (commit-split.ts), after omp's commit workflow and its split_commit tool's messages. */
+  commitSplit: {
+    nothingChanged: 'nothing changed in the working tree: there is nothing to commit',
+    noGroups: 'the plan has no commits',
+    tooMany: (n: number) => `at most ${n} commits in one plan: merge closely related groups`,
+    emptyGroup: (n: number) => `Commit ${n}: lists no files`,
+    notChanged: (n: number, file: string) =>
+      `Commit ${n}: ${file} has no changes (use the paths git status shows, relative to the repository root)`,
+    twice: (file: string, first: number, second: number) =>
+      `File appears in multiple commits: ${file} (commits ${first} and ${second})`,
+    missing: (file: string) => `Changed file missing from the plan: ${file}`,
+    message: (n: number, error: string) => `Commit ${n}: ${error}`,
+    longBodyLine: (n: number, max: number) => `Commit ${n}: wrap body lines at ${max} characters`,
+    after: (deps: readonly number[]) => `  (after ${deps.join(', ')})`,
+    report: (p: {
+      preview: string
+      errors: readonly string[]
+      warnings: readonly string[]
+      write: boolean
+    }) =>
+      [
+        p.errors.length
+          ? `The plan is not valid yet; fix these and call split_commits again:\n${p.errors.map((e) => `- ${e}`).join('\n')}`
+          : p.write
+            ? ''
+            : 'The plan is valid. Call split_commits again with the same commits and write: true to make them (the person sees this preview first).',
+        p.warnings.length ? `Warnings:\n${p.warnings.map((w) => `- ${w}`).join('\n')}` : '',
+        `Commits, in order:\n${p.preview}`,
+      ]
+        .filter(Boolean)
+        .join('\n\n'),
+    reviewTitle: (n: number) => `Make ${n} commit${n === 1 ? '' : 's'}`,
+    reviewLabel: 'Commits, in order (nothing is pushed)',
+    written: (made: readonly string[]) =>
+      `Made ${made.length} commit${made.length === 1 ? '' : 's'} (nothing was pushed):\n${made.map((m) => `- ${m}`).join('\n')}`,
+    stopped: (made: readonly string[], why: string) =>
+      `stopped after ${made.length} commit${made.length === 1 ? '' : 's'}${made.length ? ` (${made.join('; ')})` : ''}: ${why}; the rest of the changes are left uncommitted`,
+  },
+
   /** Internal paths in the file tools (internal-paths.ts), after omp's internal URLs and conflict-uri.ts errors. */
   internalPaths: {
     githubShape: 'use pr://N, pr://N/diff, pr://owner/repo/N or issue://N (issue://owner/repo/N)',
@@ -3394,6 +3433,25 @@ Reply with JSON only: {"lines": ["...", "...", "..."]}.`,
       },
     },
     // After Claude Code's ToolSearch ("query forms: select:Read,Edit ... keyword search, up to max_results").
+    /** After omp's commit workflow system prompt (commit/agentic/prompts/system.md) and its split_commit tool. */
+    split_commits: {
+      description:
+        'Split the working tree into atomic commits: propose groups of changed files, each with its own message and ' +
+        'the groups it builds on; unrelated changes go in separate commits. First run git status and git diff to see ' +
+        "what changed, and git log -5 for the repository's message style. Every changed file must be in exactly one " +
+        'commit. Messages: a subject of at most 72 characters with no trailing period, in the style recent commits use; ' +
+        'no filler words (comprehensive, various, several, improved, enhanced, better) or meta phrases ("this commit", ' +
+        '"updated code"); an optional body saying why. Without write it only checks the plan and shows it; with write ' +
+        'it shows the person the plan, then commits in dependency order. It never pushes.',
+      params: {
+        commits: 'The commits to make, in any order; dependsOn orders them',
+        files: 'Changed paths in this commit, relative to the repository root as git status shows them',
+        subject: 'The commit subject line',
+        body: 'The commit body: why the change was made (optional)',
+        dependsOn: 'Indexes (0-based, into commits) of commits this one builds on; they are made first',
+        write: 'true to make the commits after the person sees the plan; omit to check the plan only',
+      },
+    },
     /** After omp's checkpoint.md. */
     checkpoint: {
       description:

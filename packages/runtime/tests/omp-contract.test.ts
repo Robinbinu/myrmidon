@@ -18,6 +18,7 @@ import {
   getSupportedEfforts,
 } from '../src/omp/catalog.ts'
 import { loadComputerSupervisor } from '../src/omp/computer.ts'
+import { loadCommit } from '../src/omp/commit.ts'
 import { loadConflicts } from '../src/omp/conflicts.ts'
 import { loadDap } from '../src/omp/dap.ts'
 import { loadPythonPrelude, loadPythonRunner } from '../src/omp/eval.ts'
@@ -218,6 +219,14 @@ describe('pi-utils', () => {
 })
 
 describe('coding agent: tools loaded on first use', () => {
+  test('commit', async () => {
+    const { topo, validation } = await loadCommit()
+    expect(topo.computeDependencyOrder([{ dependencies: [1] }, { dependencies: [] }] as never)).toEqual([1, 0])
+    expect(topo.computeDependencyOrder([{ dependencies: [1] }, { dependencies: [0] }] as never)).toHaveProperty('error')
+    expect(validation.validateSummary('Fix it.', 72).errors).toEqual(['Summary must not end with a period'])
+    expect(validation.validateScope('Web/UI').valid).toBe(false)
+  })
+
   test('conflicts', async () => {
     const c = await loadConflicts()
     const names = [

@@ -67,6 +67,7 @@ import {
   lsp,
   lspWrites,
 } from './code-intel.ts'
+import { planCommits, writeCommits } from './commit-split.ts'
 import { desktopTool } from './computer/desktop.ts'
 import { DESKTOP_TOOL } from './computer/names.ts'
 import {
@@ -731,6 +732,7 @@ function readsProject(host: ColonyHost, agent: string, tool: string, params: unk
  * their calls that are not reads.
  */
 const GUARDED = new Set([
+  'split_commits',
   'fs_write',
   'fs_edit',
   'ast_edit',
@@ -1705,6 +1707,41 @@ function placeOf(f: PromptFacts): Place {
   return { where, full: f.access.fullAccess }
 }
 
+/**
+ * The person sees a commit plan before it is written (split_commits): the plan in full, decided as the git commits it
+ * makes. Like a GitHub write, no preset runs it unasked; only a rule allowing split_commits does.
+ */
+async function askCommits(host: ColonyHost, agent: string, preview: string, count: number, key: string) {
+  const call: PermissionCall = {
+    tool: 'split_commits',
+    kind: 'command',
+    command: `git commit (${count} commit${count === 1 ? '' : 's'})`,
+    readOnly: false,
+    asks: true,
+  }
+  const verdict = host.permit(agent, call)
+  if (verdict.decision === 'deny') throw denied('split_commits', verdict)
+  if (verdict.decision === 'allow') return
+  const decision = await host.reviewChange(agent, 'split_commits', prompts.commitSplit.reviewTitle(count), {
+    review: {
+      kind: 'call',
+      title: prompts.commitSplit.reviewTitle(count),
+      fields: [
+        {
+          key: 'plan',
+          label: prompts.commitSplit.reviewLabel,
+          value: preview,
+          format: 'code',
+          editable: false,
+        },
+      ],
+    },
+    key,
+    permission: { call, verdict },
+  })
+  if (!decision.approved) throw new Error(prompts.toolResults.declined('these commits', decision.note))
+}
+
 /** Each agent's numbered conflict blocks (conflict://N), for as long as its round runs. */
 const CONFLICTS = new WeakMap<ColonyHost, Map<string, ConflictHistory>>()
 
@@ -2414,6 +2451,37 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     }),
     async run(args, agent, host) {
       return host.useSkill(agent, args.name, args.file)
+    },
+  },
+  {
+    name: 'split_commits',
+    tier: 'write',
+    description: prompts.tools.split_commits.description,
+    parameters: type({
+      commits: type({
+        files: type('string[]').describe(prompts.tools.split_commits.params.files),
+        subject: type('string').describe(prompts.tools.split_commits.params.subject),
+        'body?': type('string').describe(prompts.tools.split_commits.params.body),
+        'dependsOn?': type('number[]').describe(prompts.tools.split_commits.params.dependsOn),
+      })
+        .array()
+        .describe(prompts.tools.split_commits.params.commits),
+      'write?': type('boolean').describe(prompts.tools.split_commits.params.write),
+    }),
+    async run(args, agent, host) {
+      const cwd = host.workspace.workdir(agent)
+      const plan = await planCommits(cwd, args.commits)
+      const write = args.write === true && plan.errors.length === 0
+      if (!write) return prompts.commitSplit.report({ ...plan, write: false })
+      await askCommits(
+        host,
+        agent,
+        plan.preview,
+        args.commits.length,
+        receiptKey(host, agent, 'split_commits', args),
+      )
+      const made = await writeCommits(cwd, args.commits, plan.order)
+      return `${prompts.commitSplit.written(made)}${plan.warnings.length ? `\n\n${prompts.commitSplit.report({ ...plan, preview: '', write: true })}` : ''}`
     },
   },
   {
