@@ -15,6 +15,7 @@ import {
   BookMarked,
   Brain,
   Bug,
+  Building2,
   Cable,
   CalendarClock,
   Compass,
@@ -208,6 +209,8 @@ export const FEATURE_ICONS = {
   telemetry: SatelliteDish,
   /** Specialists the person keeps. */
   specialists: UserCog,
+  /** Companies: saved crews of roles with a playbook (Settings → Companies, the crew panel's picker, their cards). */
+  company: Building2,
   /** What agents remember across chats. */
   memory: BookMarked,
   /** Skills: playbooks agents load, learn and propose. */

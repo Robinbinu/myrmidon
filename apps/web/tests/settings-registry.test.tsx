@@ -121,6 +121,31 @@ const CHANNELS = [
   },
 ]
 
+const COMPANY = {
+  id: 'tiny-1',
+  name: 'Tiny press',
+  kind: 'publishing',
+  description: 'A writer and a boss.',
+  head: 'boss',
+  start: 'lead',
+  version: 2,
+  savedAt: NOW,
+  roles: [
+    { name: 'boss', title: 'Boss', responsibilities: [], tier: 'frontier', access: 'full', prompt: 'Lead.' },
+    {
+      name: 'writer',
+      title: 'Writer',
+      responsibilities: ['Write'],
+      tier: 'smart',
+      access: 'no-shell',
+      reportsTo: 'boss',
+      stage: 'draft',
+      prompt: 'Write.',
+    },
+  ],
+  playbook: [{ id: 'draft', title: 'Draft', after: [], output: 'draft.md', brief: 'Write it.' }],
+}
+
 type Variant = {
   voice?: Record<string, unknown>
   mascot?: Record<string, unknown>
@@ -255,6 +280,7 @@ function fakeServer(v: Variant = {}) {
         { id: 's1', name: 'ada', specialty: 'data analyst', instructions: '', off: [], createdAt: NOW },
       ],
     },
+    '/api/companies': { companies: [COMPANY], templates: [{ ...COMPANY, id: 'tiny', name: 'Tiny template' }] },
     '/api/channels': { channels: CHANNELS },
     '/api/projects': { projects: [{ id: 'p1', name: 'Repo', path: '/repo', addedAt: NOW }] },
     '/api/devices': {
@@ -425,6 +451,7 @@ async function liveLabels(server: ReturnType<typeof fakeServer>): Promise<Map<st
     mcpServers: r['/api/mcp']?.servers,
     plugins: r['/api/plugins']?.plugins,
     specialists: r['/api/specialists']?.specialists,
+    companies: r['/api/companies']?.companies,
     channels: CHANNELS as never,
     gateways: r['/api/gateways']?.gateways,
     devices: r['/api/devices']?.devices,
@@ -580,6 +607,7 @@ test('every control on every Settings page is a registry row, and every registry
     tools: [() => click(t.mcp.addServer)],
     permissions: [() => click(copy.permissions.rules.add)],
     specialists: [() => click(t.specialists.add), () => click(t.specialists.edit)],
+    companies: [() => click(t.companies.add), () => click(t.companies.edit)],
     schedules: [() => click(t.schedules.change), () => click(t.schedules.repeat.custom).catch(() => {})],
     memory: [() => click('I prefer pnpm')],
     skills: [

@@ -1,3 +1,4 @@
+import type { Company } from '@myrmidon/protocol'
 import { useEffect, useMemo, useState } from 'react'
 import { api, type GatewayInfo, listGateways, type ModelOption, type Specialist } from '../api.ts'
 import { ACCESS_INFO } from '../permissions/describe.ts'
@@ -23,6 +24,7 @@ type Fetched = Pick<
   | 'mcpServers'
   | 'plugins'
   | 'specialists'
+  | 'companies'
   | 'channels'
   | 'gateways'
   | 'devices'
@@ -36,46 +38,61 @@ const ask = <T, R>(load: () => Promise<T>, pick: (r: T) => R | undefined): Promi
 
 /** Every live list the pages load for themselves, from the same endpoints. */
 async function fetchLive(): Promise<Partial<Fetched>> {
-  const [logins, voice, mcpServers, plugins, specialists, channels, gateways, devices, schedules, skills] =
-    await Promise.all([
-      ask(
-        () => api<{ logins: LoginOption[] }>('/api/logins'),
-        (r) => r.logins,
-      ),
-      ask(
-        () => api<{ providers?: VoiceProviderView[]; endpoints?: VoiceEndpointView[] }>('/api/voice'),
-        (r) => r,
-      ),
-      ask(
-        () => api<{ servers: McpServer[] }>('/api/mcp'),
-        (r) => r.servers,
-      ),
-      ask(
-        () => api<{ plugins: PluginEntry[] }>('/api/plugins'),
-        (r) => r.plugins,
-      ),
-      ask(
-        () => api<{ specialists: Specialist[] }>('/api/specialists'),
-        (r) => r.specialists,
-      ),
-      ask(
-        () => api<{ channels: ChannelView[] }>('/api/channels'),
-        (r) => r.channels,
-      ),
-      ask<GatewayInfo[], GatewayInfo[]>(listGateways, (r) => r),
-      ask(
-        () => api<{ devices: DeviceRow[] }>('/api/devices'),
-        (r) => r.devices,
-      ),
-      ask(
-        () => api<{ schedules: ScheduleEntry[] }>('/api/schedules'),
-        (r) => r.schedules,
-      ),
-      ask(
-        () => api<{ skills: SkillEntry[] }>('/api/skills'),
-        (r) => r.skills,
-      ),
-    ])
+  const [
+    logins,
+    voice,
+    mcpServers,
+    plugins,
+    specialists,
+    channels,
+    gateways,
+    devices,
+    schedules,
+    skills,
+    companies,
+  ] = await Promise.all([
+    ask(
+      () => api<{ logins: LoginOption[] }>('/api/logins'),
+      (r) => r.logins,
+    ),
+    ask(
+      () => api<{ providers?: VoiceProviderView[]; endpoints?: VoiceEndpointView[] }>('/api/voice'),
+      (r) => r,
+    ),
+    ask(
+      () => api<{ servers: McpServer[] }>('/api/mcp'),
+      (r) => r.servers,
+    ),
+    ask(
+      () => api<{ plugins: PluginEntry[] }>('/api/plugins'),
+      (r) => r.plugins,
+    ),
+    ask(
+      () => api<{ specialists: Specialist[] }>('/api/specialists'),
+      (r) => r.specialists,
+    ),
+    ask(
+      () => api<{ channels: ChannelView[] }>('/api/channels'),
+      (r) => r.channels,
+    ),
+    ask<GatewayInfo[], GatewayInfo[]>(listGateways, (r) => r),
+    ask(
+      () => api<{ devices: DeviceRow[] }>('/api/devices'),
+      (r) => r.devices,
+    ),
+    ask(
+      () => api<{ schedules: ScheduleEntry[] }>('/api/schedules'),
+      (r) => r.schedules,
+    ),
+    ask(
+      () => api<{ skills: SkillEntry[] }>('/api/skills'),
+      (r) => r.skills,
+    ),
+    ask(
+      () => api<{ companies: Company[] }>('/api/companies'),
+      (r) => r.companies,
+    ),
+  ])
   const list = <T>(x: T[] | undefined) => (Array.isArray(x) ? x : [])
   return {
     logins: list(logins),
@@ -89,6 +106,7 @@ async function fetchLive(): Promise<Partial<Fetched>> {
     devices: list(devices),
     schedules: list(schedules),
     skills: list(skills),
+    companies: list(companies),
   }
 }
 

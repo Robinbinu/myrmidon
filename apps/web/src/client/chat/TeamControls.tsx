@@ -11,6 +11,7 @@ import { MenuItem, MenuList, Popover } from '../ui/Popover.tsx'
 import { agentColor } from '../ui/pixel.tsx'
 import { Button, cn, POPUP, Segmented, Select } from '../ui/primitives.tsx'
 import { AGENT_MIN_WINDOW } from '../ui-config.ts'
+import { CompanyPicker, usePickedCompany } from './CompanyPicker.tsx'
 import { type HelperMode, helperMode, helpersLabel, withHelperMode } from './helpers.ts'
 import { ModelPicker, PickerHost, windowLabel } from './ModelPicker.tsx'
 
@@ -329,32 +330,51 @@ export function HelpersChip(props: {
   const mode = helperMode(config)
   const on = mode !== 'never'
   const choose = (next: HelperMode) => props.onConfig(withHelperMode(config, next, props.models))
+  const company = usePickedCompany(config)
   return (
     <ChipMenu
       label={copy.teamControls.helpers.label}
-      icon={<FEATURE_ICONS.helpers className="size-3.5 shrink-0" />}
-      value={helpersLabel(config)}
+      icon={
+        company ? (
+          <FEATURE_ICONS.company className="size-3.5 shrink-0" />
+        ) : (
+          <FEATURE_ICONS.helpers className="size-3.5 shrink-0" />
+        )
+      }
+      value={company?.name ?? helpersLabel(config)}
       width={380}
     >
       {() => (
         <>
-          <MenuHead title={copy.teamControls.helpers.label} />
-          <MenuList label={copy.teamControls.helpers.label}>
-            {HELPER_MODES.map((h) => (
-              <Option
-                key={h.key}
-                icon={<h.icon className="size-4" />}
-                title={h.title}
-                hint={h.hint}
-                selected={h.key === mode}
-                onSelect={() => choose(h.key)}
-              />
-            ))}
-          </MenuList>
-          {on && (
-            <div className="mt-1.5 rounded-base border border-line bg-surface/60">
-              <HelpersEditor models={props.models} config={config} onConfig={props.onConfig} placement="up" />
-            </div>
+          <div className="mb-1.5 rounded-base border border-line bg-surface/60">
+            <CompanyPicker models={props.models} config={config} onConfig={props.onConfig} placement="up" />
+          </div>
+          {company ? null : (
+            <>
+              <MenuHead title={copy.teamControls.helpers.label} />
+              <MenuList label={copy.teamControls.helpers.label}>
+                {HELPER_MODES.map((h) => (
+                  <Option
+                    key={h.key}
+                    icon={<h.icon className="size-4" />}
+                    title={h.title}
+                    hint={h.hint}
+                    selected={h.key === mode}
+                    onSelect={() => choose(h.key)}
+                  />
+                ))}
+              </MenuList>
+              {on && (
+                <div className="mt-1.5 rounded-base border border-line bg-surface/60">
+                  <HelpersEditor
+                    models={props.models}
+                    config={config}
+                    onConfig={props.onConfig}
+                    placement="up"
+                  />
+                </div>
+              )}
+            </>
           )}
         </>
       )}

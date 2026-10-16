@@ -457,6 +457,10 @@ export interface TeamConfig {
   thinking?: 'low' | 'medium' | 'high'
   /** `always` starts every round as the team; omitted, the lead brings helpers in only when the work needs it. */
   helpers?: 'always'
+  /** A saved company (Settings → Companies) whose roles are the crew while it is picked. */
+  company?: string
+  /** The models a company's smart and fast roles run on; frontier roles run on the lead's. */
+  tierModels?: { smart?: string; fast?: string }
 }
 
 let composerSaving = false
@@ -507,6 +511,14 @@ export const SPECIALISTS = ['researcher', 'coder', 'writer', 'reviewer', 'design
 /** The provider part of a `provider/model` ref. */
 export const providerOf = (ref: string) => ref.slice(0, Math.max(0, ref.indexOf('/')))
 
+function tierModelsOf(raw: unknown): { tierModels?: { smart?: string; fast?: string } } {
+  if (!raw || typeof raw !== 'object') return {}
+  const r = raw as Record<string, unknown>
+  const smart = typeof r.smart === 'string' && r.smart ? r.smart : undefined
+  const fast = typeof r.fast === 'string' && r.fast ? r.fast : undefined
+  return smart || fast ? { tierModels: { ...(smart ? { smart } : {}), ...(fast ? { fast } : {}) } } : {}
+}
+
 /** A usable team config from saved preferences, including the older `auto`/`manual` shape. */
 export function normalizeConfig(raw: Record<string, unknown>, fallbackModel: string): TeamConfig {
   const str = (v: unknown) => (typeof v === 'string' && v ? v : undefined)
@@ -516,7 +528,11 @@ export function normalizeConfig(raw: Record<string, unknown>, fallbackModel: str
   const thinking = ['low', 'medium', 'high'].includes(raw.thinking as string)
     ? { thinking: raw.thinking as 'low' | 'medium' | 'high' }
     : {}
-  const helpers = raw.helpers === 'always' ? { helpers: 'always' as const } : {}
+  const company = {
+    ...(str(raw.company) ? { company: str(raw.company) } : {}),
+    ...tierModelsOf(raw.tierModels),
+  }
+  const helpers = { ...(raw.helpers === 'always' ? { helpers: 'always' as const } : {}), ...company }
   // The default crew from Settings has no roster, only how many crewmates: none means the lead works alone.
   const alone = !Array.isArray(raw.roster) && raw.workers === 0
   const roster = Array.isArray(raw.roster)
@@ -539,7 +555,16 @@ export function normalizeConfig(raw: Record<string, unknown>, fallbackModel: str
       ...thinking,
       ...helpers,
     }
-  if (alone) return { mode: 'orchestrated', leadModel, roster: [], extraWorkers: 0, judgeModel, ...thinking }
+  if (alone)
+    return {
+      mode: 'orchestrated',
+      leadModel,
+      roster: [],
+      extraWorkers: 0,
+      judgeModel,
+      ...thinking,
+      ...company,
+    }
   return {
     mode: 'orchestrated',
     leadModel,
