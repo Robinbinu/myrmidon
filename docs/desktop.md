@@ -70,6 +70,12 @@ it links to: `libonnxruntime.1.dylib`, `libonnxruntime.so.1`, or `onnxruntime.dl
 detector, the turn model and Kitten use it; the build rewrites onnxruntime-node to load them beside the executable,
 since the compiled build would unpack its addon to a temporary folder without the library it links to).
 
+The agents' browser engine, chrome-devtools-mcp (pinned in `packages/runtime/package.json`), runs on Bun: the
+sidecar build copies the package's `build/` folder to `chrome-devtools-mcp/` beside the executable, and the server
+runs its entry script on its own runtime (a compiled Myrmidon acts as the bun CLI with `BUN_BE_BUN=1`).
+`packages/runtime/src/cdm.ts` looks there first, then at `MYR_CDM`, then at the package in `node_modules` (development).
+No Node is needed or shipped.
+
 It builds for the host by default; `bun run desktop:sidecar --target=bun-linux-x64` cross-compiles for another
 platform (`bun-darwin-arm64`, `bun-darwin-x64`, `bun-linux-x64`, `bun-linux-arm64`, `bun-windows-x64`,
 `bun-windows-arm64`). That needs the target's oh-my-pi addon, an optional dependency installed only for the host:

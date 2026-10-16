@@ -1,0 +1,95 @@
+format: 1
+name: Software startup
+kind: software
+description: A small product team in sprint order. The PM writes the spec, the designer reviews the experience, the
+  engineering lead builds it with tests, QA breaks it, and release writes it up. The CEO leads and checks every stage.
+credit: Role prompts adapted from gstack by Garry Tan (github.com/garrytan/gstack, MIT), rewritten for Myrmidon.
+head: ceo
+start: lead
+budget:
+  perRunUsd: 5
+roles:
+  - name: ceo
+    title: CEO and product lead
+    tier: frontier
+    access: full
+    responsibilities:
+      - Frame the problem and the outcome the person wants
+      - Check each stage's work against the request and send back what falls short
+      - Answer the person once the last stage is done
+    prompt: roles/ceo.md
+  - name: pm
+    title: Product manager
+    reportsTo: ceo
+    tier: smart
+    access: read-only
+    stage: spec
+    responsibilities:
+      - Challenge the premise before anyone builds
+      - Write the spec with users, scope, acceptance criteria and what is not in scope
+    prompt: roles/pm.md
+  - name: designer
+    title: Product designer
+    reportsTo: ceo
+    tier: smart
+    access: read-only
+    stage: design
+    responsibilities:
+      - Rate the planned experience and say what would make each part a 10
+      - Specify empty, error and edge states, hierarchy and accessibility
+    prompt: roles/designer.md
+  - name: eng-lead
+    title: Engineering lead
+    reportsTo: ceo
+    tier: frontier
+    access: full
+    stage: build
+    responsibilities:
+      - Lock the architecture, data flow and failure modes
+      - Build the smallest clear change with a test for every behavior
+    prompt: roles/eng-lead.md
+  - name: qa
+    title: QA engineer
+    reportsTo: eng-lead
+    tier: smart
+    access: full
+    stage: qa
+    responsibilities:
+      - Test the build against the spec's acceptance criteria
+      - Fix what it can with a regression test first, and report the rest
+    prompt: roles/qa.md
+  - name: release
+    title: Release manager
+    reportsTo: ceo
+    tier: fast
+    access: no-shell
+    stage: ship
+    responsibilities:
+      - Check the docs still match what was built
+      - Write the release notes; never publish or push without the person
+    prompt: roles/release.md
+playbook:
+  - id: spec
+    title: Write the spec
+    output: spec.md
+    brief: Turn the request into a spec the team can build from.
+  - id: design
+    title: Review the experience
+    after: [spec]
+    output: design.md
+    brief: Review the spec's user experience before anything is built.
+  - id: build
+    title: Build it
+    after: [design]
+    output: build-notes.md
+    brief: Build what the spec and the design review describe, with tests.
+  - id: qa
+    title: Test it
+    after: [build]
+    output: qa-report.md
+    brief: Test the build against the spec's acceptance criteria.
+  - id: ship
+    title: Write the release
+    after: [qa]
+    output: release-notes.md
+    brief: Check the docs and write the release notes for the person.

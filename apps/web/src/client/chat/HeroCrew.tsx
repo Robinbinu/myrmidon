@@ -1,6 +1,8 @@
 import { motionValue, useReducedMotionConfig } from 'motion/react'
 import { type RefObject, useEffect, useMemo, useRef, useState } from 'react'
+import { AvatarScope } from '../ui/avatar-bag.ts'
 import { CursorBody } from '../ui/cursor.tsx'
+import { AgentAvatar } from '../ui/pixel.tsx'
 import { type CREW_BOLDNESS, MASCOT_CREW as K } from '../ui-config.ts'
 import {
   type CrewSignal,
@@ -29,7 +31,8 @@ function laidOut(el: HTMLElement): { x: number; y: number } {
 }
 
 /** The crew of this visit: who they are and where, kept while the person goes to a chat and back, for the settings it was made for. */
-let visit: { key: string; crew: Member[] } | undefined
+let visit: { key: string; crew: Member[]; faces: string } | undefined
+let visits = 0
 
 /**
  * The crew cursors around the new-chat mascot, steering themselves (hero-crew.ts). Their physics runs every frame on
@@ -62,8 +65,11 @@ export function HeroCrew(props: {
   const [crew] = useState(() => {
     if (visit?.key !== key) {
       const picked = crewFor(count, props.names)
+      visits += 1
       visit = {
         key,
+        // Each new crew draws its own faces (ui/avatar-bag.ts), kept while it is kept.
+        faces: `hero:${Date.now().toString(36)}:${visits}`,
         crew: picked.map((p, i) =>
           makeMember(p, startSpot(i, picked.length, K.fallback.face), Math.random, boldness),
         ),
@@ -217,7 +223,7 @@ export function HeroCrew(props: {
   }, [props.knocked])
 
   return (
-    <>
+    <AvatarScope value={visit?.faces ?? 'hero'}>
       {crew.map((m, i) => {
         const v = values[i]
         if (!v) return null
@@ -232,6 +238,7 @@ export function HeroCrew(props: {
             className="absolute left-0 top-0"
           >
             <CursorBody
+              avatar={<AgentAvatar name={m.name} status="idle" size={16} awake />}
               name={m.name}
               color={m.color}
               x={v.x}
@@ -244,6 +251,6 @@ export function HeroCrew(props: {
           </div>
         )
       })}
-    </>
+    </AvatarScope>
   )
 }

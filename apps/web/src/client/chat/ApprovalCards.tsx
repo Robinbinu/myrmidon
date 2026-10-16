@@ -10,6 +10,7 @@ import { BookmarkPlus, Check, ChevronDown, Info, PencilLine, TriangleAlert, X } 
 import { AnimatePresence, motion } from 'motion/react'
 import { type ReactNode, useMemo, useRef, useState } from 'react'
 import { send } from '../api.ts'
+import { decideCompanyProposal } from '../companies.ts'
 import { copy } from '../copy.ts'
 import { useScope } from '../DeviceGate.tsx'
 import { type DiffLine, diffLines } from '../diff.ts'
@@ -712,12 +713,18 @@ export function LoginCards({ state }: { state: ColonyState }) {
           <div className="flex items-center gap-2 text-reading">
             <FEATURE_ICONS.siteSignIn className="size-4 shrink-0 text-accent-fg" />
             <span>
-              <span className="font-semibold">{l.agent}</span> {copy.approvals.login.needsSignIn}{' '}
+              <span className="font-semibold">{l.agent}</span>{' '}
+              {l.kind && l.kind !== 'login'
+                ? copy.approvals.login.needs[l.kind]
+                : copy.approvals.login.needsSignIn}{' '}
               <span className="font-semibold">{l.site}</span>
             </span>
           </div>
           <p className="text-callout leading-relaxed text-fg-2">
-            {l.reason} {copy.approvals.login.instructions(l.agent)}
+            {l.reason}{' '}
+            {l.kind && l.kind !== 'login'
+              ? copy.approvals.login.takeOverInstructions(l.agent)
+              : copy.approvals.login.instructions(l.agent)}
           </p>
           <div className="flex justify-end">
             <Button
@@ -726,7 +733,7 @@ export function LoginCards({ state }: { state: ColonyState }) {
               icon={<FEATURE_ICONS.computer className="size-3.5" />}
               onClick={() =>
                 window.dispatchEvent(
-                  new CustomEvent('myr:open-view', { detail: { view: 'computer', agent: l.agent } }),
+                  new CustomEvent('myr:open-view', { detail: { view: 'browser', agent: l.agent } }),
                 )
               }
             >
@@ -824,6 +831,88 @@ export function MemoryCards({ state }: { state: ColonyState }) {
               icon={<Check className="size-3.5" />}
             >
               {copy.approvals.memory.keep}
+            </Button>
+          </div>
+        </motion.div>
+      ))}
+    </AnimatePresence>
+  )
+}
+
+/**
+ * Changes to the saved company the lead proposed after a run: what it would change, why, the evidence it saw and the
+ * role's record as the harness counted it. Approving saves a new version of the company; nothing changes otherwise.
+ */
+export function CompanyProposalCards({ state, colonyId }: { state: ColonyState; colonyId: string }) {
+  const t = copy.approvals.company
+  const toast = useToast()
+  const [busy, setBusy] = useState<string>()
+  const pending = Object.values(state.companyProposals ?? {}).filter((p) => !p.decided)
+  const decide = async (id: string, approve: boolean) => {
+    setBusy(id)
+    try {
+      const r = await decideCompanyProposal(colonyId, id, approve)
+      toast(r.version ? t.approved(r.version) : t.declined, approve ? 'success' : 'info')
+    } catch (err) {
+      toast(String((err as Error).message), 'error')
+    } finally {
+      setBusy(undefined)
+    }
+  }
+  return (
+    <AnimatePresence initial={false}>
+      {pending.map((p) => (
+        <motion.div
+          key={p.id}
+          layout
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.98 }}
+          transition={spring}
+          className="flex flex-col gap-2.5 rounded-2xl border border-accent/30 bg-accent-soft/40 px-4 py-3"
+        >
+          <div className="flex items-center gap-2 text-reading">
+            <FEATURE_ICONS.company className="size-4 shrink-0 text-accent-fg" />
+            <span>{t.wants(p.agent, t.changes[p.change], p.role, p.company.name)}</span>
+          </div>
+          <p className="rounded-xl bg-surface px-3 py-2 text-reading">
+            {p.title ? <span className="mr-1.5 section-label text-muted">{p.title}</span> : null}
+            {p.why}
+          </p>
+          {p.evidence && (
+            <p className="text-small text-muted">
+              <span className="section-label">{t.evidence}</span> {p.evidence}
+            </p>
+          )}
+          {p.record && (
+            <p className="text-small text-muted">
+              {t.record(
+                p.record.tasks,
+                p.record.verified,
+                p.record.sentBack,
+                p.record.turns,
+                `$${p.record.costUsd.toFixed(2)}`,
+              )}
+            </p>
+          )}
+          <div className="flex justify-end gap-2">
+            <Button
+              size="sm"
+              variant="borderless"
+              disabled={busy === p.id}
+              onClick={() => void decide(p.id, false)}
+              icon={<X className="size-3.5" />}
+            >
+              {t.decline}
+            </Button>
+            <Button
+              size="sm"
+              variant="primary"
+              disabled={busy === p.id}
+              onClick={() => void decide(p.id, true)}
+              icon={<Check className="size-3.5" />}
+            >
+              {t.approve}
             </Button>
           </div>
         </motion.div>

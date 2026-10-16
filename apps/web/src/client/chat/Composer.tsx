@@ -95,6 +95,8 @@ export function TeamSettings(props: {
   onReview?(mode: ReviewMode): void
   /** The chat's own spend caps, in the composer: not a default for every chat, so Settings leaves it out. */
   budget?: ChatBudgetControl
+  /** The company picker, in the composer: a company is picked per chat, never a default crew in Settings. */
+  companies?: boolean
 }) {
   const { config } = props
   const set = (patch: Partial<TeamConfig>) => props.onConfig({ ...config, ...patch })
@@ -179,56 +181,59 @@ export function TeamSettings(props: {
         <p className="-mt-1 px-1 text-footnote leading-snug text-muted">{copy.composer.sameProvider}</p>
       )}
 
-      <div className={GROUP}>
-        <Row label={copy.composer.helpers} hint={helpersHint(config)} setting="team.helpers">
-          <Segmented
-            id="composer-helpers"
-            value={helperMode(config)}
-            options={[...HELPER_MODES]}
-            onChange={(mode) => props.onConfig(withHelperMode(config, mode, props.models))}
-          />
-        </Row>
-        {helperMode(config) !== 'never' && (
-          <div {...settingRow('team.helperList')}>
-            <button
-              type="button"
-              onClick={() => setHelpersOpen(!helpersOpen)}
-              aria-expanded={helpersOpen}
-              className="flex min-h-11 w-full items-center gap-2 px-3 text-left"
-            >
-              <ChevronRight
-                className={cn(
-                  'size-3.5 shrink-0 text-muted transition-transform',
-                  helpersOpen && 'rotate-90',
+      {
+        <div className={GROUP}>
+          <Row label={copy.composer.helpers} hint={helpersHint(config)} setting="team.helpers">
+            <Segmented
+              id="composer-helpers"
+              value={helperMode(config)}
+              options={[...HELPER_MODES]}
+              onChange={(mode) => props.onConfig(withHelperMode(config, mode, props.models))}
+            />
+          </Row>
+          {helperMode(config) !== 'never' && (
+            <div {...settingRow('team.helperList')}>
+              <button
+                type="button"
+                onClick={() => setHelpersOpen(!helpersOpen)}
+                aria-expanded={helpersOpen}
+                className="flex min-h-11 w-full items-center gap-2 px-3 text-left"
+              >
+                <ChevronRight
+                  className={cn(
+                    'size-3.5 shrink-0 text-muted transition-transform',
+                    helpersOpen && 'rotate-90',
+                  )}
+                />
+                <span className="flex-1 text-body">{copy.composer.helperList}</span>
+                <span className="text-small text-muted">{helpersLabel(config)}</span>
+              </button>
+              <AnimatePresence initial={false}>
+                {helpersOpen && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    // Clipped only while it folds, so the helpers' model lists can open past its edge.
+                    animate={{ height: 'auto', opacity: 1, transitionEnd: { overflow: 'visible' } }}
+                    exit={{ height: 0, opacity: 0, overflow: 'hidden' }}
+                    transition={{ duration: 0.18 }}
+                    className="overflow-hidden"
+                  >
+                    <div className="divide-y divide-line border-t border-line">
+                      <HelpersEditor
+                        models={props.models}
+                        config={config}
+                        onConfig={props.onConfig}
+                        {...(props.placement ? { placement: props.placement } : {})}
+                        {...(props.companies ? { companies: true } : {})}
+                      />
+                    </div>
+                  </motion.div>
                 )}
-              />
-              <span className="flex-1 text-body">{copy.composer.helperList}</span>
-              <span className="text-small text-muted">{helpersLabel(config)}</span>
-            </button>
-            <AnimatePresence initial={false}>
-              {helpersOpen && (
-                <motion.div
-                  initial={{ height: 0, opacity: 0 }}
-                  // Clipped only while it folds, so the helpers' model lists can open past its edge.
-                  animate={{ height: 'auto', opacity: 1, transitionEnd: { overflow: 'visible' } }}
-                  exit={{ height: 0, opacity: 0, overflow: 'hidden' }}
-                  transition={{ duration: 0.18 }}
-                  className="overflow-hidden"
-                >
-                  <div className="divide-y divide-line border-t border-line">
-                    <HelpersEditor
-                      models={props.models}
-                      config={config}
-                      onConfig={props.onConfig}
-                      {...(props.placement ? { placement: props.placement } : {})}
-                    />
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-        )}
-      </div>
+              </AnimatePresence>
+            </div>
+          )}
+        </div>
+      }
       {props.budget && <ChatBudget {...props.budget} />}
     </div>
   )
@@ -633,6 +638,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                     {...(review ? { review } : {})}
                     onReview={changeReview}
                     {...(props.budget ? { budget: props.budget } : {})}
+                    companies
                   />
                 </PickerHost.Provider>
               </div>

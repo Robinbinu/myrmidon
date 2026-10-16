@@ -54,6 +54,13 @@ const roundAccess = Schema.object({
 })
 
 /** How a colony (or a chat round in it) was set up: everything needed to run or resume it. */
+const companyRef = Schema.object({
+  id: str(),
+  name: str(),
+  version: Schema.natural().required(),
+  hash: str(),
+})
+
 const colonySpec = Schema.object({
   name: str(),
   mission: str(),
@@ -145,6 +152,7 @@ const colonySpec = Schema.object({
   ),
   prewalk: Schema.string(),
   access: optional(roundAccess),
+  company: optional(companyRef),
 })
 
 const defs: EventTypeDefinition[] = [
@@ -202,7 +210,13 @@ const defs: EventTypeDefinition[] = [
     type: 'login/requested',
     version: 1,
     actors: ['agent'],
-    schema: Schema.object({ agent: str(), site: str(), url: str(), reason: str() }),
+    schema: Schema.object({
+      agent: str(),
+      site: str(),
+      url: str(),
+      reason: str(),
+      kind: optional(Schema.union(['login', 'captcha', '2fa', 'payment', 'confirm', 'stuck'])),
+    }),
   },
   {
     type: 'login/finished',
@@ -277,6 +291,45 @@ const defs: EventTypeDefinition[] = [
     version: 1,
     actors: ['agent'],
     schema: Schema.object({ agent: str(), name: str(), file: Schema.string() }),
+  },
+  {
+    type: 'company/proposed',
+    version: 1,
+    actors: ['agent'],
+    schema: Schema.object({
+      id: str(),
+      agent: str(),
+      company: companyRef.required(),
+      change: oneOf('hire', 'fire', 'rerole'),
+      role: str(),
+      why: str(),
+      evidence: Schema.string().default(''),
+      title: Schema.string(),
+      tier: Schema.union(['frontier', 'smart', 'fast']),
+      access: Schema.union(['full', 'no-shell', 'review', 'read-only']),
+      prompt: Schema.string(),
+      responsibilities: Schema.array(Schema.string()),
+      record: optional(
+        Schema.object({
+          tasks: Schema.natural().required(),
+          verified: Schema.natural().required(),
+          sentBack: Schema.natural().required(),
+          turns: Schema.natural().required(),
+          costUsd: Schema.number().required(),
+        }),
+      ),
+    }),
+  },
+  {
+    type: 'company/decided',
+    version: 1,
+    actors: ['user'],
+    schema: Schema.object({
+      id: str(),
+      approved: Schema.boolean().required(),
+      version: Schema.natural(),
+      error: Schema.string(),
+    }),
   },
   {
     type: 'memory/decided',

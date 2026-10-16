@@ -5,6 +5,7 @@ import { useMemo, useRef, useState } from 'react'
 import type { ModelOption } from '../api.ts'
 import { copy } from '../copy.ts'
 import { useSpecialists } from '../specialists.ts'
+import { CharacterNote } from '../ui/crew.tsx'
 import { useDialog } from '../ui/dialog.ts'
 import { compact } from '../ui/hooks.ts'
 import { AgentAvatar, DotMatrix } from '../ui/pixel.tsx'
@@ -106,6 +107,9 @@ export function AgentSheet(props: {
               {copy.status.agent[phase]}
             </div>
             <div className="mt-0.5 truncate font-mono text-footnote text-muted">{agent.info.model}</div>
+            {!lead && props.name !== 'judge' && (
+              <CharacterNote name={props.name} status={phase} className="mt-1.5" />
+            )}
           </div>
           <IconButton label={copy.agentSheet.close} onClick={props.onClose}>
             <X className="size-4" />

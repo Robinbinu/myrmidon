@@ -43,6 +43,7 @@ import {
   type RoundAccess,
   rulesIn,
   SYSTEM,
+  type TakeoverKind,
   type TaskSnapshot,
   tightened,
   toolHidden,
@@ -218,6 +219,8 @@ export interface RunOptions {
  * Prewalk's hand-off points: the lead's first change to the work (a file edit or write, or a task for the crew) means
  * the plan is made. Like omp's, read-only steps and shell commands (often just looking) do not count.
  */
+/** Who put a company's stage tasks on the board, as the task events say. */
+const PLAYBOOK = 'playbook'
 const PREWALK_AFTER = new Set(['fs_write', 'fs_edit', 'ast_edit', 'create_task'])
 /** Tools that answer or ask the person: calling one is not work toward a goal (see `_workedSince`). */
 const ANSWERING = new Set(['reply_user', 'reply_person', 'ask_user'])
@@ -310,6 +313,8 @@ export class ColonyRun implements ColonyHost {
   private _mirrorTimer?: ReturnType<typeof setTimeout>
   private _offLog?: () => void
   private _seed?: () => Promise<void>
+  /** The spec's opening tasks, put on the board before their assignees existed: announced once they do. */
+  private _seeded: string[] = []
   /** Set while the colony waits on the person's answer; wakes for agents are held until it arrives. */
   private _awaiting = false
   private _held: ({ name: string; text: string; trigger: string } & Delivery)[] = []
@@ -541,7 +546,7 @@ export class ColonyRun implements ColonyHost {
     }
   }
 
-  async requestLogin(agent: string, site: string, url: string, reason: string) {
+  async requestLogin(agent: string, site: string, url: string, reason: string, kind?: TakeoverKind) {
     if (this._logins.has(agent)) throw new Error('you are already waiting for a sign-in')
     const outcome = new Promise<'handed-back' | 'timeout' | 'stopped'>((resolve) => {
       const timer = setTimeout(() => void this.finishLogin(agent, 'timeout'), LOGIN_MS)
@@ -553,7 +558,7 @@ export class ColonyRun implements ColonyHost {
     await this.append({
       type: 'login/requested',
       actor: agentActor(agent),
-      payload: { agent, site, url, reason },
+      payload: { agent, site, url, reason, ...(kind && kind !== 'login' ? { kind } : {}) },
     })
     return outcome
   }
@@ -1290,6 +1295,7 @@ export class ColonyRun implements ColonyHost {
       ...(this.computer ? { computerUse: true } : {}),
       ...(this.spec.goal ? { goal: this.spec.goal } : {}),
       ...(this.spec.prewalk ? { prewalk: this.spec.prewalk } : {}),
+      ...(this.spec.company ? { company: this.spec.company } : {}),
       access: this.access(),
     }
   }
@@ -1317,6 +1323,7 @@ export class ColonyRun implements ColonyHost {
     this._listen()
     await this.append({ type: 'round/started', actor: SYSTEM, payload: this._specPayload() })
     await this._seed?.()
+    await this._seedTasks()
     await this._launch(this.spec.budget.wallMs, undefined, {}, true)
   }
 
@@ -1345,6 +1352,7 @@ export class ColonyRun implements ColonyHost {
     this._listen()
     await this.append({ type: 'colony/created', actor: SYSTEM, payload: this._specPayload() })
     await this._seed?.()
+    await this._seedTasks()
     await this._launch(this.spec.budget.wallMs)
   }
 
@@ -1436,6 +1444,13 @@ export class ColonyRun implements ColonyHost {
     })
     if (resumedBecause) await this._wakeAfterResume(resumedBecause)
     for (const a of this._agents.values()) this._catchUp(a.name)
+    // Opening tasks went on the board before their assignees existed: each hears of its task now, if it is ready.
+    for (const id of this._seeded.splice(0)) {
+      const task = this._state.tasks[id]
+      if (!task) continue
+      this._assigned.delete(id)
+      this._announceTask({ task, by: PLAYBOOK })
+    }
     this.runtime.track?.(this.done)
     for (const a of this._agents.values()) this._runAgent(a, !resumedBecause)
     this._timers.push(setInterval(() => void this._observe(), this.spec.observer.intervalMs))
@@ -1695,6 +1710,18 @@ export class ColonyRun implements ColonyHost {
     if (finish && this._settling) return this._closeSettled()
     await this.append({ type: 'colony/stopped', actor: SYSTEM, payload: { reason } })
     await this._end()
+  }
+
+  /** The spec's opening tasks (a company's playbook) go on the board after the seed and before any agent starts. */
+  private async _seedTasks() {
+    const tasks = this.spec.tasks ?? []
+    if (!tasks.length) return
+    await this.appendAtomic((s) =>
+      tasks
+        .filter((t) => !s.tasks[t.id])
+        .map((task) => ({ type: 'task/changed', actor: SYSTEM, payload: { task, by: PLAYBOOK } })),
+    )
+    this._seeded = tasks.map((t) => t.id)
   }
 
   /** Runs `seed` right after colony/created, before any agent starts (used to carry files between chat rounds). */

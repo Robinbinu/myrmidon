@@ -59,7 +59,7 @@ const FILE_ACTIONS: Record<string, string> = {
   find: 'search',
   ast_grep: 'search',
   ast_edit: 'edit',
-  browser_upload: 'upload',
+  browser_files: 'upload',
 }
 
 const str = (v: unknown) => (typeof v === 'string' ? v : undefined)
@@ -95,6 +95,8 @@ export function auditCall(tool: string, args: unknown): Pick<AuditEntry, 'kind' 
   if (tool === 'browser_open') return { kind: 'url', action: 'open', target: str(a.url) ?? '' }
   if (tool === 'request_login')
     return { kind: 'url', action: 'sign in', target: str(a.url) ?? str(a.site) ?? '' }
+  if (tool === 'request_takeover')
+    return { kind: 'url', action: 'hand over', target: str(a.url) ?? str(a.site) ?? '' }
   if (tool === 'web_search') return { kind: 'search', action: 'search', target: str(a.query) ?? '' }
   return { kind: 'other', action: 'call', target: `${tool} ${short(args)}`.trim() }
 }
@@ -175,13 +177,7 @@ export function auditOf(events: readonly MyrEvent[]): Audit {
 }
 
 /** Browser actions that act on a page (a click can submit a form, typing can fill one), unlike reading it. */
-const BROWSER_ACTS = new Set([
-  'browser_click',
-  'browser_type',
-  'browser_press',
-  'browser_upload',
-  'browser_eval',
-])
+const BROWSER_ACTS = new Set(['browser_act', 'browser_files', 'browser_debug'])
 
 /**
  * Calls that may have changed something outside Myrmidon and cannot be rewound: commands, MCP tools, and actions
@@ -197,7 +193,8 @@ export function outsideEffects(events: readonly MyrEvent[]): AuditEntry[] {
       (e.kind === 'command' ||
         e.tool.startsWith('mcp__') ||
         BROWSER_ACTS.has(e.tool) ||
-        e.tool === 'request_login'),
+        e.tool === 'request_login' ||
+        e.tool === 'request_takeover'),
   )
 }
 
@@ -206,7 +203,7 @@ export function describeEffect(e: AuditEntry): string {
   const what =
     e.kind === 'command'
       ? `${e.action === 'serve' ? 'started' : 'ran'} \`${e.target}\``
-      : e.tool.startsWith('browser_') || e.tool === 'request_login'
+      : e.tool.startsWith('browser_') || e.tool === 'request_login' || e.tool === 'request_takeover'
         ? `${e.tool.replace(/^browser_/, '')} on a web page ${e.target.replace(/^\S+\s*/, '')}`.trim()
         : `called ${e.target}`
   return `${what}${e.ok === undefined ? ' (still running when it stopped)' : ''}`

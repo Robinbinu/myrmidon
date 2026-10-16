@@ -9,7 +9,15 @@
  *   Mac that downloaded it calls it damaged; sealed, it is an unidentified developer's app that can be allowed.
  */
 import { spawnSync } from 'node:child_process'
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import {
+  copyFileSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs'
 import { join } from 'node:path'
 import config from '../electrobun.config.ts'
 import { desktopCopy } from '../src/copy.ts'
@@ -81,6 +89,9 @@ function signAdHoc(path: string) {
   console.log(desktopCopy.build.signed(path))
 }
 
+/** Folders the sidecar runs from besides its own files: the agents' browser engine. */
+const SIDECAR_FOLDERS = ['chrome-devtools-mcp']
+
 function copySidecar(resources: string) {
   const dist = sidecarDist(join(import.meta.dir, '..'), platform, arch)
   const executable = executableName('myrmidon', platform)
@@ -92,5 +103,11 @@ function copySidecar(resources: string) {
   const target = join(resources, 'app', 'sidecar')
   mkdirSync(target, { recursive: true })
   for (const name of files) copyFileSync(join(dist, name), join(target, name))
+  // The agents' browser engine (build-sidecar.ts), as a folder beside the executable.
+  for (const folder of SIDECAR_FOLDERS) {
+    if (!existsSync(join(dist, folder)))
+      throw new Error(desktopCopy.build.sidecarMissing(join(dist, folder), platform))
+    cpSync(join(dist, folder), join(target, folder), { recursive: true })
+  }
   console.log(desktopCopy.build.copied(target))
 }

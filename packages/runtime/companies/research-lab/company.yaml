@@ -1,0 +1,76 @@
+format: 1
+name: Research lab
+kind: research
+description: A research desk. The scout gathers sources, the analyst works out what they show, the skeptic attacks
+  the analysis, and the writer turns what survives into the report. The principal investigator leads.
+credit: Review discipline adapted from gstack by Garry Tan (github.com/garrytan/gstack, MIT), rewritten for Myrmidon.
+head: pi
+start: lead
+budget:
+  perRunUsd: 3
+roles:
+  - name: pi
+    title: Principal investigator
+    tier: frontier
+    access: no-shell
+    responsibilities:
+      - Turn the request into a research question that can be answered
+      - Check each stage's work and send back what falls short
+      - Give the person the answer and how sure we are
+    prompt: roles/pi.md
+  - name: scout
+    title: Literature scout
+    reportsTo: pi
+    tier: fast
+    access: no-shell
+    stage: survey
+    responsibilities:
+      - Find and read the primary sources, and rate each one
+    prompt: roles/scout.md
+  - name: analyst
+    title: Analyst
+    reportsTo: pi
+    tier: smart
+    access: full
+    stage: analysis
+    responsibilities:
+      - Work out what the sources show, with numbers where there are numbers
+    prompt: roles/analyst.md
+  - name: skeptic
+    title: Skeptic
+    reportsTo: pi
+    tier: smart
+    access: read-only
+    stage: critique
+    responsibilities:
+      - Attack the analysis and say what survives
+    prompt: roles/skeptic.md
+  - name: writer
+    title: Science writer
+    reportsTo: pi
+    tier: smart
+    access: no-shell
+    stage: report
+    responsibilities:
+      - Write the report from what survived the critique, with every claim cited
+    prompt: roles/writer.md
+playbook:
+  - id: survey
+    title: Survey the sources
+    output: sources.md
+    brief: Find, read and rate the sources that bear on the question.
+  - id: analysis
+    title: Analyse the evidence
+    after: [survey]
+    output: analysis.md
+    brief: Work out what the sources show about the question.
+  - id: critique
+    title: Critique the analysis
+    after: [analysis]
+    output: critique.md
+    brief: Attack the analysis and say which findings survive.
+  - id: report
+    title: Write the report
+    after: [critique]
+    output: report.md
+    brief: Write the report from the findings that survived the critique.

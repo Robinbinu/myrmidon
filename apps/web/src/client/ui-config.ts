@@ -32,6 +32,8 @@ export const DELETE_TITLES_SHOWN = 5
  * request is 9–12k tokens, a helper's up to 26k.
  */
 export const AGENT_MIN_WINDOW = 32_000
+/** How long the crew panel waits after the last change of company or model before asking what a run would cost. */
+export const COMPANY_ESTIMATE_DEBOUNCE_MS = 300
 /** The shortest a model picker's list gets before it opens the other way. */
 export const MODEL_LIST_MIN_PX = 160
 /** Space kept clear above the composer's team panel, so its heading never slides under the chat's top edge. */
@@ -120,6 +122,37 @@ export const DIFF_MAX_CELLS = 4_000_000
 /** A folder with more changed files than this starts folded in change lists (often caches or build output). */
 export const FOLDER_FOLD_AT = 10
 
+/* ------------------------------------------------------------------ visual answers */
+
+/**
+ * The largest source each visual block draws, in characters: past it the block stays as code. Specs past these are
+ * rarely a reply's figure; they cost a slow first draw on every scroll past the message.
+ */
+export const VISUAL_MAX_CHARS = {
+  chart: 200_000,
+  mermaid: 20_000,
+  table: 300_000,
+  tree: 300_000,
+  svg: 200_000,
+  widget: 300_000,
+} as const
+/** A chart's data rows, and a table's rows and columns, past which the block stays as code. */
+export const CHART_MAX_ROWS = 5_000
+export const TABLE_MAX_ROWS = 2_000
+export const TABLE_MAX_COLUMNS = 40
+/** A table shows its filter box from this many rows, and this many rows before "Show all". */
+export const TABLE_FILTER_FROM = 8
+export const TABLE_ROWS_SHOWN = 50
+/** A JSON tree opens this many levels deep, and lists this many entries of an array or object before "more". */
+export const TREE_OPEN_DEPTH = 2
+export const TREE_ENTRIES_SHOWN = 100
+/** The height a chart draws at, and how tall a widget may grow before it scrolls inside its frame. */
+export const CHART_HEIGHT_PX = 260
+export const WIDGET_MIN_PX = 80
+export const WIDGET_MAX_PX = 640
+/** The largest picture a reply may carry inline as a data: address (base64 characters). */
+export const INLINE_IMAGE_MAX_CHARS = 2_000_000
+
 /* ------------------------------------------------------------------ agents and the mascot */
 
 /** The colours the mascot can rest in (Settings → You & mascot); its moods still bring their own. */
@@ -139,6 +172,28 @@ export const GREETING_RETRY_MS = 3_000
 
 /** How long an agent sits idle before its face dozes off. */
 export const AGENT_DOZE_MS = 15_000
+
+/** The worker characters (ui/personas.ts, ui/crew.tsx) and how they are handed out (ui/avatar-bag.ts). */
+export const AVATARS = {
+  /** How many of the latest personas a new crew avoids, across rounds and chats. */
+  history: 16,
+  /** How many crews' personas this browser remembers, so an agent keeps its look across reloads. */
+  keepScopes: 300,
+  /** An emote bubble shows this long after the agent changes state, and only on avatars at least this big (px). */
+  emoteMs: 1800,
+  emoteMinSize: 28,
+  /** How long one cycle of each tempo's motion takes, in s; glances and the working scan follow the same tempo. */
+  tempo: { slow: 1.35, steady: 1, brisk: 0.7 },
+  /** One cycle of each motion at the steady tempo, in s. */
+  cycle: { idle: 3.6, work: 1.1, done: 0.7, error: 0.55 },
+  /** How far the eyes travel when they look about, in the character's 100-unit box. */
+  look: { glance: 2.5, scan: 3.5, focus: 3, up: 3.5 },
+  /** How often idle eyes glance, and working eyes step, at the steady tempo, in ms. */
+  glanceMs: 2600,
+  scanMs: 480,
+  /** The lead's avatar: the mascot's screen at avatar size, its LED grid this many cells across (pitch as the logo). */
+  leadCols: 12,
+} as const
 
 /** Resting the pointer on the mascot's screen this long counts as a pat. */
 export const MASCOT_PAT_MS = 700

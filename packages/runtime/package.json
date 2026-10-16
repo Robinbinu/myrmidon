@@ -20,6 +20,7 @@
     "@oh-my-pi/pi-utils": "18.11.1",
     "@oh-my-pi/snapcompact": "18.11.1",
     "baileys": "7.0.0-rc14",
+    "chrome-devtools-mcp": "1.11.0",
     "imapflow": "2.0.5",
     "kitten-tts-js": "0.1.2",
     "mailparser": "3.9.28",

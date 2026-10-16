@@ -63,10 +63,10 @@ export const LEAVE_PAGE = 'mod+.'
  * The agents' computers, like Manus: pick an agent with a browser open and watch its tab live, with its cursor
  * flying to what it clicks. Take control to drive the page yourself; hand it back and the agent carries on.
  */
-type Keyframe = EventPayloads['browser/keyframe'] & { seq: number; time: string }
+export type Keyframe = EventPayloads['browser/keyframe'] & { seq: number; time: string }
 
 /** Every browser keyframe in the log, per agent, oldest first. */
-function keyframesOf(events: readonly MyrEvent[]): Map<string, Keyframe[]> {
+export function keyframesOf(events: readonly MyrEvent[]): Map<string, Keyframe[]> {
   const out = new Map<string, Keyframe[]>()
   for (const e of events) {
     if (e.type !== 'browser/keyframe') continue
@@ -214,6 +214,22 @@ function AgentScreen(props: {
         </div>
       )}
       {shown === 'browser' && (
+        <div className="flex justify-end">
+          <Button
+            size="sm"
+            variant="push"
+            icon={<FEATURE_ICONS.browser className="size-3.5" />}
+            onClick={() =>
+              window.dispatchEvent(
+                new CustomEvent('myr:open-view', { detail: { view: 'browser', agent: props.tab.agent } }),
+              )
+            }
+          >
+            {copy.computer.place.openInBrowser}
+          </Button>
+        </div>
+      )}
+      {shown === 'browser' && (
         <LiveTab
           colonyId={props.colonyId}
           agent={props.tab.agent}
@@ -326,7 +342,7 @@ function ScreenTitle(props: { agent: string; what: string }) {
   )
 }
 
-function LiveTab({
+export function LiveTab({
   colonyId,
   agent,
   live,
@@ -484,6 +500,7 @@ function LiveTab({
       <div className="truncate rounded-xl border border-line bg-fill px-2.5 py-1 font-mono text-footnote text-fg-2">
         {(replaying ? replaying.url : page.url) || 'about:blank'}
       </div>
+      <p className="text-footnote text-muted">{copy.computer.ownBrowser}</p>
       <div
         ref={screen}
         tabIndex={controlling ? 0 : -1}
@@ -586,6 +603,7 @@ function LiveTab({
               x={(replaying?.cursor?.x ?? cursor.x) * scale}
               y={(replaying?.cursor?.y ?? cursor.y) * scale}
               clicking={cursor.clicking}
+              avatar={<AgentAvatar name={agent} status="working" size={16} awake />}
             />
           </div>
         )}

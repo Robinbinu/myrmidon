@@ -1,0 +1,91 @@
+format: 1
+name: Marketing agency
+kind: marketing
+description: A campaign team. The strategist writes the brief, the copywriter and the art director work from it side
+  by side, the editor checks claims and brand, and the channel manager plans the launch. The account director leads.
+credit: Stage discipline adapted from gstack by Garry Tan (github.com/garrytan/gstack, MIT), rewritten for Myrmidon.
+head: director
+start: lead
+budget:
+  perRunUsd: 3
+roles:
+  - name: director
+    title: Account director
+    tier: frontier
+    access: no-shell
+    responsibilities:
+      - Hold the campaign to the client's goal and audience
+      - Check each stage's work and send back what falls short
+      - Present the campaign to the person
+    prompt: roles/director.md
+  - name: strategist
+    title: Strategist
+    reportsTo: director
+    tier: smart
+    access: no-shell
+    stage: brief
+    responsibilities:
+      - Research the audience, the market and the competition
+      - Write the creative brief with one message and the proof behind it
+    prompt: roles/strategist.md
+  - name: copywriter
+    title: Copywriter
+    reportsTo: director
+    tier: smart
+    access: no-shell
+    stage: copy
+    responsibilities:
+      - Write the campaign's words for each channel in the brief
+    prompt: roles/copywriter.md
+  - name: art-director
+    title: Art director
+    reportsTo: director
+    tier: smart
+    access: no-shell
+    stage: creative
+    responsibilities:
+      - Set the visual direction and describe each asset precisely
+    prompt: roles/art-director.md
+  - name: editor
+    title: Editor and brand reviewer
+    reportsTo: director
+    tier: smart
+    access: read-only
+    stage: review
+    responsibilities:
+      - Check every claim, the brand voice and the legal risks
+    prompt: roles/editor.md
+  - name: channels
+    title: Channel manager
+    reportsTo: director
+    tier: fast
+    access: no-shell
+    stage: launch
+    responsibilities:
+      - Plan where, when and how the campaign runs, and how it is measured
+    prompt: roles/channels.md
+playbook:
+  - id: brief
+    title: Write the creative brief
+    output: brief.md
+    brief: Research the audience and write the brief the campaign is built from.
+  - id: copy
+    title: Write the copy
+    after: [brief]
+    output: copy.md
+    brief: Write the campaign's copy for each channel in the brief.
+  - id: creative
+    title: Set the visual direction
+    after: [brief]
+    output: creative.md
+    brief: Set the visual direction and describe each asset.
+  - id: review
+    title: Review claims and brand
+    after: [copy, creative]
+    output: review.md
+    brief: Check the copy and creative against the brief, the facts and the brand.
+  - id: launch
+    title: Plan the launch
+    after: [review]
+    output: launch-plan.md
+    brief: Plan the channels, schedule and measures for the reviewed campaign.

@@ -2,6 +2,8 @@ import { ChevronDown, Gauge, Minus, Plus, Sparkles, X } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { type ReactNode, useRef, useState } from 'react'
 import { type ModelOption, type ReviewMode, type RosterEntry, SPECIALISTS, type TeamConfig } from '../api.ts'
+import { OPEN_SETTINGS_EVENT } from '../ComputerUse.tsx'
+import { useCompanies } from '../companies.ts'
 import { copy } from '../copy.ts'
 import type { SettingId } from '../settings/registry.ts'
 import { settingRow } from '../settings/Setting.tsx'
@@ -11,6 +13,7 @@ import { MenuItem, MenuList, Popover } from '../ui/Popover.tsx'
 import { agentColor } from '../ui/pixel.tsx'
 import { Button, cn, POPUP, Segmented, Select } from '../ui/primitives.tsx'
 import { AGENT_MIN_WINDOW } from '../ui-config.ts'
+import { CompanyChooser, styleOf, usePickedCompany } from './CompanyChooser.tsx'
 import { type HelperMode, helperMode, helpersLabel, withHelperMode } from './helpers.ts'
 import { ModelPicker, PickerHost, windowLabel } from './ModelPicker.tsx'
 import { effectiveName, thinkingFit } from './thinking.ts'
@@ -358,11 +361,18 @@ export function HelpersChip(props: {
   const mode = helperMode(config)
   const on = mode !== 'never'
   const choose = (next: HelperMode) => props.onConfig(withHelperMode(config, next, props.models))
+  const company = usePickedCompany(config)
   return (
     <ChipMenu
       label={copy.teamControls.helpers.label}
-      icon={<FEATURE_ICONS.helpers className="size-3.5 shrink-0" />}
-      value={helpersLabel(config)}
+      icon={
+        company ? (
+          <FEATURE_ICONS.company className="size-3.5 shrink-0" />
+        ) : (
+          <FEATURE_ICONS.helpers className="size-3.5 shrink-0" />
+        )
+      }
+      value={company?.name ?? helpersLabel(config)}
       width={380}
     >
       {() => (
@@ -382,7 +392,13 @@ export function HelpersChip(props: {
           </MenuList>
           {on && (
             <div className="mt-1.5 rounded-base border border-line bg-surface/60">
-              <HelpersEditor models={props.models} config={config} onConfig={props.onConfig} placement="up" />
+              <HelpersEditor
+                models={props.models}
+                config={config}
+                onConfig={props.onConfig}
+                placement="up"
+                companies
+              />
             </div>
           )}
         </>
@@ -473,10 +489,14 @@ export function HelpersEditor(props: {
   config: TeamConfig
   onConfig(c: TeamConfig): void
   placement?: 'up' | 'down'
+  /** Company as a third style, in the composer: a company is chosen per chat, never as Settings' default crew. */
+  companies?: boolean
 }) {
   const { config } = props
   const set = (patch: Partial<TeamConfig>) => props.onConfig({ ...config, ...patch })
   const swarm = config.mode === 'swarm'
+  const { companies } = useCompanies()
+  const style = props.companies ? styleOf(config) : config.mode
   const setRow = (i: number, patch: Partial<RosterEntry>) =>
     set({ roster: config.roster.map((r, j) => (j === i ? { ...r, ...patch } : r)) })
   const saved = useSpecialists()
@@ -503,8 +523,22 @@ export function HelpersEditor(props: {
     ids.current.splice(i, 1)
     set({ roster: config.roster.filter((_, j) => j !== i) })
   }
-  const switchMode = (mode: TeamConfig['mode']) => {
-    if (mode === config.mode) return
+  const switchStyle = (next: TeamConfig['mode'] | 'company') => {
+    if (next === style) return
+    if (next === 'company') {
+      // The company last picked, or the first one; with none saved yet, Settings → Companies to make one.
+      const id = config.company ?? lastCompany.current ?? companies[0]?.id
+      if (!id) return void window.dispatchEvent(new CustomEvent(OPEN_SETTINGS_EVENT, { detail: 'companies' }))
+      return set({ mode: 'orchestrated', company: id })
+    }
+    const { company, tierModels: _, ...rest } = config
+    if (company) lastCompany.current = company
+    if (next === config.mode) return props.onConfig(rest)
+    switchMode(next, rest)
+  }
+  const lastCompany = useRef<string | undefined>(undefined)
+  const switchMode = (mode: TeamConfig['mode'], from: TeamConfig = config) => {
+    if (mode === from.mode) return
     // Keep the models; the roles only make sense for specialists.
     const models = config.roster.map((r) => r.model)
     while (mode === 'swarm' && models.length < 2) models.push(config.leadModel)
@@ -512,7 +546,7 @@ export function HelpersEditor(props: {
       role: mode === 'swarm' ? 'peer' : (SPECIALISTS[i % SPECIALISTS.length] as string),
       model,
     }))
-    set({ mode, roster })
+    props.onConfig({ ...from, mode, roster })
   }
   const unused = SPECIALISTS.filter((r) => !config.roster.some((x) => x.role === r))
   return (
@@ -520,69 +554,84 @@ export function HelpersEditor(props: {
       <Row label={copy.teamControls.editor.style}>
         <Segmented
           id="composer-mode"
-          value={config.mode}
+          value={style}
           options={[
             { value: 'orchestrated', label: copy.teamControls.editor.orchestrated },
             { value: 'swarm', label: copy.teamControls.editor.swarm },
+            ...(props.companies
+              ? [{ value: 'company' as const, label: copy.teamControls.editor.company }]
+              : []),
           ]}
-          onChange={switchMode}
+          onChange={switchStyle}
         />
       </Row>
-      <AnimatePresence initial={false}>
-        {config.roster.map((r, i) => (
-          <motion.div
-            key={ids.current[i]}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0, height: 0 }}
-            className="group flex min-h-11 items-center gap-2 px-3 py-1.5"
-          >
-            {r.specialist ? (
-              <span className="flex min-w-0 flex-1 items-center gap-1.5 px-1 text-body">
-                <span
-                  className="size-1.5 shrink-0 rounded-full"
-                  style={{ background: agentColor(r.specialist) }}
-                />
-                <span className="truncate">
-                  {copy.teamControls.editor.specialistOf(r.specialist, r.role)}
-                </span>
-              </span>
-            ) : swarm ? (
-              <span className="flex-1 text-body text-fg-2">{copy.teamControls.editor.peer(i + 1)}</span>
-            ) : (
-              <input
-                value={r.role}
-                maxLength={40}
-                aria-label={copy.teamControls.editor.roleOf(i + 1)}
-                onChange={(e) => setRow(i, { role: e.target.value.toLowerCase() })}
-                className="h-7 min-w-0 flex-1 rounded-md bg-transparent px-1 text-body capitalize outline-none hover:bg-fill focus:bg-fill"
-              />
-            )}
-            <ModelPicker
-              variant="compact"
-              placement={props.placement}
-              label={swarm ? copy.teamControls.editor.peer(i + 1) : r.role || copy.teamControls.editor.helper}
-              value={r.model}
-              models={props.models}
-              minWindow={AGENT_MIN_WINDOW}
-              minReason={copy.teamControls.editor.minReason(windowLabel(AGENT_MIN_WINDOW))}
-              onChange={(model) => setRow(i, { model })}
-            />
-            <button
-              type="button"
-              onClick={() => removeRow(i)}
-              disabled={swarm && config.roster.length <= 2}
-              aria-label={copy.teamControls.editor.remove(
-                swarm ? copy.teamControls.editor.peerLower(i + 1) : r.role,
-              )}
-              className="grid size-6 place-items-center rounded-md text-muted opacity-0 transition-opacity hover:bg-fill hover:text-fg focus-visible:opacity-100 group-hover:opacity-100 disabled:hidden"
+      {style === 'company' && (
+        <CompanyChooser
+          models={props.models}
+          config={config}
+          onConfig={props.onConfig}
+          placement={props.placement}
+        />
+      )}
+      {style !== 'company' && (
+        <AnimatePresence initial={false}>
+          {config.roster.map((r, i) => (
+            <motion.div
+              key={ids.current[i]}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0, height: 0 }}
+              className="group flex min-h-11 items-center gap-2 px-3 py-1.5"
             >
-              <X className="size-3.5" />
-            </button>
-          </motion.div>
-        ))}
-      </AnimatePresence>
-      {config.roster.length < 8 && (
+              {r.specialist ? (
+                <span className="flex min-w-0 flex-1 items-center gap-1.5 px-1 text-body">
+                  <span
+                    className="size-1.5 shrink-0 rounded-full"
+                    style={{ background: agentColor(r.specialist) }}
+                  />
+                  <span className="truncate">
+                    {copy.teamControls.editor.specialistOf(r.specialist, r.role)}
+                  </span>
+                </span>
+              ) : swarm ? (
+                <span className="flex-1 text-body text-fg-2">{copy.teamControls.editor.peer(i + 1)}</span>
+              ) : (
+                <input
+                  value={r.role}
+                  maxLength={40}
+                  aria-label={copy.teamControls.editor.roleOf(i + 1)}
+                  onChange={(e) => setRow(i, { role: e.target.value.toLowerCase() })}
+                  className="h-7 min-w-0 flex-1 rounded-md bg-transparent px-1 text-body capitalize outline-none hover:bg-fill focus:bg-fill"
+                />
+              )}
+              <ModelPicker
+                variant="compact"
+                placement={props.placement}
+                label={
+                  swarm ? copy.teamControls.editor.peer(i + 1) : r.role || copy.teamControls.editor.helper
+                }
+                value={r.model}
+                models={props.models}
+                minWindow={AGENT_MIN_WINDOW}
+                minReason={copy.teamControls.editor.minReason(windowLabel(AGENT_MIN_WINDOW))}
+                onChange={(model) => setRow(i, { model })}
+              />
+              <button
+                type="button"
+                onClick={() => removeRow(i)}
+                disabled={swarm && config.roster.length <= 2}
+                aria-label={copy.teamControls.editor.remove(
+                  swarm ? copy.teamControls.editor.peerLower(i + 1) : r.role,
+                )}
+                className="grid size-6 place-items-center rounded-md text-muted opacity-0 transition-opacity hover:bg-fill hover:text-fg focus-visible:opacity-100 group-hover:opacity-100 disabled:hidden"
+              >
+                <X className="size-3.5" />
+              </button>
+            </motion.div>
+          ))}
+        </AnimatePresence>
+      )}
+      {config.roster.length < 8 && style !== 'company' && (
         <div className="flex min-h-11 items-center gap-2 px-3 py-1.5">
           {swarm ? (
             <Button
@@ -623,7 +672,7 @@ export function HelpersEditor(props: {
           )}
         </div>
       )}
-      {!swarm && (
+      {!swarm && style !== 'company' && (
         <Row
           label={copy.teamControls.editor.moreOnDemand.label}
           hint={copy.teamControls.editor.moreOnDemand.hint}

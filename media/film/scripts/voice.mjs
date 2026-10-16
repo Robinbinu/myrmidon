@@ -1,5 +1,5 @@
 // Synthesizes the film's voice-over with Azure Speech (standard neural voices, which the free F0 tier covers):
-// `node scripts/voice.mjs` makes every line of src/vo.ts that is missing or changed into public/vo/<id>.mp3 and
+// `bun scripts/voice.mjs` makes every line of src/vo.ts that is missing or changed into public/vo/<id>.mp3 and
 // records its length in src/vo-manifest.json. `--audition` instead reads one short line in each of a few voices into
 // out/audition/, to choose by ear.
 //

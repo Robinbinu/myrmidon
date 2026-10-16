@@ -17,10 +17,14 @@
     "@xterm/xterm": "6.0.0",
     "@xyflow/react": "12.12.0",
     "lucide-react": "1.52.0",
+    "mermaid": "11.17.2",
     "motion": "14.0.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
-    "tailwindcss": "4.3.3"
+    "tailwindcss": "4.3.3",
+    "vega": "6.4.0",
+    "vega-interpreter": "2.3.2",
+    "vega-lite": "6.4.3"
   },
   "devDependencies": {
     "@happy-dom/global-registrator": "20.14.5",

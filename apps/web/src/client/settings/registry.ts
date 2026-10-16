@@ -1,4 +1,4 @@
-import type { PermissionRule } from '@myrmidon/protocol'
+import type { Company, PermissionRule } from '@myrmidon/protocol'
 import type { GatewayInfo, ModelOption, Specialist } from '../api.ts'
 import { copy } from '../copy.ts'
 import { type ACCESS_INFO, presetLabel, shownTarget } from '../permissions/describe.ts'
@@ -84,6 +84,7 @@ export interface LiveData {
   mcpServers: readonly McpServer[]
   plugins: readonly PluginEntry[]
   specialists: readonly Specialist[]
+  companies: readonly Company[]
   channels: readonly ChannelView[]
   gateways: readonly GatewayInfo[]
   devices: readonly DeviceRow[]
@@ -555,6 +556,15 @@ export const SETTINGS = {
     label: s.specialists.add,
     help: s.specialists.emptyHint,
     keywords: kw.specialists,
+  },
+
+  // Companies
+  'companies.add': {
+    page: 'companies',
+    control: 'form',
+    label: s.companies.add,
+    help: s.companies.emptyHint,
+    keywords: [...kw.companies, s.companies.fromTemplate, s.companies.fromDescription, s.companies.import],
   },
 
   // Devices
@@ -1555,6 +1565,12 @@ export const DYNAMIC = {
     page: 'specialists',
     control: 'list',
     item: (x) => ({ key: x.id, label: x.name, help: x.specialty }),
+  }),
+  'companies.company': dynamic('companies', {
+    page: 'companies',
+    control: 'list',
+    keywords: kw.companies,
+    item: (x) => ({ key: x.id, label: x.name, help: x.description }),
   }),
   'devices.device': dynamic('devices', {
     page: 'devices',

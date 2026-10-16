@@ -1,3 +1,4 @@
+import type { CompanyAccess, CompanyChange, CompanyRef, ModelTier, RoleRecord } from './companies.ts'
 import type { EventId } from './event.ts'
 import type {
   AgentRole,
@@ -13,6 +14,16 @@ import type {
  * (after omp's goal mode and `/loop --until`). `checks`: the project's own checks pass; `command`: the command exits 0;
  * `judge`: the reviewer (`judge`, passing at `threshold`) finds the condition holds. At most `maxChecks` checks.
  */
+/**
+ * One thing an eval cell's display() showed: a JSON value (drawn as a table when it is a list of records, else as a
+ * tree), a picture stored with the chat, or a Vega-Lite chart (Altair's output). `json` is the value as JSON text, cut
+ * to a bound; a cut one is not valid JSON and is shown as text.
+ */
+export type CellDisplay =
+  | { kind: 'json'; json: string }
+  | { kind: 'image'; blob: string; mimeType: string }
+  | { kind: 'chart'; json: string }
+
 export interface RoundGoal {
   condition: string
   check: { kind: 'checks' } | { kind: 'command'; run: string } | { kind: 'judge' }
@@ -191,6 +202,9 @@ export interface UsageInfo {
 }
 
 /** Payload shape for every event type the core and runtime register. */
+/** What a person is asked to take an agent's browser over for (request_takeover). */
+export type TakeoverKind = 'login' | 'captcha' | '2fa' | 'payment' | 'confirm' | 'stuck'
+
 export interface EventPayloads {
   'colony/created': {
     name: string
@@ -270,6 +284,8 @@ export interface EventPayloads {
     prewalk?: string
     /** What the round's agents may do as it starts, to tell them what changed next time (see `RoundAccess`). */
     access?: RoundAccess
+    /** The company the round's crew was made from, at the version it ran (see companies.ts). */
+    company?: CompanyRef
   }
   /**
    * `pid`/`hostname` identify the runner process so orphaned colonies can be detected. `resumed` marks a
@@ -325,6 +341,28 @@ export interface EventPayloads {
     by?: string
   }
   'skill/decided': { id: string; kept: boolean }
+  /**
+   * After a run, the lead proposes a change to the saved company (hire a role, fire one, re-role one), with what it saw
+   * and the role's record in the round as the harness counted it. Nothing changes until the person approves it.
+   */
+  'company/proposed': {
+    id: string
+    agent: string
+    company: CompanyRef
+    change: CompanyChange
+    role: string
+    why: string
+    evidence: string
+    title?: string
+    tier?: ModelTier
+    access?: CompanyAccess
+    prompt?: string
+    responsibilities?: string[]
+    /** The named role's record in this round, for a role the company already has. */
+    record?: RoleRecord
+  }
+  /** The person's answer to a proposal; an approved one became `version` of the company. */
+  'company/decided': { id: string; approved: boolean; version?: number; error?: string }
   /**
    * One of the person's stream rules stopped an agent's reply as the model wrote it: `source` says what matched (its
    * prose, its reasoning, or a call to `tool`), and the request went again with the rule's guidance. `path` is the
@@ -417,7 +455,8 @@ export interface EventPayloads {
   'agent/dismissed': { agent: string; by: string; reason: string }
   'approval/requested': ApprovalRequest
   /** An agent needs the person to sign in to a site in its browser; the person takes control, signs in, hands back. */
-  'login/requested': { agent: string; site: string; url: string; reason: string }
+  /** An agent handing its browser to the person: to sign in (`kind` absent or login), or past another blocker. */
+  'login/requested': { agent: string; site: string; url: string; reason: string; kind?: TakeoverKind }
   'login/finished': { agent: string; outcome: 'handed-back' | 'timeout' | 'stopped' }
   /** An agent did something that looks like following instructions from web content (possible prompt injection). */
   'safety/flagged': { agent: string; tool: string; reason: string; source: string }
@@ -663,6 +702,8 @@ export interface EventPayloads {
      * old and new text a replacement carries), for the person's diff.
      */
     change?: { before: string; after: string }
+    /** What an eval cell's display() showed, in order, for the person to see drawn (the model reads them as text). */
+    displays?: CellDisplay[]
   }
   /** A message in the team chat, which everyone on the crew is in; `replyTo` is the number (seq) it answers. */
   'board/posted': { agent: string; text: string; mentions: string[]; replyTo?: number }
