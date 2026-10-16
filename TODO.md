@@ -753,8 +753,19 @@ Open work, in the order it will be done:
          finding ranked P0–P3 with confidence; the person can pin notes to diff lines first (omp /review, /annotate).
       4. Atomic commit splitting: split the working tree into dependency-ordered commits with checked messages
          (omp commit).
-      5. Internal paths in file tools: `pr://N`, `issue://N`, `conflict://N` (resolve a merge conflict by writing
-         @ours/@theirs/@base), `agent://`, `skill://`.
+      5. [x] Internal paths in file tools: `pr://N`, `issue://N`, `conflict://N` (resolve a merge conflict by writing
+         @ours/@theirs/@base), `agent://`, `skill://`. Done (internal-paths.ts; omp's conflict-detect through
+         omp/conflicts.ts): fs_read takes pr://N[/diff] (pr://owner/repo/N), issue://N, skill://name[/file],
+         agent://[name] and conflict://N[/ours|theirs|base]; a read numbers the conflict blocks it shows with omp's
+         footer; fs_write to conflict://N or conflict://* (uniform content or "N: @side" lines) splices only the
+         blocks, per file bottom-up, and writes like any fs_write (guardProjectEdit on the real file, inside the
+         workdir). pr/issue go through the github tool's read (gh where commands run, decided as that command) and
+         read as untrusted; skill:// as use_skill; agent:// shows a crewmate's status, tasks, notes and only the
+         messages the reader could see. The rest is read-only. Left: no `:conflicts` selector, issue/pr lists
+         (`pr://` alone), the github cache.
+         (test: `packages/runtime/tests/internal-paths.test.ts` — "a read numbers merge conflicts; conflict://N reads
+         one side and fs_write resolves one or all of them"; `packages/runtime/tests/github.test.ts` — "fs_read of
+         pr://owner/repo/N reads the pull request through the same gh read…")
       6. [x] learn / manage_skill: the agent saves a reusable lesson and can promote it into a managed skill. Done
          (after omp's learn.ts and manage-skill.ts): `learn(lesson, scope, why, skill?)` proposes the lesson as a
          memory of kind lesson and, with `skill`, a learned skill; `manage_skill(create|update|delete)` (on demand)

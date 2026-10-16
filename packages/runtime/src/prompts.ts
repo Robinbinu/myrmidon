@@ -1197,6 +1197,61 @@ Reply with ONLY a JSON object: {"note": null} when there is nothing to send, or 
       "search_chats is not available in this round: someone other than the person wrote in it, and the person's other chats stay private.",
   },
 
+  /** Internal paths in the file tools (internal-paths.ts), after omp's internal URLs and conflict-uri.ts errors. */
+  internalPaths: {
+    githubShape: 'use pr://N, pr://N/diff, pr://owner/repo/N or issue://N (issue://owner/repo/N)',
+    readOnly: (scheme: string) =>
+      `${scheme}:// is read-only; only conflict://N and conflict://* can be written`,
+    conflictShape: "use 'conflict://<N>', 'conflict://<N>/ours|theirs|base', or 'conflict://*'",
+    conflictWildcardRead:
+      'conflict://* is write-only: read conflict://<N> for one block, or read the file again for the list',
+    conflictUnknown: (id: number) =>
+      `Conflict #${id} not found. Conflict ids are registered when fs_read shows a marker block; read the file again to get a current id.`,
+    conflictScopeWrite: (id: string, scope: string) =>
+      `conflict://${id}/${scope} is read-only: write conflict://${id} with the chosen content (or @${scope} on its own line)`,
+    noBase: (id: number) =>
+      `Conflict #${id} has no base section (a 2-way merge); @base and /base need diff3 conflicts.`,
+    noConflicts: 'no conflicts are registered: fs_read the conflicted files first',
+    directiveTwice: (id: number) => `the per-id block lists conflict #${id} twice; each id may appear once`,
+    directivesMixed: (n: number, first: string) =>
+      `malformed conflict://* per-id block: ${n} line(s) are not "<id>: @side" (first: ${first.slice(0, 60)}); per-id lines take only @ours/@theirs/@base/@both, so write other content to conflict://<N> one by one`,
+    conflictsOutside: (n: number) =>
+      `\n⚠ the file has ${n} unresolved conflict${n === 1 ? '' : 's'} outside the lines shown: read the whole file to number them.`,
+    resolved: (ids: readonly number[], path: string) =>
+      `Resolved conflict${ids.length === 1 ? '' : 's'} ${ids.map((id) => `#${id}`).join(', ')} in ${path}.`,
+    unresolvedFiles: (failed: readonly string[]) =>
+      `Left untouched (re-read and retry):\n${failed.map((f) => `- ${f}`).join('\n')}`,
+    agents: (rows: readonly string[]) => `Agents in this round (read agent://<name>):\n${rows.join('\n')}`,
+    agentRow: (name: string, role: string, status: string) => `- ${name} (${role}): ${status}`,
+    noAgents: 'No agents in this round yet.',
+    agentUnknown: (name: string, names: readonly string[]) =>
+      `no agent called ${name} in this round${names.length ? `; there are ${names.join(', ')}` : ''}`,
+    agentTask: (id: string, subject: string, status: string, artifacts: readonly string[]) =>
+      `- ${id} ${subject} [${status}]${artifacts.length ? ` → ${artifacts.join(', ')}` : ''}`,
+    agentNote: (text: string) => `- ${text.length > 400 ? `${text.slice(0, 400)}…` : text}`,
+    agentMail: (to: string, subject: string, body: string) =>
+      `- to ${to}: ${subject}${body ? ` — ${body.length > 400 ? `${body.slice(0, 400)}…` : body}` : ''}`,
+    agent: (p: {
+      name: string
+      role: string
+      model: string
+      status: string
+      detail?: string
+      tasks: readonly string[]
+      notes: readonly string[]
+      sent: readonly string[]
+    }) =>
+      [
+        `${p.name} (${p.role}, ${p.model}): ${p.status}${p.detail ? ` — ${p.detail}` : ''}`,
+        p.tasks.length ? `Tasks:\n${p.tasks.join('\n')}` : 'Tasks: none',
+        p.notes.length ? `Latest notes:\n${p.notes.join('\n')}` : '',
+        p.sent.length ? `Latest messages you could see:\n${p.sent.join('\n')}` : '',
+      ]
+        .filter(Boolean)
+        .join('\n\n'),
+    skills: (rows: readonly string[]) => `Skills (read skill://<name>):\n${rows.join('\n')}`,
+  },
+
   /** The checkpoint and rewind tools (agent.ts), after omp's checkpoint.ts and its prompts. */
   checkpoint: {
     started: (goal: string) =>
@@ -3401,7 +3456,9 @@ Reply with JSON only: {"lines": ["...", "...", "..."]}.`,
         `Write a whole file in ${place(p)}, creating folders as needed and replacing any file already there. Use it for ` +
         'new files or a full rewrite; to change part of a file, use fs_edit, which sends only the change. Write the ' +
         'complete content, never placeholders like "// rest unchanged". Prefer editing an existing file to adding a ' +
-        'new one.',
+        'new one. Path conflict://N resolves a merge-conflict block fs_read found: content replaces only the block ' +
+        '(a line @ours, @theirs, @base or @both takes that side); conflict://* resolves every one found, or each ' +
+        'listed by "N: @side" lines.',
       params: {
         path: 'File path, relative to your working directory, e.g. "src/app.ts"',
         content: 'The complete new content of the file',
@@ -3468,7 +3525,10 @@ Reply with JSON only: {"lines": ["...", "...", "..."]}.`,
         'lines you need, grep first: it gives line numbers. Besides text it reads PDF, Word, ' +
         'PowerPoint, Excel and EPUB files and Jupyter notebooks as text, images as pictures, an archive (zip, tar, 7z…) ' +
         'as the list of its files (entry reads one), and a SQLite database as its tables (sql queries it); other ' +
-        'binary files it names but does not show.',
+        'binary files it names but does not show. It also reads internal paths: pr://N (a pull request; pr://N/diff ' +
+        'its diff; pr://owner/repo/N another repo), issue://N, skill://name (skill://name/file one of its files), ' +
+        'agent://name (what a crewmate has done; agent:// lists them), and conflict://N (one merge-conflict block a ' +
+        'read found; /ours, /theirs or /base one side).',
       params: {
         path: 'File path, relative to your working directory, or absolute (~ allowed)',
         offset: 'First line to read, 1-based (default 1)',

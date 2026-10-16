@@ -129,6 +129,13 @@ import {
 } from './hashline.ts'
 import { agentActor, type ColonyHost, type ReviewDecision } from './host.ts'
 import {
+  type InternalReaders,
+  internalPath,
+  noteConflicts,
+  planConflictWrite,
+  readInternal,
+} from './internal-paths.ts'
+import {
   browserSteps,
   checkedArgs,
   checkedTool,
@@ -140,6 +147,7 @@ import {
 } from './made-tools.ts'
 import type { AgentTool, AgentToolResult } from './omp/agent-core.ts'
 import { type Model, type } from './omp/ai.ts'
+import { type ConflictHistory, loadConflicts } from './omp/conflicts.ts'
 import type { ServerConfig } from './omp/lsp.ts'
 import * as natives from './omp/natives.ts'
 import { RUNTIMES, toolsFor } from './patterns.ts'
@@ -1697,6 +1705,76 @@ function placeOf(f: PromptFacts): Place {
   return { where, full: f.access.fullAccess }
 }
 
+/** Each agent's numbered conflict blocks (conflict://N), for as long as its round runs. */
+const CONFLICTS = new WeakMap<ColonyHost, Map<string, ConflictHistory>>()
+
+async function conflictsOf(host: ColonyHost, agent: string): Promise<ConflictHistory> {
+  const byAgent = CONFLICTS.get(host) ?? new Map<string, ConflictHistory>()
+  CONFLICTS.set(host, byAgent)
+  const known = byAgent.get(agent)
+  if (known) return known
+  const history = new (await loadConflicts()).ConflictHistory()
+  byAgent.set(agent, history)
+  return history
+}
+
+/**
+ * What an internal path reads with: GitHub as the github tool reads it (where commands run, decided by the
+ * permission model), skills as use_skill, crewmates from the round's state.
+ */
+async function internalReaders(host: ColonyHost, agent: string): Promise<InternalReaders> {
+  return {
+    agent,
+    conflicts: await conflictsOf(host, agent),
+    state: () => host.state(),
+    async github(op, ref) {
+      if (host.sandbox.kind === 'none' && !host.unsafeNoSandbox) throw new Error(prompts.github.needsSandbox)
+      const bin = ghBinary()
+      if (!bin) throw new Error(prompts.github.missing)
+      return clip(await runGithub(githubScope(host, agent, bin, false), { op, ...ref }))
+    },
+    async skill(name, file) {
+      if (!name)
+        return prompts.internalPaths.skills(host.skills().map((s) => `- ${s.name}: ${s.description}`))
+      return host.useSkill(agent, name, file)
+    },
+  }
+}
+
+/**
+ * fs_write to conflict://N or conflict://*: each file's blocks are spliced, then written as any fs_write is (the
+ * person's rules and presets decide it on the real file, inside the working directory only).
+ */
+async function resolveConflicts(
+  path: string,
+  content: string,
+  agent: string,
+  host: ColonyHost,
+): Promise<string> {
+  const conflicts = await conflictsOf(host, agent)
+  const plan = await planConflictWrite(path, content, conflicts, (file) =>
+    readFileSync(host.workspace.resolveInWorkdir(agent, file), 'utf8'),
+  )
+  const done: string[] = []
+  for (const write of plan.writes) {
+    const target = host.workspace.resolveInWorkdir(agent, write.absolutePath)
+    const { content: text, edited } = await guardProjectEdit(host, agent, 'fs_write', target, {
+      before: write.before,
+      after: write.after,
+      key: receiptKey(host, agent, 'fs_write', { path: target, content: write.after }),
+    })
+    writeFileSync(target, text)
+    for (const id of write.ids) conflicts.invalidate(id)
+    done.push(
+      `${prompts.internalPaths.resolved(write.ids, write.displayPath)}${edited ? prompts.toolResults.editedByPerson : ''}${rulesForFile(host, agent, target)}`,
+    )
+  }
+  if (!done.length && plan.failed.length) throw new Error(prompts.internalPaths.unresolvedFiles(plan.failed))
+  return [...done, ...(plan.failed.length ? [prompts.internalPaths.unresolvedFiles(plan.failed)] : [])].join(
+    '\n',
+  )
+}
+
 export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'read_task',
@@ -2418,6 +2496,9 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       content: type('string').describe(prompts.tools.fs_write.params.content),
     }),
     async run(args, agent, host) {
+      const inner = internalPath(args.path)
+      if (inner?.scheme === 'conflict') return resolveConflicts(args.path, args.content, agent, host)
+      if (inner) throw new Error(prompts.internalPaths.readOnly(inner.scheme))
       const path = host.workspace.resolveInWorkdir(agent, args.path)
       const { content, edited } = await guardProjectEdit(host, agent, 'fs_write', path, {
         before: existsSync(path) ? readFileSync(path, 'utf8') : '',
@@ -2488,6 +2569,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       'sql?': type('string').describe(prompts.tools.fs_read.params.sql),
     }),
     async run(args, agent, host) {
+      if (internalPath(args.path)) return readInternal(args.path, await internalReaders(host, agent))
       const path = host.workspace.resolveForRead(agent, args.path)
       const read = await readFileAs(path, args.path, args)
       if (read.image) return { text: read.head ?? '', images: [read.image] }
@@ -2500,11 +2582,21 @@ export const TOOL_DEFS: readonly ToolDef[] = [
           preface: `${read.head}\n`,
         }
       const whole = args.offset === undefined && args.limit === undefined
+      // Merge-conflict blocks in the lines shown are numbered for conflict://N, as omp's read surfaces them.
+      const conflicts = await noteConflicts(
+        await conflictsOf(host, agent),
+        path,
+        args.path,
+        read.text,
+        whole
+          ? undefined
+          : { first: args.offset ?? 1, ...(args.limit !== undefined ? { count: args.limit } : {}) },
+      )
       const summary = whole ? await summaryRead(host, agent, path, args.path, read.text) : undefined
-      if (summary) return `${summary}${rules}`
+      if (summary) return `${summary}${conflicts}${rules}`
       if (editModeOf(host, agent) !== 'hashline')
-        return `${readRange(read.text, args.offset, args.limit)}${rules}`
-      return `${anchoredRead(host, agent, path, args.path, read.text, readWindow(read.text, args.offset, args.limit))}${rules}`
+        return `${readRange(read.text, args.offset, args.limit)}${conflicts}${rules}`
+      return `${anchoredRead(host, agent, path, args.path, read.text, readWindow(read.text, args.offset, args.limit))}${conflicts}${rules}`
     },
   },
   {
@@ -4522,9 +4614,11 @@ function harnessTools(
             const preface = typeof result === 'string' ? '' : (result.preface ?? '')
             // Long pages are saved under web/ in scratch, and the browser's downloads under downloads/; reading one
             // back is still outside content.
+            // So are pull requests and issues read by internal path (pr://, issue://): anyone can write them.
+            const readPath = String((params as { path?: unknown })?.path ?? '')
             const savedPage =
               def.name === 'fs_read' &&
-              /(^|[\\/])(web|downloads)[\\/]/.test(String((params as { path?: unknown })?.path ?? ''))
+              (/(^|[\\/])(web|downloads)[\\/]/.test(readPath) || /^(pr|issue):\/\//.test(readPath.trim()))
             if (UNTRUSTED.has(def.name) || savedPage) {
               const source = untrustedSource(def.name, params, output)
               host.rememberUntrusted(agent, source, output)

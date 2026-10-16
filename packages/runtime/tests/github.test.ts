@@ -133,6 +133,23 @@ test('a read runs gh where commands run, with the token in its environment and n
   expect(cards).toEqual([])
 })
 
+test('fs_read of pr://owner/repo/N reads the pull request through the same gh read, decided as that command', async () => {
+  const { h, asked, cards } = host()
+  const fsRead = TOOL_DEFS.find((d) => d.name === 'fs_read')
+  const out = await fsRead?.run({ path: 'pr://o/r/12' }, 'kai', h)
+  expect(String(out)).toContain('# Pull Request #12: Fix the flaky test')
+  expect(String(out)).not.toContain(TOKEN)
+  const view = calls().find((c) => c.args[0] === 'pr')
+  expect(view?.args.slice(0, 4)).toEqual(['pr', 'view', '12', '--repo=o/r'])
+  expect(asked.map((c) => c.command)).toEqual([`gh ${posixLine(view?.args ?? [])}`])
+  expect(cards).toEqual([])
+  // Writing one is refused before anything runs.
+  const fsWrite = TOOL_DEFS.find((d) => d.name === 'fs_write')
+  await expect(
+    fsWrite?.run({ path: 'issue://12', content: 'x' }, 'kai', h) ?? Promise.resolve(),
+  ).rejects.toThrow('issue:// is read-only')
+})
+
 test('a write asks the person first, whatever the preset, and does not run when they decline', async () => {
   const declined = host()
   await expect(
