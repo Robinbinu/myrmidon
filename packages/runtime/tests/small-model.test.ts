@@ -50,6 +50,6 @@ test('removing the small-jobs model sends small jobs back to the cheapest, and k
   // Defaults: no small-jobs model, no embeddings, the computer sleeps as usual.
   const fresh = new SettingsStore(mkdtempSync(join(home, 'fresh-'))).get()
   expect(fresh.team.smallModel).toBeUndefined()
-  expect(fresh.memory).toEqual({ suggest: true })
+  expect(fresh.memory).toEqual({ suggest: true, handoffs: true, projectSummaries: false })
   expect(fresh.power).toEqual({ keepAwake: false })
 })

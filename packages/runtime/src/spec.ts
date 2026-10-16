@@ -65,6 +65,10 @@ export interface ColonySpec {
     memory?: string[]
     /** Kept memories left out of `memory` for room, which agents search with recall. */
     memoryMore?: number
+    /** Where the chat left off (chat/handoff), for agents that do not remember its earlier rounds. */
+    handoff?: { text: string; at: string }
+    /** A summary of the project's kept memories (memory-summary.ts), when they do not all fit `memory`. */
+    memorySummary?: string
     /** The person started this round by writing to these crew members directly (@name): they start it, not the lead. */
     addressed?: string[]
     /** The opening message was said aloud on a voice call (its answer is read aloud). */

@@ -227,6 +227,8 @@ export interface ColonyState {
   rounds: RoundInfo[]
   /** A title the user gave the conversation in this round, with when. */
   chatTitle?: { title: string; at: string; by?: 'auto' }
+  /** Where the chat left off after one of its rounds (chat/handoff), the latest note. */
+  handoff?: { round: number; text: string; at: string }
   /** Old logs: kinds of step the person allowed for the rest of the chat (see `chatLevel`). */
   chatGrants?: ChatGrant[]
   /** The chat's level of the permission model; absent until the person first sets something for the chat. */
@@ -573,6 +575,11 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
     case 'chat/renamed': {
       const p = event.payload as EventPayloads['chat/renamed']
       state.chatTitle = { title: p.title, at: event.time, ...(p.by ? { by: p.by } : {}) }
+      break
+    }
+    case 'chat/handoff': {
+      const p = event.payload as EventPayloads['chat/handoff']
+      state.handoff = { round: p.round, text: p.text, at: event.time }
       break
     }
     case 'chat/allowed': {

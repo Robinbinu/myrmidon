@@ -251,7 +251,7 @@ export interface ServerSettings {
   permissions: GlobalPermissions
   profile?: { name?: string; greeting: 'model' | 'rules'; titles?: 'model' | 'first-message' }
   /** Memory suggestions after chats, and recall by meaning with an embedding model; absent from older servers. */
-  memory?: { suggest: boolean; embeddingModel?: string }
+  memory?: { suggest: boolean; embeddingModel?: string; handoffs?: boolean; projectSummaries?: boolean }
   /** Keep the computer awake while runs work; absent from older servers. */
   power?: { keepAwake: boolean }
   mascot?: MascotPatch
@@ -6291,6 +6291,14 @@ function SkillsSection() {
   )
 }
 
+interface MemoryBacklog {
+  waiting: number
+  oldest?: string
+  kept: number
+  discarded: number
+  missed: number
+}
+
 interface MemoryEntry {
   id: string
   text: string
@@ -6333,9 +6341,13 @@ function MemorySection(props: {
   const [editing, setEditing] = useState<{ id: string; text: string }>()
   const [query, setQuery] = useState('')
   const [tidying, setTidying] = useState(false)
+  const [backlog, setBacklog] = useState<MemoryBacklog>()
   const load = () =>
-    api<{ memories: MemoryEntry[] }>('/api/memory')
-      .then((r) => setMemories(r.memories))
+    api<{ memories: MemoryEntry[]; backlog?: MemoryBacklog }>('/api/memory')
+      .then((r) => {
+        setMemories(r.memories)
+        setBacklog(r.backlog)
+      })
       .catch((err: Error) => toast(err.message, 'error'))
   // biome-ignore lint/correctness/useExhaustiveDependencies: load once
   useEffect(() => {
@@ -6394,6 +6406,40 @@ function MemorySection(props: {
             />
           </SettingField>
         )}
+        {props.settings && (
+          <SettingField id="memory.handoffs" inline>
+            <Switch
+              checked={props.settings.memory?.handoffs ?? true}
+              label={t.handoffs}
+              onChange={(v) =>
+                props.update(
+                  (s) => ({ ...s, memory: { ...s.memory, suggest: s.memory?.suggest ?? true, handoffs: v } }),
+                  true,
+                )
+              }
+            />
+          </SettingField>
+        )}
+        {props.settings && (
+          <SettingField id="memory.projectSummaries" inline>
+            <Switch
+              checked={props.settings.memory?.projectSummaries ?? false}
+              label={t.summaries}
+              onChange={(v) =>
+                props.update(
+                  (s) => ({
+                    ...s,
+                    memory: { ...s.memory, suggest: s.memory?.suggest ?? true, projectSummaries: v },
+                  }),
+                  true,
+                )
+              }
+            />
+          </SettingField>
+        )}
+        <SettingField id="memory.backlog" inline>
+          <span className="font-mono text-callout text-muted">{backlog ? t.backlogValue(backlog) : '…'}</span>
+        </SettingField>
         {props.settings && (
           <EmbeddingModelSetting
             models={props.embeddingModels}

@@ -2518,7 +2518,12 @@ export function startServer(options: ServeOptions): WebServer {
         }),
       },
       '/api/memory': {
-        GET: guard(() => json({ memories: options.memory?.list() ?? [] })),
+        GET: guard(() =>
+          json({
+            memories: options.memory?.list() ?? [],
+            ...(options.memory ? { backlog: options.memory.backlog() } : {}),
+          }),
+        ),
         POST: guard(async (req) => {
           if (!options.memory) return json({ error: 'memory needs the chat runtime' }, 503)
           const body = (await req.json().catch(() => ({}))) as {

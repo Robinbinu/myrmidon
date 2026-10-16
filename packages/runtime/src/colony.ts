@@ -1243,6 +1243,8 @@ export class ColonyRun implements ColonyHost {
               ...(this.spec.chat.escalate?.length ? { escalate: this.spec.chat.escalate } : {}),
               ...(this.spec.chat.memory?.length ? { memory: this.spec.chat.memory } : {}),
               ...(this.spec.chat.memoryMore ? { memoryMore: this.spec.chat.memoryMore } : {}),
+              ...(this.spec.chat.handoff ? { handoff: this.spec.chat.handoff } : {}),
+              ...(this.spec.chat.memorySummary ? { memorySummary: this.spec.chat.memorySummary } : {}),
               ...(this.spec.chat.addressed?.length ? { addressed: this.spec.chat.addressed } : {}),
             },
           }
@@ -1553,6 +1555,8 @@ export class ColonyRun implements ColonyHost {
     const store = this.options.memory
     if (!store) throw new Error('memory is not available in this run')
     const found = await store.searchFor(query, RECALL_TOOL_COUNT, this.spec.chat?.project?.id)
+    // Measured, not shown: a suggestion the person has not reviewed yet would have answered this.
+    if (!found.length && store.waitingMatches(query, this.spec.chat?.project?.id)) store.count('missed')
     if (!found.length) return prompts.colony.recallNone
     return prompts.colony.recalled(
       found.map((m) =>

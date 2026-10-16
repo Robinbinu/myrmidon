@@ -60,6 +60,14 @@ export function recallChats(
     : out
 }
 
+/** A chat's heading line, and under it where it left off when a note was written. */
+function headOf(chat: RecallChat, withNote = true): string {
+  const line = prompts.chatRecall.chat(chat.chatId, chat.title, chat.updatedAt.slice(0, 10), chat.rounds)
+  return withNote && chat.handoff
+    ? `${line}\n${prompts.chatRecall.handoff(chat.handoff.at.slice(0, 10), chat.handoff.text)}`
+    : line
+}
+
 function browse(chats: readonly RecallChat[]): string {
   if (!chats.length) return prompts.chatRecall.none
   return prompts.chatRecall.recent(
@@ -73,7 +81,7 @@ function readChat(index: ChatIndex, chat: RecallChat | undefined, around?: numbe
   // A chat out of scope reads exactly as one that does not exist, so a search cannot tell them apart.
   if (!chat) return prompts.chatRecall.noChat
   const thread = index.recallThread(chat.chatId)
-  const head = prompts.chatRecall.chat(chat.chatId, chat.title, chat.updatedAt.slice(0, 10), chat.rounds)
+  const head = headOf(chat)
   if (around !== undefined) {
     const from = Math.max(1, around - CHAT_RECALL.window)
     const shown = thread.filter((m) => m.n >= from && m.n <= around + CHAT_RECALL.window)
@@ -126,7 +134,8 @@ function discover(index: ChatIndex, chats: readonly RecallChat[], query: string,
   const ranked = [...perChat.entries()].sort((a, b) => b[1].score - a[1].score).slice(0, want)
   const parts = ranked.map(([chatId, c], rank) => {
     const chat = byId.get(chatId) as RecallChat
-    const head = prompts.chatRecall.chat(chat.chatId, chat.title, chat.updatedAt.slice(0, 10), chat.rounds)
+    // Only the best chat comes with its note, so a search stays short.
+    const head = headOf(chat, rank === 0)
     const hits = c.hits.slice(0, CHAT_RECALL.hitsPerChat).map((h) => h.m.n)
     // The best chat comes with the messages either side of its hits; the others with their best hit only.
     if (rank === 0) {

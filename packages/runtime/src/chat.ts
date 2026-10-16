@@ -54,6 +54,7 @@ import {
   BUDGET_CHECK_MS,
   CHAT_TITLE_ROUNDS,
   GOAL,
+  HANDOFF,
   MAX_READ_FOLDERS,
   MAX_WORKERS,
   MEMORY_EXTRACT_MIN_CHARS,
@@ -63,6 +64,7 @@ import {
   SUGGEST_CORPUS,
 } from './config.ts'
 import { parseGoal } from './goal.ts'
+import { worthNoting, writeHandoff } from './handoff.ts'
 import type { HookStore } from './hooks.ts'
 import { readProjectInstructions } from './instructions.ts'
 import type { KeepAwake } from './keep-awake.ts'
@@ -77,6 +79,7 @@ import {
   personSaid,
   reflectMemories,
 } from './memory-review.ts'
+import { ProjectSummaries } from './memory-summary.ts'
 import type { ModelResolver } from './models.ts'
 import { pickName } from './names.ts'
 import { speaksForColony } from './patterns.ts'
@@ -408,6 +411,8 @@ export class ChatService {
       skillProposals?: SkillProposalStore
       /** How long a round's crew sits quiet before it is nudged, or a wound-down round closes (see RunOptions). */
       quietMs?: number
+      /** How long a chat stays quiet after a round before its note of where it left off is written (HANDOFF). */
+      handoffMs?: number
       /** Where the person filed each chat (pins, archive, groups, forks). */
       shelf?: ChatShelf
       /** Claude Code and Codex sessions imported to start new chats from. */
@@ -817,6 +822,9 @@ export class ChatService {
     // A round logged as ended may still be shutting down (its agents stopping, its mirror written), listening to its
     // colony's log; the next round in that colony starts once it is done, so the old one never acts on the new one.
     if (live) await live.done
+    // A new round makes the pending note of where the chat left off moot; this round's end schedules the next one.
+    clearTimeout(this._handoffs.get(id))
+    this._handoffs.delete(id)
     const previous = await this.rounds(id)
     // A fork's first round starts from the chat it came from: that conversation, in that chat's project.
     const source = !previous.length && options.forkOf ? await this.rounds(options.forkOf) : []
@@ -843,6 +851,11 @@ export class ChatService {
     const tier = goal && sized === 'answer' ? 'solo' : sized
     const spec = this.buildSpec(id, message, config, previous, history, tier, to)
     if (spec.chat) Object.assign(spec.chat, extra)
+    // The note of where the chat (or, for a fork, the chat it came from) left off, if it covers the latest round.
+    const before = (previous.length ? previous : source).at(-1)
+    const note = before?.state.handoff
+    if (spec.chat && note && note.round === before?.round.round)
+      spec.chat.handoff = { text: note.text, at: note.at }
     if (options.askAll) spec.askAll = true
     // A chat keeps the project it started in; only a new chat can pick one.
     // A chat keeps its folder, but permissions are re-read each round so a change applies from the next message.
@@ -881,6 +894,7 @@ export class ChatService {
     if (memory.length && spec.chat) spec.chat.memory = memoryLines(memory)
     const more = (this.options.memory?.kept(project?.id).length ?? 0) - memory.length
     if (more > 0 && spec.chat) spec.chat.memoryMore = more
+    if (more > 0 && project && spec.chat) this._projectSummary(spec.chat, project, config.leadModel)
     if (planFirst && spec.tier !== 'answer') spec.planFirst = true
     if (goal) {
       spec.goal = {
@@ -997,6 +1011,7 @@ export class ChatService {
         this._suggestMemories(run, config.leadModel).catch((err) =>
           console.error(`memory review of ${run.id} failed: ${err instanceof Error ? err.message : err}`),
         )
+      if (!final.escalated) this._noteLater(id, run.id, config.leadModel)
     })
     return { chatId: id, colonyId: run.id, started: true, ...(spec.chat ? { round: spec.chat.round } : {}) }
   }
@@ -1076,6 +1091,7 @@ export class ChatService {
     if (!memory) throw new Error('no such memory')
     if (keep) store.keep(id)
     else store.remove(id)
+    if (memory.status === 'proposed') store.count(keep ? 'kept' : 'discarded')
     const colony = memory.source.colonyId
     if (!colony || memory.status !== 'proposed') return
     const draft = {
@@ -1155,6 +1171,83 @@ export class ChatService {
     )
       return
     await this.tidyMemories(lead)
+  }
+
+  private _summaries?: ProjectSummaries
+
+  /**
+   * A project whose kept memories do not all fit the prompt starts from a summary of its own (memory-summary.ts),
+   * when the person turned that on: the one built from these memories, or none while a fresh one is built.
+   */
+  private _projectSummary(
+    chat: NonNullable<ColonySpec['chat']>,
+    project: { id: string; name: string },
+    lead: string,
+  ) {
+    const store = this.options.memory
+    if (!store || !this.options.settings?.get().memory.projectSummaries) return
+    this._summaries ??= new ProjectSummaries(this.store.home)
+    const summaries = this._summaries
+    const own = store.kept(project.id).filter((m) => m.project === project.id)
+    const text = summaries.current(project.id, own)
+    if (text) chat.memorySummary = text
+    else
+      this._wrapUp(
+        summaries.refresh({
+          resolver: this.options.resolver,
+          model: this._titleModel(lead),
+          project: { id: project.id, name: project.name },
+          memories: own,
+        }),
+      )
+  }
+
+  /** Notes of where a chat left off waiting for the chat to go quiet, by chat. */
+  private readonly _handoffs = new Map<string, ReturnType<typeof setTimeout>>()
+
+  /** Writes the note of where the chat left off once it has been quiet HANDOFF.quietMs, unless a round starts first. */
+  private _noteLater(chatId: string, colonyId: string, lead: string) {
+    if (!this.options.settings?.get().memory.handoffs) return
+    clearTimeout(this._handoffs.get(chatId))
+    const timer = setTimeout(() => {
+      this._handoffs.delete(chatId)
+      this._wrapUp(
+        this._noteHandoff(chatId, colonyId, lead).catch((err) =>
+          console.error(
+            `noting where ${chatId} left off failed: ${err instanceof Error ? err.message : err}`,
+          ),
+        ),
+      )
+    }, this.options.handoffMs ?? HANDOFF.quietMs)
+    // A note waiting for quiet never keeps the process alive.
+    timer.unref?.()
+    this._handoffs.set(chatId, timer)
+  }
+
+  private async _noteHandoff(chatId: string, colonyId: string, lead: string) {
+    // A round started meanwhile: its own end notes it.
+    if (this._live.has(chatId) || this._deleting.has(chatId)) return
+    const events = await this.store.read(colonyId as never)
+    const state = foldColony(colonyId, events)
+    const round = state.rounds.at(-1)
+    if (!round || round.status === 'running' || state.handoff?.round === round.round) return
+    if (!worthNoting(events, round.startSeq)) return
+    const text = await this._cheaply(lead, (model) =>
+      writeHandoff({
+        resolver: this.options.resolver,
+        model,
+        events,
+        from: round.startSeq,
+        status: round.statusReason ? `${round.status}: ${round.statusReason}` : round.status,
+        ...(state.handoff ? { previous: state.handoff.text } : {}),
+      }),
+    )
+    if (!text || this._live.has(chatId) || this._deleting.has(chatId)) return
+    await this.runtime.ctx.log.appendOne(colonyId as never, {
+      type: 'chat/handoff',
+      actor: { kind: 'system', id: 'myrmidon' },
+      payload: { round: round.round, text },
+    })
   }
 
   /** When memories were last tidied up in this process; the first round after a restart may tidy again. */
@@ -2037,6 +2130,8 @@ export class ChatService {
    * SETTLE_MS at most: one round that cannot wrap up must not keep the server from shutting down.
    */
   async stopAll(): Promise<void> {
+    for (const pending of this._handoffs.values()) clearTimeout(pending)
+    this._handoffs.clear()
     let timer: ReturnType<typeof setTimeout> | undefined
     const late = new Promise<'late'>((resolve) => {
       timer = setTimeout(() => resolve('late'), SETTLE_MS)

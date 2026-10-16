@@ -63,7 +63,13 @@ export function finalAnswer(events: readonly MyrEvent[], from: number): string |
     .at(-1)
 }
 
-async function ask(resolver: ModelResolver, model: string, system: string, user: string): Promise<string> {
+/** One cheap call: `system` and `user` in, the reply's text out; throws when the model fails. */
+export async function ask(
+  resolver: ModelResolver,
+  model: string,
+  system: string,
+  user: string,
+): Promise<string> {
   const resolved = resolver.resolve(model)
   const apiKey = await resolver.requireApiKey(resolved.model)
   const context = {

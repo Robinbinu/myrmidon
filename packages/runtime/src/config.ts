@@ -961,6 +961,23 @@ export const MEMORY_REVIEW_MS = 60_000
 export const MEMORY_EXTRACT_INSTRUCTIONS_CHARS = 6_000
 export const MEMORY_INSTRUCTIONS_OVERLAP = 0.8
 /**
+ * Where a chat left off (handoff.ts), after omp's rollout summaries, which wait for a session to go idle: a round
+ * that made at least `minCalls` tool calls gets its note once the chat has been quiet `quietMs` after it (a new round
+ * first cancels it); the note is at most `maxChars`, from a round digest of at most `digestChars`.
+ */
+export const HANDOFF = {
+  minCalls: 2,
+  quietMs: 2 * 60_000,
+  maxChars: 1_500,
+  digestChars: 12_000,
+} as const
+/**
+ * Project summaries (memory-summary.ts), after omp hindsight's mental models (project-conventions 800 tokens): built
+ * only from a project's kept memories, at most `maxChars`, and only once it has more kept memories than a prompt
+ * carries whole (MEMORY_PROMPT_COUNT), since below that every memory is in the prompt already.
+ */
+export const PROJECT_SUMMARY_MAX_CHARS = 1_500
+/**
  * Tidying memories up (reflect): the most kept memories it reads and merges it suggests per pass; after a round, it
  * runs at most this often, and only when two kept memories of one scope overlap at least this much.
  */

@@ -237,14 +237,70 @@ export interface MemoryMeaning {
   lookAlike(memories: readonly Memory[]): boolean
 }
 
+/**
+ * The suggestion backlog, which the person's approval makes the risk to watch (docs/research/2026-10-15-memory-
+ * hermes-omp.md §4): suggestions waiting and how old the oldest is, how many were kept and discarded, and how often
+ * an agent's recall would have found a suggestion still waiting (a memory nobody reviewed, so agents never saw it).
+ */
+export interface MemoryBacklog {
+  readonly waiting: number
+  readonly oldest?: string
+  readonly kept: number
+  readonly discarded: number
+  readonly missed: number
+}
+
+type Tally = Pick<MemoryBacklog, 'kept' | 'discarded' | 'missed'>
+
 export class MemoryStore {
   private readonly _file: string
+  private readonly _tally: string
 
   constructor(
     home: string,
     private readonly _meaning?: MemoryMeaning,
   ) {
     this._file = join(home, 'memory.json')
+    this._tally = join(home, 'memory-stats.json')
+  }
+
+  /** The suggestion backlog (MemoryBacklog). */
+  backlog(): MemoryBacklog {
+    const waiting = this.list().filter((m) => m.status === 'proposed')
+    const oldest = waiting.map((m) => m.createdAt).sort()[0]
+    return { waiting: waiting.length, ...(oldest ? { oldest } : {}), ...this._counts() }
+  }
+
+  /** Counts the person keeping or discarding a suggestion, or a recall that a waiting suggestion would have answered. */
+  count(what: keyof Tally) {
+    const next = { ...this._counts(), [what]: this._counts()[what] + 1 }
+    const tmp = `${this._tally}.${process.pid}.tmp`
+    writeFileSync(tmp, `${JSON.stringify(next)}\n`)
+    renameSync(tmp, this._tally)
+  }
+
+  /** Waiting suggestions this chat could use that match `query`: counted, never shown to the agent. */
+  waitingMatches(query: string, project?: string): number {
+    const waiting = this.list().filter(
+      (m) => m.status === 'proposed' && (!m.project || m.project === project),
+    )
+    return terms(query).length ? rankMemories(waiting, query, 1).length : 0
+  }
+
+  private _counts(): Tally {
+    const zero = { kept: 0, discarded: 0, missed: 0 }
+    if (!existsSync(this._tally)) return zero
+    try {
+      const raw = JSON.parse(readFileSync(this._tally, 'utf8')) as Partial<Tally>
+      return {
+        kept: Number(raw.kept) || 0,
+        discarded: Number(raw.discarded) || 0,
+        missed: Number(raw.missed) || 0,
+      }
+    } catch (err) {
+      console.warn(`reading ${this._tally} failed: ${err instanceof Error ? err.message : err}`)
+      return zero
+    }
   }
 
   list(): Memory[] {

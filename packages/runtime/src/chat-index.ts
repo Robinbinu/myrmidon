@@ -52,6 +52,8 @@ export interface IndexedRound {
    * any of its rounds. Agents' past-chat search leaves such chats out; a row without it counts as theirs.
    */
   readonly others?: boolean
+  /** On a colony's latest round: the chat's latest note of where it left off (chat/handoff). */
+  readonly handoff?: { readonly round: number; readonly text: string; readonly at: string }
 }
 
 /** A chat agents' past-chat search may read (chat-recall.ts), as the index holds it. */
@@ -61,6 +63,8 @@ export interface RecallChat {
   readonly startedAt: string
   readonly updatedAt: string
   readonly rounds: number
+  /** Its latest note of where it left off. */
+  readonly handoff?: { readonly text: string; readonly at: string }
 }
 
 /** One message of a chat, numbered from 1 in the order it was said, across every colony the chat ran in. */
@@ -277,12 +281,17 @@ export class ChatIndex {
         .sort((a, b) => a.at.localeCompare(b.at))
         .at(-1)
       const last = list.at(-1) as IndexedRound
+      const note = latest
+        .flatMap((r) => (r.handoff ? [r.handoff] : []))
+        .sort((a, b) => a.at.localeCompare(b.at))
+        .at(-1)
       out.push({
         chatId,
         title: renamed?.title ?? clipTitle(first.request || first.name),
         startedAt: first.createdAt ?? '',
         updatedAt: last.endedAt ?? last.createdAt ?? '',
         rounds: list.length,
+        ...(note ? { handoff: { text: note.text, at: note.at } } : {}),
       })
     }
     return out.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
@@ -471,6 +480,7 @@ function summarize(colonyId: string, s: ColonyState): IndexedRound[] {
           ...(s.computerApps?.length ? { computerApps: s.computerApps } : {}),
           ...(s.chatBudget && Object.keys(s.chatBudget).length ? { budget: s.chatBudget } : {}),
           others: !!s.othersWrote,
+          ...(s.handoff ? { handoff: s.handoff } : {}),
         }
       : {}),
     ...(chat.project ? { project: { id: chat.project.id, name: chat.project.name } } : {}),

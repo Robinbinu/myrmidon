@@ -588,6 +588,7 @@ export const copy = {
       'chat/user': 'message from you',
       'chat/reply': 'reply',
       'chat/renamed': 'chat renamed',
+      'chat/handoff': 'noted where the chat left off',
       'chat/allowed': 'allowed for this chat',
       'chat/permissions': 'chat permissions set',
       'chat/budget': 'chat budget set',
@@ -4787,6 +4788,31 @@ export const copy = {
       suggest: 'Suggest memories',
       suggestHint:
         'After a chat, a small model suggests what to remember from what you said, and now and then how to merge memories that repeat or went stale. Nothing is kept until you keep it, and nothing that looks like a secret or personal detail is suggested.',
+      handoffs: 'Note where chats left off',
+      handoffsHint:
+        'When a chat that did real work goes quiet, a small model notes what was done, what is open and any question still waiting on you. Agents read it when they pick the chat up without remembering it, and when they search past chats. It never goes into every prompt.',
+      summaries: 'Summarize project memories',
+      summariesHint:
+        'Off by default. When a project has more memories than a prompt carries, a small model condenses the ones you kept for it into a short summary that new chats there start with. It is built only from memories you kept, and rebuilt when they change.',
+      backlog: 'Suggestions waiting',
+      backlogHint:
+        'Memories nobody reviewed never reach agents. “Missed” counts the times an agent searched memory and only a waiting suggestion matched.',
+      backlogValue: (b: {
+        waiting: number
+        oldest?: string
+        kept: number
+        discarded: number
+        missed: number
+      }) =>
+        [
+          `${b.waiting} waiting${b.oldest ? `, oldest from ${b.oldest.slice(0, 10)}` : ''}`,
+          b.kept + b.discarded
+            ? `${Math.round((100 * b.kept) / (b.kept + b.discarded))}% kept of ${b.kept + b.discarded}`
+            : '',
+          b.missed ? `${b.missed} missed` : '',
+        ]
+          .filter(Boolean)
+          .join(' · '),
       search: 'Search memories',
       noMatch: (query: string) => `Nothing remembered matches “${query}”`,
       waitingTitle: 'Waiting for you',
