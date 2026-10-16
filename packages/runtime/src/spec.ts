@@ -39,6 +39,11 @@ export interface AgentSpec {
   focus?: string
   /** Tools this agent may not use, whatever its role gives it (a saved specialist's switched-off groups). */
   withoutTools?: string[]
+  /**
+   * The job this agent joined for, when the lead delegated one: its id, and whether it may only read (no edits, no
+   * worktree). Its brief is `focus`.
+   */
+  job?: { id: string; readOnly: boolean }
 }
 
 export interface ColonySpec {
@@ -204,10 +209,15 @@ export interface TeamPolicy {
   /** The person's saved specialists the lead may bring in by name (add_crewmate), as they would join. */
   specialists?: AgentSpec[]
   /**
-   * In a round the lead works alone: the crewmates the person set up, on call. The lead asks one for a piece of work
-   * with ask_crewmate (it joins then, and waits for the answer) instead of handing the whole request to the team.
+   * In a round the lead works alone: the crewmates the person set up, on call. A job the lead delegates may go to one
+   * (it joins then, with that job) instead of a fresh agent on the lead's model.
    */
   crewmates?: AgentSpec[]
+  /**
+   * In a round the lead works alone: how many delegated jobs run at once (delegate); 0 or absent, the lead has no
+   * delegate tool. The lead keeps working while they run and hears each result as it lands.
+   */
+  subagents?: number
 }
 
 const DURATION = /^(\d+(?:\.\d+)?)(ms|s|m|h)$/

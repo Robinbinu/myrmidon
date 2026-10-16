@@ -3,6 +3,10 @@
  *
  *   bun run eval [--base http://127.0.0.1:4318] [--cases a,b] [--modes orchestrated,swarm]
  *                       [--model provider/id] [--judge provider/id] [--trials 3] [--out file.json]
+ *                       [--suite crew]
+ *
+ * `--suite crew` runs Task 7's corpus (crew-cases.ts) and two solo controls in every mode it is given
+ * (default solo, orchestrated, team, swarm): what each crew setup costs and whether it finishes.
  *   bun run eval --compare before.json after.json
  *
  * It spends real tokens, so it never runs as part of `bun test`. Point it at a test server (`myr serve --home
@@ -16,6 +20,7 @@ import { dirname, join } from 'node:path'
 import { parseArgs } from 'node:util'
 import { foldColony, type MyrEvent } from '@myrmidon/protocol'
 import { CASES } from './cases.ts'
+import { CREW_CASES } from './crew-cases.ts'
 import {
   type CaseSummary,
   compare,
@@ -31,7 +36,8 @@ const { values } = parseArgs({
   options: {
     base: { type: 'string', default: process.env.BASE ?? 'http://127.0.0.1:4318' },
     cases: { type: 'string' },
-    modes: { type: 'string', default: 'orchestrated,swarm' },
+    modes: { type: 'string' },
+    suite: { type: 'string' },
     model: { type: 'string' },
     judge: { type: 'string' },
     trials: { type: 'string', default: '1' },
@@ -76,29 +82,62 @@ async function events(colonyId: string): Promise<MyrEvent[]> {
   }
 }
 
+const CREW_MODES: Mode[] = ['solo', 'orchestrated', 'team', 'swarm']
+/** Solo requests in the crew suite: no mode should split them, and every mode is measured on them. */
+const CONTROLS = ['solo-narrow-fix', 'solo-cross-file']
+const suite: EvalCase[] =
+  values.suite === 'crew'
+    ? [
+        ...CREW_CASES,
+        // A team from the start is the setup being measured there, so its tier is not a mismatch.
+        ...CASES.filter((c) => CONTROLS.includes(c.id)).map((c) => ({
+          ...c,
+          modes: CREW_MODES,
+          tiers: ['solo', 'team'] as EvalCase['tiers'],
+        })),
+      ]
+    : values.suite
+      ? (() => {
+          throw new Error(`no such suite: ${values.suite} (have crew)`)
+        })()
+      : [...CASES, ...CREW_CASES]
 const cases = values.cases
   ? values.cases.split(',').map((id) => {
-      const c = CASES.find((x) => x.id === id.trim())
-      if (!c) throw new Error(`no such case: ${id} (have ${CASES.map((x) => x.id).join(', ')})`)
+      const c = suite.find((x) => x.id === id.trim())
+      if (!c) throw new Error(`no such case: ${id} (have ${suite.map((x) => x.id).join(', ')})`)
       return c
     })
-  : CASES
-const modes = values.modes.split(',').map((m) => m.trim()) as Mode[]
+  : values.suite
+    ? suite
+    : CASES
+const modes = (values.modes ?? (values.suite === 'crew' ? CREW_MODES.join(',') : 'orchestrated,swarm'))
+  .split(',')
+  .map((m) => m.trim()) as Mode[]
 const trials = Math.max(1, Number(values.trials))
 const models = await call<{ default?: string }>('GET', '/api/models')
 const model = values.model ?? models.default
 if (!model) throw new Error('no model: pass --model provider/id')
 const judge = values.judge ?? model
 
+const crew = () => ['researcher', 'coder', 'writer'].map((role) => ({ role, model }))
 function teamConfig(mode: Mode) {
-  return mode === 'swarm'
-    ? { mode, leadModel: model, judgeModel: judge, roster: [0, 1, 2].map(() => ({ role: 'peer', model })) }
-    : {
+  switch (mode) {
+    case 'swarm':
+      return {
         mode,
         leadModel: model,
         judgeModel: judge,
-        roster: ['researcher', 'coder', 'writer'].map((role) => ({ role, model })),
+        roster: [0, 1, 2].map(() => ({ role: 'peer', model })),
+        helpers: 'always',
       }
+    // No crew and no delegated jobs: one agent does everything.
+    case 'solo':
+      return { mode: 'orchestrated', leadModel: model, judgeModel: judge, roster: [], subagents: 0 }
+    case 'team':
+      return { mode: 'orchestrated', leadModel: model, judgeModel: judge, roster: crew(), helpers: 'always' }
+    case 'orchestrated':
+      return { mode, leadModel: model, judgeModel: judge, roster: crew() }
+  }
 }
 
 async function runTrial(c: EvalCase, mode: Mode, trial: number): Promise<TrialResult> {
@@ -243,7 +282,8 @@ for (const c of cases)
         r.error
           ? `error: ${r.error}`
           : `${r.grade.pass ? 'PASS' : 'FAIL'} ${r.metrics.outcome}, ${r.metrics.escalated ?? r.metrics.tier ?? '?'} tier, ` +
-              `${r.metrics.seconds}s, ${r.metrics.tokens.toLocaleString('en-US')} tok, ${r.metrics.toolCalls} tools` +
+              `${r.metrics.seconds}s, ${r.metrics.tokens.toLocaleString('en-US')} tok, ${r.metrics.toolCalls} tools, ` +
+              `${r.metrics.helpers} helpers, ${r.metrics.jobs} jobs, ${r.metrics.reviews} reviews` +
               (failed.length ? ` — failed: ${failed.join('; ')}` : '') +
               (r.grade.tierMismatch ? ' — TIER MISMATCH' : '') +
               (r.grade.budgetBreach ? ` — BUDGET ${r.grade.budgetBreach}` : ''),
@@ -260,7 +300,7 @@ writeFileSync(
 )
 
 console.log(
-  '\ncase [mode]                       pass   pass@k pass^k  median s   median tok  tools  regress   cost $  untested  failed',
+  '\ncase [mode]                       pass   pass@k pass^k  median s   median tok  tools  regress   cost $  untested  failed  helpers  shared  reviews',
 )
 for (const s of summary)
   console.log(
@@ -269,7 +309,8 @@ for (const s of summary)
       `${String(s.medianSeconds).padStart(8)}   ${s.medianTokens.toLocaleString('en-US').padStart(10)}  ` +
       `${String(s.medianToolCalls).padStart(5)}  ${`${Math.round(s.regressionRate * 100)}%`.padStart(7)}  ` +
       `${s.costUsd === undefined ? '       ?' : s.costUsd.toFixed(3).padStart(8)}  ` +
-      `${String(s.untestedEdits).padStart(8)}  ${String(s.failedToolCalls).padStart(6)}`,
+      `${String(s.untestedEdits).padStart(8)}  ${String(s.failedToolCalls).padStart(6)}  ` +
+      `${String(s.medianHelpers).padStart(7)}  ${String(s.sharedEdits).padStart(6)}  ${String(s.reviews).padStart(7)}`,
   )
 console.log(`\nreport: ${out}`)
 const hard = summary.flatMap((s) => s.hardFailures.map((f) => `${s.case} [${s.mode}] ${f}`))

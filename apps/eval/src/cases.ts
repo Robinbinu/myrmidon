@@ -19,7 +19,7 @@ test('median of an even list', () => expect(median([4, 1, 3, 2])).toBe(2.5))
 test('median of one number', () => expect(median([7])).toBe(7))
 `
 
-const DATES_TEST = `import { expect, test } from 'bun:test'
+export const DATES_TEST = `import { expect, test } from 'bun:test'
 import { daysBetween } from './dates.ts'
 
 test('one day', () => expect(daysBetween('2026-01-01', '2026-01-02')).toBe(1))
@@ -27,7 +27,7 @@ test('across a month', () => expect(daysBetween('2026-01-30', '2026-02-02')).toB
 test('backwards is negative', () => expect(daysBetween('2026-03-10', '2026-03-01')).toBe(-9))
 `
 
-const MONEY_TEST = `import { expect, test } from 'bun:test'
+export const MONEY_TEST = `import { expect, test } from 'bun:test'
 import { formatCents } from './money.ts'
 
 test('thousands and cents', () => expect(formatCents(123456)).toBe('$1,234.56'))
@@ -35,11 +35,11 @@ test('whole dollars keep two decimals', () => expect(formatCents(500)).toBe('$5.
 test('negative amounts', () => expect(formatCents(-2599)).toBe('-$25.99'))
 `
 
-const PKG = (name: string, scripts?: Record<string, string>) =>
+export const PKG = (name: string, scripts?: Record<string, string>) =>
   `${JSON.stringify({ name, private: true, type: 'module', ...(scripts ? { scripts } : {}) }, null, 2)}\n`
 
 /** Passes when `code` (run with bun in the project) exits 0: a hidden test the agent never sees. */
-const hidden = (label: string, code: string, regression?: boolean): Check => ({
+export const hidden = (label: string, code: string, regression?: boolean): Check => ({
   kind: 'command',
   label,
   run: ['bun', '-e', code],
@@ -47,7 +47,7 @@ const hidden = (label: string, code: string, regression?: boolean): Check => ({
 })
 
 /** Passes when git shows no changed or new file outside `allowed`: nothing unrelated was touched. */
-const onlyChanged = (label: string, allowed: string[]): Check => ({
+export const onlyChanged = (label: string, allowed: string[]): Check => ({
   kind: 'command',
   label,
   regression: true,
@@ -84,7 +84,7 @@ export function chunk<T>(xs: T[], size: number): T[][] {
 }
 `
 
-const SLUG = `/** URL slug for a title: lower case, letters and digits, words joined by single dashes. */
+export const SLUG = `/** URL slug for a title: lower case, letters and digits, words joined by single dashes. */
 export function slugify(title: string): string {
   return title
     .toLowerCase()

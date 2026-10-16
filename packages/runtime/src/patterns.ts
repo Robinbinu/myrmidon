@@ -65,6 +65,19 @@ const BUILD = [
   ...ACCESS_GROUPS.remote,
   ...ACCESS_GROUPS.computer,
 ]
+/** Looking without changing: what a read-only job (research, a review) works with. */
+const READ_ONLY_BUILD = [
+  'fs_read',
+  'fs_list',
+  'grep',
+  'glob',
+  'find',
+  'ast_grep',
+  'lsp',
+  'request_read',
+  'run_checks',
+  ...BROWSER,
+]
 const USER = [
   'reply_user',
   'check_in',
@@ -138,11 +151,20 @@ function baseRoleTools(spec: ColonySpec, agent: AgentSpec): string[] {
     const plugin = speaksForColony(spec, agent) ? PLUGIN : []
     // The lead of a company's round may propose changing the saved company; the person decides.
     const company = spec.company && isLead(spec, agent) ? ['propose_company_change'] : []
-    // A crewmate the lead asked for a piece of work: it works and answers the lead, never the person.
+    // A job the lead delegated: it works on its brief and reports to the lead with one typed result, never to the
+    // person. A read-only job (research, a review) gets no hands to change anything.
     if (spec.tier === 'solo' && agent.role === 'worker')
-      return [...READ, 'message', 'append_note', ...PUBLISH, ...BUILD]
+      return [
+        ...READ,
+        'message',
+        'append_note',
+        ...(agent.job?.readOnly ? READ_ONLY_BUILD : [...PUBLISH, ...BUILD]),
+        'report_result',
+      ]
     const crewmates =
-      spec.tier === 'solo' && isLead(spec, agent) && spec.team?.crewmates?.length ? ['ask_crewmate'] : []
+      spec.tier === 'solo' && isLead(spec, agent) && (spec.team?.subagents ?? 0) > 0
+        ? ['delegate', 'await_results']
+        : []
     if (spec.tier !== 'team' || spec.agents.length === 1)
       return [
         ...READ,
@@ -476,7 +498,7 @@ export function snapshot(spec: ColonySpec, s: ColonyState, { request = true } = 
 export function startsAwake(spec: ColonySpec, agent: AgentSpec): boolean {
   // A round the person opened by writing to someone directly starts with that someone.
   if (spec.chat?.addressed?.length) return spec.chat.addressed.includes(agent.name)
-  // A crewmate the lead asks for a job starts with the job (its focus); the person's request is the lead's.
+  // A job's agent starts with the job (its focus); the person's request is the lead's.
   if (spec.chat && spec.tier === 'solo' && agent.role === 'worker') return agent.focus !== undefined
   if (!spec.chat || spec.tier !== 'team' || !spec.team) return true
   // Every swarm peer joins the opening huddle.

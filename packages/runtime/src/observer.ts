@@ -78,24 +78,27 @@ export class FactualObserver {
       this._lastProgressSeq = progress
       this._lastToolCalls = toolCalls
     }
+    const idle = Object.values(s.agents).filter((a) => a.status === 'idle' && !a.dismissed)
+    // Said once per task and revision, like the deadline marks: the scheduler already offers ready work to whoever
+    // goes idle, so repeating it every tick only woke idle agents to read it again.
     const unclaimed = Object.values(s.tasks).filter(
       (t) =>
         (t.status === 'pending' || t.status === 'rejected') &&
-        t.blockedBy.every((b) => s.tasks[b]?.status === 'verified'),
+        t.blockedBy.every((b) => s.tasks[b]?.status === 'verified') &&
+        idle.length > 0 &&
+        this._once(`unclaimed-${t.id}-${t.revision}`),
     )
     // A task meant for someone nudges only them: waking the rest (a company's later stages) costs turns for nothing.
     const open = unclaimed.some((t) => !t.assignee)
     const meant = new Set(unclaimed.flatMap((t) => (t.assignee ? [t.assignee] : [])))
-    const idle = Object.values(s.agents).filter(
-      (a) => a.status === 'idle' && (open || meant.has(a.info.name)),
-    )
-    if (unclaimed.length > 0 && idle.length > 0) {
+    const nudged = idle.filter((a) => open || meant.has(a.info.name))
+    if (unclaimed.length > 0 && nudged.length > 0) {
       out.push(
         this._signal(
           'unclaimed',
           'info',
           prompts.observer.unclaimed(unclaimed.map((t) => `${t.id} (${t.subject})`).join(', ')),
-          idle.map((a) => a.info.name),
+          nudged.map((a) => a.info.name),
         ),
       )
     }

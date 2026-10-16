@@ -233,6 +233,25 @@ export class ProjectWorktrees {
     }
   }
 
+  /**
+   * The project files the worker changed since its last merge, relative to the project folder: what a merge would
+   * bring in, read without merging.
+   */
+  pending(agent: string): Promise<string[]> {
+    const next = this._queue.then(async () => {
+      const tree = this._trees.get(agent)
+      if (!tree) return []
+      const tip = await this.commitWork(tree, `${agent}: work`)
+      const base = (await git(this.top, ['rev-parse', tree.baseRef])).trim()
+      return (await git(this.top, ['diff', '--name-only', base, tip]))
+        .split('\n')
+        .filter((f) => f !== '' && f.startsWith(this.prefix))
+        .map((f) => f.slice(this.prefix.length))
+    })
+    this._queue = next.catch(() => {})
+    return next
+  }
+
   /** Commits the worktree's changes as one kept trial of an experiment (autoresearch) and returns the commit. */
   async keep(agent: string, message: string): Promise<string> {
     const tree = this._trees.get(agent)

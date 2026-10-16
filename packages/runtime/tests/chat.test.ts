@@ -528,79 +528,21 @@ test('saved specialists: kept by name, joined from the team picker or by the lea
   await chats.stopAll()
 })
 
-test('crewmates on call: a lead working alone asks them for work and gets their answers back as results', async () => {
-  const resolver = new ModelResolver()
-  const seen: { system?: string; tools?: string[]; results?: string; job?: unknown } = {}
-  const names = (system: string) =>
-    [
-      // Only the roster lines, up to the instructions after them.
-      ...((system.split('Your crewmates on call')[1] ?? '').split('\n- Ask')[0] ?? '').matchAll(
-        /^- (\w+): (\w+) \(/gm,
-      ),
-    ].map((m) => [m[2], m[1]])
-  scripted(resolver, 'mock/lead', [
-    (ctx) => {
-      seen.system = ctx.systemPrompt?.join('\n') ?? ''
-      seen.tools = ctx.tools?.map((t) => t.name)
-      const by = Object.fromEntries(names(seen.system))
-      // Two independent jobs in one step: both crewmates work at once.
-      return [
-        tool('ask_crewmate', { to: by.researcher, job: 'Find how many ants live in a typical colony.' }),
-        tool('ask_crewmate', { to: by.writer, job: 'Draft a one-line title for an ant poem.' }),
-      ]
-    },
-    (ctx) => {
-      seen.results = JSON.stringify(ctx.messages.filter((m) => m.role === 'toolResult'))
-      return [tool('reply_user', { text: 'About 300,000 ants.', final: true })]
-    },
-  ])
-  // The researcher answers the lead by message; the writer stops without answering.
-  scripted(resolver, 'mock/researcher', [
-    (ctx) => {
-      seen.job = ctx.messages[0]?.content
-      return [tool('message', { to: 'lead', text: 'Typically 300,000 ants.' })]
-    },
-    ['Answered the lead.'],
-  ])
-  scripted(resolver, 'mock/writer', [['Thinking about titles.']])
-  judge(resolver)
-  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), quietMs: QUIET_MS })
-  const { colonyId } = await chats.send('How many ants are in a colony?', {
-    mode: 'orchestrated',
-    leadModel: 'mock/lead',
-    roster: [
-      { role: 'researcher', model: 'mock/researcher' },
-      { role: 'writer', model: 'mock/writer' },
-    ],
-    judgeModel: 'mock/judge',
-  })
-  const s = await waitFor(colonyId)
-  expect(s.status).toBe('completed')
-  expect(seen.tools).toContain('ask_crewmate')
-  expect(names(seen.system ?? '').map(([role]) => role)).toEqual(['researcher', 'writer'])
-  // A crewmate opens with its job alone: not the person's request, not a mail to answer.
-  expect(JSON.stringify(seen.job)).toBe(
-    JSON.stringify([{ type: 'text', text: 'Find how many ants live in a typical colony.' }]),
-  )
-  // The answer came back as the tool's result, and a crewmate that went quiet is reported, not waited on.
-  expect(seen.results).toContain('answered:\\nTypically 300,000 ants.')
-  expect(seen.results).toContain('stopped without answering')
-  const joined = Object.values(s.agents).filter((a) => a.info.role === 'worker')
-  expect(joined.map((a) => a.info.specialty).sort()).toEqual(['researcher', 'writer'])
-  // Crewmates answer the lead, never the person.
-  for (const a of joined) expect(a.info.tools).not.toContain('reply_user')
-  expect(s.chatMessages.filter((m) => m.from !== 'lead' && m.from !== 'user')).toEqual([])
-  await chats.stopAll()
-})
-
-test('ask_crewmate refuses a name not on call, listing who is, and list_agents shows them before they join', async () => {
+test('a job for a crewmate not on call is refused, listing who is, and list_agents shows them before they join', async () => {
   const resolver = new ModelResolver()
   const seen: { results?: string } = {}
   // Not a call sign (identity.ts CALL_SIGNS), so the researcher can never be drawn under it.
   scripted(resolver, 'mock/lead', [
     [
       tool('list_agents', {}),
-      tool('ask_crewmate', { to: 'bramble', job: 'Write a test for the parser module.' }),
+      tool('delegate', {
+        jobs: [
+          {
+            brief: 'Goal: write a test for the parser module. Done when: it fails on the bug.',
+            crewmate: 'bramble',
+          },
+        ],
+      }),
     ],
     (ctx) => {
       seen.results = JSON.stringify(ctx.messages.filter((m) => m.role === 'toolResult'))
@@ -944,7 +886,9 @@ test('a new message starts the lead at once: one agent with every tool, sizing t
   expect(s.tier).toBe('solo')
   expect(Object.keys(s.agents)).toEqual(['lead'])
   expect(s.agents.lead?.info.tools).toContain('shell')
-  expect(s.agents.lead?.info.tools).toContain('escalate')
+  // It brings help in by delegating jobs in the round, not by rerunning the request as a team.
+  expect(s.agents.lead?.info.tools).toContain('delegate')
+  expect(s.agents.lead?.info.tools).not.toContain('escalate')
   expect(s.chatMessages.at(-1)?.text).toBe('4')
   await chats.stopAll()
 })

@@ -68,6 +68,31 @@ test('metrics read time, tokens, cost, agents, planning turns and the verdict fr
   expect(m.costUsd).toBeCloseTo(0.03)
 })
 
+test('crew metrics count helpers that worked, when the first started, files two agents edited, reviews and jobs', () => {
+  seq = 0
+  const log = [
+    ev('colony/created', { tier: 'solo', agents: [{ name: 'lead', role: 'lead' }] }, 0),
+    ev('agent/turn', { agent: 'lead', phase: 'start' }, 1),
+    ev('tool/call', { agent: 'lead', tool: 'fs_edit', args: { path: 'src/a.ts' } }, 2),
+    ev('agent/turn', { agent: 'ada', phase: 'start' }, 5),
+    ev('tool/call', { agent: 'ada', tool: 'fs_write', args: { path: '/tmp/c/worktrees/ada/src/a.ts' } }, 6),
+    ev('tool/call', { agent: 'ada', tool: 'fs_edit', args: { path: 'src/b.ts' } }, 7),
+    ev('agent/turn', { agent: 'bo', phase: 'start' }, 8),
+    ev('job/finished', { id: 'job-1', agent: 'ada', result: { status: 'done' } }, 9),
+    ev('job/finished', { id: 'job-2', agent: 'bo', result: { status: 'blocked' } }, 10),
+    ev('verifier/requested', { target: 'colony', by: 'lead' }, 11),
+    ev('colony/completed', { verdicts: [] }, 12),
+  ]
+  expect(metrics(log)).toMatchObject({
+    helpers: 2,
+    firstHelperSeconds: 5,
+    sharedEdits: 1,
+    reviews: 1,
+    jobs: 2,
+    jobsDone: 1,
+  })
+})
+
 test('an escalated request is measured across both rounds, at the tier it finished in', () => {
   seq = 0
   const first = [
@@ -122,7 +147,7 @@ test('summaries give pass@k, pass^k and medians, and compare shows the change', 
   expect(s?.passRate).toBeCloseTo(2 / 3)
   const [after] = summarize([trial(1, true, 10), trial(2, true, 10)])
   expect(compare(s ? [s] : [], after ? [after] : [])).toEqual([
-    'heading [orchestrated]  pass 67% → 100%, 20s → 10s (-50%), 2000 → 1500 tok (-25%), 1 → 1 tools, regressions 0% → 0%, untested edits 0 → 0, failed calls 3 → 2',
+    'heading [orchestrated]  pass 67% → 100%, 20s → 10s (-50%), 2000 → 1500 tok (-25%), 1 → 1 tools, regressions 0% → 0%, untested edits 0 → 0, failed calls 3 → 2, helpers 0 → 0, shared edits 0 → 0, reviews 0 → 0',
   ])
 })
 

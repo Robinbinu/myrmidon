@@ -226,6 +226,8 @@ export interface ServerSettings {
     workerFallbacks?: string[]
     wallMinutes: number
     maxTurns: number
+    /** Delegated jobs a lead working alone runs at once. */
+    subagents: number
     costUsd: number
     tokens: number
     /** The most every chat together may spend in a calendar month; 0 or absent (older servers) means no cap. */
@@ -2728,6 +2730,15 @@ function TeamSection(props: {
             min={1}
             max={200}
             onChange={(v) => props.update((s) => ({ ...s, team: { ...s.team, maxTurns: v } }))}
+          />
+        </SettingField>
+        <SettingField id="team.subagents" inline>
+          <NumberField
+            label={copy.settings.team.subagents}
+            value={t.subagents}
+            min={0}
+            max={8}
+            onChange={(v) => props.update((s) => ({ ...s, team: { ...s.team, subagents: v } }))}
           />
         </SettingField>
         <SettingField id="team.observer" inline>

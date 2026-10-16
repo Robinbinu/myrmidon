@@ -33,6 +33,7 @@ export function toolPhrase(tool: string, args: unknown): string {
   if (tool === 'tts') return t.doing.speech
   if (tool === 'spawn_worker' || tool === 'add_crewmate') return t.doing.crewmate
   if (tool === 'ask_crewmate') return t.doing.askCrewmate(clip(str('to')))
+  if (tool === 'delegate') return t.doing.delegate
   if (tool === 'create_task' || tool === 'assign_task' || tool === 'update_todo') return t.doing.tasks
   return t.doing.tool(tool.replace(/_/g, ' '))
 }

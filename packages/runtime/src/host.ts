@@ -70,10 +70,17 @@ export interface ColonyHost {
   /** Adds a worker: a new one for `label`, or (with `specialist`) one of the person's saved specialists by name. */
   spawnWorker(by: string, label: string, focus: string, model?: string, specialist?: string): Promise<string>
   /**
-   * The lead asks one of its on-call crewmates for a piece of work: the crewmate joins (or, already here, gets the
-   * job by mail), does it, and its reply to the lead comes back here, not as a wake-up.
+   * The lead delegates jobs (omp's task tool): each starts at once in the background, up to the round's limit, as a
+   * fresh agent on its brief alone, and its typed result reaches the lead as a message when it lands. Returns the job
+   * ids straight away.
    */
-  askCrewmate(by: string, name: string, job: string): Promise<string>
+  delegate(by: string, jobs: readonly JobRequest[], context?: string): Promise<string>
+  /** The lead is blocked on its jobs: waits for the next result (or, `all`, every open job's) and returns it. */
+  awaitResults(by: string, all: boolean): Promise<string>
+  /** A job's agent ends its job with its report; the harness checks it and delivers it to the lead. */
+  reportResult(agent: string, report: JobReport): Promise<string>
+  /** Delegated jobs still queued or running, as `id (agent)`. */
+  openJobs(): string[]
   /** Lets a worker go: it stops now and later rounds of the chat leave it out. */
   dismissWorker(by: string, name: string, reason: string): Promise<string>
   deadline(): number
@@ -262,6 +269,26 @@ export interface ColonyHost {
   searchChats(request: ChatRecallRequest): Promise<string>
   /** Ends this round and has the chat rerun its request at a bigger tier, keeping the work so far. */
   escalate(by: string, to: 'solo' | 'team', reason: string): Promise<string>
+}
+
+/** One job of a delegate call. */
+export interface JobRequest {
+  readonly brief: string
+  /** The files it changes, so two running jobs never own the same one. */
+  readonly files: readonly string[]
+  readonly readOnly: boolean
+  /** A crewmate on call to run it, by name; absent, a fresh agent on the lead's model. */
+  readonly crewmate?: string
+}
+
+/** What a job's agent reports (report_result), before the harness checks it. */
+export interface JobReport {
+  readonly status: 'done' | 'blocked' | 'failed'
+  readonly summary: string
+  readonly checks: readonly { command: string; passed: boolean }[]
+  readonly blockers: readonly string[]
+  readonly confidence: 'high' | 'medium' | 'low'
+  readonly followUps: readonly string[]
 }
 
 export const agentActor = (name: string): ActorRef => ({ kind: 'agent', id: name })

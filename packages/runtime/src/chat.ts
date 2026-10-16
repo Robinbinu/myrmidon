@@ -70,12 +70,14 @@ import {
   GOAL,
   HANDOFF,
   MAX_READ_FOLDERS,
+  MAX_SUBAGENTS,
   MAX_WORKERS,
   MEMORY_EXTRACT_MIN_CHARS,
   MEMORY_REFLECT_EVERY_MS,
   MEMORY_REFLECT_OVERLAP,
   ORCHESTRATE,
   SKILL_REVIEW_CALLS,
+  SUBAGENTS,
   SUGGEST_CORPUS,
 } from './config.ts'
 import { parseGoal } from './goal.ts'
@@ -197,6 +199,8 @@ export interface TeamConfig {
    * them in only when the work needs it. A roster with nobody in it means no helpers at all.
    */
   readonly helpers?: 'auto' | 'always'
+  /** Delegated jobs a lead working alone may run at once; absent, the one in Settings → Crew & budget. 0: none. */
+  readonly subagents?: number
   /**
    * One of the person's saved companies, by id: its roles are the crew (the head leads), each its own crewmate on its
    * tier's model, and its playbook's stages become the team's tasks. It replaces the roster while it is picked.
@@ -277,6 +281,9 @@ export function normalizeTeamConfig(raw: Record<string, unknown>): TeamConfig {
     ...(typeof raw.wallMinutes === 'number' ? { wallMinutes: raw.wallMinutes } : {}),
     ...(thinking ? { thinking } : {}),
     ...(raw.helpers === 'always' ? { helpers: 'always' as const } : {}),
+    ...(typeof raw.subagents === 'number'
+      ? { subagents: Math.min(MAX_SUBAGENTS, Math.max(0, Math.floor(raw.subagents))) }
+      : {}),
     ...(str(raw.advisorModel) ? { advisorModel: str(raw.advisorModel) } : {}),
     ...(str(raw.carryOutModel) ? { carryOutModel: str(raw.carryOutModel) } : {}),
     ...(str(raw.company) ? { company: str(raw.company).slice(0, 100) } : {}),
@@ -2463,9 +2470,15 @@ export class ChatService {
       config.mode === 'swarm'
         ? kept.length || roster.length || 2
         : 1 + (staff?.length ?? (kept.length || roster.length)) + extra
+    // A lead working alone delegates jobs in the round instead of handing the request to a team, which ended the
+    // round and reran it from the start; other modes, and a company (its stages are the team's tasks), still move
+    // up to their team.
+    const jobs =
+      config.mode === 'orchestrated' && !staff ? (config.subagents ?? s?.team.subagents ?? SUBAGENTS) : 0
+    const subagents = tier === 'solo' ? jobs : 0
     const escalate: ('solo' | 'team')[] = [
       ...(tier === 'answer' ? (['solo'] as const) : []),
-      ...(tier !== 'team' && teamSize > 1 ? (['team'] as const) : []),
+      ...(tier !== 'team' && teamSize > 1 && jobs === 0 ? (['team'] as const) : []),
     ]
     // A company's playbook goes on the board when the round is its team, unless the person wrote to a crewmate.
     const stages =
@@ -2574,6 +2587,7 @@ export class ChatService {
           ? { specialists: this._bringable(agents, roster[0]?.model ?? config.leadModel) }
           : {}),
         ...(crewmates.length ? { crewmates } : {}),
+        ...(subagents > 0 ? { subagents } : {}),
       },
       ...(company ? { company: companyRef(company) } : {}),
       ...(stages.length ? { tasks: stages } : {}),

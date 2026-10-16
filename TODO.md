@@ -942,6 +942,14 @@ Open work, in the order it will be done:
       clear ownership) and structured outcomes (files changed, checks run, blockers, evidence-based confidence). Keep
       the colony history, task graph, permissions, approvals, notes, workspaces and artifacts. More agents is not the
       goal: the mode that reliably finishes with least overhead is.
+      Progress (branch task7-subagents, 2026-10-16): delegate/await_results/report_result (omp task model:
+      background jobs, Settings → Jobs at once (default 4), fresh helper per brief, own worktree, harness-checked
+      typed result as job/finished), solo lead delegates instead of escalating to a team, one wake per unassigned
+      task, lease released after the holder's reminders, observer `unclaimed` once per task, huddle closes on
+      idle peers, auto review runs for 3+ changed files. Left: the paired before/after eval with the branch
+      (`bun run eval --suite crew`, DeepSeek); only an exploratory develop baseline ran (2 trials, solo ≈ default
+      ≈ fastest; team ≈3-5x tokens, swarm ≈10x, same pass rate; crew-blocked-part times out in every mode);
+      resuming a round with open jobs fails them instead of restoring the helpers; per-provider HTTP semaphore.
       - [ ] **Company gates wait for this** (company mode, branch company-mode, 2026-10-16). A company's playbook
         stages run as tasks with `blockedBy`, and the only gate now is the minimal one: a stage's task must be
         submitted with its output and pass the task check before the next stage starts. Once Task 7's typed outcomes

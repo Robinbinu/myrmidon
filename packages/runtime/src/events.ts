@@ -188,6 +188,53 @@ const defs: EventTypeDefinition[] = [
     }),
   },
   {
+    type: 'job/queued',
+    version: 1,
+    actors: ['system'],
+    schema: Schema.object({
+      id: str(),
+      by: str(),
+      agent: str(),
+      brief: str(),
+      files: strs(),
+      readOnly: Schema.boolean().default(false),
+    }),
+  },
+  {
+    type: 'job/started',
+    version: 1,
+    actors: ['system'],
+    schema: Schema.object({ id: str(), agent: str() }),
+  },
+  {
+    type: 'job/finished',
+    version: 1,
+    actors: ['system'],
+    schema: Schema.object({
+      id: str(),
+      agent: str(),
+      result: Schema.object({
+        status: oneOf('done', 'blocked', 'failed'),
+        summary: Schema.string().default(''),
+        filesChanged: strs(),
+        checks: Schema.array(
+          Schema.object({
+            command: str(),
+            passed: Schema.boolean().required(),
+            seen: Schema.boolean().required(),
+          }),
+        ).default([]),
+        blockers: strs(),
+        followUps: strs(),
+        confidence: oneOf('high', 'medium', 'low'),
+        claimedConfidence: Schema.union(['high', 'medium', 'low']),
+        confidenceWhy: Schema.string(),
+        byHarness: Schema.boolean(),
+        seconds: Schema.number().default(0),
+      }).required(),
+    }),
+  },
+  {
     type: 'agent/error',
     version: 1,
     actors: ['system'],

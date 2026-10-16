@@ -18,8 +18,10 @@ import {
   MAX_FALLBACKS,
   MAX_IMPORTED_THEMES,
   MAX_READ_FOLDERS,
+  MAX_SUBAGENTS,
   MAX_THEME_COLORS,
   SSH,
+  SUBAGENTS,
 } from './config.ts'
 import { ownerOnly } from './owner-only.ts'
 import type { SshHost } from './ssh.ts'
@@ -85,6 +87,11 @@ export interface MyrSettings {
     workerFallbacks: string[]
     wallMinutes: number
     maxTurns: number
+    /**
+     * Jobs a lead working alone may run at once with delegate (each a fresh agent on one brief, in its own worktree);
+     * more wait their turn. 0 turns delegating off: the lead does everything itself.
+     */
+    subagents: number
     /** Per-round limits; 0 means no limit. */
     costUsd: number
     tokens: number
@@ -335,6 +342,7 @@ export const settingsSchema = Schema.object({
     workerFallbacks: Schema.array(Schema.string().max(200)).max(MAX_FALLBACKS).default([]),
     wallMinutes: Schema.number().min(0).max(240).default(0),
     maxTurns: Schema.natural().min(1).max(200).default(40),
+    subagents: Schema.natural().max(MAX_SUBAGENTS).default(SUBAGENTS),
     costUsd: Schema.number().min(0).max(1000).default(DEFAULT_COST_USD),
     tokens: Schema.natural().max(1_000_000_000).default(0),
     monthlyUsd: Schema.number().min(0).max(MAX_BUDGET_USD).default(0),

@@ -178,6 +178,28 @@ export type TeamMode = 'orchestrated' | 'swarm' | 'auto' | 'manual'
 /** What kind of shared note this is; one live `plan` per colony. */
 export type NoteSection = 'plan' | 'decision' | 'finding' | 'status' | 'user'
 
+/**
+ * What a delegated job returns: the agent's report (`status`, `summary`, `blockers`, `followUps`, the checks it says
+ * it ran and how sure it is), with what the harness found. `filesChanged` comes from the agent's worktree or edits,
+ * never from the report; each check says whether the agent's log shows that command run and passing (`seen`); and
+ * `confidence` is the agent's own unless the evidence does not back it (`claimedConfidence` keeps the claim, and
+ * `confidenceWhy` says why it was lowered).
+ */
+export interface JobResult {
+  status: 'done' | 'blocked' | 'failed'
+  summary: string
+  filesChanged: string[]
+  checks: { command: string; passed: boolean; seen: boolean }[]
+  blockers: string[]
+  followUps: string[]
+  confidence: 'high' | 'medium' | 'low'
+  claimedConfidence?: 'high' | 'medium' | 'low'
+  confidenceWhy?: string
+  /** The harness wrote this result: the agent failed, stopped or never reported. */
+  byHarness?: boolean
+  seconds: number
+}
+
 export interface TaskSnapshot {
   readonly id: string
   readonly revision: number
@@ -395,6 +417,15 @@ export interface EventPayloads {
   /** The round's agent found the request bigger than its tier: the chat reruns it at `to`, with this round's work. */
   'colony/escalated': { by: string; to: 'solo' | 'team'; reason: string }
   'agent/joined': { agent: AgentInfo; by: string; focus: string }
+  /**
+   * The lead delegated a job (delegate): a fresh agent works on its brief alone, in its own worktree where the round
+   * has one, and returns one typed result (`job/finished`). `queued`: it waits for a free place (the round runs at
+   * most `team.subagents` jobs at once) and starts with `job/started`.
+   */
+  'job/queued': { id: string; by: string; agent: string; brief: string; files: string[]; readOnly: boolean }
+  'job/started': { id: string; agent: string }
+  /** A job's result, checked by the harness against what the agent really did (see JobResult). */
+  'job/finished': { id: string; agent: string; result: JobResult }
   /**
    * A frame of an agent's browser after one action, for replaying what it did: a JPEG screenshot (blob), where its
    * cursor was, and the element it acted on, in CSS pixels of a `width` x `height` viewport.

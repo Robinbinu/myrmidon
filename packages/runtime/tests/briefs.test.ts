@@ -47,25 +47,28 @@ const roles: [string, ColonySpec, AgentSpec][] = [
   ['solo that may escalate', chat({ agents: [lead] }, { escalate: ['team'] }), lead],
   [
     'solo lead with crewmates on call',
-    chat({ agents: [lead], team: { ...orchestrated, maxWorkers: 0, crewmates: [pax] } }),
+    chat({ agents: [lead], team: { ...orchestrated, maxWorkers: 0, crewmates: [pax], subagents: 4 } }),
     lead,
   ],
   [
     'solo lead with crewmates, may escalate',
     chat(
-      { agents: [lead], team: { ...orchestrated, maxWorkers: 0, crewmates: [pax] } },
+      { agents: [lead], team: { ...orchestrated, maxWorkers: 0, crewmates: [pax], subagents: 4 } },
       { escalate: ['team'] },
     ),
     lead,
   ],
   [
     'crewmate asked by a solo lead',
-    chat({ agents: [lead, pax], team: { ...orchestrated, maxWorkers: 0, crewmates: [pax] } }),
+    chat({ agents: [lead, pax], team: { ...orchestrated, maxWorkers: 0, crewmates: [pax], subagents: 4 } }),
     pax,
   ],
   [
     'crewmate in a project',
-    chat({ agents: [lead, pax], team: { ...orchestrated, maxWorkers: 0, crewmates: [pax] } }, project),
+    chat(
+      { agents: [lead, pax], team: { ...orchestrated, maxWorkers: 0, crewmates: [pax], subagents: 4 } },
+      project,
+    ),
     pax,
   ],
   ['team lead', chat({ tier: 'team', agents: [lead, kai], team: orchestrated }), lead],
@@ -147,7 +150,7 @@ test("a crewmate's brief matches its real situation: its job, the lead, one way 
   expect(prompt).toContain('This round: one job for lead')
   expect(prompt).toContain('override these defaults')
   expect(prompt).not.toContain('reply with one short line')
-  expect(prompt.match(/answer lead once/g)).toHaveLength(1)
+  expect(prompt.match(/Finish with one report_result/g)).toHaveLength(1)
   // It wakes for its job, not for the person's request.
   expect(startsAwake(spec, agent)).toBe(false)
   // Workers on a team are told their task overrides the defaults too.
@@ -205,8 +208,8 @@ test('a lead with no crewmates says plainly that the chat has none and how to ad
     'This round: you alone, with every tool. No crewmates unless the person adds some with Crewmates in the message box.',
   )
   expect(prompt).not.toMatch(/This round: solo/)
-  const onCall = chat({ agents: [lead], team: { ...orchestrated, crewmates: [kai] } })
+  const onCall = chat({ agents: [lead], team: { ...orchestrated, crewmates: [kai], subagents: 4 } })
   expect(systemPrompt(onCall, lead, env).join('\n')).toContain(
-    'This round: you, with every tool, and 1 crewmate on call',
+    'This round: you, with every tool, and helpers you delegate independent jobs to (delegate), 1 crewmate on call among them',
   )
 })

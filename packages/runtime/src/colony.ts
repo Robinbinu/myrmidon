@@ -30,6 +30,7 @@ import {
   emptyColonyState,
   foldColony,
   hasOpenWork,
+  type JobResult,
   type MyrEvent,
   mentionsIn,
   offersFor,
@@ -62,6 +63,7 @@ import {
   BOOTSTRAP_MS,
   CHAT_SETTLE_MS,
   HUDDLE_MS,
+  JOB_REMINDERS,
   LEASE_MS,
   LOGIN_MS,
   MAX_SERVERS,
@@ -71,6 +73,7 @@ import {
   MISSED_SHOWN,
   QUIET_NUDGES,
   RECALL_TOOL_COUNT,
+  REVIEW_FILES,
   SERVER_START_MS,
   SETTLE_QUIET_MS,
   SKILL_PROPOSALS_PER_ROUND,
@@ -85,9 +88,12 @@ import {
   agentActor,
   type ColonyHost,
   type ExperimentTree,
+  type JobReport,
+  type JobRequest,
   type ReviewDecision,
   type TodoItem,
 } from './host.ts'
+import { checkReport, editedBy, harnessResult, ownedPath } from './jobs.ts'
 import type { ToolLibrary } from './made-tools.ts'
 import type { McpHub } from './mcp.ts'
 import type { MediaTools } from './media.ts'
@@ -122,6 +128,21 @@ import { Verifier } from './verifier.ts'
 import { noWebTools, type WebTools } from './web.ts'
 import { ColonyWorkspace } from './workspace.ts'
 import { ProjectWorktrees } from './worktrees.ts'
+
+/** A job the lead delegated, from queued to done (ColonyRun.delegate). */
+interface OpenJob {
+  readonly id: string
+  readonly by: string
+  readonly spec: AgentSpec
+  /** The files it owns: no other open job may change them. */
+  readonly files: string[]
+  startedAt?: number
+  /** The seq of its job/started: its agent's events from there are the evidence for its report. */
+  since?: number
+  reminded: number
+  /** Its result is in: its agent leaves once its turn ends. */
+  done?: boolean
+}
 
 export interface Runtime {
   readonly ctx: Context
@@ -324,8 +345,15 @@ export class ColonyRun implements ColonyHost {
    * calls run concurrently, and nobody should wake before the plan is in.
    */
   private readonly _afterBatch = new Map<string, (() => void)[]>()
+  /** Agents already offered each unassigned task (_offerTask), so an offer is never repeated to the same agent. */
+  private readonly _offered = new Map<string, Set<string>>()
   private readonly _idleSince = new Map<string, number>()
   private _failedVerifications = 0
+  /**
+   * Auto review: the work was reviewed this round, asked for (request_review) or because it changed REVIEW_FILES or
+   * more files; another answer in the round is not reviewed again unasked.
+   */
+  private _reviewed = false
   /** Goal mode: checks of the goal so far, the log position of the latest, and whether one is running. */
   private _goalChecks = 0
   private _goalCheckedAt = 0
@@ -1166,6 +1194,9 @@ export class ColonyRun implements ColonyHost {
       },
     })
     const what = { refusal: 'refused', overflow: 'ran out of context', error: 'failed' }[error.kind]
+    const job = this._jobOf(agent)
+    if (job && !job.done)
+      return this._jobFailed(agent, `model ${what} on ${model}: ${error.message.slice(0, 300)}`)
     await this.stop(`model ${what}: ${agent} on ${model}`)
   }
 
@@ -1182,6 +1213,16 @@ export class ColonyRun implements ColonyHost {
    * Ends the opening huddle. The peer who proposed first merges the proposals into the plan and assigns the
    * tasks; the others are woken by their assignments. If nobody proposed, the first peer plans.
    */
+  /**
+   * The huddle closes once a proposal is in and every peer is idle: one that went quiet without proposing has had its
+   * say, and waiting out HUDDLE_MS for it delays every task. HUDDLE_MS stays the backstop.
+   */
+  private _huddleSettled() {
+    const huddle = this._huddle
+    if (!huddle || huddle.proposed.size === 0) return
+    if ([...this._agents.values()].every((a) => a.idle)) this._closeHuddle(prompts.colony.huddleSettled)
+  }
+
   private _closeHuddle(why: string) {
     const huddle = this._huddle
     if (!huddle) return
@@ -1394,6 +1435,26 @@ export class ColonyRun implements ColonyHost {
         payload: { off: [], ask: [], allow: [], fullAccess: this.fullAccess, interrupted: [] },
       })
     await this._launch(left, reason, models)
+    // A job's helper does not come back with the round: its job ends as failed, so the lead knows to redo it.
+    for (const job of Object.values(this._state.jobs)) {
+      if (job.result) continue
+      await this.append({
+        type: 'job/finished',
+        actor: SYSTEM,
+        payload: {
+          id: job.id,
+          agent: job.agent,
+          result: harnessResult('failed', prompts.colony.jobInterrupted(job.agent, reason), [], 0),
+        },
+      })
+      const result = this._state.jobs[job.id]?.result
+      if (result)
+        this._wake(
+          job.by,
+          prompts.colony.jobResult({ id: job.id, agent: job.agent, result, open: [] }),
+          'job',
+        )
+    }
   }
 
   /** `newRound`: turn limits count from zero again, as each round has its own budget. */
@@ -1845,75 +1906,256 @@ export class ColonyRun implements ColonyHost {
     return prompts.colony.spawned({ name, label, model: chosen })
   }
 
-  /** Crewmates that joined for a job and opened with it: the job's mail is for the log, not delivered again. */
-  private readonly _jobInKickoff = new Map<string, string>()
-  /** Crewmates the lead is waiting on (ask_crewmate): their next reply to the lead answers it. */
-  private readonly _asked = new Map<
-    string,
-    { lead: string; since: number; resolve(text: string): void; reject(err: Error): void }
-  >()
+  /**
+   * Jobs the lead delegated that have not finished, by id, oldest first: queued ones wait for a place among the
+   * round's `team.subagents`. `since` is the seq the job started at: its agent's events from there are its evidence.
+   */
+  private readonly _jobs = new Map<string, OpenJob>()
+  /** The lead's await_results call, waiting for the next result (or, `all`, for every open job). */
+  private _jobWaiter?: { all: boolean; texts: string[]; resolve(text: string): void }
 
-  async askCrewmate(by: string, name: string, job: string): Promise<string> {
-    if (this.spec.agents.find((a) => a.name === by)?.role !== 'lead')
-      throw new Error('only the lead asks its crewmates')
-    const onCall = this.spec.team?.crewmates ?? []
-    const want = name.trim().toLowerCase()
-    const here = this.spec.agents.find((a) => a.role === 'worker' && a.name.toLowerCase() === want)
-    const called = here ?? onCall.find((c) => c.name.toLowerCase() === want)
-    if (!called)
-      throw new Error(
-        prompts.toolResults.noCrewmate(
-          name,
-          onCall.map((c) => `${c.name} (${c.specialty ?? 'crewmate'})`),
-        ),
-      )
-    if (this._state.agents[called.name]?.dismissed) throw new Error(`${called.name} has left this round`)
-    if (this._asked.has(called.name))
-      throw new Error(`${called.name} is still working on what you asked; wait for that answer first`)
-    const since = this._state.lastSeq
-    const answer = new Promise<string>((resolve, reject) =>
-      this._asked.set(called.name, { lead: by, since, resolve, reject }),
-    )
-    try {
-      if (!here) {
-        // On call until now: it joins the round and opens with its job, which is all it is told to do.
-        const spec: AgentSpec = { ...called, role: 'worker', focus: job }
-        this._jobInKickoff.set(spec.name, job)
-        this.spec.agents.push(spec)
-        await this.append({
-          type: 'agent/joined',
-          actor: SYSTEM,
-          payload: {
-            agent: {
-              name: spec.name,
-              role: 'worker',
-              model: spec.model,
-              tools: toolsFor(this.spec, spec),
-              ...(spec.specialty ? { specialty: spec.specialty } : {}),
-              focus: job,
-            },
-            by,
-            focus: `${spec.specialty ?? 'crewmate'}: ${job}`,
-          },
-        })
-        await this._isolate(spec.name)
-        const agent = new ColonyAgent(spec, this, this.resolver)
-        this._agents.set(spec.name, agent)
-        this._runAgent(agent)
+  async delegate(by: string, jobs: readonly JobRequest[], context?: string): Promise<string> {
+    const limit = this.spec.team?.subagents ?? 0
+    const lead = this.spec.agents.find((a) => a.name === by)
+    if (limit <= 0 || lead?.role !== 'lead') throw new Error('only a lead working alone delegates jobs')
+    if (this._state.status !== 'running') throw new Error('this round is not running')
+    // Two jobs that change one file would overwrite each other's work: every file has one owner.
+    const owners = new Map<string, string>()
+    for (const j of this._jobs.values()) if (!j.done) for (const f of j.files) owners.set(f, j.id)
+    const planned = jobs.map((j, i) => ({
+      ...j,
+      files: [...new Set(j.files.map(ownedPath).filter(Boolean))],
+      label: `jobs[${i}]`,
+    }))
+    for (const j of planned)
+      for (const f of j.readOnly ? [] : j.files) {
+        const owner = owners.get(f)
+        if (owner) throw new Error(prompts.toolResults.jobOverlap(j.label, f, owner))
+        owners.set(f, j.label)
       }
-      // The job goes by mail, as any message between crewmates does, so it shows in the round's Mail.
+    const onCall = this.spec.team?.crewmates ?? []
+    const busy = new Set([...this._jobs.values()].filter((j) => !j.done).map((j) => j.spec.name))
+    const taken = new Set([...this.spec.agents.map((a) => a.name), ...busy])
+    const picked = planned.map((j) => {
+      const want = j.crewmate?.trim().toLowerCase()
+      if (!want) return undefined
+      const called = onCall.find((c) => c.name.toLowerCase() === want)
+      if (!called)
+        throw new Error(
+          prompts.toolResults.noCrewmate(
+            j.crewmate ?? '',
+            onCall.map((c) => `${c.name} (${c.specialty ?? 'crewmate'})`),
+          ),
+        )
+      if (busy.has(called.name)) throw new Error(prompts.toolResults.crewmateBusy(called.name))
+      busy.add(called.name)
+      return called
+    })
+    const ids: string[] = []
+    let n = Object.keys(this._state.jobs).length
+    for (const [i, j] of planned.entries()) {
+      const called = picked[i]
+      // A crewmate on call keeps its name across jobs; a fresh helper gets a call sign nobody in the chat has.
+      const name = called?.name ?? pickName(taken)
+      taken.add(name)
+      const id = `job-${++n}`
+      const focus = context?.trim() ? prompts.colony.jobBrief(context.trim(), j.brief) : j.brief
+      const spec: AgentSpec = {
+        ...(called ?? {}),
+        name,
+        role: 'worker',
+        model: called?.model ?? lead.model,
+        focus,
+        job: { id, readOnly: j.readOnly },
+      }
+      this._jobs.set(id, { id, by, spec, files: j.readOnly ? [] : j.files, reminded: 0 })
       await this.append({
-        type: 'mail/sent',
-        actor: { kind: 'agent', id: by },
-        payload: { from: by, to: called.name, subject: '', body: job },
+        type: 'job/queued',
+        actor: SYSTEM,
+        payload: { id, by, agent: name, brief: focus, files: j.files, readOnly: j.readOnly },
       })
-      const ended = this.done.then(() => {
-        throw new Error('the round ended before the answer came')
-      })
-      return prompts.toolResults.crewmateAnswer(called.name, await Promise.race([answer, ended]))
-    } finally {
-      this._asked.delete(called.name)
+      ids.push(id)
     }
+    await this._startJobs()
+    return prompts.toolResults.delegated(
+      ids.map((id) => {
+        const job = this._jobs.get(id)
+        return { id, agent: job?.spec.name ?? '?', queued: job?.startedAt === undefined }
+      }),
+      limit,
+    )
+  }
+
+  /** Starts queued jobs, oldest first, while the round has places for them. */
+  private async _startJobs() {
+    const limit = this.spec.team?.subagents ?? 0
+    for (const job of this._jobs.values()) {
+      if (this._state.status !== 'running' || this._ending) return
+      const running = [...this._jobs.values()].filter((j) => j.startedAt !== undefined && !j.done).length
+      if (running >= limit) return
+      if (job.startedAt !== undefined) continue
+      job.startedAt = Date.now()
+      const { spec } = job
+      this.spec.agents.push(spec)
+      await this.append({
+        type: 'agent/joined',
+        actor: SYSTEM,
+        payload: {
+          agent: {
+            name: spec.name,
+            role: 'worker',
+            model: spec.model,
+            tools: toolsFor(this.spec, spec),
+            ...(spec.specialty ? { specialty: spec.specialty } : {}),
+            focus: spec.focus ?? '',
+          },
+          by: job.by,
+          focus: `${job.id}: ${(spec.focus ?? '').slice(0, 200)}`,
+        },
+      })
+      await this._isolate(spec.name)
+      const started = await this.append({
+        type: 'job/started',
+        actor: SYSTEM,
+        payload: { id: job.id, agent: spec.name },
+      })
+      job.since = started.seq
+      const agent = new ColonyAgent(spec, this, this.resolver)
+      this._agents.set(spec.name, agent)
+      this._runAgent(agent)
+    }
+  }
+
+  /** The open or just-finished job `agent` is working on. */
+  private _jobOf(agent: string): OpenJob | undefined {
+    return [...this._jobs.values()].find((j) => j.spec.name === agent && j.startedAt !== undefined)
+  }
+
+  openJobs(): string[] {
+    return [...this._jobs.values()]
+      .filter((j) => !j.done)
+      .map((j) => `${j.id} (${j.spec.name}, ${j.startedAt === undefined ? 'queued' : 'running'})`)
+  }
+
+  async reportResult(agent: string, report: JobReport): Promise<string> {
+    const job = this._jobOf(agent)
+    if (!job || job.done) throw new Error('you have no open job to report on')
+    const since = job.since ?? 0
+    // Done work lands in the person's folder now (a conflict goes back to this agent to resolve first); other
+    // outcomes keep their changes in the worktree for the lead to look at.
+    const files =
+      report.status === 'done' && this.workspace.isolation(agent)
+        ? await this.mergeWork(agent)
+        : await this._pendingWork(agent, since)
+    const events = (await this.log.read(this.id)).filter((e) => e.seq >= since)
+    await this._finishJob(job, checkReport(events, agent, report, files, this._jobSeconds(job)))
+    this._agents.get(agent)?.endTurnAfterStep()
+    return prompts.toolResults.reported
+  }
+
+  private _jobSeconds(job: OpenJob) {
+    return Math.round((Date.now() - (job.startedAt ?? Date.now())) / 1000)
+  }
+
+  /** What a job's agent changed that is not in the person's folder: its worktree's changes, or its own edits. */
+  private async _pendingWork(agent: string, since: number): Promise<string[]> {
+    if (this._worktrees && this.workspace.isolation(agent))
+      return this._worktrees.pending(agent).catch(() => [])
+    const project = this.spec.chat?.project?.path
+    const events = (await this.log.read(this.id)).filter((e) => e.seq >= since)
+    return editedBy(events, agent).map((f) =>
+      project && f.startsWith(`${project}/`) ? f.slice(project.length + 1) : f,
+    )
+  }
+
+  /** Records a job's result, frees its place for the next queued job, and delivers the result to the lead. */
+  private async _finishJob(job: OpenJob, result: JobResult) {
+    if (job.done) return
+    job.done = true
+    await this.append({
+      type: 'job/finished',
+      actor: SYSTEM,
+      payload: { id: job.id, agent: job.spec.name, result },
+    })
+    const text = prompts.colony.jobResult({ id: job.id, agent: job.spec.name, result, open: this.openJobs() })
+    const waiter = this._jobWaiter
+    if (waiter) {
+      waiter.texts.push(text)
+      if (!waiter.all || this.openJobs().length === 0) {
+        this._jobWaiter = undefined
+        waiter.resolve(waiter.texts.join('\n\n'))
+      }
+    } else this._wake(job.by, text, 'job')
+    await this._startJobs()
+  }
+
+  async awaitResults(_by: string, all: boolean): Promise<string> {
+    if (this._jobWaiter) throw new Error('already waiting for results')
+    if (this.openJobs().length === 0) return prompts.toolResults.noJobsOpen
+    const result = new Promise<string>((resolve) => {
+      this._jobWaiter = { all, texts: [], resolve }
+    })
+    const ended = this.done.then(() => {
+      throw new Error('the round ended before the results came')
+    })
+    try {
+      return await Promise.race([result, ended])
+    } finally {
+      this._jobWaiter = undefined
+    }
+  }
+
+  /**
+   * A job's agent ended a turn. With its report in, it leaves the round. Without one it is reminded, as omp's subagent
+   * yield reminder does, unless it asked the lead something and waits for the answer; after JOB_REMINDERS the harness
+   * reports for it with what it left.
+   */
+  private async _jobTurnEnded(agent: string) {
+    const job = this._jobOf(agent)
+    if (!job) return
+    if (job.done) return this._retire(agent, job.id)
+    // Already woken (a reminder about its mail or checklist, a reply): that turn comes first.
+    if (this._state.status !== 'running' || this._awaiting || !this._agents.get(agent)?.idle) return
+    const since = job.since ?? 0
+    const asked = this._state.mail.some(
+      (m) => m.from === agent && m.to === job.by && m.seq > since && asksSomething(m.body),
+    )
+    if (asked) return
+    if (job.reminded < JOB_REMINDERS) {
+      job.reminded += 1
+      return this._wake(agent, prompts.colony.jobReminder(job.reminded, JOB_REMINDERS), 'reminder')
+    }
+    const files = await this._pendingWork(agent, since)
+    await this._finishJob(
+      job,
+      harnessResult('failed', prompts.colony.jobSilent(agent), files, this._jobSeconds(job)),
+    )
+    this._retire(agent, job.id)
+  }
+
+  /** A job's agent whose model or loop failed: the job fails, and the round goes on without it. */
+  private async _jobFailed(agent: string, why: string) {
+    const job = this._jobOf(agent)
+    if (!job || job.done) return
+    const files = await this._pendingWork(agent, job.since ?? 0)
+    await this._finishJob(
+      job,
+      harnessResult('failed', prompts.colony.jobFailed(agent, why), files, this._jobSeconds(job)),
+    )
+    this._retire(agent, job.id)
+  }
+
+  /** A job's agent leaves once its job is over: later rounds of the chat leave it out, as a dismissed crewmate. */
+  private _retire(agent: string, id: string) {
+    if (this._state.agents[agent]?.dismissed) return
+    this._agents.get(agent)?.stop()
+    cellKernels.close(this.id, agent)
+    void debugSessions.close(this.id, agent)
+    void this.append({
+      type: 'agent/dismissed',
+      actor: SYSTEM,
+      payload: { agent, by: 'scheduler', reason: prompts.colony.jobOver(id) },
+    }).catch((err) => console.error(`retiring ${agent} failed:`, err))
   }
 
   async dismissWorker(by: string, name: string, reason: string): Promise<string> {
@@ -1961,7 +2203,9 @@ export class ColonyRun implements ColonyHost {
     const project = this.spec.chat?.project
     const agent = this.spec.agents.find((a) => a.name === name)
     if (!agent || !project || this._worktrees === null) return
-    if (presetOf(this.spec) !== 'auto' || this.spec.tier !== 'team' || isLead(this.spec, agent)) return
+    const job = agent.job && !agent.job.readOnly
+    if (presetOf(this.spec) !== 'auto' || (this.spec.tier !== 'team' && !job) || isLead(this.spec, agent))
+      return
     if (!toolsFor(this.spec, agent).some((t) => t === 'fs_write' || t === 'fs_edit' || t === 'shell')) return
     try {
       const root = join(this.workspace.colonyDir, 'worktrees')
@@ -2058,6 +2302,7 @@ export class ColonyRun implements ColonyHost {
 
   async requestReview(by: string, summary: string): Promise<string> {
     if (this._finalRunning) return prompts.colony.reviewRunning
+    this._reviewed = true
     // Claimed before the merge: a second trigger arriving while it runs must not start its own review.
     this._finalRunning = true
     this._verifying += 1
@@ -2201,7 +2446,16 @@ export class ColonyRun implements ColonyHost {
    */
   private async _verifyFinalAnswer(by: string) {
     if (this.spec.goal && !this._settling && !(await this._goalHolds(by, this.spec.goal))) return
-    if (this.spec.acceptance.length === 0 || this.spec.review === 'off' || this.spec.review === 'auto') {
+    // Proportionate review: in auto, the agent decides, except that a change to several files is always worth a
+    // fresh look; the solo baseline never asked for one even on a five-file change.
+    const unasked =
+      this.spec.review === 'auto' &&
+      this.spec.acceptance.length > 0 &&
+      !this._reviewed &&
+      !this._settling &&
+      (await this._changedFiles()).length >= REVIEW_FILES
+    if (unasked) this._reviewed = true
+    else if (this.spec.acceptance.length === 0 || this.spec.review === 'off' || this.spec.review === 'auto') {
       // Winding down, the round has its delivered verdict already, and nobody reviews this answer either.
       if (this._settling) return
       // Completion always cites a passing verdict; an unjudged direct answer records that it was delivered.
@@ -2259,6 +2513,31 @@ export class ColonyRun implements ColonyHost {
       trigger: 'verdict',
       text: prompts.colony.fixFinalAnswer(report),
     })
+  }
+
+  /**
+   * The person's project files this round changed: its agents' file edits and what their worktrees merged. Commands
+   * that write files are not counted; the round's checkpoint diff would, but is taken only once the round ends.
+   */
+  private async _changedFiles(): Promise<string[]> {
+    const project = this.spec.chat?.project?.path
+    if (!project) return []
+    const since = this._state.rounds.at(-1)?.startSeq ?? 0
+    const files = new Set<string>()
+    for (const e of await this.log.read(this.id)) {
+      if (e.seq < since) continue
+      if (e.type === 'worktree/merged')
+        for (const f of (e.payload as EventPayloads['worktree/merged']).files) files.add(ownedPath(f))
+      if (e.type !== 'tool/call') continue
+      const p = e.payload as EventPayloads['tool/call']
+      const path = (p.args as { path?: unknown } | undefined)?.path
+      if (!['fs_write', 'fs_edit', 'ast_edit'].includes(p.tool) || typeof path !== 'string') continue
+      // Inside a worktree its merge names the file; scratch and other places outside the project do not count.
+      if (path.startsWith(join(this.workspace.colonyDir, 'worktrees'))) continue
+      const rel = path.startsWith(`${project}/`) ? path.slice(project.length + 1) : path
+      if (!rel.startsWith('/') && !rel.startsWith('..')) files.add(ownedPath(rel))
+    }
+    return [...files]
   }
 
   /**
@@ -2431,18 +2710,6 @@ export class ColonyRun implements ColonyHost {
               notify(m, prompts.colony.groupMessage({ ...message, group: p.to }), `group:${p.to}`, {
                 mail: e.id,
               })
-        // A crewmate answering what the lead asked it (ask_crewmate): the answer goes back as the tool's result.
-        const asked = !group ? this._asked.get(p.from) : undefined
-        if (asked && p.to === asked.lead && e.seq > asked.since) {
-          this._asked.delete(p.from)
-          asked.resolve(p.body)
-          break
-        }
-        if (!group && this._jobInKickoff.get(p.to) === p.body) {
-          this._jobInKickoff.delete(p.to)
-          void this.append({ type: 'mail/delivered', actor: SYSTEM, payload: { mail: e.id, to: p.to } })
-          break
-        }
         if (!group) notify(p.to, prompts.colony.mail(message), 'mail', { mail: e.id })
         break
       }
@@ -2521,15 +2788,7 @@ export class ColonyRun implements ColonyHost {
       case 'agent/status':
       case 'agent/dismissed': {
         const p = e.payload as { agent: string; status?: string; detail?: string; reason?: string }
-        const asked = this._asked.get(p.agent)
-        if (asked && (e.type === 'agent/dismissed' || p.status === 'failed')) {
-          this._asked.delete(p.agent)
-          asked.reject(
-            new Error(
-              `${p.agent} ${e.type === 'agent/dismissed' ? 'was dismissed' : 'failed'}: ${p.detail ?? p.reason ?? ''}`,
-            ),
-          )
-        }
+        if (e.type === 'agent/status' && p.status === 'failed') void this._jobFailed(p.agent, p.detail ?? '')
         break
       }
       case 'tool/result': {
@@ -2549,12 +2808,9 @@ export class ColonyRun implements ColonyHost {
         if (e.type === 'agent/turn') {
           if ((e.payload as EventPayloads['agent/turn']).phase === 'end') {
             this._remindHolder(agent)
-            // A crewmate that stops without answering the lead: the lead is told, not left waiting.
-            const asked = this._asked.get(agent)
-            if (asked && e.seq > asked.since) {
-              this._asked.delete(agent)
-              asked.resolve(prompts.toolResults.crewmateSilent(agent))
-            }
+            void this._jobTurnEnded(agent)
+            this._offerReady(agent)
+            this._huddleSettled()
           }
           break
         }
@@ -2595,7 +2851,8 @@ export class ColonyRun implements ColonyHost {
     if (!held) return this._remindTodos(agent)
     const key = `${agent}:${held.id}`
     const sent = this._reminded.get(key) ?? 0
-    if (sent >= 2) return
+    // Reminded twice and stopped again: the task goes back now, not after LEASE_MS idle.
+    if (sent >= 2) return void this._release(held, agent)
     this._reminded.set(key, sent + 1)
     this._wake(
       agent,
@@ -2711,17 +2968,62 @@ export class ColonyRun implements ColonyHost {
       return
     }
     if ((t.revision !== 1 && !unblocked) || t.assignee) return
-    for (const a of this._agents.values()) {
-      // In an orchestrated team the lead creates tasks for workers; it does not pick them up itself.
-      if (a.name === p.by || !a.idle || (this.spec.team?.mode === 'orchestrated' && a.spec.role === 'lead'))
-        continue
-      const what = unblocked ? prompts.colony.unblocked(t.id) : prompts.colony.newTask(t.id)
-      this._wake(
-        a.name,
-        prompts.colony.taskAnnounced(what, t.subject, snapshot(this.spec, this._state)),
-        'task',
-      )
-    }
+    this._offerTask(t, unblocked, p.by)
+  }
+
+  /** Who may be offered unassigned work: not its creator, not an orchestrated lead, not dismissed. */
+  private _mayTake(a: ColonyAgent, by?: string): boolean {
+    // In an orchestrated team the lead creates tasks for workers; it does not pick them up itself.
+    if (a.name === by || (this.spec.team?.mode === 'orchestrated' && a.spec.role === 'lead')) return false
+    return !this._state.agents[a.name]?.dismissed && !a.spec.job
+  }
+
+  /**
+   * Offers a ready task nobody was given to one idle agent, the one with the least work so far, instead of waking
+   * every idle agent to race for the claim (the losers only spent a turn on a stale revision). Nobody idle: the next
+   * agent to go idle is offered it (_offerReady). Each agent is offered a task once.
+   */
+  private _offerTask(t: TaskSnapshot, unblocked: boolean, by?: string, released?: string): boolean {
+    const offered = this._offered.get(t.id) ?? new Set<string>()
+    const busy = new Set(
+      Object.values(this._state.tasks)
+        .filter((x) => x.status === 'in_progress' && x.owner)
+        .map((x) => x.owner as string),
+    )
+    const load = (name: string) => Object.values(this._state.tasks).filter((x) => x.owner === name).length
+    const order = [...this._agents.keys()]
+    const pick = [...this._agents.values()]
+      .filter((a) => a.idle && !busy.has(a.name) && !offered.has(a.name) && this._mayTake(a, by))
+      .sort((a, b) => load(a.name) - load(b.name) || order.indexOf(a.name) - order.indexOf(b.name))[0]
+    if (!pick) return false
+    this._offered.set(t.id, offered.add(pick.name))
+    const board = snapshot(this.spec, this._state)
+    const what = unblocked ? prompts.colony.unblocked(t.id) : prompts.colony.newTask(t.id)
+    this._wake(
+      pick.name,
+      released
+        ? prompts.colony.releasedToPeers(released, board)
+        : prompts.colony.taskAnnounced(what, t.subject, board),
+      'task',
+    )
+    return true
+  }
+
+  /** An agent just went idle holding nothing: it is offered the oldest ready task nobody holds or was given. */
+  private _offerReady(agent: string) {
+    if (this._state.status !== 'running' || this._awaiting || this._huddle) return
+    const a = this._agents.get(agent)
+    if (!a?.idle || !this._mayTake(a)) return
+    if (Object.values(this._state.tasks).some((t) => t.status === 'in_progress' && t.owner === agent)) return
+    const ready = Object.values(this._state.tasks).filter(
+      (t) =>
+        (t.status === 'pending' || t.status === 'rejected') &&
+        !t.assignee &&
+        t.id !== 'task-final' &&
+        this._ready(t) &&
+        !this._offered.get(t.id)?.has(agent),
+    )
+    for (const t of ready) if (this._offerTask(t, false)) return
   }
 
   private async _observe() {
@@ -2816,32 +3118,33 @@ export class ColonyRun implements ColonyHost {
       const status = this._state.agents[t.owner]?.status
       const idleFor = now - (this._idleSince.get(t.owner) ?? now)
       if (status !== 'failed' && status !== 'stopped' && idleFor < LEASE_MS) continue
-      await this.appendAtomic((s) => {
-        const cur = s.tasks[t.id]
-        if (cur?.status !== 'in_progress' || cur.owner !== t.owner) return []
-        const { owner: _owner, ...rest } = cur
-        return [
-          {
-            type: 'task/changed',
-            actor: SYSTEM,
-            payload: { by: 'scheduler', task: { ...rest, revision: cur.revision + 1, status: 'pending' } },
-          },
-        ]
-      })
-      const others = [...this._agents.values()].filter(
-        (a) =>
-          a.idle &&
-          a.name !== t.owner &&
-          !(this.spec.team?.mode === 'orchestrated' && a.spec.role === 'lead'),
-      )
-      const lead = this.spec.agents.find((a) => a.role === 'lead')
-      const text = prompts.colony.released(t.id, t.owner, t.subject)
-      if (this.spec.team?.mode === 'orchestrated' && lead)
-        this._wake(lead.name, prompts.colony.reassign(text), 'task')
-      else
-        for (const a of others)
-          this._wake(a.name, prompts.colony.releasedToPeers(text, snapshot(this.spec, this._state)), 'task')
+      await this._release(t, t.owner)
     }
+  }
+
+  /** Puts `t` back in the pool, away from `owner`, and tells whoever reassigns work. */
+  private async _release(t: TaskSnapshot, owner: string) {
+    const released = await this.appendAtomic((s) => {
+      const cur = s.tasks[t.id]
+      if (cur?.status !== 'in_progress' || cur.owner !== owner) return []
+      const { owner: _owner, ...rest } = cur
+      return [
+        {
+          type: 'task/changed',
+          actor: SYSTEM,
+          payload: { by: 'scheduler', task: { ...rest, revision: cur.revision + 1, status: 'pending' } },
+        },
+      ]
+    })
+    if (released.length === 0) return
+    const lead = this.spec.agents.find((a) => a.role === 'lead')
+    const text = prompts.colony.released(t.id, owner, t.subject)
+    if (this.spec.team?.mode === 'orchestrated' && lead)
+      return this._wake(lead.name, prompts.colony.reassign(text), 'task')
+    // Its holder had its chance; one other idle peer is offered it, as a new task is.
+    this._offered.set(t.id, (this._offered.get(t.id) ?? new Set()).add(owner))
+    const freed = this._state.tasks[t.id]
+    if (freed) this._offerTask(freed, false, owner, text)
   }
 
   /** Swarm upkeep: a second bootstrapper if the first produced nothing, and a speaker once the work is done. */

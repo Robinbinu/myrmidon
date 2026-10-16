@@ -30,7 +30,11 @@ const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-')
 const judge = { verifier: 'llm-judge' as const, model: 'mock/judge', rubric: 'r', threshold: 0.7 }
 const lead: AgentSpec = { name: 'lead', role: 'lead', model: 'anthropic/claude-sonnet' }
 const pax: AgentSpec = { name: 'pax', role: 'worker', model: 'openai/gpt-5', specialty: 'researcher' }
-const asked: AgentSpec = { ...pax, focus: 'Find how many ants live in a typical colony.' }
+const asked: AgentSpec = {
+  ...pax,
+  focus: 'Find how many ants live in a typical colony.',
+  job: { id: 'job-1', readOnly: false },
+}
 const kai: AgentSpec = { name: 'kai', role: 'worker', model: 'mock/kai', specialty: 'coder' }
 const peers: AgentSpec[] = [
   { name: 'ana', role: 'peer', model: 'mock/a' },
@@ -51,7 +55,7 @@ const handsOn: AgentSpec = {
     'fs_write',
   ],
 }
-const onCall = { ...orchestrated, maxWorkers: 0, crewmates: [pax] }
+const onCall = { ...orchestrated, maxWorkers: 0, crewmates: [pax], subagents: 4 }
 const swarm = { mode: 'swarm' as const, maxWorkers: 0, workerModels: ['mock/a'] }
 const site = { id: 'p1', name: 'site', path: '/tmp/site' }
 // Written as projects were saved before the permission model; projectLevelFrom turns it into today's level.
@@ -90,7 +94,7 @@ const worktree = { workdir: `/data/colonies/${colony}/worktrees/kai`, branch: 'm
 const matrix: [string, ColonySpec, AgentSpec, Partial<Environment>?][] = [
   ['answer', chat({ tier: 'answer', agents: [lead], acceptance: [] }, { escalate: ['solo', 'team'] }), lead],
   ['answer in a project', chat({ tier: 'answer', agents: [lead] }, inProject('auto')), lead],
-  ['solo lead with crewmates on call', chat({ agents: [lead], team: onCall }, { escalate: ['team'] }), lead],
+  ['solo lead with crewmates on call', chat({ agents: [lead], team: onCall }), lead],
   ['crewmate on call', chat({ agents: [lead, asked], team: onCall }), asked],
   ['crewmate on call in a project', chat({ agents: [lead, asked], team: onCall }, inProject('auto')), asked],
   // The lead gets its crew's build tools by default; the person can switch them off (Settings → Permissions).
@@ -271,7 +275,7 @@ test('no two sections of a prompt say the same sentence', () => {
   expect(found).toEqual([])
 })
 
-test('a crewmate called with ask_crewmate reads its own role and opens with its job alone', () => {
+test("a delegated job's helper reads its own role and opens with its job alone", () => {
   const { spec, agent, view } = views.find((v) => v.label === 'crewmate on call') ?? {}
   if (!spec || !agent || !view) throw new Error('no crewmate')
   const prompt = view.system.join('\n')
@@ -498,7 +502,7 @@ test('one rule per role: workers assume and record, messages change work, one en
   expect(text('team worker')).not.toContain('Ask a quick question instead of guessing')
   expect(text('team worker')).toContain('make a sensible assumption, record it as a "decision" note')
   // C3: a crewmate on call has one way to finish, a team worker another.
-  expect(text('crewmate on call').match(/answer lead once/g)).toHaveLength(1)
+  expect(text('crewmate on call').match(/Finish with one report_result/g)).toHaveLength(1)
   expect(text('crewmate on call')).not.toContain('reply with one short line')
   expect(text('team worker').match(/reply with one short line/g)).toHaveLength(1)
   // C4: a worker talks to the person only when written to directly.

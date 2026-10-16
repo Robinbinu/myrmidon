@@ -115,6 +115,7 @@ import {
   MAX_ARTIFACT_BYTES,
   MAX_IMAGE_INPUTS,
   MAX_IMAGES_PER_CALL,
+  MAX_JOBS_PER_CALL,
   MAX_MEDIA_BYTES,
   MAX_READ_CHARS,
   MCP_FAILURE_LIMIT,
@@ -1028,13 +1029,11 @@ const COLONY_ONLY = new Set([
   'propose',
   'add_crewmate',
   'dismiss_crewmate',
-  'ask_crewmate',
+  'delegate',
+  'report_result',
   'update_todo',
   'propose_company_change',
 ])
-
-/** Write calls that may run side by side: each waits on someone else's work, so asks in one step go out together. */
-const IN_PARALLEL = new Set(['ask_crewmate'])
 
 /**
  * How the agent loop schedules a call among the others of its step: reads run side by side, and anything that
@@ -1042,7 +1041,7 @@ const IN_PARALLEL = new Set(['ask_crewmate'])
  * update_group or publish_artifact sees the change (pi-agent-core's `concurrency`).
  */
 function concurrencyOf(def: Pick<ToolDef, 'name' | 'tier'>): 'shared' | 'exclusive' {
-  return def.tier === 'read' || IN_PARALLEL.has(def.name) ? 'shared' : 'exclusive'
+  return def.tier === 'read' ? 'shared' : 'exclusive'
 }
 
 /** A call's tier: the tool's own, or what this call does when that depends on its arguments. */
@@ -2331,7 +2330,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
         const task = Object.values(s.tasks).find((t) => t.owner === a.info.name && t.status === 'in_progress')
         return `${a.info.name} (${a.info.role}) ${a.status}${task ? ` working on ${task.id}` : ''}`
       })
-      // A solo lead's crewmates on call are crew too, before ask_crewmate brings them in.
+      // A solo lead's crewmates on call are crew too, before a delegated job brings one in.
       const onCall = (host.spec.team?.crewmates ?? [])
         .filter((c) => !s.agents[c.name])
         .map((c) => `${c.name} (${c.specialty ?? 'crewmate'}) on call`)
@@ -3281,6 +3280,9 @@ export const TOOL_DEFS: readonly ToolDef[] = [
         throw new Error(
           'only the peer holding task-final speaks to the person; record what you found as a note',
         )
+      // An answer sent while delegated jobs run would end the round under them, before their results are in.
+      const running = args.final ? host.openJobs() : []
+      if (running.length) throw new Error(prompts.toolResults.jobsStillOpen(running))
       await host.append({
         type: 'chat/reply',
         actor: agentActor(agent),
@@ -3719,15 +3721,87 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     },
   },
   {
-    name: 'ask_crewmate',
+    name: 'delegate',
     tier: 'write',
-    description: prompts.tools.ask_crewmate.description(prompts.system.brief),
+    description: prompts.tools.delegate.description(prompts.system.brief),
     parameters: type({
-      to: type('string').atLeastLength(1).describe(prompts.tools.ask_crewmate.params.to),
-      job: type('string').atLeastLength(10).describe(prompts.tools.ask_crewmate.params.job),
+      'context?': type('string').atMostLength(4000).describe(prompts.tools.delegate.params.context),
+      jobs: type({
+        brief: type('string')
+          .atLeastLength(40)
+          .atMostLength(8000)
+          .describe(prompts.tools.delegate.params.brief),
+        'files?': type('string').array().atMostLength(40).describe(prompts.tools.delegate.params.files),
+        'readOnly?': type('boolean').describe(prompts.tools.delegate.params.readOnly),
+        'crewmate?': type('string').describe(prompts.tools.delegate.params.crewmate),
+      })
+        .array()
+        .atLeastLength(1)
+        .atMostLength(MAX_JOBS_PER_CALL)
+        .describe(prompts.tools.delegate.params.jobs),
     }),
     async run(args, agent, host) {
-      return host.askCrewmate(agent, args.to, args.job)
+      return host.delegate(
+        agent,
+        (args.jobs as { brief: string; files?: string[]; readOnly?: boolean; crewmate?: string }[]).map(
+          (j) => ({
+            brief: j.brief,
+            files: j.files ?? [],
+            readOnly: j.readOnly === true,
+            ...(j.crewmate ? { crewmate: j.crewmate } : {}),
+          }),
+        ),
+        args.context,
+      )
+    },
+  },
+  {
+    name: 'await_results',
+    tier: 'read',
+    description: prompts.tools.await_results.description,
+    parameters: type({
+      'all?': type('boolean').describe(prompts.tools.await_results.params.all),
+    }),
+    async run(args, agent, host) {
+      return host.awaitResults(agent, args.all === true)
+    },
+  },
+  {
+    name: 'report_result',
+    tier: 'write',
+    description: prompts.tools.report_result.description,
+    parameters: type({
+      status: type("'done' | 'blocked' | 'failed'").describe(prompts.tools.report_result.params.status),
+      summary: type('string')
+        .atLeastLength(10)
+        .atMostLength(4000)
+        .describe(prompts.tools.report_result.params.summary),
+      'checks?': type({
+        command: type('string').atLeastLength(1).describe(prompts.tools.report_result.params.c_command),
+        passed: type('boolean').describe(prompts.tools.report_result.params.c_passed),
+      })
+        .array()
+        .atMostLength(20)
+        .describe(prompts.tools.report_result.params.checks),
+      'blockers?': type('string')
+        .array()
+        .atMostLength(10)
+        .describe(prompts.tools.report_result.params.blockers),
+      confidence: type("'high' | 'medium' | 'low'").describe(prompts.tools.report_result.params.confidence),
+      'followUps?': type('string')
+        .array()
+        .atMostLength(10)
+        .describe(prompts.tools.report_result.params.followUps),
+    }),
+    async run(args, agent, host) {
+      return host.reportResult(agent, {
+        status: args.status,
+        summary: args.summary,
+        checks: args.checks ?? [],
+        blockers: args.blockers ?? [],
+        confidence: args.confidence,
+        followUps: args.followUps ?? [],
+      })
     },
   },
   {
@@ -5063,10 +5137,7 @@ function harnessTools(
               // A stopped call ends for the agent at once, whatever the tool is still waiting on.
               const run = () =>
                 untilAborted(def.run(params ?? {}, agent, host, signal), signal, TOOL_STOP_GRACE_MS)
-              const result =
-                tier === 'read' || IN_PARALLEL.has(def.name)
-                  ? await run()
-                  : await inCallOrder(host, agent, run)
+              const result = tier === 'read' ? await run() : await inCallOrder(host, agent, run)
               output = typeof result === 'string' ? result : result.text
               // The person's hooks speak for the harness: their note stays outside any untrusted-content block.
               const hookNote = await host.afterTool(agent, def.name, params, output)
