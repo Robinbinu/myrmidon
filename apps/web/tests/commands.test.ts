@@ -109,11 +109,56 @@ test("plugins' commands join the menu, take their arguments, and never shadow a 
     arg: 'home.tsx',
   })
   expect(slashStage('/review-ui ho')).toMatchObject({ stage: 'arg', query: 'ho' })
-  expect(rankCommands('rev', { chat: false, running: false, resumable: false })[0]?.command.name).toBe(
+  // "rev" now finds the built-in /review first; the plugin's command is the one its full prefix finds.
+  expect(rankCommands('review-', { chat: false, running: false, resumable: false })[0]?.command.name).toBe(
     'review-ui',
   )
   expect(allCommands().filter((c) => c.name === 'plan')).toHaveLength(1)
   expect(parseSlash('/plan a site')?.command.prompt).toBeUndefined()
   setPluginCommands([])
   expect(parseSlash('/review-ui x')).toBeUndefined()
+})
+
+test('workflow commands send a message that has the agent follow the built-in skill of their name', () => {
+  for (const name of ['review', 'ship', 'qa', 'investigate', 'retro']) {
+    const parsed = parseSlash(`/${name}`)
+    expect(parsed?.command).toMatchObject({ name, group: 'Workflows' })
+    expect(parsed?.command.workflow?.('')).toContain(`the ${name} skill`)
+  }
+  expect(parseSlash('/review src/auth.ts')?.command.workflow?.('src/auth.ts')).toBe(
+    'Use the review skill on src/auth.ts.',
+  )
+  expect(SLASH_COMMANDS.find((c) => c.name === 'review')?.workflow?.('')).toBe(
+    'Use the review skill on the changes on this branch.',
+  )
+  expect(SLASH_COMMANDS.find((c) => c.name === 'retro')?.workflow?.('14d')).toBe(
+    'Use the retro skill for 14d.',
+  )
+  // Investigating needs to know what is broken, so the menu asks for it instead of running at once.
+  expect(SLASH_COMMANDS.find((c) => c.name === 'investigate')?.needsArg).toBe(true)
+  expect(slashStage('/investigate the login')).toMatchObject({
+    stage: 'arg',
+    command: { name: 'investigate' },
+  })
+  const sections = menuSections(idle, [])
+  expect(sections.find((s) => s.section === 'Workflows')?.commands.map((c) => c.name)).toEqual([
+    'review',
+    'ship',
+    'qa',
+    'investigate',
+    'retro',
+  ])
+})
+
+test("a plugin's command of a workflow's name takes its place: the person installed that one", () => {
+  setPluginCommands([
+    { name: 'review', plugin: 'nova-kit', description: 'Nova review', prompt: 'Review $ARGUMENTS' },
+  ])
+  const review = allCommands().filter((c) => c.name === 'review')
+  expect(review).toHaveLength(1)
+  expect(review[0]).toMatchObject({ group: 'Plugins', prompt: 'Review $ARGUMENTS' })
+  expect(review[0]?.workflow).toBeUndefined()
+  expect(parseSlash('/review x')?.command.group).toBe('Plugins')
+  setPluginCommands([])
+  expect(parseSlash('/review')?.command.group).toBe('Workflows')
 })

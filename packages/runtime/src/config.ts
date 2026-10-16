@@ -978,6 +978,23 @@ export const SKILL_SCAN_MAX_FILE_BYTES = 5 * 1024 * 1024
 /** How much of a finding's line it quotes, and the most findings one skill reports. */
 export const SKILL_SCAN_EXCERPT_CHARS = 140
 export const SKILL_SCAN_MAX_FINDINGS = 200
+/** The folder under Myrmidon's home the skills it comes with are written to at start (skills.ts `writeBuiltinSkills`). */
+export const BUILTIN_SKILLS_DIR = 'builtin-skills'
+/**
+ * The numbers the skills Myrmidon comes with (prompts.ts `builtinSkills`) hold agents to, after gstack's: a diff this
+ * many changed lines or more gets a second, fresh-context reviewer when the agent can ask a crewmate (gstack wakes its
+ * specialists from 50 lines; a crewmate here is a whole agent, so later); a fix touching more files than this asks
+ * first; this many failed hypotheses stop an investigation; fix-and-recheck loops stop after this many rounds; commits
+ * further apart than this many minutes start a new work session in a retro; a retro covers this many days by default.
+ */
+export const WORKFLOW_SKILLS = {
+  freshEyesLines: 300,
+  blastRadiusFiles: 5,
+  hypotheses: 3,
+  fixCycles: 3,
+  sessionGapMinutes: 45,
+  retroDays: 7,
+} as const
 /** The most Claude Code and Codex skills the import lists (skill-import.ts), each scanned as it is listed. */
 export const SKILL_IMPORT_MAX = 500
 /** Where an administrator puts skills every Codex user on the machine gets. */

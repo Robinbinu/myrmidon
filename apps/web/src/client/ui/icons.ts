@@ -17,6 +17,7 @@ import {
   Bug,
   Cable,
   CalendarClock,
+  CalendarRange,
   Compass,
   Container,
   Cpu,
@@ -27,6 +28,7 @@ import {
   FileSearch,
   FileUp,
   FishingHook,
+  FlaskConical,
   FolderKey,
   FolderTree,
   Footprints,
@@ -50,9 +52,11 @@ import {
   Mail,
   MessageSquareText,
   MessagesSquare,
+  Microscope,
   MonitorSmartphone,
   MousePointerClick,
   OctagonPause,
+  PackageCheck,
   PackageSearch,
   Palette,
   PhoneIncoming,
@@ -64,6 +68,7 @@ import {
   Rocket,
   SatelliteDish,
   Scale,
+  ScanEye,
   ScanSearch,
   ScreenShare,
   ScrollText,
@@ -296,4 +301,14 @@ export const FEATURE_ICONS = {
   creator: HeartHandshake,
   /** Myrmidon's license. */
   license: Scale,
+  /** The review workflow: the /review command and the built-in skill it runs. */
+  codeReview: ScanEye,
+  /** The ship workflow: /ship, from tests and review to a pull request. */
+  ship: PackageCheck,
+  /** The QA workflow: /qa, testing a change for real. */
+  qa: FlaskConical,
+  /** The investigate workflow: /investigate, root cause before a fix. */
+  investigate: Microscope,
+  /** The retro workflow: /retro, what shipped over a window of days. */
+  retro: CalendarRange,
 } as const

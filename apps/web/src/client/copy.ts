@@ -1029,7 +1029,14 @@ export const copy = {
 
   commands: {
     /** Section headings in the slash menu, keyed by command group id. */
-    groups: { Round: 'Run', 'Team & model': 'Crew & model', Chat: 'Chat', App: 'App', Plugins: 'Plugins' },
+    groups: {
+      Round: 'Run',
+      Workflows: 'Workflows',
+      'Team & model': 'Crew & model',
+      Chat: 'Chat',
+      App: 'App',
+      Plugins: 'Plugins',
+    },
     fromPlugin: (plugin: string) => `From the ${plugin} plugin`,
     list: {
       plan: { args: '<request>', description: 'Plan first: see the plan and approve it before any work' },
@@ -1046,6 +1053,32 @@ export const copy = {
       stop: { description: 'Stop the run' },
       resume: { description: 'Pick a stopped run back up where it left off' },
       retry: { description: 'Run the last request again' },
+      // Workflows: each sends a message asking the agent to follow the built-in skill of the same name.
+      review: {
+        args: '[branch, commit range, PR or files]',
+        description: 'Review the changes: findings ranked P0–P3 with the line they come from, and a verdict',
+        send: (arg: string) => `Use the review skill on ${arg || 'the changes on this branch'}.`,
+      },
+      ship: {
+        args: '[what to ship or skip]',
+        description: 'Tests, review, version, changelog and commits, then a pull request if you ask for one',
+        send: (arg: string) => `Use the ship skill to ship this branch.${arg ? ` ${arg}` : ''}`,
+      },
+      qa: {
+        args: '[command, endpoint or feature]',
+        description: 'Test it for real, each contract pass or fail with its evidence; fixes only if you ask',
+        send: (arg: string) => `Use the qa skill on ${arg || 'the changes on this branch'}.`,
+      },
+      investigate: {
+        args: '<what is broken>',
+        description: 'Find the root cause before fixing, with a regression test and a debug report',
+        send: (arg: string) => `Use the investigate skill: ${arg}`,
+      },
+      retro: {
+        args: '[24h | 7d | 14d | 30d | compare]',
+        description: 'What shipped and what to do better, from the git history',
+        send: (arg: string) => `Use the retro skill${arg ? ` for ${arg}` : ''}.`,
+      },
       model: { args: '<name>', description: 'Switch the lead model, right away if a run is going' },
       mode: {
         description: 'A lead with crewmates, or crewmates as equals',
@@ -4601,6 +4634,7 @@ export const copy = {
         claude: 'Claude Code',
         plugin: 'plugin',
         project: 'project',
+        builtin: 'built in',
       },
       title: 'Skills',
       /** Intro text around the three skill folder paths. */

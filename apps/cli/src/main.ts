@@ -60,6 +60,7 @@ import {
   TelemetryExport,
   ToolLibrary,
   type VoiceFiles,
+  writeBuiltinSkills,
 } from '@myrmidon/runtime'
 import { startServer } from '@myrmidon/web'
 import { channels } from './channels.ts'
@@ -413,7 +414,14 @@ async function main() {
           console.error(c.yellow(`myrmidon command: ${err instanceof Error ? err.message : err}`))
         }
       settings.onChange(() => keepAwake.sync())
-      const skills = new SkillLibrary(home, undefined, () => plugins.skillRoots())
+      // The skills Myrmidon comes with (review, ship, qa, investigate, retro), rewritten when this version changes them.
+      const skills = new SkillLibrary(
+        home,
+        undefined,
+        () => plugins.skillRoots(),
+        undefined,
+        writeBuiltinSkills(home),
+      )
       // Learned skills nobody uses are retired to the archive; Settings → Skills restores them.
       skills.curateEvery((archived, err) =>
         err

@@ -5701,7 +5701,7 @@ export interface SkillEntry {
   name: string
   description: string
   dir: string
-  source: 'myrmidon' | 'claude' | 'plugin' | 'project'
+  source: 'myrmidon' | 'claude' | 'plugin' | 'project' | 'builtin'
   enabled: boolean
   curation?: { uses: number; lastUsed?: string; stale: boolean; kept: boolean }
   /** Installed from the skills registry, a repository or a folder. */
@@ -5724,6 +5724,7 @@ const SKILL_SOURCES: Record<SkillEntry['source'], string> = {
   claude: copy.settings.skills.sources.claude,
   plugin: copy.settings.skills.sources.plugin,
   project: copy.settings.skills.sources.project,
+  builtin: copy.settings.skills.sources.builtin,
 }
 
 export interface PluginEntry {
