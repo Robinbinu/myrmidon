@@ -16,6 +16,7 @@ import type { ChatSummary } from '../api.ts'
 import { copy } from '../copy.ts'
 import { useScope } from '../DeviceGate.tsx'
 import { PluginSlot, usePluginSlots } from '../plugins.tsx'
+import { AvatarScope } from '../ui/avatar-bag.ts'
 import {
   clock,
   compact,
@@ -226,15 +227,17 @@ export function Workspace(props: { chat: ChatSummary; open: boolean; onOpenChang
     <aside aria-label={copy.workspace.label} className="flex h-full shrink-0">
       {colonyId && (
         <ProjectFiles project={props.chat.project}>
-          <WorkspaceBody
-            key={colonyId}
-            colonyId={colonyId}
-            {...(round !== undefined ? { round } : {})}
-            project={props.chat.project}
-            open={props.open}
-            onOpenChange={props.onOpenChange}
-            roundPicker={roundPicker}
-          />
+          <AvatarScope value={colonyId}>
+            <WorkspaceBody
+              key={colonyId}
+              colonyId={colonyId}
+              {...(round !== undefined ? { round } : {})}
+              project={props.chat.project}
+              open={props.open}
+              onOpenChange={props.onOpenChange}
+              roundPicker={roundPicker}
+            />
+          </AvatarScope>
         </ProjectFiles>
       )}
     </aside>
