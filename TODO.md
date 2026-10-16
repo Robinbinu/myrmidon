@@ -840,6 +840,14 @@ Open work, in the order it will be done:
       clear ownership) and structured outcomes (files changed, checks run, blockers, evidence-based confidence). Keep
       the colony history, task graph, permissions, approvals, notes, workspaces and artifacts. More agents is not the
       goal: the mode that reliably finishes with least overhead is.
+      Progress (branch task7-subagents, 2026-10-16): delegate/await_results/report_result (omp task model:
+      background jobs, Settings → Jobs at once (default 4), fresh helper per brief, own worktree, harness-checked
+      typed result as job/finished), solo lead delegates instead of escalating to a team, one wake per unassigned
+      task, lease released after the holder's reminders, observer `unclaimed` once per task, huddle closes on
+      idle peers, auto review runs for 3+ changed files. Left: the paired before/after eval with the branch
+      (`bun run eval --suite crew`, DeepSeek); only an exploratory develop baseline ran (2 trials, solo ≈ default
+      ≈ fastest; team ≈3-5x tokens, swarm ≈10x, same pass rate; crew-blocked-part times out in every mode);
+      resuming a round with open jobs fails them instead of restoring the helpers; per-provider HTTP semaphore.
 12ad. - [ ] **Task 8: tool reliability and error recovery** (asked 2026-10-15). Phase 1 (audit + failure matrix,
       docs/research/2026-10-15-tool-failure-matrix.md, branch tool-failure-audit) runs now; phase 2 (implementation)
       starts after Task 5 lifecycle hardening lands, since it shares cancellation, timeouts and duplicate handling.
