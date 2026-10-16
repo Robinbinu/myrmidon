@@ -319,6 +319,10 @@ export interface EventPayloads {
     body: string
     why: string
     update?: { description: string; body: string }
+    /** Retires a learned skill: keeping the proposal archives it (restorable in Settings). */
+    remove?: true
+    /** The agent that proposed it (learn, manage_skill); absent when the reviewer did. */
+    by?: string
   }
   'skill/decided': { id: string; kept: boolean }
   /**

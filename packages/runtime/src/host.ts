@@ -227,6 +227,17 @@ export interface ColonyHost {
   useSkill(agent: string, name: string, file?: string): Promise<string>
   /** Loads an agent's on-demand tools matching `query` (find_tools); says what it loaded. */
   loadTools(agent: string, query: string): string
+  /** Proposes creating, changing or retiring one of Myrmidon's learned skills (learn, manage_skill). */
+  proposeSkill(
+    agent: string,
+    input: {
+      action: 'create' | 'update' | 'delete'
+      name: string
+      description?: string
+      body?: string
+      why: string
+    },
+  ): Promise<string>
   /** Marks the point an agent's context goes back to (checkpoint), and replaces what came since with a report (rewind). */
   checkpoint(agent: string, goal: string): string
   rewind(agent: string, report: string): string

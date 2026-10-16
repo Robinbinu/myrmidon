@@ -66,7 +66,16 @@ const BUILD = [
   ...ACCESS_GROUPS.remote,
   ...ACCESS_GROUPS.computer,
 ]
-const USER = ['reply_user', 'check_in', 'ask_user', 'remember', 'recall', 'search_chats']
+const USER = [
+  'reply_user',
+  'check_in',
+  'ask_user',
+  'remember',
+  'recall',
+  'search_chats',
+  'learn',
+  'manage_skill',
+]
 /** Structural search and rewrite, and language servers: loaded on demand, as omp marks them discoverable. */
 const CODE_INTEL = ['ast_grep', 'ast_edit', 'lsp']
 /** Code cells whose state lasts the round: loaded on demand, as omp marks its eval discoverable. */
@@ -212,6 +221,8 @@ const ON_DEMAND = new Set([
   ...CELLS,
   ...CHECKING,
   ...CHECKPOINT,
+  // Retiring and rewriting skills is rare; learn, which carries a skill too, stays loaded as omp's is essential.
+  'manage_skill',
   ...MEDIA,
   ...ACCESS_GROUPS.remote,
   ...ACCESS_GROUPS.computer,

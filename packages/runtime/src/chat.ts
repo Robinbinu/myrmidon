@@ -515,7 +515,9 @@ export class ChatService {
     const proposal = skillProposals.get(id)
     if (!proposal) throw new Error('no such skill proposal')
     if (proposal.status !== 'proposed') throw new Error(`this proposal was already ${proposal.status}`)
-    if (keep)
+    // Retiring a learned skill moves it to the archive, from where Settings brings it back.
+    if (keep && proposal.remove) skills.archive(proposal.name)
+    else if (keep)
       skills.write(
         proposal.name,
         edits.description?.trim() || proposal.description,
@@ -957,6 +959,7 @@ export class ChatService {
       ...(this.options.computer ? { computer: this.options.computer } : {}),
       ...(this.options.ssh ? { ssh: this.options.ssh } : {}),
       ...(this.options.skills ? { skills: this.options.skills } : {}),
+      ...(this.options.skillProposals ? { skillProposals: this.options.skillProposals } : {}),
       ...(this.options.hooks ? { hooks: this.options.hooks } : {}),
       ...(this.options.rules ? { rules: this.options.rules } : {}),
       ...(this.options.memory ? { memory: this.options.memory } : {}),
@@ -1946,6 +1949,7 @@ export class ChatService {
       ...(this.options.computer ? { computer: this.options.computer } : {}),
       ...(this.options.ssh ? { ssh: this.options.ssh } : {}),
       ...(this.options.skills ? { skills: this.options.skills } : {}),
+      ...(this.options.skillProposals ? { skillProposals: this.options.skillProposals } : {}),
       ...(this.options.hooks ? { hooks: this.options.hooks } : {}),
       ...(this.options.rules ? { rules: this.options.rules } : {}),
     })

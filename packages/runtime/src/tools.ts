@@ -2889,6 +2889,52 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     },
   },
   {
+    name: 'learn',
+    tier: 'write',
+    description: prompts.tools.learn.description,
+    parameters: type({
+      lesson: type('string').atLeastLength(3).atMostLength(400).describe(prompts.tools.learn.params.lesson),
+      scope: type("'everywhere' | 'project'").describe(prompts.tools.learn.params.scope),
+      why: type('string').describe(prompts.tools.learn.params.why),
+      'skill?': type({
+        action: type("'create' | 'update'").describe(prompts.tools.learn.params.skillAction),
+        name: type('string').describe(prompts.tools.learn.params.skillName),
+        description: type('string').describe(prompts.tools.learn.params.skillDescription),
+        body: type('string').describe(prompts.tools.learn.params.skillBody),
+      }).describe(prompts.tools.learn.params.skill),
+    }),
+    async run(args, agent, host) {
+      // As omp's learn: the lesson first; a skill that cannot be proposed is reported beside it, not lost with it.
+      const lesson = await host.proposeMemory(agent, {
+        text: args.lesson,
+        kind: 'lesson',
+        scope: args.scope,
+        why: args.why,
+      })
+      if (!args.skill) return `lesson ${lesson}`
+      try {
+        return `lesson ${lesson}\nskill ${await host.proposeSkill(agent, { ...args.skill, why: args.why })}`
+      } catch (err) {
+        return `lesson ${lesson}\nskill not proposed: ${err instanceof Error ? err.message : String(err)}`
+      }
+    },
+  },
+  {
+    name: 'manage_skill',
+    tier: 'write',
+    description: prompts.tools.manage_skill.description,
+    parameters: type({
+      action: type("'create' | 'update' | 'delete'").describe(prompts.tools.manage_skill.params.action),
+      name: type('string').describe(prompts.tools.manage_skill.params.name),
+      'description?': type('string').describe(prompts.tools.manage_skill.params.description),
+      'body?': type('string').describe(prompts.tools.manage_skill.params.body),
+      why: type('string').describe(prompts.tools.manage_skill.params.why),
+    }),
+    async run(args, agent, host) {
+      return host.proposeSkill(agent, args)
+    },
+  },
+  {
     name: 'recall',
     tier: 'read',
     description: prompts.tools.recall.description,

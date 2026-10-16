@@ -755,7 +755,14 @@ Open work, in the order it will be done:
          (omp commit).
       5. Internal paths in file tools: `pr://N`, `issue://N`, `conflict://N` (resolve a merge conflict by writing
          @ours/@theirs/@base), `agent://`, `skill://`.
-      6. learn / manage_skill: the agent saves a reusable lesson and can promote it into a managed skill.
+      6. [x] learn / manage_skill: the agent saves a reusable lesson and can promote it into a managed skill. Done
+         (after omp's learn.ts and manage-skill.ts): `learn(lesson, scope, why, skill?)` proposes the lesson as a
+         memory of kind lesson and, with `skill`, a learned skill; `manage_skill(create|update|delete)` (on demand)
+         proposes a new, changed or retired learned skill. All wait for the person as memories and the reviewer's
+         skill proposals do (an update shows as a diff; Retire archives it, restorable in Settings → Skills); skills
+         the person wrote, installed or that came with Myrmidon or a plugin are refused by name; 3 per agent a round.
+         (test: `packages/runtime/tests/learn-skill.test.ts` — "learn proposes the lesson as a memory and its
+         procedure as a learned skill…", "manage_skill updates and retires only learned skills…")
       7. [x] Magic words in a message: ultrathink (highest effort), orchestrate (parallel crew + verify each phase).
          Done (magic-words.ts): standalone lowercase prose only, never in code spans, fences, XML or identifiers, as
          omp's pi-tui matcher. ultrathink: every agent asks for `max`, clamped to the model's top level, plus omp's

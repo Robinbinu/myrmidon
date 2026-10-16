@@ -122,6 +122,8 @@ export function allowSkills(home: string, hashes: Readonly<Record<string, string
 }
 
 const NAME = /^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$/
+/** What a skill may be called: kebab-case, as omp's managed skills (learn, manage_skill check names against it). */
+export const SKILL_NAME = NAME
 /** Marks a skill Myrmidon learned itself (in its front matter), as opposed to one the person wrote. */
 const LEARNED = /^source:\s*learned\s*$/m
 /** Marks a skill Myrmidon wrote from the ones it comes with, so only those are ever replaced or removed. */
@@ -459,6 +461,18 @@ export class SkillLibrary {
         return parsed ? [{ name: parsed.name, description: parsed.description }] : []
       })
       .sort((a, b) => a.name.localeCompare(b.name))
+  }
+
+  /** Moves a learned skill to the archive (a retirement the person approved); Settings can bring it back. */
+  archive(name: string) {
+    const from = join(this.dir, name)
+    const file = join(from, 'SKILL.md')
+    if (!NAME.test(name) || !existsSync(file) || !isLearned(readFileSync(file, 'utf8')))
+      throw new Error(`no learned skill called ${name}`)
+    mkdirSync(this._archive, { recursive: true })
+    const target = join(this._archive, name)
+    rmSync(target, { recursive: true, force: true })
+    renameSync(from, target)
   }
 
   /** Brings an archived skill back, with a fresh clock so it is not archived again at once. */

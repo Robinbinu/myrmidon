@@ -753,6 +753,19 @@ Workflow: read what was referenced and the project's state; plan the phases and 
       snapshot: string
     }) =>
       `${p.fresh}\n\nYou hold ${p.id} r${p.revision}: ${p.subject}\n${p.description}\n\nCheck the files and notes for what you had done, then finish and submit it.\n\n${p.snapshot}`,
+    /** learn and manage_skill (colony.ts proposeSkill), after omp's manage-skill errors. */
+    skillsUnavailable: 'skills cannot be proposed in this run',
+    skillName: (name: string) =>
+      `not a skill name: ${JSON.stringify(name)}; use kebab-case (lowercase letters, digits, hyphens)`,
+    skillsPerRound: (n: number) =>
+      `you proposed ${n} skills this round already; one strong skill beats several vague ones`,
+    skillAuthored: (name: string) =>
+      `a skill called ${name} is the person's own (or came with Myrmidon or a plugin), and you never change those; choose a different name`,
+    skillExists: (name: string) => `a learned skill called ${name} exists already: use action "update"`,
+    skillMissing: (name: string) => `no learned skill called ${name}: use action "create"`,
+    skillIncomplete: 'a skill needs a description (when to use it) and a body (its instructions)',
+    skillProposed: (action: 'create' | 'update' | 'delete', name: string) =>
+      `proposed ${action === 'create' ? 'the new skill' : action === 'update' ? 'the change to' : 'retiring'} ${name}; the person sees it and decides. Carry on.`,
     memoryKept: 'the person already keeps this memory',
     memoryPending: 'already proposed; the person decides',
     memoryProposed: 'proposed; the person sees it and decides whether to keep it. Carry on.',
@@ -3737,6 +3750,44 @@ Reply with JSON only: {"lines": ["...", "...", "..."]}.`,
         replaces:
           'Ids from recall of kept memories this one corrects, merges or supersedes; they are removed once the person ' +
           'keeps it. Omit for a new fact',
+      },
+    },
+    /** After omp's learn.md: a lesson to memory, and optionally a managed skill in the same call. */
+    learn: {
+      description:
+        'Capture a reusable lesson after solving something likely to pay off again: a non-obvious fix, a project ' +
+        'convention you discovered, or a workflow that worked. The lesson is proposed as a memory (kind "lesson") the ' +
+        'person keeps or discards. Add `skill` only for a repeatable procedure worth codifying as a skill (a setup ' +
+        'sequence, a debugging recipe, a project workflow), not a fact; it too waits for the person, and skills the ' +
+        'person wrote are never changed. Capture sparingly and specifically: one strong reusable lesson beats several ' +
+        'vague ones.',
+      params: {
+        lesson: 'The durable, self-contained lesson (what, when, why), in at most 400 characters',
+        scope: '"project": only chats in this project. "everywhere": cross-project lessons only',
+        why: 'Where it came from: what happened that taught it',
+        skill: "Also create or improve one of Myrmidon's learned skills with this procedure",
+        skillAction: '"create" a new learned skill, or "update" one you learned before',
+        skillName: 'kebab-case skill name (lowercase letters, digits, hyphens)',
+        skillDescription: 'One line saying when to use the skill; it drives discovery, so be specific',
+        skillBody:
+          "The skill's instructions in markdown, without front matter (it is made from the name and description)",
+      },
+    },
+    /** After omp's manage-skill.md. */
+    manage_skill: {
+      description:
+        "Create, update or retire one of Myrmidon's learned skills: SKILL.md files for repeatable procedures (a setup " +
+        'sequence, a debugging recipe, a project-specific workflow), offered as normal skills in later chats once the ' +
+        'person keeps the proposal. Skills the person wrote or installed are separate and never touched. "create" ' +
+        'fails if the skill exists; "update" replaces its description and body; "delete" retires it to the archive. ' +
+        'Every action is a proposal the person approves.',
+      params: {
+        action: '"create", "update" or "delete"',
+        name: 'kebab-case skill name (lowercase letters, digits, hyphens)',
+        description:
+          'One line saying when to use the skill; specific, it drives discovery. Not needed for delete',
+        body: 'The instructions in markdown, without front matter. Not needed for delete',
+        why: 'Why it is worth keeping, changing or retiring',
       },
     },
     // After omp's recall ("search long-term memory; return raw relevance-ranked matching entries ... use proactively

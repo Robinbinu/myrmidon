@@ -406,7 +406,7 @@ const defs: EventTypeDefinition[] = [
   {
     type: 'skill/proposed',
     version: 1,
-    actors: ['system'],
+    actors: ['system', 'agent'],
     schema: Schema.object({
       id: str(),
       name: str(),
@@ -414,6 +414,8 @@ const defs: EventTypeDefinition[] = [
       body: str(),
       why: Schema.string().default(''),
       update: optional(Schema.object({ description: str(), body: str() })),
+      remove: optional(Schema.const(true)),
+      by: optional(str()),
     }),
   },
   {

@@ -840,6 +840,10 @@ export interface SkillProposalView {
   body: string
   why: string
   update?: { description: string; body: string }
+  /** Retires a learned skill (manage_skill delete): keeping it archives the skill. */
+  remove?: true
+  /** The agent that proposed it; absent when the reviewer did. */
+  by?: string
 }
 
 /**
@@ -863,7 +867,7 @@ export function SkillProposalCard(props: { proposal: SkillProposalView; onDecide
         ...(keep && description !== p.description ? { description } : {}),
         ...(keep && body !== p.body ? { body } : {}),
       })
-      toast(keep ? t.kept(p.name) : t.discarded, keep ? 'success' : 'info')
+      toast(keep ? (p.remove ? t.retired(p.name) : t.kept(p.name)) : t.discarded, keep ? 'success' : 'info')
       props.onDecided?.(keep)
     } catch (err) {
       toast(String((err as Error).message), 'error')
@@ -882,17 +886,21 @@ export function SkillProposalCard(props: { proposal: SkillProposalView; onDecide
       <div className="flex items-center gap-2 text-reading">
         <FEATURE_ICONS.skills className="size-4 shrink-0 text-accent-fg" />
         <span className="min-w-0">
-          {p.update ? t.improve : t.learned} <span className="font-mono font-semibold">{p.name}</span>
+          {p.remove ? t.retire : p.update ? t.improve : t.learned}{' '}
+          <span className="font-mono font-semibold">{p.name}</span>
+          {p.by && <span className="text-muted"> {t.by(p.by)}</span>}
         </span>
-        <button
-          type="button"
-          onClick={() => setEditing(!editing)}
-          aria-pressed={editing}
-          className="ml-auto inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-small text-muted transition-colors hover:bg-fill hover:text-fg"
-        >
-          <PencilLine className="size-3.5" />
-          {editing ? t.preview : t.edit}
-        </button>
+        {!p.remove && (
+          <button
+            type="button"
+            onClick={() => setEditing(!editing)}
+            aria-pressed={editing}
+            className="ml-auto inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-small text-muted transition-colors hover:bg-fill hover:text-fg"
+          >
+            <PencilLine className="size-3.5" />
+            {editing ? t.preview : t.edit}
+          </button>
+        )}
       </div>
       {p.why && <p className="text-callout text-fg-2">{t.why(p.why)}</p>}
       {editing ? (
@@ -941,7 +949,7 @@ export function SkillProposalCard(props: { proposal: SkillProposalView; onDecide
           onClick={() => void decide(true)}
           icon={<Check className="size-3.5" />}
         >
-          {t.keep}
+          {p.remove ? t.retireKeep : t.keep}
         </Button>
       </div>
     </motion.div>

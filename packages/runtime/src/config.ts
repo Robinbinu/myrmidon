@@ -189,6 +189,8 @@ export const SKILL_REVIEW_CALLS = 20
 /** How much of a round the skill reviewer reads, and how long it may take. */
 export const SKILL_DIGEST_CHARS = 30_000
 export const SKILL_REVIEW_MS = 90_000
+/** The most skills one agent may propose in a round with learn and manage_skill (omp: one strong lesson over several). */
+export const SKILL_PROPOSALS_PER_ROUND = 3
 /** omp's window for a model it found but knows nothing about; treated as unknown since it is often wrong. */
 export const OMP_UNKNOWN = 128_000
 /** models.dev's catalog of model context windows, and how often the cached copy is refreshed (a day). */
