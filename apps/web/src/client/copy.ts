@@ -1150,6 +1150,7 @@ export const copy = {
       planningTasks: 'planning tasks',
       writingReply: 'writing a reply',
       usingMac: 'using your Mac',
+      browsing: (site: string) => (site ? `browsing ${site}` : 'browsing'),
       drawing: 'making a picture',
       recording: 'recording audio',
       using: (tool: string) => `using ${tool}`,
@@ -2221,6 +2222,16 @@ export const copy = {
     },
     login: {
       needsSignIn: 'needs you to sign in to',
+      /** What the agent needs the person to do in its browser, by takeover reason; a sign-in is `needsSignIn`. */
+      needs: {
+        captcha: 'needs you to get past a human check on',
+        '2fa': 'needs you to enter a code on',
+        payment: 'needs you to enter payment details on',
+        confirm: 'needs you to confirm something on',
+        stuck: 'is stuck and needs your help on',
+      },
+      takeOverInstructions: (agent: string) =>
+        `Open ${agent}’s browser, choose Take control, do what it asks, then Hand back. The agent never sees what you type there.`,
       instructions: (agent: string) =>
         `Open ${agent}’s browser, choose Take control, sign in, then Hand back. The agent never sees your password, and the sign-in is kept for later runs.`,
       openBrowser: (agent: string) => `Open ${agent}’s browser`,
@@ -2587,19 +2598,16 @@ export const copy = {
         web_search: 'Search the web',
         web_fetch: 'Read a web page',
         browser_open: 'Open a page',
-        request_login: 'Ask you to sign in',
+        browser_read: 'Read a page',
+        browser_snapshot: 'Look at the page',
+        browser_act: 'Click, type and fill forms',
         browser_tabs: 'Switch tabs',
-        browser_downloads: 'Downloads',
         browser_extract: 'Pull data from a page',
-        browser_network: 'Watch network requests',
-        browser_upload: 'Upload a file',
-        browser_snapshot: 'Read the page',
-        browser_click: 'Click',
-        browser_type: 'Type',
-        browser_press: 'Press a key',
         browser_screenshot: 'Take a screenshot',
-        browser_console: 'Read the console',
-        browser_eval: 'Run a script in the page',
+        browser_files: 'Downloads and uploads',
+        browser_debug: "Read a page's console and network, run scripts in it",
+        request_takeover: 'Hand the browser to you',
+        request_login: 'Ask you to sign in',
         mcp: 'Any MCP tool',
         computer: 'Use your Mac',
         message: 'Message a crewmate',
@@ -3250,6 +3258,22 @@ export const copy = {
   },
 
   computer: {
+    /**
+     * Under an agent's browser: it is a browser of the agent's own, and letting agents into the person's Chrome is
+     * not there yet (chrome-devtools-mcp's autoConnect cannot read Chrome's debugging port on macOS 27, issue #3089).
+     */
+    /** The browser's own tabs strip: the agents browsing in this chat, then the person's own browser. */
+    place: {
+      label: 'Browser tabs',
+      browsing: (site: string) => (site ? `browsing ${site}` : 'browsing'),
+      idle: 'browser open',
+      live: 'Live',
+      mine: 'Your browser',
+      openInBrowser: 'Open in Browser',
+      empty: 'No agent has opened a browser in this chat yet.',
+    },
+    ownBrowser:
+      'This is a browser of the agent’s own, with its own cookies; nothing here touches your Chrome. Letting agents use your own Chrome, with your consent per chat, is not available yet.',
     modes: {
       browser: 'Browser',
       terminal: 'Terminal',

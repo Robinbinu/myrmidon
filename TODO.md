@@ -16,6 +16,22 @@ An item checked without either carries `unverified: …` until it gets one. Tier
       the DMG's wrapper unpacks and an update installs). The DMG's own app verifies. Advisory in
       `scripts/smoke-desktop.ts` (`--strict-archive` makes it block); make it blocking once fixed.
 
+## Browser agent follow-ups (browser-v2, 2026-10-16)
+
+- [ ] **Agents in the person's own Chrome** — chrome-devtools-mcp `--autoConnect` fails on this Mac (macOS 27: the
+      engine cannot read `~/Library/Application Support/Google/Chrome/DevToolsActivePort`, "Operation not permitted";
+      upstream #3089). Build the Myrmidon relay extension (MV3, `debugger` + `tabs` + `tabGroups`, after omp's
+      `browser/relay/bridge.ts`, a per-launch token always required), the per-chat consent toggle (audit event, Stop
+      button, agent-opened tabs only), and its stricter defaults (every consequential act asks even under Full access,
+      watch mode on sensitive sites, no browser_debug). The Computer view says it is not available yet.
+- [ ] **Mask known secret values in browser snapshots** (after Playwright MCP's `--secrets`, using secrets.ts).
+- [ ] **Compaction rule for browser results** — older browser_* results become `[page saved: web/x.md, url]`.
+- [ ] **(Task 8) Sandboxed agents reach local ports with curl, bypassing the browser's port rules** — in the browsing
+      eval an agent refused by browser_open/web_fetch on `localhost:47180` (not its own server) fetched and POSTed the
+      same page with `curl` in its shell; the sandbox does not apply the per-round localhost port rule. Close it in
+      the sandbox profile (loopback only to the round's own servers), or the browser rules mean little.
+- [ ] **Remove the `request_login` alias** one release after browser-v2 (request_takeover replaces it).
+
 ## Done this session (not listed below)
 
 - [x] **Projects** (b67c0f1 + UI): pick a folder (folder browser, since the page can't open a native picker); a

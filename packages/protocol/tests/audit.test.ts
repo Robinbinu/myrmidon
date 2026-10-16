@@ -106,13 +106,13 @@ test("a stopped round's outside effects: commands, changing MCP calls and page a
       args: {},
       readOnly: true,
     }),
-    ...call('lead', 'e7', 'browser_click', { target: 'text=Submit order' }, true),
+    ...call('lead', 'e7', 'browser_act', { steps: [{ click: '1_5' }] }, true),
     ...call('lead', 'e8', 'shell', { command: 'deploy.sh' }),
   ])
   expect(effects.map(describeEffect)).toEqual([
     'ran `npm publish`',
     'called mcp__github_create_issue {"title":"Bug"}',
-    'click on a web page {"target":"text=Submit order"}',
+    'act on a web page {"steps":[{"click":"1_5"}]}',
     'ran `deploy.sh` (still running when it stopped)',
   ])
 })

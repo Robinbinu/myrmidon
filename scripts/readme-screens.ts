@@ -283,7 +283,7 @@ async function capture(root: string) {
           tool('create_task', {
             subject: 'Play-test the page in a real browser',
             description:
-              'Goal: catch what unit tests miss.\nContext: index.html from task-3.\nDeliverable: a note with what you tried and saw.\nApproach: browser_open("artifact:index.html"), play with the arrow keys, read browser_console, take a screenshot.\nDone when: a game starts, the score counts up, and the console is clean.',
+              'Goal: catch what unit tests miss.\nContext: index.html from task-3.\nDeliverable: a note with what you tried and saw.\nApproach: browser_open("artifact:index.html"), play with the arrow keys, read the console with browser_debug, take a screenshot.\nDone when: a game starts, the score counts up, and the console is clean.',
             assignee: tester,
             blockedBy: ['task-3'],
           }),
@@ -419,9 +419,9 @@ async function capture(root: string) {
       'tester:task-4': [
         [tool('claim_task', { id, revision: Number(given[2]) }), tool('find_tools', { query: 'browser' })],
         [tool('browser_open', { url: 'artifact:index.html' })],
-        [tool('browser_press', { key: 'ArrowUp' })],
-        [tool('browser_press', { key: 'ArrowLeft' })],
-        [tool('browser_screenshot', {}), tool('browser_console', {})],
+        [tool('browser_act', { steps: [{ press: 'ArrowUp' }] })],
+        [tool('browser_act', { steps: [{ press: 'ArrowLeft' }] })],
+        [tool('browser_screenshot', {}), tool('browser_debug', { kind: 'console' })],
         [
           tool('append_note', {
             section: 'finding',

@@ -1,5 +1,6 @@
 import { type CellDisplay, DELIVERED_VERIFIER, type EventPayloads, type MyrEvent } from '@myrmidon/protocol'
 import { copy } from '../copy.ts'
+import { siteOf } from './activity.ts'
 
 export type StepKind =
   | 'search'
@@ -608,6 +609,21 @@ export function currentStep(events: readonly MyrEvent[]): string | undefined {
         computer: copy.steps.now.usingMac,
         open_app: copy.steps.now.usingMac,
         list_apps: copy.steps.now.usingMac,
+      }
+      // A browser step says where: the page the agent's browser shows, or the one it is opening.
+      if (p.tool.startsWith('browser_') || p.tool === 'request_takeover' || p.tool === 'request_login') {
+        const shown = events
+          .slice(0, i)
+          .findLast(
+            (k) =>
+              k.type === 'browser/keyframe' &&
+              (k.payload as EventPayloads['browser/keyframe']).agent === p.agent,
+          )
+        const url =
+          typeof args.url === 'string'
+            ? args.url
+            : ((shown?.payload as EventPayloads['browser/keyframe'] | undefined)?.url ?? '')
+        return copy.steps.now.doing(p.agent, copy.steps.now.browsing(siteOf(url)))
       }
       return copy.steps.now.doing(p.agent, what[p.tool] ?? copy.steps.now.using(p.tool))
     }

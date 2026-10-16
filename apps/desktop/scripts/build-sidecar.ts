@@ -10,7 +10,7 @@
  * which needs that platform's oh-my-pi addon installed: `bun install --os='*' --cpu='*'` installs them all. Into
  * apps/desktop/dist/<platform>-<arch> (where the build hook looks), or the folder given.
  */
-import { copyFileSync, mkdirSync, readdirSync } from 'node:fs'
+import { copyFileSync, cpSync, mkdirSync, readdirSync, rmSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import type { BunPlugin } from 'bun'
@@ -131,4 +131,10 @@ if (target.platform === 'darwin' && process.platform === 'darwin') {
     }
   }
 }
+// The agents' browser engine, chrome-devtools-mcp, goes beside the executable as its package's build, where
+// packages/runtime/src/cdm.ts looks first; the server runs it on its own Bun (BUN_BE_BUN).
+const cdm = dirname(Bun.resolveSync('chrome-devtools-mcp/package.json', join(repo, 'packages/runtime')))
+rmSync(join(dist, 'chrome-devtools-mcp'), { recursive: true, force: true })
+cpSync(join(cdm, 'build'), join(dist, 'chrome-devtools-mcp', 'build'), { recursive: true })
+copyFileSync(join(cdm, 'package.json'), join(dist, 'chrome-devtools-mcp', 'package.json'))
 console.log(dist)

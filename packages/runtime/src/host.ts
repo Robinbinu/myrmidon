@@ -9,6 +9,7 @@ import type {
   PermissionCall,
   PermissionVerdict,
   Review,
+  TakeoverKind,
 } from '@myrmidon/protocol'
 import type { Advisor } from './advisor.ts'
 import type { ModelError } from './agent.ts'
@@ -147,14 +148,15 @@ export interface ColonyHost {
   /** The project's instructions, check commands and layout, read when the round started; absent outside projects. */
   readonly project?: ProjectContext
   /**
-   * Waits for the person to sign in to `site` in this agent's browser (they take control, sign in, and hand back).
-   * Resolves with how it ended; the round keeps running meanwhile.
+   * Waits for the person to take this agent's browser over (they take control, sign in or get past the blocker
+   * `kind` names, and hand back). Resolves with how it ended; the round keeps running meanwhile.
    */
   requestLogin(
     agent: string,
     site: string,
     url: string,
     reason: string,
+    kind?: TakeoverKind,
   ): Promise<'handed-back' | 'timeout' | 'stopped'>
   /** This round's random marker for untrusted content, so a page cannot fake the end of its own block. */
   readonly boundary: string

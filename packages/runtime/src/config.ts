@@ -106,12 +106,14 @@ export const GOAL = {
  * that the files, command output and the person's latest message outrank a memory under the person's instructions.
  * "Talking to the person" also carries the visual answers line (~60 words) for every speaker; its formats live in
  * reply_user's text parameter instead, read where the reply is written.
+ * "How to work" and the roles below also carry the browsing rules (about 45 words) for agents with a browser of
+ * their own.
  */
 export const PROMPT_HEADING_WORDS = {
   you: 210,
   finish: 150,
   safety: 350,
-  method: 710,
+  method: 760,
   others: 230,
   person: 270,
   instructions: 140,
@@ -124,15 +126,15 @@ export const PROMPT_HEADING_WORDS = {
  */
 export const PROMPT_ROLE_WORDS = {
   answer: 700,
-  solo: 1410,
-  crewmate: 1040,
+  solo: 1460,
+  crewmate: 1090,
   'team-lead': 980,
-  'team-lead-hands-on': 1680,
-  'team-worker': 1180,
-  'swarm-peer': 1070,
-  'colony-lead': 1000,
-  'colony-worker': 1000,
-  'colony-peer': 1000,
+  'team-lead-hands-on': 1730,
+  'team-worker': 1230,
+  'swarm-peer': 1120,
+  'colony-lead': 1050,
+  'colony-worker': 1050,
+  'colony-peer': 1050,
 } as const
 
 /**
@@ -474,11 +476,8 @@ export const OSV = {
 
 // Browser (browser.ts)
 
-/** The longest page snapshot an agent gets; past it, the agent scrolls or evaluates the part it needs. */
+/** The longest full page snapshot an agent gets (browser_snapshot full); past it, browser_read reads the page by part. */
 export const SNAPSHOT_CHARS = 12_000
-/** Console lines and network requests kept per tab, oldest dropped first, so a chatty page cannot grow without end. */
-export const BROWSER_LOG_LIMIT = 200
-export const BROWSER_NETWORK_LIMIT = 300
 /** The headless browser's window, a common laptop size, so pages lay out as a person would see them. */
 export const BROWSER_VIEWPORT = { width: 1280, height: 800 }
 /** The longest text a person controlling an agent's tab can paste into it at once. */
@@ -486,6 +485,21 @@ export const BROWSER_PASTE_MAX_CHARS = 100_000
 /** How long the browser's proxy waits on one address of a host before trying its next one. */
 export const BROWSER_CONNECT_MS = 5_000
 
+// The agents' browser engine (cdm.ts, browser-agent.ts)
+
+/** chrome-devtools-mcp's version, pinned in packages/runtime/package.json; its tool schemas change between releases. */
+export const CDM_VERSION = '1.11.0'
+/** How long the engine may take to start and answer its handshake (Node's first start reads ~14 MB of JS). */
+export const CDM_START_MS = 30_000
+/** How long one engine call may take: a slow page's navigation is the longest. */
+export const CDM_CALL_MS = 45_000
+/**
+ * The compact snapshot an agent acts from (interactive elements, headings, alerts): small, since the page's text
+ * goes to a file instead (Manus's "visible elements plus whole-page Markdown").
+ */
+export const BROWSER_COMPACT_CHARS = 4_000
+/** Headings of a page's outline returned with it; the rest are in the saved file. */
+export const BROWSER_OUTLINE_LINES = 60
 // The person's own browser (person-browser.ts)
 
 /** Tabs open at once in the person's browser; each is a live page in the shared Chrome. */

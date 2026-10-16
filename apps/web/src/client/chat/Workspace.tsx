@@ -50,7 +50,8 @@ import SpringCheck from '../vendor/react-bits/SpringCheck'
 import { AgentSheet } from './AgentSheet.tsx'
 import { ArtifactViewer } from './ArtifactViewer.tsx'
 import { AuditView } from './AuditView.tsx'
-import { BrowserView } from './BrowserView.tsx'
+import { browsingNow } from './activity.ts'
+import { BrowserPlace } from './BrowserPlace.tsx'
 import { useBrowserLinks } from './browser-links.ts'
 import { Computer } from './Computer.tsx'
 import { FoldAll, FoldChevron, useFolds } from './Folds.tsx'
@@ -128,13 +129,13 @@ export const VIEWS: ViewDef[] = [
     group: 1,
     key: '5',
   },
-  // No shortcut digit is left; it opens from the rail, the view picker, and links (Open links in built-in browser).
+  // The one place for browsers: the agents' live tabs, and the person's own browser on a full-access device. No
+  // shortcut digit is left; it opens from the rail, the view picker, links (Open links in built-in browser) and cards.
   {
     value: 'browser',
     label: copy.workspace.views.browser,
     icon: FEATURE_ICONS.browser,
     group: 1,
-    fullOnly: true,
   },
   {
     value: 'terminal',
@@ -333,6 +334,7 @@ function WorkspaceBody({
   const [file, setFile] = useState<string>()
   const [hint, setHint] = useState<{ label: string; combo?: string; top: number; right: number }>()
   const steps = useMemo(() => deriveSteps(events), [events])
+  const browsing = useMemo(() => browsingNow(events, state.status === 'running'), [events, state.status])
   const shells = useMemo(() => shellRuns(events), [events])
   const files = Object.entries(state.artifacts).sort(([a], [b]) => a.localeCompare(b))
   // Project files the crew changed here: they live in the folder, not among the published files, so they open from it.
@@ -484,7 +486,16 @@ function WorkspaceBody({
                       tab === 'mail' || tab === 'explorer' || tab === 'browser' ? 'h-full' : undefined
                     }
                   >
-                    {tab === 'browser' && <BrowserView {...(link ? { open: link } : {})} />}
+                    {tab === 'browser' && (
+                      <BrowserPlace
+                        colonyId={colonyId}
+                        live={state.status === 'running'}
+                        events={events}
+                        fullAccess={fullAccess}
+                        {...(focus ? { focus } : {})}
+                        {...(link ? { open: link } : {})}
+                      />
+                    )}
                     {tab === 'git' && project && <GitView project={project.id} />}
                     {tab === 'explorer' && project && <ProjectExplorer project={project} edited={changed} />}
                     {tab === 'files' && <ColonyTools colonyId={colonyId} tools={state.madeTools} />}
@@ -721,6 +732,7 @@ function WorkspaceBody({
                           )
                           const lead = a.info.role === 'lead'
                           const { phase, detail } = agentPhase(a, state)
+                          const site = browsing.get(a.info.name)
                           return (
                             <li key={a.info.name}>
                               <button
@@ -741,6 +753,12 @@ function WorkspaceBody({
                                     <Badge tone={toneFor(phase)}>
                                       <Dot status={phase} /> {copy.status.agent[phase]}
                                     </Badge>
+                                    {site !== undefined && (
+                                      <Badge tone="work">
+                                        <FEATURE_ICONS.browser className="size-3" />{' '}
+                                        {copy.computer.place.browsing(site)}
+                                      </Badge>
+                                    )}
                                   </div>
                                   <div className="truncate font-mono text-footnote text-muted">
                                     {a.info.model}

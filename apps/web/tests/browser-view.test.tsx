@@ -231,7 +231,9 @@ test('links in chats open here only when asked, and only where a Browser view ta
     '../src/client/chat/browser-links.ts'
   )
   const { VIEWS } = await import('../src/client/chat/Workspace.tsx')
-  expect(VIEWS.find((v) => v.value === 'browser')?.fullOnly).toBe(true)
+  // The Browser view is every device's (the agents' live tabs); the person's own browser in it is full access only
+  // (browser-place.test.tsx), and links still open there only for a full-access device (useBrowserLinks below).
+  expect(VIEWS.find((v) => v.value === 'browser')?.fullOnly).toBeUndefined()
   const click = () => {
     let prevented = false
     const event = {

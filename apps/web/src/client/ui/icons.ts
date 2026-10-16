@@ -184,7 +184,7 @@ export const FEATURE_ICONS = {
   devices: MonitorSmartphone,
   /** An agent's computer: the browser and desktop it drives. */
   computer: ScreenShare,
-  /** The person's own browser in the workspace, with tabs, kept apart from the agents' browsers. */
+  /** The browser place: the agents' live tabs and the person's own browser, and an agent busy browsing. */
   browser: Compass,
   /** Computer use: agents controlling the person's own Mac (Settings → Computer use, its banner and steps). */
   computerUse: MousePointerClick,

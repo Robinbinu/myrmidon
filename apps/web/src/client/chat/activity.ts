@@ -87,3 +87,39 @@ export function activityOf(events: readonly MyrEvent[]): Map<string, Activity[]>
   }
   return out
 }
+
+const BROWSING = (tool: string) =>
+  tool.startsWith('browser_') || tool === 'request_takeover' || tool === 'request_login'
+
+/** The host of a URL, or the text as it is when it is not one. */
+export function siteOf(url: string): string {
+  try {
+    return new URL(url).host || url
+  } catch {
+    return url
+  }
+}
+
+/**
+ * The agents using their browser now, by name, with the site they are on: those whose latest tool call is a browser
+ * one, while the round runs. The site is the latest page their browser showed (a keyframe), else the URL they opened.
+ */
+export function browsingNow(events: readonly MyrEvent[], running: boolean): Map<string, string> {
+  const last = new Map<string, string>()
+  const site = new Map<string, string>()
+  for (const e of events) {
+    if (e.type === 'tool/call') {
+      const p = e.payload as EventPayloads['tool/call']
+      last.set(p.agent, p.tool)
+      const url = (p.args as { url?: unknown } | undefined)?.url
+      if (BROWSING(p.tool) && typeof url === 'string' && /^https?:/.test(url)) site.set(p.agent, siteOf(url))
+    } else if (e.type === 'browser/keyframe') {
+      const p = e.payload as EventPayloads['browser/keyframe']
+      if (p.url) site.set(p.agent, siteOf(p.url))
+    }
+  }
+  const out = new Map<string, string>()
+  if (!running) return out
+  for (const [agent, tool] of last) if (BROWSING(tool)) out.set(agent, site.get(agent) ?? '')
+  return out
+}
