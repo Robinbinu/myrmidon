@@ -70,6 +70,14 @@ it links to: `libonnxruntime.1.dylib`, `libonnxruntime.so.1`, or `onnxruntime.dl
 detector, the turn model and Kitten use it; the build rewrites onnxruntime-node to load them beside the executable,
 since the compiled build would unpack its addon to a temporary folder without the library it links to).
 
+The agents' browser engine, chrome-devtools-mcp (pinned in `packages/runtime/package.json`), runs on **Node**, not
+Bun (it crashes parsing its arguments on Bun's runtime). The sidecar build copies the package's `build/` folder to
+`chrome-devtools-mcp/` beside the executable and the Node it runs on to `node/bin/node`: the Node of the build machine
+(`MYR_BUILD_NODE`, else `node` on PATH; 20.19+, 22.12+ or 23+), so a build for another platform must be made on that
+platform. `packages/runtime/src/cdm.ts` looks there first, then at `MYR_NODE` / `MYR_CDM`, then at the system's
+`node` and the package in `node_modules`: in development (`bun run dev`) the system Node runs it. Without Node the
+browser tools say so; nothing else needs it.
+
 It builds for the host by default; `bun run desktop:sidecar --target=bun-linux-x64` cross-compiles for another
 platform (`bun-darwin-arm64`, `bun-darwin-x64`, `bun-linux-x64`, `bun-linux-arm64`, `bun-windows-x64`,
 `bun-windows-arm64`). That needs the target's oh-my-pi addon, an optional dependency installed only for the host:

@@ -10,7 +10,7 @@
  * which needs that platform's oh-my-pi addon installed: `bun install --os='*' --cpu='*'` installs them all. Into
  * apps/desktop/dist/<platform>-<arch> (where the build hook looks), or the folder given.
  */
-import { copyFileSync, mkdirSync, readdirSync } from 'node:fs'
+import { copyFileSync, cpSync, mkdirSync, readdirSync, rmSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import type { BunPlugin } from 'bun'
@@ -117,4 +117,22 @@ if (target.platform === 'darwin' && process.platform === 'darwin') {
     }
   }
 }
+// The agents' browser engine, chrome-devtools-mcp, runs on Node (it crashes on Bun's runtime): its pinned package and
+// the Node that runs it go beside the executable, where packages/runtime/src/cdm.ts looks first. The Node is the one
+// this build runs with (MYR_BUILD_NODE, or node on PATH), so a release ships the version it was tested with.
+const node = process.env.MYR_BUILD_NODE ?? Bun.which('node')
+if (!node) throw new Error(desktopCopy.build.nodeMissing)
+const version = Bun.spawnSync([node, '--version']).stdout.toString().trim()
+const [major = 0, minor = 0] = version.replace(/^v/, '').split('.').map(Number)
+if (major < 20 || (major === 20 && minor < 19) || (major === 22 && minor < 12))
+  throw new Error(desktopCopy.build.nodeTooOld(version))
+if (target.platform !== process.platform || target.arch !== process.arch)
+  throw new Error(desktopCopy.build.nodeForeign(tag))
+const nodeDir = join(dist, 'node', 'bin')
+mkdirSync(nodeDir, { recursive: true })
+copyFileSync(node, join(nodeDir, executableName('node', target.platform)))
+const cdm = dirname(Bun.resolveSync('chrome-devtools-mcp/package.json', join(repo, 'packages/runtime')))
+rmSync(join(dist, 'chrome-devtools-mcp'), { recursive: true, force: true })
+cpSync(join(cdm, 'build'), join(dist, 'chrome-devtools-mcp', 'build'), { recursive: true })
+copyFileSync(join(cdm, 'package.json'), join(dist, 'chrome-devtools-mcp', 'package.json'))
 console.log(dist)

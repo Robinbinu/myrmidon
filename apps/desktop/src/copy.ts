@@ -45,6 +45,12 @@ export const desktopCopy = {
     bundleMissing: (path: string) =>
       `${path} is not where Electrobun's build left the app: update src/platform.ts appBundle`,
     commandFailed: (command: string, code: number | null) => `\`${command}\` failed (exit code ${code})`,
+    nodeMissing:
+      "Node.js is not installed: the agents' browser engine (chrome-devtools-mcp) runs on Node 20.19+, which the app ships; install it or set MYR_BUILD_NODE",
+    nodeTooOld: (version: string) =>
+      `Node ${version} is too old for chrome-devtools-mcp (it needs ^20.19, ^22.12 or 23+); set MYR_BUILD_NODE to a newer one`,
+    nodeForeign: (tag: string) =>
+      `the Node shipped with the app is the one this build runs on, so a ${tag} build has to be made on ${tag}`,
     patched: (path: string) => `set the microphone usage description in ${path}`,
     dmg: (path: string) => `created ${path}`,
     signed: (path: string) =>
