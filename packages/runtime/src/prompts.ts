@@ -410,7 +410,7 @@ ${p.list}
   /** What happens to an agent's work under the round's reviewer setting; the setting and judge are under Environment. */
   review: {
     off: '- Your final answer is not reviewed: it completes the round as soon as you send it, so get it right first.',
-    auto: '- Your final answer completes the round. For work worth checking (code, files, research with sources), call request_review first and fix what it finds; skip it for simple answers.',
+    auto: '- Your final answer completes the round. For work worth checking (code, files, research with sources), call request_review first and fix what it finds; skip it for simple answers and a few-line fix whose tests you ran and saw pass.',
     always:
       '- An independent reviewer checks your final answer; if it finds problems, fix them and send an updated final answer.',
     /** For an agent that submits tasks. */
@@ -2508,8 +2508,9 @@ Reply with JSON only: {"lines": ["...", "...", "..."]}.`,
     read_task: {
       description:
         "Read the round's mission, its acceptance checks (run by the verifier, not by agents), the time left in " +
-        'seconds, and who is on the crew with role and model. Use it when the round starts or when you need the goal ' +
-        'again. For the tasks themselves use list_tasks; for time, budget and idle crewmates alone, observe.',
+        'seconds, and who is on the crew with role and model. Your first message already holds the request, so use it ' +
+        'when you need the goal again or what the verifier checks. For the tasks themselves use list_tasks; for time, ' +
+        'budget and idle crewmates alone, observe.',
     },
     // After omp's retain ("durable, reusable knowledge ... no ephemeral task state") and Hermes' kanban_comment.
     append_note: {
@@ -2792,7 +2793,8 @@ Reply with JSON only: {"lines": ["...", "...", "..."]}.`,
     request_review: {
       description:
         'Ask the independent reviewer to check your work against the request before you send the final answer. Worth ' +
-        'it for code, files and research with sources; skip it for a simple answer. Returns the verdict and what to ' +
+        'it for code, files and research with sources; skip it for a simple answer or a few-line fix whose tests you ' +
+        'ran and saw pass. Returns the verdict and what to ' +
         'fix; nothing reaches the person until you send the final answer.',
       params: {
         summary: 'What you did and where: the files, sources and checks the reviewer should look at',

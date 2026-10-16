@@ -7,7 +7,8 @@
   - **off**: never. `reply_user(final: true)` completes the round.
   - **auto**: when the speaking agent calls `request_review(summary)`. The verdict and its findings come back to
     the agent, which fixes what matters and then sends the final answer, and that completes the round. Ask for it
-    for code, files, and research with sources; skip it for simple answers.
+    for code, files, and research with sources; skip it for simple answers and for a few-line fix whose tests the
+    agent ran and saw pass.
   - **always**: on every final answer. At or above the threshold the round is *completed*. Below it, the findings
     are sent back; fix them and send an updated final answer. After repeated failures the round stops with the
     report.

@@ -410,7 +410,7 @@ export const SECTIONS: readonly Section[] = [
       guard: (f) => team(f) && !crewmate(f) && f.review.verifier,
       render: () => say.verifier,
     },
-    { key: 'review', version: 2, guard: speaker, render: reviewNote },
+    { key: 'review', version: 3, guard: speaker, render: reviewNote },
     {
       key: 'review-tasks',
       guard: (f) => has(f, 'submit_task') && f.agent.kind !== 'team-lead',
