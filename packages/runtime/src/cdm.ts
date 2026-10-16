@@ -4,9 +4,10 @@ import { CDM_CALL_MS, CDM_START_MS, CDM_VERSION } from './config.ts'
 import { leashRunning } from './leashed.ts'
 
 /**
- * chrome-devtools-mcp (CDM), Google's MCP server for Chrome, as the engine under the agents' browser tools. It runs as
- * a Node child (it cannot run on Bun's runtime: it crashes parsing its arguments) attached to the Chrome Myrmidon
- * launched (`--browserUrl`), so the proxy, the leash and the guarded DevTools port stay ours. Agents never see its 32
+ * chrome-devtools-mcp (CDM), Google's MCP server for Chrome, as the engine under the agents' browser tools. It runs on
+ * Bun, as a child of this process running its entry script (`bun x --bun` crashes parsing its arguments; the script
+ * itself does not), attached to the Chrome Myrmidon launched (`--browserUrl`), so the proxy, the leash and the guarded
+ * DevTools port stay ours. Agents never see its 32
  * tools: browser-agent.ts calls them for them. The client is the MCP stdio protocol itself (newline-delimited
  * JSON-RPC), which is all CDM needs.
  */
@@ -20,15 +21,14 @@ export interface CdmResult {
 export class CdmError extends Error {}
 
 /**
- * The Node that runs CDM: MYR_NODE, the one shipped beside the desktop app's server (`node/bin/node` next to it),
- * or the system's. CDM needs Node ^20.19, ^22.12 or 23+.
+ * How to run a script on Bun: this process's own runtime. A compiled Myrmidon (the desktop app's server) is Bun too,
+ * and runs a script as the bun CLI would when BUN_BE_BUN is set.
  */
-export function findNode(execPath: string = process.execPath): string | undefined {
-  if (process.env.MYR_NODE && existsSync(process.env.MYR_NODE)) return process.env.MYR_NODE
-  const exe = process.platform === 'win32' ? 'node.exe' : join('bin', 'node')
-  const shipped = join(dirname(execPath), 'node', exe)
-  if (existsSync(shipped)) return shipped
-  return Bun.which('node') ?? undefined
+export function bunCommand(execPath: string = process.execPath): {
+  argv: string[]
+  env: Record<string, string>
+} {
+  return { argv: [execPath], env: { BUN_BE_BUN: '1' } }
 }
 
 /** CDM's entry script: shipped beside the desktop app's server, or the pinned package in node_modules. */
@@ -70,7 +70,6 @@ export class CdmClient {
 
   constructor(
     private readonly args: readonly string[],
-    private readonly node = findNode(),
     private readonly script = findCdm(),
   ) {}
 
@@ -81,7 +80,6 @@ export class CdmClient {
 
   /** Why CDM cannot run here, or undefined when it can. */
   get missing(): string | undefined {
-    if (!this.node) return 'Node.js is not installed (the browser engine needs Node 20.19 or later)'
     if (!this.script) return `chrome-devtools-mcp ${CDM_VERSION} is not installed`
     return undefined
   }
@@ -92,17 +90,17 @@ export class CdmClient {
     this._ready ??= (async () => {
       // Its stdin is the protocol, so the leash watches it from outside (as it does puppeteer's Chrome); CDM also exits
       // when its stdin closes.
-      const proc = Bun.spawn([this.node as string, this.script as string, ...this.args], {
+      const bun = bunCommand()
+      const proc = Bun.spawn([...bun.argv, this.script as string, ...this.args], {
         stdin: 'pipe',
         stdout: 'pipe',
         stderr: 'pipe',
         windowsHide: true,
         env: {
           ...process.env,
+          ...bun.env,
           CHROME_DEVTOOLS_MCP_NO_USAGE_STATISTICS: '1',
           CHROME_DEVTOOLS_MCP_NO_UPDATE_CHECKS: '1',
-          // CDM's own warnings about Node's experimental storage are noise on its stderr.
-          NODE_NO_WARNINGS: '1',
         },
       })
       this._proc = proc

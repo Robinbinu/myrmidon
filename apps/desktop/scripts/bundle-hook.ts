@@ -89,8 +89,8 @@ function signAdHoc(path: string) {
   console.log(desktopCopy.build.signed(path))
 }
 
-/** Folders the sidecar runs from besides its own files: the agents' browser engine and its Node. */
-const SIDECAR_FOLDERS = ['node', 'chrome-devtools-mcp']
+/** Folders the sidecar runs from besides its own files: the agents' browser engine. */
+const SIDECAR_FOLDERS = ['chrome-devtools-mcp']
 
 function copySidecar(resources: string) {
   const dist = sidecarDist(join(import.meta.dir, '..'), platform, arch)
@@ -103,7 +103,7 @@ function copySidecar(resources: string) {
   const target = join(resources, 'app', 'sidecar')
   mkdirSync(target, { recursive: true })
   for (const name of files) copyFileSync(join(dist, name), join(target, name))
-  // The browser engine and the Node it runs on (build-sidecar.ts), as folders beside the executable.
+  // The agents' browser engine (build-sidecar.ts), as a folder beside the executable.
   for (const folder of SIDECAR_FOLDERS) {
     if (!existsSync(join(dist, folder)))
       throw new Error(desktopCopy.build.sidecarMissing(join(dist, folder), platform))

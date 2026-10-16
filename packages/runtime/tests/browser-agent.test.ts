@@ -15,7 +15,7 @@ import {
   sectionOf,
   type Target,
 } from '../src/browser-agent.ts'
-import { findCdm, findNode } from '../src/cdm.ts'
+import { findCdm } from '../src/cdm.ts'
 import {
   BrowserHub,
   bootRuntime,
@@ -251,7 +251,7 @@ const results = async (colonyId: string) =>
     .filter((e) => e.type === 'tool/result')
     .map((e) => e.payload as EventPayloads['tool/result'])
 
-const engine = !!findChrome() && !!findNode() && !!findCdm()
+const engine = !!findChrome() && !!findCdm()
 
 test.skipIf(!engine)(
   'placing an order asks the person under Auto and Ask, runs unasked under Full access; a search never asks',

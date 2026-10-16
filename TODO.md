@@ -26,6 +26,10 @@ An item checked without either carries `unverified: …` until it gets one. Tier
       watch mode on sensitive sites, no browser_debug). The Computer view says it is not available yet.
 - [ ] **Mask known secret values in browser snapshots** (after Playwright MCP's `--secrets`, using secrets.ts).
 - [ ] **Compaction rule for browser results** — older browser_* results become `[page saved: web/x.md, url]`.
+- [ ] **(Task 8) Sandboxed agents reach local ports with curl, bypassing the browser's port rules** — in the browsing
+      eval an agent refused by browser_open/web_fetch on `localhost:47180` (not its own server) fetched and POSTed the
+      same page with `curl` in its shell; the sandbox does not apply the per-round localhost port rule. Close it in
+      the sandbox profile (loopback only to the round's own servers), or the browser rules mean little.
 - [ ] **Remove the `request_login` alias** one release after browser-v2 (request_takeover replaces it).
 
 ## Done this session (not listed below)
