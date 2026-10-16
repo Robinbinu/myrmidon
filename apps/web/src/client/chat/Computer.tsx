@@ -484,6 +484,7 @@ function LiveTab({
       <div className="truncate rounded-xl border border-line bg-fill px-2.5 py-1 font-mono text-footnote text-fg-2">
         {(replaying ? replaying.url : page.url) || 'about:blank'}
       </div>
+      <p className="text-footnote text-muted">{copy.computer.ownBrowser}</p>
       <div
         ref={screen}
         tabIndex={controlling ? 0 : -1}

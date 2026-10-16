@@ -713,12 +713,18 @@ export function LoginCards({ state }: { state: ColonyState }) {
           <div className="flex items-center gap-2 text-reading">
             <FEATURE_ICONS.siteSignIn className="size-4 shrink-0 text-accent-fg" />
             <span>
-              <span className="font-semibold">{l.agent}</span> {copy.approvals.login.needsSignIn}{' '}
+              <span className="font-semibold">{l.agent}</span>{' '}
+              {l.kind && l.kind !== 'login'
+                ? copy.approvals.login.needs[l.kind]
+                : copy.approvals.login.needsSignIn}{' '}
               <span className="font-semibold">{l.site}</span>
             </span>
           </div>
           <p className="text-callout leading-relaxed text-fg-2">
-            {l.reason} {copy.approvals.login.instructions(l.agent)}
+            {l.reason}{' '}
+            {l.kind && l.kind !== 'login'
+              ? copy.approvals.login.takeOverInstructions(l.agent)
+              : copy.approvals.login.instructions(l.agent)}
           </p>
           <div className="flex justify-end">
             <Button
