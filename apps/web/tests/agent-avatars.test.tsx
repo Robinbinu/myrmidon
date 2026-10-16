@@ -14,10 +14,12 @@ afterEach(() => setAvatarBag(undefined))
 const names = (n: number) => Array.from({ length: n }, (_, i) => `agent-${i}`)
 
 describe('the cast', () => {
-  test('has at least 40 personas, each with a look of its own', () => {
+  test('has at least 40 personas, each with a shape and a way of moving of its own', () => {
     expect(PERSONAS.length).toBeGreaterThanOrEqual(40)
     expect(new Set(PERSONA_IDS).size).toBe(PERSONAS.length)
-    const looks = PERSONAS.map((p) => JSON.stringify([p.body, p.eyes, p.mouth, [...p.accessories].sort()]))
+    const looks = PERSONAS.map((p) =>
+      JSON.stringify([p.body, p.idle, p.work, p.done, p.error, p.tempo, p.workLook, p.thinkLook]),
+    )
     expect(new Set(looks).size).toBe(PERSONAS.length)
     // Every body shape is worn by somebody.
     for (const shape of BODY_SHAPES) expect(PERSONAS.some((p) => p.body === shape)).toBe(true)
@@ -145,11 +147,7 @@ describe('the avatar', () => {
 
   test('every persona draws in theme tokens only, so it works in light and dark', async () => {
     const tokens = await Bun.file(new URL('../src/client/tokens.css', import.meta.url)).text()
-    const dark = tokens.slice(tokens.indexOf('@variant dark-tokens'))
-    for (const t of ['ink', 'shine', 'blush', 'gold', 'leaf', 'bow', 'edge'])
-      expect(tokens).toContain(`--character-${t}:`)
-    // The hairline that keeps pale bodies visible on a light page goes away on dark ones.
-    expect(dark).toContain('--character-edge: transparent')
+    expect(tokens).toContain('--character-ink:')
     for (const p of PERSONAS)
       for (const status of ['idle', 'working', 'provisioning', 'completed', 'failed', 'stopped', 'waiting']) {
         const html = render(<AgentCharacter name="nova" status={status} persona={p.id} awake />)

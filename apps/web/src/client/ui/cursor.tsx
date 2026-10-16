@@ -8,7 +8,7 @@ import {
   useSpring,
   useTransform,
 } from 'motion/react'
-import { type ReactNode, useEffect, useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { CURSOR } from '../ui-config.ts'
 import { inkOn } from './pixel.tsx'
 
@@ -47,15 +47,7 @@ export function tripMs(dist: number): number {
  * A collaborator's cursor flying to (x, y). A virtual hand moves the pointer along a gently curved
  * path; the arrow and its tag follow on springs.
  */
-export function CrewCursor(props: {
-  name: string
-  color: string
-  x: number
-  y: number
-  clicking: boolean
-  /** The face shown in its name tag, before the name. */
-  avatar?: ReactNode
-}) {
+export function CrewCursor(props: { name: string; color: string; x: number; y: number; clicking: boolean }) {
   const reduce = useReducedMotionConfig()
   const px = useMotionValue(props.x)
   const py = useMotionValue(props.y)
@@ -123,7 +115,6 @@ export function CrewCursor(props: {
       arrowY={ay}
       rotate={rotate}
       clicking={props.clicking}
-      avatar={props.avatar}
     />
   )
 }
@@ -141,7 +132,6 @@ export function CursorBody(props: {
   arrowY: MotionValue<number>
   rotate: MotionValue<number>
   clicking: boolean
-  avatar?: ReactNode
 }) {
   const reduce = useReducedMotionConfig()
   const lx = useSpring(props.x, CURSOR.labelSpring)
@@ -199,11 +189,6 @@ export function CursorBody(props: {
         animate={{ scale: 1, opacity: 1 }}
         transition={CURSOR.labelPop}
       >
-        {props.avatar && (
-          <span className="-my-1 -ml-2 mr-1.5 grid size-5 place-items-center rounded-full bg-surface">
-            {props.avatar}
-          </span>
-        )}
         {props.name}
       </motion.span>
     </>

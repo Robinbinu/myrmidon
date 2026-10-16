@@ -5,7 +5,7 @@ import { copy } from './copy.ts'
 import { AvatarScope } from './ui/avatar-bag.ts'
 import { CrewCursor } from './ui/cursor.tsx'
 import { FEATURE_ICONS } from './ui/icons.ts'
-import { AgentAvatar, agentColor } from './ui/pixel.tsx'
+import { agentColor } from './ui/pixel.tsx'
 import { COMPUTER_OVERLAY, COMPUTER_OVERLAY_POLL_MS } from './ui-config.ts'
 
 const t = copy.computerUse
@@ -100,7 +100,6 @@ export function ComputerOverlay() {
             x={p.x}
             y={p.y}
             clicking={p.action === 'click' && now - p.at < COMPUTER_OVERLAY.clickShowMs}
-            avatar={<AgentAvatar name={p.agent} status="working" size={16} awake />}
           />
         </AvatarScope>
       ))}
