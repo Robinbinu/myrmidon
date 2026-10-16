@@ -210,7 +210,13 @@ const defs: EventTypeDefinition[] = [
     type: 'login/requested',
     version: 1,
     actors: ['agent'],
-    schema: Schema.object({ agent: str(), site: str(), url: str(), reason: str() }),
+    schema: Schema.object({
+      agent: str(),
+      site: str(),
+      url: str(),
+      reason: str(),
+      kind: optional(Schema.union(['login', 'captcha', '2fa', 'payment', 'confirm', 'stuck'])),
+    }),
   },
   {
     type: 'login/finished',

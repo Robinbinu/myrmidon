@@ -192,6 +192,9 @@ export interface UsageInfo {
 }
 
 /** Payload shape for every event type the core and runtime register. */
+/** What a person is asked to take an agent's browser over for (request_takeover). */
+export type TakeoverKind = 'login' | 'captcha' | '2fa' | 'payment' | 'confirm' | 'stuck'
+
 export interface EventPayloads {
   'colony/created': {
     name: string
@@ -438,7 +441,8 @@ export interface EventPayloads {
   'agent/dismissed': { agent: string; by: string; reason: string }
   'approval/requested': ApprovalRequest
   /** An agent needs the person to sign in to a site in its browser; the person takes control, signs in, hands back. */
-  'login/requested': { agent: string; site: string; url: string; reason: string }
+  /** An agent handing its browser to the person: to sign in (`kind` absent or login), or past another blocker. */
+  'login/requested': { agent: string; site: string; url: string; reason: string; kind?: TakeoverKind }
   'login/finished': { agent: string; outcome: 'handed-back' | 'timeout' | 'stopped' }
   /** An agent did something that looks like following instructions from web content (possible prompt injection). */
   'safety/flagged': { agent: string; tool: string; reason: string; source: string }

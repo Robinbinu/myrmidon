@@ -230,7 +230,7 @@ function verifyBullets(f: PromptFacts): string[] {
   const checks = has(f, 'run_checks') && f.context.checks.length > 0
   return [
     (shell || checks) && v.code(checks),
-    ['browser_open', 'browser_console', 'browser_screenshot'].every((t) => has(f, t)) &&
+    ['browser_open', 'browser_act', 'browser_debug', 'browser_screenshot'].every((t) => has(f, t)) &&
       f.access.browser &&
       v.page,
     shell && v.script,
@@ -431,7 +431,12 @@ export const SECTIONS: readonly Section[] = [
       render: (f) =>
         say.safety.irreversible(has(f, 'ask_user') ? say.safety.askPerson : say.safety.askNobody),
     },
-    { key: 'credentials', guard: () => true, render: (f) => say.safety.credentials(has(f, 'request_login')) },
+    {
+      key: 'credentials',
+      version: 2,
+      guard: () => true,
+      render: (f) => say.safety.credentials(has(f, 'request_takeover')),
+    },
     {
       key: 'secret-placeholders',
       guard: (f) => f.access.secretsHidden === true,
@@ -479,6 +484,11 @@ export const SECTIONS: readonly Section[] = [
       render: (f) => say.answerMethod(has(f, 'web_search')),
     },
     { key: 'method', guard: (f) => f.agent.works, render: method },
+    {
+      key: 'browsing',
+      guard: (f) => f.agent.works && has(f, 'browser_act') && f.access.browser,
+      render: () => say.browsing,
+    },
     {
       key: 'verify',
       guard: (f) => f.agent.works && verifyBullets(f).length > 0,

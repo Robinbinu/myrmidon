@@ -1,34 +1,20 @@
-import { existsSync, mkdirSync, readdirSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { createServer, request } from 'node:http'
 import { connect, type Socket } from 'node:net'
 import { homedir } from 'node:os'
-import { join, posix, win32 } from 'node:path'
-import type {
-  Browser,
-  CDPSession,
-  ElementHandle,
-  HTTPRequest,
-  HTTPResponse,
-  Page,
-  SerializedAXNode,
-} from 'puppeteer-core'
-import {
-  BROWSER_CONNECT_MS,
-  BROWSER_LOG_LIMIT,
-  BROWSER_NETWORK_LIMIT,
-  BROWSER_PASTE_MAX_CHARS,
-  BROWSER_VIEWPORT,
-  SNAPSHOT_CHARS,
-} from './config.ts'
+import { dirname, join, posix, win32 } from 'node:path'
+import type { Browser, BrowserContext, CDPSession, CookieData, Page } from 'puppeteer-core'
+import { CdmClient } from './cdm.ts'
+import { BROWSER_CONNECT_MS, BROWSER_PASTE_MAX_CHARS, BROWSER_VIEWPORT } from './config.ts'
 import { leashRunning } from './leashed.ts'
 import { prompts } from './prompts.ts'
 import { guardLoopbackPort } from './sandbox.ts'
+import { atomicWrite } from './settings.ts'
 import {
   assertReachableUrl,
   type LocalPorts,
   type Lookup,
   NOT_CONNECTED,
-  quickRefusal,
   reachableAddresses,
   UnreachableError,
   urlPort,
@@ -36,11 +22,12 @@ import {
 
 /**
  * A real browser for agents: one headless Chrome per server process with its own throwaway profile (never the
- * person's), and one tab per agent per colony. Pages are read as accessibility snapshots with element refs,
- * the text-first model agents handle well; screenshots are there for visual checks.
+ * person's), and one browser context per agent, so agents never share cookies, storage or pages. Each context has its
+ * own proxy, which lets that agent reach the public internet and its own round's localhost ports only.
+ * chrome-devtools-mcp (cdm.ts) reads and drives the pages; this hub (the supervisor) owns what the engine does not:
+ * Chrome's launch and lifetime, the contexts and their proxies, published files, downloads, sign-ins kept per chat,
+ * and the live view a person watches and takes over. browser-agent.ts is the agents' side.
  */
-
-let networkIds = 0
 
 /** What a person watching an agent's tab receives. Coordinates are CSS pixels in the page viewport. */
 export type LiveEvent =
@@ -71,26 +58,24 @@ interface Tab {
   /** The page the agent is on; `pages` are all its open pages, in the order they opened. */
   page: Page
   readonly pages: Page[]
+  /** The agent's own browser context: its cookies, storage and cache, behind its own proxy. */
+  readonly context: BrowserContext
   /** Where downloads land, when the agent has a scratch directory. */
   readonly downloads?: string
-  /** Element refs from the latest snapshot. */
-  refs: Map<string, SerializedAXNode>
-  readonly logs: string[]
-  /** Recent requests of all its pages, oldest first; API responses keep their body for browser_network. */
-  readonly network: NetworkEntry[]
   readonly watchers: Set<(e: LiveEvent) => void>
   cdp?: CDPSession
   cursor: { x: number; y: number }
   controlledBy: 'agent' | 'person'
   /** The loopback ports this tab may reach: its run's own servers (and any the hub allows every tab); `all` with full access. */
   readonly localPorts: LocalPorts
-  /** Whether the proxy behind every tab lets anything through, because a full-access tab is open. */
-  readonly proxyOpen: () => boolean
-  /** Why the browser last refused a connection, if it did at or after `since`; for saying why a navigation failed. */
+  /** Why the proxy last refused a connection, if it did at or after `since`; for saying why a navigation failed. */
   readonly refusal: (since: number) => string | undefined
-  readonly onRefused: (reason: string) => void
   /** The colony's published files, served to this tab at their own origin. */
   readonly artifacts?: ArtifactSource
+  /** The engine, started on first use; one for every tab of the hub. */
+  readonly engine: () => CdmClient
+  /** The engine's id for one of the tab's pages, which every engine call names. */
+  readonly idOf: (page: Page) => Promise<number>
 }
 
 /**
@@ -114,19 +99,6 @@ export function artifactOrigin(colony: string): string {
   return `http://${label}.artifacts.localhost`
 }
 
-export interface NetworkEntry {
-  readonly id: number
-  readonly method: string
-  readonly url: string
-  /** Puppeteer's resource type: document, script, xhr, fetch, image, ... */
-  readonly type: string
-  readonly status?: number
-  readonly failure?: string
-  readonly ms: number
-  /** Kept for xhr/fetch responses, so the body can be read on demand. */
-  readonly response?: HTTPResponse
-}
-
 export interface TabInfo {
   readonly agent: string
   readonly url: string
@@ -141,6 +113,20 @@ function freePort(): number {
   listener.stop(true)
   return port
 }
+
+/** The pages the engine lists, `3: Title (https://…)` or `3: https://…` for a page without a title. */
+export function enginePages(text: string): { id: number; url: string }[] {
+  return text.split('\n').flatMap((line) => {
+    const m = /^(\d+): (.*?)(?: \[selected\])?(?: isolatedContext=\S+)?$/.exec(line.trim())
+    if (!m) return []
+    const rest = m[2] ?? ''
+    const url = /\(([a-z][a-z0-9+.-]*:[^\s()]*)\)$/i.exec(rest)?.[1] ?? rest
+    return [{ id: Number(m[1]), url }]
+  })
+}
+
+/** A chat or agent name made safe as one path segment. */
+const segment = (name: string) => name.replace(/[^A-Za-z0-9_.-]/g, '_').slice(0, 80) || '_'
 
 /**
  * Where Chrome or Chromium is installed on `platform`, most likely first; on Windows, Edge (Chromium too, and always
@@ -207,21 +193,32 @@ export function findChrome(): string | undefined {
 export class BrowserHub {
   private _browser?: Promise<Browser>
   private readonly _tabs = new Map<string, Promise<Tab>>()
-  /** Each open tab's reachable loopback ports; the proxy allows their union, the tab itself only its own. */
-  private readonly _ports = new Map<string, LocalPorts>()
-  private _refused?: { reason: string; at: number }
+  /** What each open tab needs closed with it: its proxy, and where its sign-ins are kept between rounds. */
+  private readonly _owned = new Map<string, { close(): void; logins?: string }>()
   /**
    * Chrome's DevTools port, chosen now rather than at launch so that every sandboxed command, even one started before
-   * the first tab opens, is kept from it. DevTools over a pipe would need no port, but see _launch.
+   * the first tab opens, is kept from it. DevTools over a pipe would need no port, but see _launch. The engine
+   * attaches over it too (--browserUrl), from this process, outside every sandbox.
    */
   private readonly _devtoolsPort = freePort()
   private readonly _beforeClose = new Set<() => Promise<void>>()
+  private _engine?: CdmClient
+  /** The engine's page ids some tab has claimed, so a page is never handed to two agents. */
+  private readonly _claimed = new Set<number>()
+  /** The engine generation the claims are for: a restarted engine numbers its pages anew. */
+  private _generation = -1
+  private _mapping: Promise<unknown> = Promise.resolve()
+  private _markers = 0
 
   constructor(
     private readonly profileDir: string,
     private readonly executable = findChrome(),
-    /** Loopback ports every tab may reach besides its run's own servers: a site the embedder serves itself (tests). */
-    private readonly options: { localPorts?: LocalPorts } = {},
+    private readonly options: {
+      /** Loopback ports every tab may reach besides its run's own servers: a site the embedder serves itself (tests). */
+      localPorts?: LocalPorts
+      /** Where each chat's agents keep their sign-ins between rounds; next to the profile by default. */
+      logins?: string
+    } = {},
   ) {
     guardLoopbackPort(this._devtoolsPort)
   }
@@ -231,22 +228,17 @@ export class BrowserHub {
     this._beforeClose.add(fn)
   }
 
-  private _allPorts(): ReadonlySet<number> | 'all' {
-    const all = new Set<number>()
-    for (const ports of [this.options.localPorts, ...this._ports.values()]) {
-      const open = ports?.() ?? []
-      if (open === 'all') return 'all'
-      for (const port of open) all.add(port)
-    }
-    return all
-  }
-
-  private _refuse(reason: string) {
-    this._refused = { reason, at: Date.now() }
-  }
-
   get available(): boolean {
     return this.executable !== undefined
+  }
+
+  /** Why the agents' browser engine cannot run here (no Node, say), or undefined when it can. */
+  get engineMissing(): string | undefined {
+    return this._engineClient().missing
+  }
+
+  private get _loginsDir(): string {
+    return this.options.logins ?? join(dirname(this.profileDir), 'browser-logins')
   }
 
   /** The Chrome behind every tab, launched on first use; the person's own browser opens its context in it. */
@@ -254,15 +246,29 @@ export class BrowserHub {
     return this._launch()
   }
 
+  private _engineClient(): CdmClient {
+    this._engine ??= new CdmClient([
+      '--browserUrl',
+      `http://127.0.0.1:${this._devtoolsPort}`,
+      '--no-usage-statistics',
+      '--no-performance-crux',
+      '--fileNavigations=false',
+      // Its file tools (uploads) only ever get paths this layer checked inside the agent's own folders; without a root
+      // they would be held to the temporary directory.
+      '--workspace',
+      '/',
+    ])
+    return this._engine
+  }
+
   private _launch(): Promise<Browser> {
     if (!this.executable) throw new Error('no Chrome or Chromium found; install Chrome or set MYR_CHROME')
     this._browser ??= (async () => {
       const { launch } = await import('puppeteer-core')
       mkdirSync(this.profileDir, { recursive: true, mode: 0o700 })
-      const proxy = await startBrowserProxy({
-        localPorts: () => this._allPorts(),
-        onRefused: (reason) => this._refuse(reason),
-      })
+      // Every agent's context has a proxy of its own; this one is for a page outside them all, which reaches only
+      // the public internet (and the ports every tab may).
+      const proxy = await startBrowserProxy({ localPorts: () => this.options.localPorts?.() ?? new Set() })
       const browser = await launch({
         executablePath: this.executable,
         headless: true,
@@ -272,7 +278,7 @@ export class BrowserHub {
           '--no-first-run',
           '--no-default-browser-check',
           '--disable-extensions',
-          // Every connection goes through the proxy, which checks and pins it; `<-loopback>` stops Chrome sending
+          // Every connection goes through a proxy, which checks and pins it; `<-loopback>` stops Chrome sending
           // localhost around it, and QUIC and WebRTC's UDP would bypass an HTTP proxy.
           `--proxy-server=http://127.0.0.1:${proxy.port}`,
           '--proxy-bypass-list=<-loopback>',
@@ -296,7 +302,11 @@ export class BrowserHub {
         proxy.close()
         this._browser = undefined
         this._tabs.clear()
-        this._ports.clear()
+        for (const owned of this._owned.values()) owned.close()
+        this._owned.clear()
+        this._claimed.clear()
+        // The engine was attached to that Chrome; the next launch starts it again.
+        this._engine?.close()
       })
       return browser
     })()
@@ -304,13 +314,55 @@ export class BrowserHub {
   }
 
   /**
-   * The agent's browser in this colony, opened on first use. It can hold several pages (links that open a new
-   * window are followed); `downloads` is the folder its downloads land in.
+   * The engine's id for a page, found once: a fresh page is marked with a unique blank URL first, a page that opened
+   * by itself (a popup) is found by its URL among the pages no tab claimed. One mapping at a time, so two agents never
+   * take the same page.
+   */
+  private _idOf(ids: Map<Page, number>, page: Page): Promise<number> {
+    const engine = this._engineClient()
+    if (engine.generation !== this._generation) {
+      this._generation = engine.generation
+      this._claimed.clear()
+      ids.clear()
+    }
+    const known = ids.get(page)
+    if (known !== undefined) return Promise.resolve(known)
+    const mapped = this._mapping.then(async () => {
+      if (ids.has(page)) return ids.get(page) as number
+      let url = page.url()
+      if (url === 'about:blank') {
+        url = `about:blank#myr-${++this._markers}`
+        await page.goto(url)
+      }
+      const listed = enginePages((await engine.call('list_pages', {})).text)
+      if (engine.generation !== this._generation) {
+        this._generation = engine.generation
+        this._claimed.clear()
+        ids.clear()
+      }
+      const found = listed.filter((p) => !this._claimed.has(p.id) && p.url === url).at(-1)
+      if (!found) throw new Error(`the browser engine does not list ${url}; open the page again`)
+      this._claimed.add(found.id)
+      ids.set(page, found.id)
+      page.once('close', () => {
+        this._claimed.delete(found.id)
+        ids.delete(page)
+      })
+      return found.id
+    })
+    this._mapping = mapped.catch(() => {})
+    return mapped
+  }
+
+  /**
+   * The agent's browser in this colony, opened on first use: a context of its own behind its own proxy, holding
+   * several pages (links that open a new window are followed). `downloads` is the folder its downloads land in;
+   * `chat` keeps its sign-ins for the chat's later rounds (forgotten with the chat).
    */
   tab(
     colony: string,
     agent: string,
-    options: { downloads?: string; localPorts?: LocalPorts; artifacts?: ArtifactSource } = {},
+    options: { downloads?: string; localPorts?: LocalPorts; artifacts?: ArtifactSource; chat?: string } = {},
   ): Promise<Tab> {
     const key = `${colony}/${agent}`
     let tab = this._tabs.get(key)
@@ -321,35 +373,63 @@ export class BrowserHub {
         const mine = own?.() ?? []
         return hub === 'all' || mine === 'all' ? 'all' : new Set([...hub, ...mine])
       }
-      this._ports.set(key, localPorts)
       tab = (async () => {
-        const page = await (await this._launch()).newPage()
-        const tab: Tab = {
+        const browser = await this._launch()
+        let refused: { reason: string; at: number } | undefined
+        const proxy = await startBrowserProxy({
           localPorts,
-          proxyOpen: () => this._allPorts() === 'all',
-          onRefused: (reason) => this._refuse(reason),
-          refusal: (since) => {
-            const refused = this._refused
-            return refused && refused.at >= since ? refused.reason : undefined
+          onRefused: (reason) => {
+            refused = { reason, at: Date.now() }
           },
-          page,
+        })
+        const logins = options.chat
+          ? join(this._loginsDir, segment(options.chat), `${segment(agent)}.json`)
+          : undefined
+        this._owned.set(key, { close: () => proxy.close(), ...(logins ? { logins } : {}) })
+        if (options.downloads) mkdirSync(options.downloads, { recursive: true })
+        const context = await browser.createBrowserContext({
+          proxyServer: `http://127.0.0.1:${proxy.port}`,
+          proxyBypassList: ['<-loopback>'],
+          ...(options.downloads
+            ? { downloadBehavior: { policy: 'allow' as const, downloadPath: options.downloads } }
+            : { downloadBehavior: { policy: 'deny' as const } }),
+        })
+        const kept = logins ? keptCookies(logins) : []
+        if (kept.length) await context.setCookie(...kept).catch(() => {})
+        const ids = new Map<Page, number>()
+        const t: Tab = {
+          localPorts,
+          refusal: (since) => (refused && refused.at >= since ? refused.reason : undefined),
+          page: undefined as unknown as Page,
           pages: [],
+          context,
           ...(options.downloads ? { downloads: options.downloads } : {}),
           ...(options.artifacts ? { artifacts: options.artifacts } : {}),
-          refs: new Map(),
-          logs: [],
-          network: [],
           watchers: new Set(),
           cursor: { x: BROWSER_VIEWPORT.width / 2, y: BROWSER_VIEWPORT.height / 2 },
           controlledBy: 'agent',
+          engine: () => this._engineClient(),
+          idOf: (page) => this._idOf(ids, page),
         }
-        await adopt(tab, page)
-        return tab
+        // A link that opens a new window is followed, the way a person's browser switches to it.
+        context.on('targetcreated', (target) => {
+          if (target.type() !== 'page') return
+          void target.page().then(async (page) => {
+            if (!page || t.pages.includes(page)) return
+            await adopt(t, page)
+            await switchPage(t, page)
+          })
+        })
+        const page = await context.newPage()
+        await adopt(t, page)
+        t.page = page
+        return t
       })()
       this._tabs.set(key, tab)
       tab.catch(() => {
         this._tabs.delete(key)
-        this._ports.delete(key)
+        this._owned.get(key)?.close()
+        this._owned.delete(key)
       })
     }
     return tab
@@ -393,12 +473,17 @@ export class BrowserHub {
     }
   }
 
-  /** Hands an agent's tab to the person or back. While the person has it, the agent's browser tools wait. */
+  /**
+   * Hands an agent's tab to the person or back. While the person has it, the agent's browser tools wait. Handing it
+   * back keeps what the person signed in to for the chat's later rounds.
+   */
   async setControl(colony: string, agent: string, by: 'agent' | 'person'): Promise<void> {
-    const tab = await this._tabs.get(`${colony}/${agent}`)
+    const key = `${colony}/${agent}`
+    const tab = await this._tabs.get(key)
     if (!tab) throw new Error(`${agent} has no browser tab open`)
     tab.controlledBy = by
     emit(tab, { type: 'control', by })
+    if (by === 'agent') await this._keepLogins(key, tab)
   }
 
   /** Input from the person controlling a tab. */
@@ -414,24 +499,59 @@ export class BrowserHub {
     await pressInput(tab.page, e)
   }
 
-  /** Closes every tab a colony opened. */
+  private async _keepLogins(key: string, tab: Tab): Promise<void> {
+    const file = this._owned.get(key)?.logins
+    if (!file) return
+    const cookies = await tab.context.cookies().catch(() => undefined)
+    if (!cookies) return
+    if (cookies.length === 0) {
+      rmSync(file, { force: true })
+      return
+    }
+    mkdirSync(dirname(file), { recursive: true, mode: 0o700 })
+    // Sign-ins are in here: readable by this user only, like the person's own kept cookies.
+    atomicWrite(file, `${JSON.stringify(cookies)}\n`, 0o600)
+  }
+
+  /** Closes every tab a colony opened, keeping each agent's sign-ins for the chat's next round first. */
   async closeColony(colony: string): Promise<void> {
     const prefix = `${colony}/`
     const tabs = [...this._tabs.entries()].filter(([k]) => k.startsWith(prefix))
-    for (const [key, tab] of tabs) {
+    for (const [key, pending] of tabs) {
       this._tabs.delete(key)
-      this._ports.delete(key)
-      await tab.then((t) => Promise.all(t.pages.map((p) => p.close().catch(() => {})))).catch(() => {})
+      const tab = await pending.catch(() => undefined)
+      if (tab) {
+        stopScreencast(tab)
+        await this._keepLogins(key, tab).catch(() => {})
+        await tab.context.close().catch(() => {})
+      }
+      this._owned.get(key)?.close()
+      this._owned.delete(key)
     }
+  }
+
+  /** Forgets every sign-in a chat's agents kept, when the chat is deleted. */
+  forgetChat(chat: string): void {
+    rmSync(join(this._loginsDir, segment(chat)), { recursive: true, force: true })
   }
 
   async close(): Promise<void> {
     for (const fn of this._beforeClose) await fn().catch(() => {})
+    for (const key of [...this._tabs.keys()]) await this.closeColony(key.slice(0, key.indexOf('/')))
     const browser = this._browser
     this._browser = undefined
     this._tabs.clear()
-    this._ports.clear()
+    this._engine?.close()
     await (await browser?.catch(() => undefined))?.close()
+  }
+}
+
+function keptCookies(file: string): CookieData[] {
+  try {
+    const raw = JSON.parse(readFileSync(file, 'utf8')) as unknown
+    return Array.isArray(raw) ? (raw as CookieData[]) : []
+  } catch {
+    return []
   }
 }
 
@@ -463,140 +583,15 @@ export async function pressInput(page: Page, e: Exclude<LiveInput, { type: 'navi
   }
 }
 
-/**
- * The page as an indented accessibility outline. Interactive and named elements get a ref (e1, e2, ...) that
- * browser_click and browser_type accept until the next snapshot.
- */
-export async function pageSnapshot(tab: Tab): Promise<string> {
-  const root = await tab.page.accessibility.snapshot({ interestingOnly: true })
-  tab.refs = new Map()
-  const lines: string[] = [`url: ${tab.page.url()}`, `title: ${await tab.page.title()}`]
-  const walk = (node: SerializedAXNode, depth: number) => {
-    const ref = `e${tab.refs.size + 1}`
-    const named = node.name?.trim()
-    const interactive = INTERACTIVE.has(node.role)
-    if (interactive || named) tab.refs.set(ref, node)
-    if (node.role !== 'RootWebArea' && (interactive || named || node.value !== undefined)) {
-      const states = [
-        node.checked !== undefined && `checked=${node.checked}`,
-        node.disabled && 'disabled',
-        node.expanded !== undefined && `expanded=${node.expanded}`,
-        node.focused && 'focused',
-        node.level !== undefined && `level=${node.level}`,
-      ].filter(Boolean)
-      lines.push(
-        `${'  '.repeat(depth)}- ${node.role}${named ? ` "${named.slice(0, 160)}"` : ''}${
-          node.value !== undefined && node.value !== '' ? ` value="${String(node.value).slice(0, 80)}"` : ''
-        }${states.length ? ` (${states.join(', ')})` : ''}${interactive || named ? ` [${ref}]` : ''}`,
-      )
-    }
-    for (const child of node.children ?? []) walk(child, depth + (node.role === 'RootWebArea' ? 0 : 1))
-  }
-  if (root) walk(root, 0)
-  const text = lines.join('\n')
-  return text.length > SNAPSHOT_CHARS
-    ? `${text.slice(0, SNAPSHOT_CHARS)}${prompts.toolResults.snapshotCut}`
-    : text
-}
-
-const INTERACTIVE = new Set([
-  'button',
-  'link',
-  'textbox',
-  'searchbox',
-  'combobox',
-  'checkbox',
-  'radio',
-  'switch',
-  'slider',
-  'spinbutton',
-  'tab',
-  'menuitem',
-  'option',
-  'listbox',
-])
-
-/** The element behind a ref from the latest snapshot. */
-export async function pageElement(tab: Tab, ref: string): Promise<ElementHandle> {
-  const node = tab.refs.get(ref)
-  if (!node)
-    throw new Error(`unknown ref ${ref}: take a fresh browser_snapshot; refs change after navigation`)
-  const handle = await node.elementHandle()
-  if (!handle) throw new Error(`${ref} is no longer on the page; take a fresh browser_snapshot`)
-  return handle
-}
-
 export type { Tab as BrowserTab }
 
 /**
- * Wires a page into an agent's browser: its logs, live-view page events, popups, downloads, and the check that keeps
- * it to its own run's localhost ports (the proxy behind every tab can only tell private from public).
+ * Wires a page into an agent's browser: live-view page events, the colony's published files, and the switch to the
+ * page before it when it closes. A page is adopted once, however it opened.
  */
 async function adopt(tab: Tab, page: Page): Promise<void> {
-  const log = (line: string) => {
-    tab.logs.push(line)
-    if (tab.logs.length > BROWSER_LOG_LIMIT) tab.logs.shift()
-  }
-  await page.setRequestInterception(true)
-  page.on('request', async (r) => {
-    if (r.isInterceptResolutionHandled()) return
-    let refused: UnreachableError | undefined
-    try {
-      const url = new URL(r.url())
-      if (tab.artifacts && url.origin === tab.artifacts.origin)
-        return void serveArtifact(tab.artifacts, url, r)
-      refused = quickRefusal(url, tab.localPorts)
-      // While a full-access tab is open the shared proxy lets anything through, so a confined tab looks names up
-      // itself: a public name that resolves to a private address is still refused here.
-      if (!refused && tab.localPorts() !== 'all' && tab.proxyOpen() && /^(https?|wss?):$/.test(url.protocol))
-        await reachableAddresses(url.hostname, urlPort(url), tab.localPorts).catch((err: unknown) => {
-          if (err instanceof UnreachableError) refused = err
-        })
-    } catch {
-      refused = undefined
-    }
-    if (!refused) return void r.continue().catch(() => {})
-    tab.onRefused(refused.message)
-    log(`blocked: ${r.url()} (${refused.message})`)
-    void r.abort('blockedbyclient').catch(() => {})
-  })
-  page.on('console', (m) => log(`console.${m.type()}: ${m.text()}`))
-  page.on('pageerror', (e) => log(`page error: ${e instanceof Error ? e.message : String(e)}`))
-  page.on('requestfailed', (r) => log(`request failed: ${r.url()} (${r.failure()?.errorText ?? 'unknown'})`))
-  page.on('response', (r) => {
-    if (r.status() >= 400) log(`HTTP ${r.status()}: ${r.url()}`)
-  })
-  const started = new WeakMap<HTTPRequest, number>()
-  const record = (
-    request: HTTPRequest,
-    entry: Omit<NetworkEntry, 'id' | 'method' | 'url' | 'type' | 'ms'>,
-  ) => {
-    tab.network.push({
-      id: ++networkIds,
-      method: request.method(),
-      url: request.url(),
-      type: request.resourceType(),
-      ms: Date.now() - (started.get(request) ?? Date.now()),
-      ...entry,
-    })
-    if (tab.network.length > BROWSER_NETWORK_LIMIT) tab.network.shift()
-  }
-  // A response can arrive and the request still fail (Chrome aborts a 404 script), so keep its status apart.
-  const statuses = new WeakMap<HTTPRequest, number>()
-  page.on('request', (r) => started.set(r, Date.now()))
-  page.on('response', (r) => statuses.set(r.request(), r.status()))
-  page.on('requestfinished', (r) => {
-    const response = r.response()
-    const api = r.resourceType() === 'xhr' || r.resourceType() === 'fetch'
-    record(r, {
-      ...(response ? { status: response.status() } : {}),
-      ...(api && response ? { response } : {}),
-    })
-  })
-  page.on('requestfailed', (r) => {
-    const status = statuses.get(r)
-    record(r, { failure: r.failure()?.errorText ?? 'failed', ...(status ? { status } : {}) })
-  })
+  if (tab.pages.includes(page)) return
+  tab.pages.push(page)
   page.on('framenavigated', (frame) => {
     if (frame === page.mainFrame() && page === tab.page)
       void page.title().then(
@@ -604,49 +599,57 @@ async function adopt(tab: Tab, page: Page): Promise<void> {
         () => {},
       )
   })
-  // A link that opens a new window is followed, the way a person's browser switches to it.
-  page.on('popup', (popup) => {
-    if (popup) void adopt(tab, popup).then(() => switchPage(tab, popup))
-  })
   page.on('close', () => {
     const i = tab.pages.indexOf(page)
     if (i >= 0) tab.pages.splice(i, 1)
     const next = tab.pages.at(-1)
     if (page === tab.page && next) void switchPage(tab, next)
   })
-  if (tab.downloads) {
-    mkdirSync(tab.downloads, { recursive: true })
-    const session = await page.createCDPSession()
-    await session
-      .send('Page.setDownloadBehavior', { behavior: 'allow', downloadPath: tab.downloads })
-      .catch(() => {})
-  }
-  tab.pages.push(page)
+  if (tab.artifacts) await serveArtifacts(page, tab.artifacts).catch(() => {})
 }
 
-/** Answers a request for one of the colony's published files; `/` is index.html, as a web server would. */
-async function serveArtifact(source: ArtifactSource, url: URL, r: HTTPRequest): Promise<void> {
-  try {
-    const name = decodeURIComponent(url.pathname.slice(1)) || 'index.html'
-    const file = await source.file(name.endsWith('/') ? `${name}index.html` : name)
-    if (!file) {
-      await r.respond({
-        status: 404,
-        contentType: 'text/plain; charset=utf-8',
-        body: `no published file ${name}`,
-      })
-      return
-    }
-    const text = file.mediaType.startsWith('text/') || /json|xml|javascript/.test(file.mediaType)
-    await r.respond({
-      status: 200,
-      contentType: text ? `${file.mediaType}; charset=utf-8` : file.mediaType,
-      headers: { 'cache-control': 'no-store' },
-      body: Buffer.from(file.body),
-    })
-  } catch {
-    await r.abort('failed').catch(() => {})
-  }
+/**
+ * Answers the page's requests for the colony's published files from its store; `/` is index.html, as a web server
+ * would. Only that origin is intercepted (Fetch with a pattern), so the engine's own work on the page is untouched.
+ */
+async function serveArtifacts(page: Page, source: ArtifactSource): Promise<void> {
+  const session = await page.createCDPSession()
+  session.on('Fetch.requestPaused', (e: { requestId: string; request: { url: string } }) => {
+    void (async () => {
+      try {
+        const url = new URL(e.request.url)
+        const name = decodeURIComponent(url.pathname.slice(1)) || 'index.html'
+        const file = await source.file(name.endsWith('/') ? `${name}index.html` : name)
+        const text =
+          file && (file.mediaType.startsWith('text/') || /json|xml|javascript/.test(file.mediaType))
+        await session.send('Fetch.fulfillRequest', {
+          requestId: e.requestId,
+          responseCode: file ? 200 : 404,
+          responseHeaders: [
+            {
+              name: 'content-type',
+              value: file
+                ? text
+                  ? `${file.mediaType}; charset=utf-8`
+                  : file.mediaType
+                : 'text/plain; charset=utf-8',
+            },
+            { name: 'cache-control', value: 'no-store' },
+          ],
+          body: Buffer.from(
+            file ? file.body : new TextEncoder().encode(`no published file ${name}`),
+          ).toString('base64'),
+        })
+      } catch {
+        await session
+          .send('Fetch.failRequest', { requestId: e.requestId, errorReason: 'Failed' })
+          .catch(() => {})
+      }
+    })()
+  })
+  await session.send('Fetch.enable', {
+    patterns: [{ urlPattern: `${source.origin}/*`, requestStage: 'Request' }],
+  })
 }
 
 /** Makes another of the agent's pages the active one; the live view follows. */
@@ -655,15 +658,14 @@ export async function switchPage(tab: Tab, page: Page): Promise<void> {
   const streaming = tab.cdp !== undefined
   if (streaming) stopScreencast(tab)
   tab.page = page
-  tab.refs = new Map()
   await page.bringToFront().catch(() => {})
   if (streaming) await startScreencast(tab)
   emit(tab, { type: 'page', url: page.url(), title: await page.title().catch(() => '') })
 }
 
-/** Opens a new page in the agent's browser and switches to it. */
+/** Opens a new page in the agent's own context and switches to it. */
 export async function openPage(tab: Tab): Promise<Page> {
-  const page = await tab.page.browser().newPage()
+  const page = await tab.context.newPage()
   await adopt(tab, page)
   await switchPage(tab, page)
   return page
@@ -725,66 +727,68 @@ export function doneWith(tab: Tab): void {
 }
 
 /**
- * Moves the agent's real mouse to an element's centre. While someone watches, the element is highlighted and the
- * cursor glides there in visible steps; otherwise it jumps. Returns the point for the click or typing that follows.
+ * Shows a watcher what the agent is about to act on: the box is highlighted and the cursor glides to its centre in
+ * visible steps. Nobody watching, nothing is sent and nothing waits.
  */
-export async function pointAt(
+export async function glideTo(
   tab: Tab,
-  handle: ElementHandle,
+  box: { x: number; y: number; width: number; height: number },
   action: 'click' | 'type',
   label = '',
-): Promise<{ x: number; y: number }> {
-  await handle.scrollIntoView().catch(() => {})
-  const box = await handle.boundingBox()
-  if (!box) throw new Error('that element is not visible; take a fresh browser_snapshot')
+): Promise<void> {
+  if (!watched(tab)) return
   const to = { x: box.x + box.width / 2, y: box.y + box.height / 2 }
-  if (watched(tab)) {
-    emit(tab, { type: 'highlight', box: { ...box, label } })
-    const from = tab.cursor
-    const steps = 12
-    for (let i = 1; i <= steps; i++) {
-      // Ease out, so the pointer decelerates onto its target like a hand would.
-      const t = 1 - (1 - i / steps) ** 3
-      const p = { x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t }
-      await tab.page.mouse.move(p.x, p.y)
-      emit(tab, { type: 'cursor', ...p, action: 'move' })
-      await Bun.sleep(28)
-    }
-  } else await tab.page.mouse.move(to.x, to.y)
+  emit(tab, { type: 'highlight', box: { ...box, label } })
+  const from = tab.cursor
+  const steps = 12
+  for (let i = 1; i <= steps; i++) {
+    // Ease out, so the pointer decelerates onto its target like a hand would.
+    const t = 1 - (1 - i / steps) ** 3
+    emit(tab, {
+      type: 'cursor',
+      x: from.x + (to.x - from.x) * t,
+      y: from.y + (to.y - from.y) * t,
+      action: 'move',
+    })
+    await Bun.sleep(28)
+  }
   tab.cursor = to
   emit(tab, { type: 'cursor', ...to, action })
-  return to
-}
-
-/** "button: Add" for the element behind a ref, to label the highlight a watcher sees. */
-export function refLabel(tab: Tab, ref: string): string {
-  const node = tab.refs.get(ref)
-  return node ? `${node.role}${node.name ? `: ${node.name.slice(0, 40)}` : ''}` : ''
 }
 
 /** Marks a page the browser's proxy served in place of a refused request. */
 export const REFUSED_HEADER = 'x-myrmidon-refused'
 
 /**
- * Opens `url` in one of the agent's pages, after checking the agent may reach it, and says why when the browser
- * refused it or a redirect from it (the proxy and the tab's own check refuse quietly, as a network error).
+ * Opens `url` in one of the agent's pages through the engine, after checking the agent may reach it, and says why
+ * when the agent's proxy refused it or a redirect from it (the proxy refuses quietly, as a network error or a 403
+ * page with the reason).
  */
-export async function navigate(tab: Tab, page: Page, url: string): Promise<void> {
+export async function navigate(tab: Tab, page: Page, url: string): Promise<string> {
   const own = tab.artifacts && url.startsWith(`${tab.artifacts.origin}/`)
   if (/^https?:/i.test(url) && !own) await assertReachableUrl(url, tab.localPorts)
   const since = Date.now()
-  let response: HTTPResponse | null
+  const pageId = await tab.idOf(page)
+  let said: string
   try {
-    response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 })
+    said = (await tab.engine().call('navigate_page', { pageId, type: 'url', url, timeout: 30_000 })).text
   } catch (err) {
     // A tunnel can also fail because the site is down; only a refusal recorded during this navigation is ours.
     const reason = tab.refusal(since)
-    if (reason && /ERR_BLOCKED_BY_CLIENT|ERR_TUNNEL_CONNECTION_FAILED/.test(String(err)))
+    if (
+      reason &&
+      /ERR_BLOCKED_BY_CLIENT|ERR_TUNNEL_CONNECTION_FAILED|ERR_HTTP_RESPONSE_CODE_FAILURE/.test(String(err))
+    )
       throw new UnreachableError(prompts.toolResults.browserBlocked(url, reason))
     throw err
   }
-  if (response?.headers()[REFUSED_HEADER])
-    throw new UnreachableError(prompts.toolResults.browserBlocked(url, tab.refusal(since)))
+  const reason = tab.refusal(since)
+  if (reason) {
+    const body = await page.evaluate(() => document.body?.innerText ?? '').catch(() => '')
+    if (body.trim() === reason.trim())
+      throw new UnreachableError(prompts.toolResults.browserBlocked(url, reason))
+  }
+  return said
 }
 
 /** Opens a TCP connection to the first of `addresses` that answers. */

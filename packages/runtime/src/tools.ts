@@ -28,6 +28,7 @@ import {
   resolveConversation,
   reviewVerdicts,
   SYSTEM,
+  type TakeoverKind,
   type TaskSnapshot,
   TEAM_CHAT,
   type UsageInfo,
@@ -47,15 +48,34 @@ import {
   assertAgentControl,
   type BrowserTab,
   doneWith,
+  glideTo,
   navigate,
   openPage,
-  pageElement,
-  pageSnapshot,
-  pointAt,
-  refLabel,
   switchPage,
-  watched,
 } from './browser.ts'
+import {
+  changes,
+  compactSnapshot,
+  consequence,
+  engineError,
+  engineNotes,
+  extractFromPage,
+  FOCUSED_SCRIPT,
+  findIn,
+  firstSection,
+  fullSnapshot,
+  hiddenText,
+  injectionSigns,
+  lastSeen,
+  outlineOf,
+  type ReadablePage,
+  readablePage,
+  scriptResult,
+  sectionOf,
+  snapshot,
+  TARGET_SCRIPT,
+  type Target,
+} from './browser-agent.ts'
 import { CELL_LANGUAGES, type CellAccess, type CellScope, cellKernels } from './cells.ts'
 import { clockTime, localDate } from './clock.ts'
 import {
@@ -80,6 +100,7 @@ import {
 } from './computer/tool.ts'
 import {
   AUTORESEARCH,
+  BROWSER_COMPACT_CHARS,
   COMPANY,
   FETCH_SHOWN_CHARS,
   FIND_TOOLS_LIMIT,
@@ -391,8 +412,10 @@ const FINAL_HINT =
 
 async function browserTab(host: ColonyHost, agent: string): Promise<BrowserTab> {
   if (!host.browser) throw new Error('no browser here: Chrome is not installed on this machine')
+  const chat = host.spec.chat?.chatId
   const tab = await host.browser.tab(host.id, agent, {
     downloads: join(host.workspace.scratch(agent), 'downloads'),
+    ...(chat ? { chat } : {}),
     localPorts: () => host.localPorts(),
     artifacts: {
       origin: artifactOrigin(host.id),
@@ -438,6 +461,304 @@ async function keyframe(
   } catch (err) {
     // Replay is a convenience; a failed capture must not fail the agent's action.
     console.error(`[${agent}] keyframe failed:`, err instanceof Error ? err.message : err)
+  }
+}
+
+/** The host of a URL, for the approval card; empty for one that does not parse. */
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host
+  } catch {
+    return ''
+  }
+}
+
+/** The page's readable text: Markdown from the page, or for a PDF, the web reader's text of it. */
+async function pageText(host: ColonyHost, tab: BrowserTab): Promise<ReadablePage> {
+  const type = await tab.page.evaluate(() => document.contentType).catch(() => '')
+  if (type === 'application/pdf') {
+    const read = await host.web.read(tab.page.url(), () => host.localPorts())
+    return { url: read.url, title: '', markdown: read.output }
+  }
+  return readablePage(tab.page)
+}
+
+/** Saves a page's whole text under web/ in the agent's scratch; returns where, as the agent should name it. */
+function savePage(host: ColonyHost, agent: string, read: ReadablePage): string {
+  const name = `web/${pageFileName(read.url)}.md`
+  const path = host.workspace.resolveInScratch(agent, name)
+  mkdirSync(dirname(path), { recursive: true })
+  writeFileSync(path, `Source: ${read.url}${read.title ? ` (${read.title})` : ''}\n\n${read.markdown}`)
+  // In a project the shell starts in the project, so point at the scratch copy by its full path.
+  return host.workspace.project ? path : name
+}
+
+/** Pages already flagged, so one page's injection is reported once, not on every action. */
+const flaggedPages = new WeakMap<BrowserTab, Set<string>>()
+
+/**
+ * A warning for the agent when page text (its hidden text too) looks written to instruct it; recorded for the person
+ * once per page. Empty for ordinary pages. It goes before the result, outside the untrusted block.
+ */
+async function injectionPreface(
+  host: ColonyHost,
+  agent: string,
+  tab: BrowserTab,
+  text: string,
+): Promise<string> {
+  const hidden = await hiddenText(tab.page)
+  const signs = [...injectionSigns(text), ...injectionSigns(hidden).map((s) => `hidden text ${s}`)]
+  if (signs.length === 0) return ''
+  const url = tab.page.url()
+  const seenPages = flaggedPages.get(tab) ?? new Set<string>()
+  flaggedPages.set(tab, seenPages)
+  if (!seenPages.has(url)) {
+    seenPages.add(url)
+    await host.append({
+      type: 'safety/flagged',
+      actor: { kind: 'system', id: 'myrmidon' },
+      payload: {
+        agent,
+        tool: 'browser',
+        reason: `page text looks like a prompt injection: ${signs.join('; ')}`.slice(0, 500),
+        source: url,
+      },
+    })
+  }
+  return prompts.toolResults.browserInjection(signs)
+}
+
+/**
+ * The agent's page after it opened or changed: what it can act on, and the outline of the page's text (saved whole to
+ * a file). `notes` (what changed, what the engine said) go first.
+ */
+async function pageView(host: ColonyHost, agent: string, tab: BrowserTab, notes = ''): Promise<ToolOutput> {
+  const s = await snapshot(tab).catch((err) => {
+    throw engineError(err)
+  })
+  const read = await pageText(host, tab)
+  const where = savePage(host, agent, read)
+  const saved = prompts.toolResults.browserSaved(read.markdown.length, where)
+  const outline = outlineOf(read.markdown)
+  const text = [
+    notes,
+    compactSnapshot(s),
+    '',
+    outline
+      ? `${prompts.toolResults.browserOutline(saved)}\n${outline}`
+      : `${prompts.toolResults.browserNoOutline} (${saved})\n${firstSection(read.markdown, 1_500)}`,
+  ]
+    .filter((l, i) => l !== '' || i > 0)
+    .join('\n')
+  const preface = await injectionPreface(
+    host,
+    agent,
+    tab,
+    `${read.markdown}\n${s.nodes.map((n) => n.name).join('\n')}`,
+  )
+  return { text, images: [], preface }
+}
+
+/** One step of browser_act, as the agent wrote it: exactly one action. */
+type ActStep = {
+  click?: string
+  fill?: string
+  value?: string
+  press?: string
+  scroll?: 'down' | 'up'
+  hover?: string
+  dialog?: 'accept' | 'dismiss'
+  wait?: string
+  back?: boolean
+}
+const ACTIONS = ['click', 'fill', 'press', 'scroll', 'hover', 'dialog', 'wait', 'back'] as const
+
+/** What the page says about the element behind a uid (or the focused one), for the consequence check and the glide. */
+async function targetOf(tab: BrowserTab, uid?: string): Promise<Target | undefined> {
+  const pageId = await tab.idOf(tab.page)
+  const raw = await tab
+    .engine()
+    .call(
+      'evaluate_script',
+      uid ? { pageId, function: TARGET_SCRIPT, args: [uid] } : { pageId, function: FOCUSED_SCRIPT },
+    )
+    .catch(() => undefined)
+  return raw ? scriptResult<Target>(raw.text) : undefined
+}
+
+/**
+ * browser_act: checks every step before any runs (a step that buys, pays, sends, submits a form or deletes asks the
+ * person, through the same permission check as every tool: asked under Ask and Auto, run under Full access), then
+ * runs them in order, stopping at the first that fails, and says what changed.
+ */
+async function actInBrowser(
+  host: ColonyHost,
+  agent: string,
+  steps: readonly ActStep[],
+  expect: string | undefined,
+  args: unknown,
+): Promise<ToolOutput> {
+  for (const step of steps)
+    if (
+      ACTIONS.filter((a) => step[a] !== undefined).length !== 1 ||
+      (step.fill !== undefined && step.value === undefined)
+    )
+      throw new Error(prompts.toolResults.browserStepShape)
+  const tab = await browserTab(host, agent)
+  const before =
+    lastSeen(tab) ??
+    (await snapshot(tab).catch((err) => {
+      throw engineError(err)
+    }))
+  const targets = new Map<ActStep, Target | undefined>()
+  const flagged: string[] = []
+  for (const step of steps) {
+    const uid = step.click ?? step.fill ?? step.hover
+    const node = uid ? before.nodes.find((n) => n.uid === uid) : undefined
+    if (uid && !node) throw new Error(prompts.toolResults.browserNoUid(uid))
+    if (step.click === undefined && step.fill === undefined && !/^(Numpad)?Enter$/i.test(step.press ?? ''))
+      continue
+    const target = await targetOf(tab, step.press ? undefined : uid)
+    targets.set(step, target)
+    if (step.fill !== undefined && target?.type === 'password')
+      throw new Error(prompts.toolResults.browserPassword)
+    const action = step.click !== undefined ? 'click' : step.fill !== undefined ? 'fill' : 'press'
+    const why = consequence(action, node, target, step.press)
+    if (why)
+      flagged.push(
+        prompts.browserSafety.step(
+          action === 'click' ? 'Click' : action === 'fill' ? 'Fill' : `Press ${step.press} in`,
+          node?.name || target?.text || uid || 'the focused field',
+          why,
+        ),
+      )
+  }
+  const call: PermissionCall = {
+    tool: 'browser_act',
+    kind: 'web',
+    readOnly: false,
+    ...(flagged.length ? { asks: true } : {}),
+  }
+  const edited = await askFirst(
+    host,
+    agent,
+    'browser_act',
+    args,
+    call,
+    receiptKey(host, agent, 'browser_act', args),
+    flagged.length ? prompts.browserSafety.summary(hostOf(tab.page.url()), flagged) : undefined,
+  )
+  const engine = tab.engine()
+  const notes: string[] = []
+  let failed = ''
+  for (const [i, step] of steps.entries()) {
+    assertAgentControl(tab)
+    const pageId = await tab.idOf(tab.page)
+    const uid = step.click ?? step.fill ?? step.hover
+    const label = uid ? before.nodes.find((n) => n.uid === uid)?.name : undefined
+    try {
+      const box = targets.get(step)?.box
+      if (box && uid) await glideTo(tab, box, step.fill !== undefined ? 'type' : 'click', label)
+      let said = ''
+      if (step.click !== undefined) said = (await engine.call('click', { pageId, uid: step.click })).text
+      else if (step.fill !== undefined)
+        said = (await engine.call('fill', { pageId, uid: step.fill, value: step.value ?? '' })).text
+      else if (step.press !== undefined)
+        said = (await engine.call('press_key', { pageId, key: step.press })).text
+      else if (step.hover !== undefined) said = (await engine.call('hover', { pageId, uid: step.hover })).text
+      else if (step.dialog !== undefined)
+        said = (
+          await engine.call('handle_dialog', {
+            pageId,
+            action: step.dialog,
+            ...(step.value !== undefined ? { promptText: step.value } : {}),
+          })
+        ).text
+      else if (step.wait !== undefined)
+        said = (await engine.call('wait_for', { pageId, text: [step.wait], timeout: 10_000 })).text
+      else if (step.back) said = (await engine.call('navigate_page', { pageId, type: 'back' })).text
+      else if (step.scroll)
+        await tab.page.evaluate(
+          (down: boolean) => window.scrollBy(0, (down ? 0.8 : -0.8) * innerHeight),
+          step.scroll === 'down',
+        )
+      doneWith(tab)
+      const note = engineNotes(said)
+      if (note && !step.wait) notes.push(note)
+      if (step.click !== undefined || step.fill !== undefined || step.press !== undefined)
+        await keyframe(
+          host,
+          agent,
+          tab,
+          step.click !== undefined ? 'click' : step.fill !== undefined ? 'type' : 'press',
+          step.fill !== undefined
+            ? `${label ?? ''} ← ${(step.value ?? '').slice(0, 40)}`
+            : (label ?? step.press),
+          box ?? null,
+        )
+    } catch (err) {
+      doneWith(tab)
+      const why = engineError(err).message
+      failed = prompts.toolResults.browserStepFailed(
+        i + 1,
+        JSON.stringify(step),
+        /dialog/i.test(why) ? `${why} ${prompts.toolResults.browserDialog}` : why,
+      )
+      break
+    }
+  }
+  if (expect && !failed) {
+    const pageId = await tab.idOf(tab.page)
+    await engine
+      .call('wait_for', { pageId, text: [expect], timeout: 10_000 })
+      .catch(() => notes.push(`"${expect}" did not appear within 10 seconds`))
+  }
+  const after = await snapshot(tab).catch((err) => {
+    throw engineError(err)
+  })
+  const view = await pageView(
+    host,
+    agent,
+    tab,
+    [failed, ...notes, `What changed:\n${changes(before, after)}`, ''].filter(Boolean).join('\n'),
+  )
+  return { ...view, text: `${view.text}${edited ? prompts.toolResults.editedByPerson : ''}` }
+}
+
+/**
+ * request_takeover (and request_login, its older name): opens a page if given, then waits for the person to take the
+ * browser over and hand it back, and returns the page as it is then.
+ */
+async function takeover(
+  host: ColonyHost,
+  agent: string,
+  reason: TakeoverKind,
+  site: string,
+  note: string,
+  url?: string,
+): Promise<ToolOutput> {
+  const tab = await browserTab(host, agent)
+  if (url !== undefined) {
+    if (!/^https?:/.test(url)) throw new Error('url must be http(s)')
+    await navigate(tab, tab.page, url).catch((err) => {
+      throw engineError(err)
+    })
+  }
+  await keyframe(host, agent, tab, 'open')
+  const outcome = await host.requestLogin(agent, site, url ?? tab.page.url(), note, reason)
+  if (outcome !== 'handed-back')
+    throw new Error(
+      outcome === 'timeout'
+        ? `the person did not take over on ${site} in time; continue without it or say what is blocked`
+        : 'the round stopped',
+    )
+  const view = await pageView(host, agent, await browserTab(host, agent))
+  return {
+    ...view,
+    text:
+      reason === 'login'
+        ? prompts.toolResults.signedIn(site, view.text)
+        : prompts.toolResults.tookOver(site, view.text),
   }
 }
 
@@ -739,6 +1060,9 @@ const GUARDED = new Set([
   'debug',
   'ssh',
   'autoresearch',
+  // A browser action is decided once the layer knows what it would click or send (browser-agent.ts `consequence`).
+  'browser_act',
+  'browser_files',
 ])
 /**
  * Guarded tools whose reads are commands too, decided as the commands they run (the github tool's `gh pr view`): the
@@ -856,6 +1180,8 @@ async function askFirst(
   params: unknown,
   call: PermissionCall,
   key?: string,
+  /** What the card says the call does, when the arguments alone would not say it (a browser click's button). */
+  summary?: string,
 ): Promise<boolean> {
   const verdict = host.permit(agent, call)
   if (verdict.decision === 'deny') throw denied(`${tool}`, verdict)
@@ -864,7 +1190,7 @@ async function askFirst(
   const decision = await host.reviewChange(
     agent,
     tool,
-    `${tool} ${args.length > 280 ? `${args.slice(0, 280)}…` : args}`,
+    summary ?? `${tool} ${args.length > 280 ? `${args.slice(0, 280)}…` : args}`,
     { review: callReview(tool, params), ...(key ? { key } : {}), permission: { call, verdict } },
   )
   if (!decision.approved) throw new Error(prompts.toolResults.declined(`this ${tool} call`, decision.note))
@@ -1515,19 +1841,17 @@ const UNTRUSTED = new Set([
   // Past chats hold the crew's replies, which may quote web pages.
   'search_chats',
   'request_login',
+  'request_takeover',
   'browser_tabs',
-  'browser_upload',
+  'browser_files',
   'browser_extract',
-  'browser_network',
   'web_search',
   'web_fetch',
   'browser_open',
+  'browser_read',
   'browser_snapshot',
-  'browser_click',
-  'browser_type',
-  'browser_press',
-  'browser_console',
-  'browser_eval',
+  'browser_act',
+  'browser_debug',
   // Issues, pull requests, comments and CI logs are written by anyone who can open one.
   'github',
   // Another computer's files and logs hold whatever was written to them.
@@ -1577,70 +1901,6 @@ async function flagIfCopied(host: ColonyHost, agent: string, tool: string, param
       source: hit.source,
     },
   })
-}
-
-/** Reads tables, links, or repeating items from a page's DOM (browser_extract and saved browser flows). */
-function extractFromPage(
-  page: BrowserTab['page'],
-  what: 'tables' | 'links' | 'items',
-  selector: string,
-  fields: Record<string, string>,
-  limit: number,
-): Promise<unknown[]> {
-  return page.evaluate(
-    (what, selector, fields, limit) => {
-      const text = (el: Element | null) => (el?.textContent ?? '').replace(/\s+/g, ' ').trim()
-      const roots = selector ? [...document.querySelectorAll(selector)] : [document.body]
-      if (what === 'links') {
-        const out: { text: string; href: string }[] = []
-        for (const root of roots)
-          for (const a of root.querySelectorAll('a[href]')) {
-            if (out.length >= limit) break
-            out.push({ text: text(a), href: (a as HTMLAnchorElement).href })
-          }
-        return out
-      }
-      if (what === 'tables') {
-        const tables = roots.flatMap((r) => (r.matches('table') ? [r] : [...r.querySelectorAll('table')]))
-        return tables.slice(0, 20).map((t) => {
-          const rows = [...t.querySelectorAll('tr')]
-          const head = rows.find((r) => r.querySelector('th')) ?? rows[0]
-          const headers = [...(head?.children ?? [])].map((c, i) => text(c) || `col${i + 1}`)
-          const body = rows.filter((r) => r !== head)
-          return {
-            caption: text(t.querySelector('caption')),
-            headers,
-            rows: body
-              .slice(0, limit)
-              .map((r) =>
-                Object.fromEntries([...r.children].map((c, i) => [headers[i] ?? `col${i + 1}`, text(c)])),
-              ),
-          }
-        })
-      }
-      return roots.slice(0, limit).map((item) =>
-        Object.fromEntries(
-          Object.entries(fields).map(([name, spec]) => {
-            const [css = '', attr] = spec.split('@')
-            const el = css ? item.querySelector(css) : item
-            if (!el) return [name, null]
-            if (!attr) return [name, text(el)]
-            // href and src come back absolute, the way a person would copy them.
-            const value =
-              attr === 'href' || attr === 'src'
-                ? (((el as unknown as Record<string, unknown>)[attr] as string | undefined) ??
-                  el.getAttribute(attr))
-                : el.getAttribute(attr)
-            return [name, value]
-          }),
-        ),
-      )
-    },
-    what,
-    selector,
-    fields,
-    limit,
-  ) as Promise<unknown[]>
 }
 
 /** The checks run by default: the project's `check` script if it has one, otherwise everything but build. */
@@ -3278,40 +3538,84 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     name: 'browser_open',
     tier: 'write',
     description: prompts.tools.browser_open.description,
-    parameters: type({ url: type('string').describe(prompts.tools.browser_open.params.url) }),
+    parameters: type({
+      url: type('string').describe(prompts.tools.browser_open.params.url),
+      'tab?': type("'new'").describe(prompts.tools.browser_open.params.tab),
+    }),
     async run(args, agent, host) {
       const tab = await browserTab(host, agent)
       const target = args.url.startsWith('artifact:') ? artifactUrl(host, args.url.slice(9)) : args.url
       if (!/^https?:/.test(target)) throw new Error('url must be http(s) or artifact:<name>')
-      await navigate(tab, tab.page, target)
-      await tab.page.waitForNetworkIdle({ idleTime: 500, timeout: 5_000 }).catch(() => {})
+      const page = args.tab === 'new' ? await openPage(tab) : tab.page
+      await navigate(tab, page, target).catch((err) => {
+        throw engineError(err)
+      })
       await keyframe(host, agent, tab, 'open')
-      return pageSnapshot(tab)
+      return pageView(host, agent, tab)
     },
   },
   {
-    name: 'request_login',
-    tier: 'write',
-    description: prompts.tools.request_login.description,
+    name: 'browser_read',
+    tier: 'read',
+    description: prompts.tools.browser_read.description,
     parameters: type({
-      url: type('string').describe(prompts.tools.request_login.params.url),
-      site: type('string').describe(prompts.tools.request_login.params.site),
-      reason: type('string').describe(prompts.tools.request_login.params.reason),
+      'section?': type('string').describe(prompts.tools.browser_read.params.section),
+      'find?': type('string').describe(prompts.tools.browser_read.params.find),
     }),
     async run(args, agent, host) {
       const tab = await browserTab(host, agent)
-      if (!/^https?:/.test(args.url)) throw new Error('url must be http(s)')
-      await navigate(tab, tab.page, args.url)
-      await keyframe(host, agent, tab, 'open')
-      const outcome = await host.requestLogin(agent, args.site, args.url, args.reason)
-      if (outcome !== 'handed-back')
-        throw new Error(
-          outcome === 'timeout'
-            ? `the person did not sign in to ${args.site} in time; continue without it or say what is blocked`
-            : 'the round stopped',
-        )
-      const after = await browserTab(host, agent)
-      return prompts.toolResults.signedIn(args.site, await pageSnapshot(after))
+      const read = await pageText(host, tab)
+      const where = savePage(host, agent, read)
+      const head = `${read.title || read.url} — ${read.url}\n(${prompts.toolResults.browserSaved(read.markdown.length, where)})`
+      const body = args.section
+        ? sectionOf(read.markdown, args.section) ||
+          `No heading contains "${args.section}". Outline:\n${outlineOf(read.markdown)}`
+        : args.find
+          ? findIn(read.markdown, args.find) || `"${args.find}" is not on the page.`
+          : `${prompts.toolResults.browserOutline(where)}\n${outlineOf(read.markdown)}\n\n${firstSection(read.markdown, BROWSER_COMPACT_CHARS)}`
+      return {
+        text: clip(`${head}\n\n${body}`, FETCH_SHOWN_CHARS),
+        images: [],
+        preface: await injectionPreface(host, agent, tab, read.markdown),
+      }
+    },
+  },
+  {
+    name: 'browser_snapshot',
+    tier: 'read',
+    description: prompts.tools.browser_snapshot.description,
+    parameters: type({ 'full?': type('boolean').describe(prompts.tools.browser_snapshot.params.full) }),
+    async run(args, agent, host) {
+      const tab = await browserTab(host, agent)
+      const s = await snapshot(tab).catch((err) => {
+        throw engineError(err)
+      })
+      return args.full ? fullSnapshot(s) : compactSnapshot(s)
+    },
+  },
+  {
+    name: 'browser_act',
+    tier: 'write',
+    description: prompts.tools.browser_act.description,
+    parameters: type({
+      steps: type({
+        'click?': type('string').describe(prompts.tools.browser_act.params.s_click),
+        'fill?': type('string').describe(prompts.tools.browser_act.params.s_fill),
+        'value?': type('string').describe(prompts.tools.browser_act.params.s_value),
+        'press?': type('string').describe(prompts.tools.browser_act.params.s_press),
+        'scroll?': type("'down' | 'up'").describe(prompts.tools.browser_act.params.s_scroll),
+        'hover?': type('string').describe(prompts.tools.browser_act.params.s_hover),
+        'dialog?': type("'accept' | 'dismiss'").describe(prompts.tools.browser_act.params.s_dialog),
+        'wait?': type('string').describe(prompts.tools.browser_act.params.s_wait),
+        'back?': type('boolean').describe(prompts.tools.browser_act.params.s_back),
+      })
+        .array()
+        .atLeastLength(1)
+        .describe(prompts.tools.browser_act.params.steps),
+      'expect?': type('string').describe(prompts.tools.browser_act.params.expect),
+    }),
+    async run(args, agent, host) {
+      return actInBrowser(host, agent, args.steps as ActStep[], args.expect, args)
     },
   },
   {
@@ -3337,8 +3641,9 @@ export const TOOL_DEFS: readonly ToolDef[] = [
         const target = args.open.startsWith('artifact:') ? artifactUrl(host, args.open.slice(9)) : args.open
         if (!/^https?:/.test(target)) throw new Error('open must be an http(s) URL or artifact:<name>')
         const page = await openPage(tab)
-        await navigate(tab, page, target)
-        await page.waitForNetworkIdle({ idleTime: 500, timeout: 5_000 }).catch(() => {})
+        await navigate(tab, page, target).catch((err) => {
+          throw engineError(err)
+        })
         changed = true
       }
       if (args.switch !== undefined) {
@@ -3353,8 +3658,10 @@ export const TOOL_DEFS: readonly ToolDef[] = [
             `${p === tab.page ? '*' : ' '} ${i + 1}. ${(await p.title().catch(() => '')) || '(untitled)'} — ${p.url()}`,
         ),
       )
-      if (changed) await keyframe(host, agent, tab, 'open')
-      return `Tabs:\n${list.join('\n')}${changed ? `\n\n${await pageSnapshot(tab)}` : ''}`
+      if (!changed) return `Tabs:\n${list.join('\n')}`
+      await keyframe(host, agent, tab, 'open')
+      const view = await pageView(host, agent, tab)
+      return { ...view, text: `Tabs:\n${list.join('\n')}\n\n${view.text}` }
     },
   },
   {
@@ -3395,186 +3702,163 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     },
   },
   {
-    name: 'browser_network',
-    tier: 'read',
-    description: prompts.tools.browser_network.description,
-    parameters: type({
-      'only?': type("'failed' | 'api'").describe(prompts.tools.browser_network.params.only),
-      'body?': type('number').describe(prompts.tools.browser_network.params.body),
-    }),
-    async run(args, agent, host) {
-      const tab = await browserTab(host, agent)
-      if (args.body !== undefined) {
-        const entry = tab.network.find((n) => n.id === args.body)
-        if (!entry) throw new Error(`no request #${args.body} in the recent log`)
-        if (!entry.response)
-          throw new Error(`#${args.body} is not an API (xhr/fetch) response; its body is not kept`)
-        const body = await entry.response.text().catch(() => '(the body is no longer available)')
-        return `#${entry.id} ${entry.method} ${entry.url} → ${entry.status}\n${clip(body, 16_000)}`
-      }
-      const list = tab.network.filter((n) =>
-        args.only === 'failed'
-          ? n.failure !== undefined || (n.status ?? 0) >= 400
-          : args.only === 'api'
-            ? n.type === 'xhr' || n.type === 'fetch'
-            : true,
-      )
-      if (list.length === 0) return `No ${args.only ?? ''} requests recorded yet.`.replace('  ', ' ')
-      return list
-        .slice(-60)
-        .map(
-          (n) =>
-            `#${n.id} ${n.method} ${[n.status, n.failure && `FAILED (${n.failure})`].filter(Boolean).join(' ') || '…'} ${n.type} ${n.ms}ms ${n.url.length > 160 ? `${n.url.slice(0, 160)}…` : n.url}`,
-        )
-        .join('\n')
-    },
-  },
-  {
-    name: 'browser_downloads',
-    tier: 'read',
-    description: prompts.tools.browser_downloads.description({ read: true, shell: true, publish: true }),
-    describe: (f) =>
-      prompts.tools.browser_downloads.description({
-        read: f.tools.names.includes('fs_read'),
-        shell: f.tools.names.includes('shell'),
-        publish: f.tools.names.includes('publish_artifact'),
-      }),
-    parameters: type({}),
-    async run(_args, agent, host) {
-      const dir = join(host.workspace.scratch(agent), 'downloads')
-      const files = (() => {
-        try {
-          return readdirSync(dir).filter((f) => !f.endsWith('.crdownload'))
-        } catch {
-          return []
-        }
-      })()
-      if (files.length === 0) return prompts.toolResults.noDownloads
-      return files.map((f) => `downloads/${f} (${statSync(join(dir, f)).size} bytes)`).join('\n')
-    },
-  },
-  {
-    name: 'browser_upload',
-    tier: 'write',
-    description: prompts.tools.browser_upload.description,
-    parameters: type({
-      ref: type('string').describe(prompts.tools.browser_upload.params.ref),
-      path: type('string').describe(prompts.tools.browser_upload.params.path),
-    }),
-    async run(args, agent, host) {
-      const tab = await browserTab(host, agent)
-      const file = host.workspace.resolveInWorkdir(agent, args.path)
-      if (!existsSync(file)) throw new Error(`no such file: ${args.path}`)
-      const handle = await pageElement(tab, args.ref)
-      const isFile = await handle.evaluate((el) => el instanceof HTMLInputElement && el.type === 'file')
-      if (!isFile)
-        throw new Error(`${args.ref} is not a file input; pick the element whose role says file upload`)
-      await (handle as unknown as { uploadFile(...paths: string[]): Promise<void> }).uploadFile(file)
-      await keyframe(host, agent, tab, 'type', refLabel(tab, args.ref))
-      return `Chose ${args.path} for ${args.ref}.\n${await pageSnapshot(tab)}`
-    },
-  },
-  {
-    name: 'browser_snapshot',
-    tier: 'read',
-    description: prompts.tools.browser_snapshot.description,
-    parameters: type({}),
-    async run(_args, agent, host) {
-      return pageSnapshot(await browserTab(host, agent))
-    },
-  },
-  {
-    name: 'browser_click',
-    tier: 'write',
-    description: prompts.tools.browser_click.description,
-    parameters: type({ ref: type('string').describe(prompts.tools.browser_click.params.ref) }),
-    async run(args, agent, host) {
-      const tab = await browserTab(host, agent)
-      const handle = await pageElement(tab, args.ref)
-      const label = refLabel(tab, args.ref)
-      const box = await handle.boundingBox()
-      const at = await pointAt(tab, handle, 'click', label)
-      await tab.page.mouse.click(at.x, at.y)
-      doneWith(tab)
-      await tab.page.waitForNetworkIdle({ idleTime: 300, timeout: 4_000 }).catch(() => {})
-      await keyframe(host, agent, tab, 'click', label, box)
-      return pageSnapshot(tab)
-    },
-  },
-  {
-    name: 'browser_type',
-    tier: 'write',
-    description: prompts.tools.browser_type.description,
-    parameters: type({
-      ref: type('string').describe(prompts.tools.browser_type.params.ref),
-      text: type('string').describe(prompts.tools.browser_type.params.text),
-      'submit?': type('boolean').describe(prompts.tools.browser_type.params.submit),
-    }),
-    async run(args, agent, host) {
-      const tab = await browserTab(host, agent)
-      const field = await pageElement(tab, args.ref)
-      const at = await pointAt(tab, field, 'type', refLabel(tab, args.ref))
-      await tab.page.mouse.click(at.x, at.y, { count: 3 })
-      // Typed key by key while someone watches, so they can follow it.
-      await field.type(args.text, { delay: watched(tab) ? 35 : 0 })
-      const box = await field.boundingBox().catch(() => null)
-      doneWith(tab)
-      if (args.submit) await field.press('Enter')
-      await tab.page.waitForNetworkIdle({ idleTime: 300, timeout: 4_000 }).catch(() => {})
-      await keyframe(host, agent, tab, 'type', `${refLabel(tab, args.ref)} ← ${args.text.slice(0, 40)}`, box)
-      return pageSnapshot(tab)
-    },
-  },
-  {
-    name: 'browser_press',
-    tier: 'write',
-    description: prompts.tools.browser_press.description,
-    parameters: type({ key: type('string').describe(prompts.tools.browser_press.params.key) }),
-    async run(args, agent, host) {
-      const tab = await browserTab(host, agent)
-      await tab.page.keyboard.press(args.key as never)
-      await tab.page.waitForNetworkIdle({ idleTime: 300, timeout: 3_000 }).catch(() => {})
-      await keyframe(host, agent, tab, 'press', args.key)
-      return pageSnapshot(tab)
-    },
-  },
-  {
     name: 'browser_screenshot',
     tier: 'read',
     description: prompts.tools.browser_screenshot.description,
     parameters: type({
-      'fullPage?': type('boolean').describe(prompts.tools.browser_screenshot.params.fullPage),
+      'full?': type('boolean').describe(prompts.tools.browser_screenshot.params.full),
+      'uid?': type('string').describe(prompts.tools.browser_screenshot.params.uid),
     }),
     async run(args, agent, host) {
       const tab = await browserTab(host, agent)
-      const data = (await tab.page.screenshot({
-        type: 'png',
-        fullPage: args.fullPage ?? false,
-        encoding: 'base64',
-      })) as string
-      return { text: `screenshot of ${tab.page.url()}`, images: [{ data, mimeType: 'image/png' }] }
+      const pageId = await tab.idOf(tab.page)
+      const shot = await tab
+        .engine()
+        .call('take_screenshot', {
+          pageId,
+          ...(args.uid ? { uid: args.uid } : args.full ? { fullPage: true } : {}),
+        })
+        .catch((err) => {
+          throw engineError(err)
+        })
+      const image = shot.images[0]
+      if (!image) throw new Error('the browser returned no picture')
+      const name = `screenshots/${pageFileName(tab.page.url())}-${Date.now().toString(36)}.png`
+      const path = host.workspace.resolveInScratch(agent, name)
+      mkdirSync(dirname(path), { recursive: true })
+      writeFileSync(path, Buffer.from(image.data, 'base64'))
+      return {
+        text: `screenshot of ${tab.page.url()}, saved as ${host.workspace.project ? path : name}`,
+        images: [image],
+      }
     },
   },
   {
-    name: 'browser_console',
+    name: 'browser_files',
     tier: 'read',
-    description: prompts.tools.browser_console.description,
-    parameters: type({}),
-    async run(_args, agent, host) {
+    tierOf: (args: { upload?: string }) => (args.upload ? 'write' : 'read'),
+    description: prompts.tools.browser_files.description({ read: true, shell: true, publish: true }),
+    describe: (f) =>
+      prompts.tools.browser_files.description({
+        read: f.tools.names.includes('fs_read'),
+        shell: f.tools.names.includes('shell'),
+        publish: f.tools.names.includes('publish_artifact'),
+      }),
+    parameters: type({
+      'upload?': type('string').describe(prompts.tools.browser_files.params.upload),
+      'path?': type('string').describe(prompts.tools.browser_files.params.path),
+    }),
+    async run(args, agent, host) {
+      if (args.upload === undefined) {
+        const dir = join(host.workspace.scratch(agent), 'downloads')
+        const files = (() => {
+          try {
+            return readdirSync(dir).filter((f) => !f.endsWith('.crdownload'))
+          } catch {
+            return []
+          }
+        })()
+        if (files.length === 0) return prompts.toolResults.noDownloads
+        return files.map((f) => `downloads/${f} (${statSync(join(dir, f)).size} bytes)`).join('\n')
+      }
+      if (!args.path) throw new Error(prompts.toolResults.browserUploadNeedsPath)
       const tab = await browserTab(host, agent)
-      const lines = tab.logs.splice(0)
-      return lines.length ? lines.join('\n') : '(no console output, errors, or failed requests)'
+      const file = host.workspace.resolveInWorkdir(agent, args.path)
+      if (!existsSync(file)) throw new Error(`no such file: ${args.path}`)
+      const node = lastSeen(tab)?.nodes.find((n) => n.uid === args.upload)
+      const call: PermissionCall = { tool: 'browser_files', kind: 'web', readOnly: false, asks: true }
+      const summary = prompts.browserSafety.summary(hostOf(tab.page.url()), [
+        prompts.browserSafety.step(
+          `Choose ${args.path} for`,
+          node?.name || args.upload,
+          prompts.browserSafety.upload,
+        ),
+      ])
+      const edited = await askFirst(
+        host,
+        agent,
+        'browser_files',
+        args,
+        call,
+        receiptKey(host, agent, 'browser_files', args),
+        summary,
+      )
+      const pageId = await tab.idOf(tab.page)
+      await tab
+        .engine()
+        .call('upload_file', { pageId, uid: args.upload, filePaths: [file] })
+        .catch((err) => {
+          throw engineError(err)
+        })
+      await keyframe(host, agent, tab, 'type', node?.name)
+      const view = await pageView(host, agent, tab)
+      return {
+        ...view,
+        text: `Chose ${args.path} for ${args.upload}.\n${view.text}${edited ? prompts.toolResults.editedByPerson : ''}`,
+      }
     },
   },
   {
-    name: 'browser_eval',
+    name: 'browser_debug',
     tier: 'write',
-    description: prompts.tools.browser_eval.description,
-    parameters: type({ expression: type('string').describe(prompts.tools.browser_eval.params.expression) }),
+    description: prompts.tools.browser_debug.description,
+    parameters: type({
+      kind: type("'console' | 'network' | 'eval' | 'perf'").describe(prompts.tools.browser_debug.params.kind),
+      'expression?': type('string').describe(prompts.tools.browser_debug.params.expression),
+      'request?': type('number').describe(prompts.tools.browser_debug.params.request),
+    }),
     async run(args, agent, host) {
       const tab = await browserTab(host, agent)
-      const value = await tab.page.evaluate(`(async () => (${args.expression}))()`)
-      return clip(JSON.stringify(value, null, 2) ?? 'undefined')
+      const pageId = await tab.idOf(tab.page)
+      const engine = tab.engine()
+      const call = (name: string, params: Record<string, unknown>, ms?: number) =>
+        engine.call(name, { pageId, ...params }, ms).catch((err) => {
+          throw engineError(err)
+        })
+      if (args.kind === 'console') return clip((await call('list_console_messages', {})).text)
+      if (args.kind === 'network')
+        return clip(
+          (
+            await (args.request !== undefined
+              ? call('get_network_request', { reqid: args.request })
+              : call('list_network_requests', {}))
+          ).text,
+        )
+      if (args.kind === 'eval') {
+        if (!args.expression) throw new Error(prompts.toolResults.browserDebugNeedsExpression)
+        const out = await call('evaluate_script', { function: `async () => (${args.expression})` })
+        return clip(out.text)
+      }
+      return clip((await call('performance_start_trace', { reload: true, autoStop: true }, 120_000)).text)
+    },
+  },
+  {
+    name: 'request_takeover',
+    tier: 'write',
+    description: prompts.tools.request_takeover.description,
+    parameters: type({
+      reason: type("'login' | 'captcha' | '2fa' | 'payment' | 'confirm' | 'stuck'").describe(
+        prompts.tools.request_takeover.params.reason,
+      ),
+      site: type('string').describe(prompts.tools.request_takeover.params.site),
+      note: type('string').describe(prompts.tools.request_takeover.params.note),
+      'url?': type('string').describe(prompts.tools.request_takeover.params.url),
+    }),
+    async run(args, agent, host) {
+      return takeover(host, agent, args.reason, args.site, args.note, args.url)
+    },
+  },
+  {
+    name: 'request_login',
+    tier: 'write',
+    description: prompts.tools.request_login.description,
+    parameters: type({
+      url: type('string').describe(prompts.tools.request_login.params.url),
+      site: type('string').describe(prompts.tools.request_login.params.site),
+      reason: type('string').describe(prompts.tools.request_login.params.reason),
+    }),
+    async run(args, agent, host) {
+      return takeover(host, agent, 'login', args.site, args.reason, args.url)
     },
   },
   {
@@ -4215,14 +4499,18 @@ async function runBrowserFlow(
         await keyframe(host, agent, tab, 'open')
       } else if ('click' in step) {
         const handle = await locate(tab.page, fillPlaceholders(step.click, input), 10_000)
-        const at = await pointAt(tab, handle, 'click', step.click)
-        await tab.page.mouse.click(at.x, at.y)
+        await handle.scrollIntoView().catch(() => {})
+        const box = await handle.boundingBox()
+        if (box) await glideTo(tab, box, 'click', step.click)
+        await handle.click()
         doneWith(tab)
         await tab.page.waitForNetworkIdle({ idleTime: 300, timeout: 4_000 }).catch(() => {})
         await keyframe(host, agent, tab, 'click', step.click)
       } else if ('type' in step) {
         const handle = await locate(tab.page, fillPlaceholders(step.type, input), 10_000)
-        await pointAt(tab, handle, 'type', step.type)
+        await handle.scrollIntoView().catch(() => {})
+        const box = await handle.boundingBox()
+        if (box) await glideTo(tab, box, 'type', step.type)
         await handle.click({ count: 3 })
         await tab.page.keyboard.type(fillPlaceholders(step.text, input))
         if (step.submit) await tab.page.keyboard.press('Enter')
@@ -4241,10 +4529,13 @@ async function runBrowserFlow(
         extracted.push(JSON.stringify(data, null, 2))
       }
     } catch (err) {
-      return { ok: false, output: await flowStepFailure(i, step, err, () => pageSnapshot(tab)) }
+      return {
+        ok: false,
+        output: await flowStepFailure(i, step, err, async () => compactSnapshot(await snapshot(tab))),
+      }
     }
   }
-  const output = extracted.length ? extracted.join('\n') : await pageSnapshot(tab)
+  const output = extracted.length ? extracted.join('\n') : compactSnapshot(await snapshot(tab))
   host.rememberUntrusted(agent, `${MADE_PREFIX}${tool.name}`, output)
   return {
     ok: true,
@@ -4463,107 +4754,114 @@ function harnessTools(
 ): AgentTool[] {
   // fs_read's rows and fs_edit's parameters follow the model the agent starts on, and stay so for the round.
   if (facts) setEditMode(host, agent, editModeFor(facts.model.ref))
-  return TOOL_DEFS.filter((d) => allow.has(d.name))
-    .filter((d) => d.tier !== 'exec' || host.sandbox.kind !== 'none' || host.unsafeNoSandbox)
-    .map(
-      (def): AgentTool => ({
-        name: def.name,
-        label: def.name,
-        description: (facts && def.describe?.(facts)) || def.description,
-        parameters: parametersOf(def, facts),
-        intent: 'omit',
-        approval: def.tier,
-        concurrency: def.tierOf
-          ? (args: unknown) => concurrencyOf({ name: def.name, tier: tierOf(def, args) })
-          : concurrencyOf(def),
-        async execute(callId: string, params: unknown, signal?: AbortSignal): Promise<AgentToolResult> {
-          const actor = agentActor(agent)
-          await host.append({
-            type: 'tool/call',
-            actor,
-            payload: { agent, callId, tool: def.name, args: params ?? {} },
-          })
-          let output: string
-          let images: ToolOutput['images'] = []
-          let usage: UsageInfo | undefined
-          let change: ToolOutput['change']
-          let ok = true
-          const tier = tierOf(def, params)
-          // Calls that write get receipts; commands may rightly run twice, and reads change nothing.
-          const key = tier === 'write' ? receiptKey(host, agent, def.name, params) : undefined
-          const kept = key === undefined ? undefined : host.state().receipts[key]
-          try {
-            if (!allow.has(def.name)) throw new Error(`${def.name} is not allowed for ${agent}`)
-            if (host.state().status !== 'running') throw new Error('the colony is no longer running')
-            if (host.huddling() && !HUDDLE_TOOLS.has(def.name)) throw new Error(prompts.toolResults.huddling)
-            if (kept !== undefined) throw new AlreadyDone(kept)
-            if (COPY_CHECKED.has(def.name)) await flagIfCopied(host, agent, def.name, params)
-            // File changes, commands and proposals are decided where the change is known (guardProject*).
-            const edited =
-              GUARDED.has(def.name) && (tier !== 'read' || GUARDS_READS.has(def.name))
-                ? false
-                : await askFirst(
-                    host,
-                    agent,
-                    def.name,
-                    params,
-                    callOf(host, agent, tier, def.name, params),
-                    key,
-                  )
-            await host.beforeTool(agent, def.name, params)
-            // A stopped call ends for the agent at once, whatever the tool is still waiting on.
-            const run = () =>
-              untilAborted(def.run(params ?? {}, agent, host, signal), signal, TOOL_STOP_GRACE_MS)
-            const result =
-              tier === 'read' || IN_PARALLEL.has(def.name) ? await run() : await inCallOrder(host, agent, run)
-            output = typeof result === 'string' ? result : result.text
-            // The person's hooks speak for the harness: their note stays outside any untrusted-content block.
-            const hookNote = await host.afterTool(agent, def.name, params, output)
-            if (typeof result !== 'string') {
-              images = result.images
-              usage = result.usage
-              change = result.change
+  return (
+    TOOL_DEFS.filter((d) => allow.has(d.name))
+      .filter((d) => d.tier !== 'exec' || host.sandbox.kind !== 'none' || host.unsafeNoSandbox)
+      // Developer tools in the page (its console, network and scripts) are for agents that build and test code.
+      .filter((d) => d.name !== 'browser_debug' || allow.has('shell'))
+      .map(
+        (def): AgentTool => ({
+          name: def.name,
+          label: def.name,
+          description: (facts && def.describe?.(facts)) || def.description,
+          parameters: parametersOf(def, facts),
+          intent: 'omit',
+          approval: def.tier,
+          concurrency: def.tierOf
+            ? (args: unknown) => concurrencyOf({ name: def.name, tier: tierOf(def, args) })
+            : concurrencyOf(def),
+          async execute(callId: string, params: unknown, signal?: AbortSignal): Promise<AgentToolResult> {
+            const actor = agentActor(agent)
+            await host.append({
+              type: 'tool/call',
+              actor,
+              payload: { agent, callId, tool: def.name, args: params ?? {} },
+            })
+            let output: string
+            let images: ToolOutput['images'] = []
+            let usage: UsageInfo | undefined
+            let change: ToolOutput['change']
+            let ok = true
+            const tier = tierOf(def, params)
+            // Calls that write get receipts; commands may rightly run twice, and reads change nothing.
+            const key = tier === 'write' ? receiptKey(host, agent, def.name, params) : undefined
+            const kept = key === undefined ? undefined : host.state().receipts[key]
+            try {
+              if (!allow.has(def.name)) throw new Error(`${def.name} is not allowed for ${agent}`)
+              if (host.state().status !== 'running') throw new Error('the colony is no longer running')
+              if (host.huddling() && !HUDDLE_TOOLS.has(def.name))
+                throw new Error(prompts.toolResults.huddling)
+              if (kept !== undefined) throw new AlreadyDone(kept)
+              if (COPY_CHECKED.has(def.name)) await flagIfCopied(host, agent, def.name, params)
+              // File changes, commands and proposals are decided where the change is known (guardProject*).
+              const edited =
+                GUARDED.has(def.name) && (tier !== 'read' || GUARDS_READS.has(def.name))
+                  ? false
+                  : await askFirst(
+                      host,
+                      agent,
+                      def.name,
+                      params,
+                      callOf(host, agent, tier, def.name, params),
+                      key,
+                    )
+              await host.beforeTool(agent, def.name, params)
+              // A stopped call ends for the agent at once, whatever the tool is still waiting on.
+              const run = () =>
+                untilAborted(def.run(params ?? {}, agent, host, signal), signal, TOOL_STOP_GRACE_MS)
+              const result =
+                tier === 'read' || IN_PARALLEL.has(def.name)
+                  ? await run()
+                  : await inCallOrder(host, agent, run)
+              output = typeof result === 'string' ? result : result.text
+              // The person's hooks speak for the harness: their note stays outside any untrusted-content block.
+              const hookNote = await host.afterTool(agent, def.name, params, output)
+              if (typeof result !== 'string') {
+                images = result.images
+                usage = result.usage
+                change = result.change
+              }
+              const preface = typeof result === 'string' ? '' : (result.preface ?? '')
+              // Long pages are saved under web/ in scratch, and the browser's downloads under downloads/; reading one
+              // back is still outside content.
+              const savedPage =
+                def.name === 'fs_read' &&
+                /(^|[\\/])(web|downloads)[\\/]/.test(String((params as { path?: unknown })?.path ?? ''))
+              if (UNTRUSTED.has(def.name) || savedPage) {
+                const source = untrustedSource(def.name, params, output)
+                host.rememberUntrusted(agent, source, output)
+                output = spotlight(host.boundary, source, output)
+              }
+              output = `${preface}${output}${hookNote}${edited ? prompts.toolResults.editedByPerson : ''}`
+              if (key) await keepReceipt(host, agent, def.name, key, output)
+            } catch (err) {
+              ok = err instanceof AlreadyDone
+              output = ok
+                ? prompts.toolResults.alreadyDone((err as AlreadyDone).output)
+                : `ERROR: ${err instanceof Error ? err.message : String(err)}`
             }
-            const preface = typeof result === 'string' ? '' : (result.preface ?? '')
-            // Long pages are saved under web/ in scratch, and the browser's downloads under downloads/; reading one
-            // back is still outside content.
-            const savedPage =
-              def.name === 'fs_read' &&
-              /(^|[\\/])(web|downloads)[\\/]/.test(String((params as { path?: unknown })?.path ?? ''))
-            if (UNTRUSTED.has(def.name) || savedPage) {
-              const source = untrustedSource(def.name, params, output)
-              host.rememberUntrusted(agent, source, output)
-              output = spotlight(host.boundary, source, output)
+            await host.append({
+              type: 'tool/result',
+              actor,
+              payload: {
+                agent,
+                callId,
+                tool: def.name,
+                ok,
+                output: clip(output, 8_000),
+                ...(usage ? { usage } : {}),
+                ...(ok && change ? { change } : {}),
+              },
+            })
+            return {
+              content: [
+                { type: 'text', text: output },
+                ...images.map((i) => ({ type: 'image' as const, data: i.data, mimeType: i.mimeType })),
+              ],
+              isError: !ok,
             }
-            output = `${preface}${output}${hookNote}${edited ? prompts.toolResults.editedByPerson : ''}`
-            if (key) await keepReceipt(host, agent, def.name, key, output)
-          } catch (err) {
-            ok = err instanceof AlreadyDone
-            output = ok
-              ? prompts.toolResults.alreadyDone((err as AlreadyDone).output)
-              : `ERROR: ${err instanceof Error ? err.message : String(err)}`
-          }
-          await host.append({
-            type: 'tool/result',
-            actor,
-            payload: {
-              agent,
-              callId,
-              tool: def.name,
-              ok,
-              output: clip(output, 8_000),
-              ...(usage ? { usage } : {}),
-              ...(ok && change ? { change } : {}),
-            },
-          })
-          return {
-            content: [
-              { type: 'text', text: output },
-              ...images.map((i) => ({ type: 'image' as const, data: i.data, mimeType: i.mimeType })),
-            ],
-            isError: !ok,
-          }
-        },
-      }),
-    )
+          },
+        }),
+      )
+  )
 }

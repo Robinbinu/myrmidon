@@ -43,6 +43,7 @@ import {
   type RoundAccess,
   rulesIn,
   SYSTEM,
+  type TakeoverKind,
   type TaskSnapshot,
   tightened,
   toolHidden,
@@ -541,7 +542,7 @@ export class ColonyRun implements ColonyHost {
     }
   }
 
-  async requestLogin(agent: string, site: string, url: string, reason: string) {
+  async requestLogin(agent: string, site: string, url: string, reason: string, kind?: TakeoverKind) {
     if (this._logins.has(agent)) throw new Error('you are already waiting for a sign-in')
     const outcome = new Promise<'handed-back' | 'timeout' | 'stopped'>((resolve) => {
       const timer = setTimeout(() => void this.finishLogin(agent, 'timeout'), LOGIN_MS)
@@ -553,7 +554,7 @@ export class ColonyRun implements ColonyHost {
     await this.append({
       type: 'login/requested',
       actor: agentActor(agent),
-      payload: { agent, site, url, reason },
+      payload: { agent, site, url, reason, ...(kind && kind !== 'login' ? { kind } : {}) },
     })
     return outcome
   }

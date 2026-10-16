@@ -2168,6 +2168,8 @@ export class ChatService {
       const importOf = this.options.shelf?.place(chatId).importOf
       if (importOf) this.options.imports?.remove(importOf)
       this.options.shelf?.forget([chatId])
+      // What its agents signed in to in their browsers goes too: sign-ins are kept per chat, for its later rounds.
+      this.options.browser?.forgetChat(chatId)
       return ids
     } finally {
       this._deleting.delete(chatId)
