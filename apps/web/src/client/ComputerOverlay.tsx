@@ -2,9 +2,10 @@ import { motion, useReducedMotionConfig } from 'motion/react'
 import { useEffect, useState } from 'react'
 import { api } from './api.ts'
 import { copy } from './copy.ts'
+import { AvatarScope } from './ui/avatar-bag.ts'
 import { CrewCursor } from './ui/cursor.tsx'
 import { FEATURE_ICONS } from './ui/icons.ts'
-import { agentColor } from './ui/pixel.tsx'
+import { AgentAvatar, agentColor } from './ui/pixel.tsx'
 import { COMPUTER_OVERLAY, COMPUTER_OVERLAY_POLL_MS } from './ui-config.ts'
 
 const t = copy.computerUse
@@ -92,14 +93,16 @@ export function ComputerOverlay() {
         </div>
       )}
       {pointersOn(area, state.pointers).map((p) => (
-        <CrewCursor
-          key={`${p.colonyId}/${p.agent}`}
-          name={p.agent}
-          color={agentColor(p.agent)}
-          x={p.x}
-          y={p.y}
-          clicking={p.action === 'click' && now - p.at < COMPUTER_OVERLAY.clickShowMs}
-        />
+        <AvatarScope key={`${p.colonyId}/${p.agent}`} value={p.colonyId}>
+          <CrewCursor
+            name={p.agent}
+            color={agentColor(p.agent)}
+            x={p.x}
+            y={p.y}
+            clicking={p.action === 'click' && now - p.at < COMPUTER_OVERLAY.clickShowMs}
+            avatar={<AgentAvatar name={p.agent} status="working" size={16} awake />}
+          />
+        </AvatarScope>
       ))}
     </div>
   )

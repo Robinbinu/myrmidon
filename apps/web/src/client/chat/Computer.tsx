@@ -586,6 +586,7 @@ function LiveTab({
               x={(replaying?.cursor?.x ?? cursor.x) * scale}
               y={(replaying?.cursor?.y ?? cursor.y) * scale}
               clicking={cursor.clicking}
+              avatar={<AgentAvatar name={agent} status="working" size={16} awake />}
             />
           </div>
         )}
