@@ -266,6 +266,9 @@ export interface ComposerChoice {
   extraWorkers: number
   thinking?: 'low' | 'medium' | 'high'
   helpers?: 'always'
+  /** A saved company the crew is made from, by id (companies.ts), and the models its tiers run on. */
+  company?: string
+  tierModels?: { smart?: string; fast?: string }
 }
 
 /** An imported VS Code theme as saved: only `#hex` colours, by VS Code key and by syntax role. */
@@ -503,6 +506,8 @@ export const settingsSchema = Schema.object({
       extraWorkers: Schema.natural().max(8).default(0),
       thinking: Schema.union(['low', 'medium', 'high']),
       helpers: Schema.const('always'),
+      company: Schema.string().max(100),
+      tierModels: Schema.object({ smart: Schema.string().max(200), fast: Schema.string().max(200) }),
     }),
   ]),
 })
@@ -699,6 +704,15 @@ function parse(input: unknown): MyrSettings {
             extraWorkers: composer.extraWorkers,
             ...(composer.thinking ? { thinking: composer.thinking } : {}),
             ...(composer.helpers ? { helpers: composer.helpers } : {}),
+            ...(composer.company ? { company: composer.company } : {}),
+            ...(composer.tierModels?.smart || composer.tierModels?.fast
+              ? {
+                  tierModels: {
+                    ...(composer.tierModels.smart ? { smart: composer.tierModels.smart } : {}),
+                    ...(composer.tierModels.fast ? { fast: composer.tierModels.fast } : {}),
+                  },
+                }
+              : {}),
           },
         }
       : {}),
