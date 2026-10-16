@@ -60,6 +60,7 @@ import {
   MEMORY_EXTRACT_MIN_CHARS,
   MEMORY_REFLECT_EVERY_MS,
   MEMORY_REFLECT_OVERLAP,
+  ORCHESTRATE,
   SKILL_REVIEW_CALLS,
   SUGGEST_CORPUS,
 } from './config.ts'
@@ -69,6 +70,7 @@ import type { HookStore } from './hooks.ts'
 import { readProjectInstructions } from './instructions.ts'
 import type { KeepAwake } from './keep-awake.ts'
 import type { ToolLibrary } from './made-tools.ts'
+import { magicWordsIn } from './magic-words.ts'
 import type { McpHub } from './mcp.ts'
 import type { MediaTools } from './media.ts'
 import { type Memory, type MemoryStore, memoryLines, similarity } from './memory.ts'
@@ -842,15 +844,31 @@ export class ChatService {
     // Written to crew members directly (@name): the round starts with them, and they answer.
     const latestState = previous.at(-1)?.state
     const to = latestState ? addressedIn(message, latestState) : []
+    // Magic words in the person's prose (magic-words.ts): orchestrate makes it a team round, ultrathink thinks hardest.
+    const words = magicWordsIn(message)
+    const orchestrate = words.includes('orchestrate') && !to.length
     // The lead starts at once and sizes the work itself (escalate); tests and reruns may fix the size instead.
-    const sized = to.length
-      ? 'team'
-      : (options.tier ??
-        (config.helpers === 'always' ? 'team' : await (this.options.classify ?? leadFirst)(message, history)))
+    const sized =
+      to.length || orchestrate
+        ? 'team'
+        : (options.tier ??
+          (config.helpers === 'always'
+            ? 'team'
+            : await (this.options.classify ?? leadFirst)(message, history)))
     // A goal is worked toward with tools and checked: never a direct answer.
     const tier = goal && sized === 'answer' ? 'solo' : sized
-    const spec = this.buildSpec(id, message, config, previous, history, tier, to)
+    const spec = this.buildSpec(
+      id,
+      message,
+      orchestrate ? orchestrated(config) : config,
+      previous,
+      history,
+      tier,
+      to,
+    )
     if (spec.chat) Object.assign(spec.chat, extra)
+    if (words.includes('ultrathink')) spec.ultrathink = true
+    if (orchestrate && spec.tier === 'team' && spec.pattern === 'lead-workers') spec.orchestrate = true
     // The note of where the chat (or, for a fork, the chat it came from) left off, if it covers the latest round.
     const before = (previous.length ? previous : source).at(-1)
     const note = before?.state.handoff
@@ -2324,6 +2342,21 @@ export class ChatService {
         ...(crewmates.length ? { crewmates } : {}),
       },
     }
+  }
+}
+
+/**
+ * The team an orchestrate round gets (magic-words.ts), whatever mode the chat's team picker says: a lead with workers
+ * it hands tasks to in parallel. With nobody set up, one worker on the lead's model joins at once (a lead alone has no
+ * crew tools); either way the lead may add crewmates up to ORCHESTRATE.workers.
+ */
+function orchestrated(config: TeamConfig): TeamConfig {
+  const roster = config.roster.length ? config.roster : [{ role: 'worker', model: config.leadModel }]
+  return {
+    ...config,
+    mode: 'orchestrated',
+    roster,
+    extraWorkers: Math.max(config.extraWorkers ?? 0, ORCHESTRATE.workers - roster.length),
   }
 }
 

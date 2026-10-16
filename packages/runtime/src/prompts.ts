@@ -661,6 +661,33 @@ ${roster}`,
      */
     prewalk: (model: string) =>
       `\n\nPrewalk: you plan on this model, then hand off to ${model}, a cheaper one, which carries out your plan in this same conversation. The switch comes at your first change: a file edit or write, or creating a task. Before it, read what you need and write the whole plan as a note (append_note, section "plan"): the steps in order with the exact files, symbols and commands; the risks and edge cases; and how each step is checked.`,
+    /** The magic word ultrathink (magic-words.ts), after omp's ultrathink-notice. */
+    ultrathink: '\n\nMulti-step reasoning: think carefully through the problem before responding.',
+    /**
+     * The magic word orchestrate, after omp's orchestrate-notice: its role, rules and workflow with omp's `task`
+     * subagents as this round's crew and tasks; `tools` are the lead's own, so it is told only of what it has.
+     */
+    orchestrate: (tools: readonly string[]) => {
+      const has = (t: string) => tools.includes(t)
+      const checks = [
+        has('run_checks') && 'run_checks',
+        has('shell') && 'the tests with shell',
+        has('lsp') && 'lsp diagnostics',
+      ]
+        .filter(Boolean)
+        .join(', ')
+      return `\n\nThe person asked you to orchestrate. Work as the orchestrator under this contract; it overrides any tendency to stop early, narrate, or do the work yourself.
+Role: decompose, dispatch, verify, iterate. Substantial or parallelizable work goes to the crew as tasks (create_task with an assignee${has('add_crewmate') ? '; add_crewmate when you need more hands' : ''}); make a trivial self-contained edit yourself only when handing it out costs more than doing it.
+Rules:
+1. Do not send your final answer before every requested item is verifiably done, or something concrete needs the person. Finishing a phase is not a stopping point: start the next one.
+2. Before handing out work, list the whole surface: expand any referenced plan, checklist or file list into flat items. Re-read the sources; never work from memory.
+3. Parallelize: work on separate files goes out as separate tasks at the same time, never one after another. Order tasks (blockedBy) only when one produces what the next consumes, and say what.
+4. Every task stands alone: crewmates share none of your context. Name the exact files (no globs), the change, the edge cases, and how to tell it is done.
+5. Check each phase before the next${checks ? ` (${checks})` : ''}: a failure goes back out as a fix-up task, then you check again. Never call a failing tree done.
+6. Incomplete or wrong work from a crewmate: reject_task with the gap, or a corrective task; never fix it silently yourself.
+7. No scope creep or shrink: add nothing unasked, and never relabel unfinished work as a follow-up.
+Workflow: read what was referenced and the project's state; plan the phases and each phase's parallel tasks; hand a phase out at once; check it; then the next; after the last, check everything again and answer briefly with the status, not a recap.`
+    },
     carried: (files: readonly string[]) => `\n\nFiles from earlier rounds: ${files.join(', ')}.`,
     /** Where the chat left off (chat/handoff), for an agent that does not remember its earlier rounds. */
     handoff: (text: string, date: string) =>

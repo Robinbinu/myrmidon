@@ -954,6 +954,11 @@ export const HANDOFF = {
   digestChars: 12_000,
 } as const
 /**
+ * The magic word orchestrate (magic-words.ts): the crew its lead may reach at least, the person's roster counted, so it
+ * has hands to work in parallel with.
+ */
+export const ORCHESTRATE = { workers: 3 } as const
+/**
  * Project summaries (memory-summary.ts), after omp hindsight's mental models (project-conventions 800 tokens): built
  * only from a project's kept memories, at most `maxChars`, and only once it has more kept memories than a prompt
  * carries whole (MEMORY_PROMPT_COUNT), since below that every memory is in the prompt already.

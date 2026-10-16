@@ -370,6 +370,8 @@ export interface Environment {
  * workers on a scoped task think moderately; a direct answer stays quick.
  */
 export function thinkingFor(spec: ColonySpec, agent: AgentSpec): Effort {
+  // As omp's ultrathink: the top level, which each model then clamps to the highest it has.
+  if (spec.ultrathink) return 'max'
   if (spec.tier === 'answer') return 'low'
   if (spec.thinking) return spec.thinking
   // A lone chat agent often just answers; it thinks harder when the person asks for it.
@@ -488,10 +490,17 @@ export function kickoff(spec: ColonySpec, state: ColonyState, remembers = false,
   // Only the lead hands off (ColonyRun._handOff), so only the lead is told to plan for it.
   const lead = spec.agents.find((a) => a.name === agent)?.role === 'lead'
   const prewalk = spec.prewalk && lead ? prompts.kickoff.prewalk(spec.prewalk) : ''
+  // Magic words (magic-words.ts): orchestrating is the lead's job, so only the lead is told how.
+  const ultrathink = spec.ultrathink ? prompts.kickoff.ultrathink : ''
+  const speaker = spec.agents.find((a) => a.name === agent)
+  const orchestrate =
+    spec.orchestrate && speaker && isLead(spec, speaker)
+      ? prompts.kickoff.orchestrate(toolsFor(spec, speaker))
+      : ''
   const context = spec.chat.context ? prompts.chat.context(spec.chat.context) : ''
   const spoken = spec.chat.voice ? prompts.chat.spoken : ''
   const changed = agent && spec.chat.accessNotices?.[agent] ? `${spec.chat.accessNotices[agent]}\n\n` : ''
-  const request = `${history}${note}${changed}${context}[user] ${spec.chat.request}${attachedNote(attached)}${spoken}${plan}${goal}${prewalk}`
+  const request = `${history}${note}${changed}${context}[user] ${spec.chat.request}${attachedNote(attached)}${spoken}${ultrathink}${plan}${goal}${prewalk}${orchestrate}`
   if (spec.tier === 'answer') return request
   const files = Object.keys(state.artifacts).filter((f) => !attached?.includes(f))
   const carried = files.length > 0 ? prompts.kickoff.carried(files) : ''

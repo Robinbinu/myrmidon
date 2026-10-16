@@ -749,7 +749,14 @@ Open work, in the order it will be done:
       5. Internal paths in file tools: `pr://N`, `issue://N`, `conflict://N` (resolve a merge conflict by writing
          @ours/@theirs/@base), `agent://`, `skill://`.
       6. learn / manage_skill: the agent saves a reusable lesson and can promote it into a managed skill.
-      7. Magic words in a message: ultrathink (highest effort), orchestrate (parallel crew + verify each phase).
+      7. [x] Magic words in a message: ultrathink (highest effort), orchestrate (parallel crew + verify each phase).
+         Done (magic-words.ts): standalone lowercase prose only, never in code spans, fences, XML or identifiers, as
+         omp's pi-tui matcher. ultrathink: every agent asks for `max`, clamped to the model's top level, plus omp's
+         notice; orchestrate: a team round led by a lead (one worker joins if the roster is empty, room to add up to
+         ORCHESTRATE.workers) whose opening carries omp's orchestrate contract with our crew tools. Left: no glow in
+         the composer and no setting to switch a word off (omp's magicKeywords.<id>).
+         (test: `packages/runtime/tests/magic-words.test.ts` — "ultrathink thinks at the highest effort the model
+         has…", "orchestrate makes the round a team round led with room for a crew…")
       8. Credentials: several keys per provider rotated with backoff; models scoped to a project path.
       9. Memory: compress each finished chat into a short mental model loaded on the next one's first turn.
       10. Reset a provider stream (stale prompt cache) without touching the transcript (omp /fresh).

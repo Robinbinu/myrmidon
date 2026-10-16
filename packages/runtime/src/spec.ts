@@ -137,6 +137,16 @@ export interface ColonySpec {
   tier?: Tier
   /** How hard reasoning models think in work rounds; omitted lets each role decide. */
   thinking?: 'low' | 'medium' | 'high'
+  /**
+   * The person wrote the magic word ultrathink (magic-words.ts): every agent thinks at the highest effort its model
+   * takes, whatever `thinking` says, as omp's ultrathink keyword.
+   */
+  ultrathink?: boolean
+  /**
+   * The person wrote the magic word orchestrate: the round is a team round whose lead splits the work into parallel
+   * tasks and checks each phase before the next, after omp's orchestrate notice.
+   */
+  orchestrate?: boolean
   /** Plan mode: present the plan for approval (ask_user) before any work. */
   planFirst?: boolean
   /**
