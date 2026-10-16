@@ -386,7 +386,17 @@ ${p.list}
         `Your final answer:
 - Lead with the outcome in a sentence or two.${files ? ' Then what you delivered (by file name), how to use it, how you verified it, and what is missing.' : ''}
 - As short as the request allows; a direct question gets a direct answer in prose, not sections.
-- Plain Markdown: short paragraphs, flat lists, code blocks only for code; no preamble, step-by-step recap or closing offer.`,
+- Plain Markdown: short paragraphs, flat lists, code blocks only for code or a visual; no preamble, step-by-step recap or closing offer.`,
+      /**
+       * Visual answers the chat draws from fenced blocks (apps/web chat/visuals). After omp 18.11's visuals rules
+       * (first fit wins, one form per idea, never announce or restate it) and Claude Code's data-visualization
+       * guidance (is it even a chart?); the sentence beside each is the fallback for channels and voice.
+       */
+      visuals:
+        '- Visuals: the chat draws fenced chart, mermaid, table, json-tree, svg and widget blocks (formats: ' +
+        "reply_user's text). Only where one says more than prose: data to compare, a flow or structure, rows to sort, " +
+        'something to try (a widget in the reply, not a file). One per idea, never decoration; the point stays ' +
+        'in a sentence, as messaging apps and voice get only words.',
     },
 
     /** The person's and the project's own text, after OpenHands' <REPO_CONTEXT>, Codex's <INSTRUCTIONS> and Hermes. */
@@ -3630,7 +3640,13 @@ Reply with JSON only: {"lines": ["...", "...", "..."]}.`,
         }. final: false is a short note while you keep working, for news the person would want now. For a question ` +
         'you need answered, use ask_user.',
       params: {
-        text: 'The message in Markdown',
+        /** The visual blocks' formats (apps/web chat/visuals/spec.ts checks them), read where the reply is written. */
+        text:
+          'The message in Markdown. Visual blocks: ```chart a Vega-Lite JSON spec with a title and inline ' +
+          'data.values (never a url), one y-axis, no colours or size; ```mermaid; ```table {"columns":[…],"rows":[[…]]} ' +
+          'or a list of objects (a short table is plain Markdown); ```json-tree any JSON; ```svg and ```widget (one ' +
+          'HTML page with a <title>) self-contained: no scripts in svg, no network or external files, colours only ' +
+          'via currentColor and var(--fg), --muted, --border, --accent, --c1…--c6, no background.',
         final: 'true for the complete final answer; false for a note while you keep working (default false)',
       },
     },
@@ -4121,7 +4137,8 @@ Reply with JSON only: {"lines": ["...", "...", "..."]}.`,
             ? 'Python: a plain python3 process, not IPython; top-level await works, and !cmd runs a shell command. '
             : 'Python is not installed on this computer, so only JavaScript runs. '
         }` +
-        "The last expression's value is shown, with whatever the cell prints or passes to display(). Cell state is " +
+        "The last expression's value is shown, with whatever the cell prints or passes to display(); the person also " +
+        'sees each display() drawn: a list of records as a table, other JSON as a tree, a picture, an Altair chart. Cell state is ' +
         'invisible to shell and to other agents: write a file to share a result. A cell may run ' +
         `${CELL_TIMEOUT_S}s unless you give timeoutSeconds (at most ${CELL_MAX_TIMEOUT_S}); its output is cut at ` +
         `${n(CELL_OUTPUT_CHARS)} characters. A cell that runs out of time or crashes stops its runtime and everything ` +

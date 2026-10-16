@@ -588,6 +588,7 @@ export const SECTIONS: readonly Section[] = [
       render: (f) => say.speaker.remember(project(f) !== undefined),
     },
     { key: 'final', guard: speaker, render: (f) => say.speaker.final(builds(f)) },
+    { key: 'visuals', guard: speaker, render: () => say.speaker.visuals },
   ]),
   ...under('instructions', [
     {

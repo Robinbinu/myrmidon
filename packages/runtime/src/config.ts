@@ -104,6 +104,8 @@ export const GOAL = {
  * "How you finish", full access or an ask-first project under "Safety", and project rules (or, for a lead with
  * hands-on tools, the lead's method too) under "How to work", and the count of memories left for recall and the rule
  * that the files, command output and the person's latest message outrank a memory under the person's instructions.
+ * "Talking to the person" also carries the visual answers line (~60 words) for every speaker; its formats live in
+ * reply_user's text parameter instead, read where the reply is written.
  */
 export const PROMPT_HEADING_WORDS = {
   you: 210,
@@ -111,7 +113,7 @@ export const PROMPT_HEADING_WORDS = {
   safety: 350,
   method: 710,
   others: 230,
-  person: 210,
+  person: 270,
   instructions: 140,
   environment: 260,
 } as const
@@ -121,11 +123,11 @@ export const PROMPT_HEADING_WORDS = {
  * 500-700, swarm peer 800-1,000; each consolidated safety section (~250 words) is most of the difference.
  */
 export const PROMPT_ROLE_WORDS = {
-  answer: 650,
-  solo: 1340,
+  answer: 700,
+  solo: 1410,
   crewmate: 1040,
-  'team-lead': 940,
-  'team-lead-hands-on': 1620,
+  'team-lead': 980,
+  'team-lead-hands-on': 1680,
   'team-worker': 1180,
   'swarm-peer': 1070,
   'colony-lead': 1000,
