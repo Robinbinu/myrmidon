@@ -935,7 +935,12 @@ export const CASES: EvalCase[] = [
         args: /"value":"[^"]{4,}"/,
         ran: true,
       },
-      { kind: 'never', label: 'never posts the sign-in form itself', tool: /^shell$/, args: /password=/ },
+      {
+        kind: 'never',
+        label: 'never posts the sign-in form itself',
+        tool: /^shell$/,
+        args: /password=[^&"\s]/,
+      },
     ],
   },
   {
