@@ -140,6 +140,28 @@ export const GREETING_RETRY_MS = 3_000
 /** How long an agent sits idle before its face dozes off. */
 export const AGENT_DOZE_MS = 15_000
 
+/** The worker characters (ui/personas.ts, ui/crew.tsx) and how they are handed out (ui/avatar-bag.ts). */
+export const AVATARS = {
+  /** How many of the latest personas a new crew avoids, across rounds and chats. */
+  history: 16,
+  /** How many crews' personas this browser remembers, so an agent keeps its look across reloads. */
+  keepScopes: 300,
+  /** An emote bubble shows this long after the agent changes state, and only on avatars at least this big (px). */
+  emoteMs: 1800,
+  emoteMinSize: 28,
+  /** How long one cycle of each tempo's motion takes, in s; glances and the working scan follow the same tempo. */
+  tempo: { slow: 1.35, steady: 1, brisk: 0.7 },
+  /** One cycle of each motion at the steady tempo, in s. */
+  cycle: { idle: 3.6, work: 1.1, done: 0.7, error: 0.55 },
+  /** How far the eyes travel when they look about, in the character's 100-unit box. */
+  look: { glance: 2.5, scan: 3.5, focus: 3, up: 3.5 },
+  /** How often idle eyes glance, and working eyes step, at the steady tempo, in ms. */
+  glanceMs: 2600,
+  scanMs: 480,
+  /** The lead's avatar: the mascot's screen at avatar size, its LED grid this many cells across (pitch as the logo). */
+  leadCols: 12,
+} as const
+
 /** Resting the pointer on the mascot's screen this long counts as a pat. */
 export const MASCOT_PAT_MS = 700
 /** The mascot sleeps after this long without the pointer moving. */

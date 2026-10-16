@@ -1,8 +1,15 @@
-import { identityOf } from '@myrmidon/protocol'
+import { identityOf, LEAD_COLOR } from '@myrmidon/protocol'
 import { motion, useReducedMotionConfig } from 'motion/react'
-import { type CSSProperties, useEffect, useMemo, useState } from 'react'
+import { type CSSProperties, createContext, useContext, useEffect, useMemo, useState } from 'react'
 import { copy } from '../copy.ts'
-import { AGENT_DOZE_MS, MASCOT_DISPLAY, MASCOT_TYPING, popSpring } from '../ui-config.ts'
+import {
+  AGENT_DOZE_MS,
+  AVATARS,
+  MASCOT_DISPLAY,
+  MASCOT_GRID,
+  MASCOT_TYPING,
+  popSpring,
+} from '../ui-config.ts'
 import { type Clip, type Dot, type EyeTweak, forEye, useClip } from './clips.ts'
 import { AgentCharacter } from './crew.tsx'
 import { cn } from './primitives.tsx'
@@ -609,9 +616,26 @@ export function PixelFace(props: {
   )
 }
 
+/** How the lead's avatar draws the mascot: the person's eye style and colour, and the screen's dots and grid. */
+export interface MascotFace {
+  eyes: EyeStyle
+  color: string
+  dots: 'led' | 'round' | 'square'
+  grid: 'faint' | 'tinted' | 'off'
+}
+
+const MascotFaceContext = createContext<MascotFace>({
+  eyes: 'round',
+  color: LEAD_COLOR,
+  dots: 'led',
+  grid: 'faint',
+})
+/** Set once near the top of the app from the person's mascot settings, so every lead avatar is their mascot. */
+export const MascotFaceProvider = MascotFaceContext.Provider
+
 /**
- * The avatar used for agents everywhere: the lead (and the judge) get a face on a small dark screen, like the
- * mascot; workers get their own character.
+ * The avatar used for agents everywhere: the lead is a small mascot (its screen, eyes and colour as the person set
+ * them up), the reviewer the same screen with lime eyes; crewmates get their own characters.
  */
 export function AgentAvatar(props: {
   name: string
@@ -625,6 +649,10 @@ export function AgentAvatar(props: {
   return <ScreenAvatar {...props} />
 }
 
+/**
+ * The mascot's screen at avatar size: its LED grid running past every edge of a flat deep-black tile, at the logo's
+ * pitch, with the mascot's own 15×8 face in the middle. No glow at this size: it would only smudge the dots.
+ */
 function ScreenAvatar(props: {
   name: string
   status: string
@@ -634,24 +662,65 @@ function ScreenAvatar(props: {
 }) {
   const size = props.size ?? 32
   const mood = useAgentMood(props.status, props.awake)
-  const cols = 7
-  const rows = 7
-  const pad = size * 0.16
-  const cell = (size - pad * 2) / (cols + (cols - 1) * 0.3)
+  const mascot = useContext(MascotFaceContext)
+  const face =
+    props.name === 'judge' ? { ...mascot, eyes: 'round' as const, color: agentColor('judge') } : mascot
+  const { cols, rows } = MASCOT_GRID
+  const pitch = size / AVATARS.leadCols
+  // The logo's dot to pitch.
+  const cell = pitch * 0.774
+  const gap = pitch - cell
+  const left = (size - (cols * pitch - gap)) / 2
+  const top = (size - (rows * pitch - gap)) / 2
+  const above = Math.ceil(top / pitch) + 1
+  const unlit =
+    face.grid === 'off'
+      ? undefined
+      : face.grid === 'tinted'
+        ? `color-mix(in srgb, ${face.color} ${Math.round(MASCOT_DISPLAY.tint * 100)}%, var(--screen-cell))`
+        : 'var(--screen-cell)'
+  const radius = cell * MASCOT_DISPLAY.radius[face.dots]
+  const field = []
+  if (unlit)
+    for (let j = -above; j < rows + above; j++) {
+      if (j >= 0 && j < rows) continue
+      for (let i = -1; i <= cols; i++)
+        field.push(
+          <rect
+            key={`${i},${j}`}
+            x={left + i * pitch}
+            y={top + j * pitch}
+            width={cell}
+            height={cell}
+            rx={radius}
+            style={{ fill: unlit }}
+          />,
+        )
+    }
   return (
     <span
-      className={cn('relative inline-grid shrink-0 place-items-center bg-screen', props.className)}
-      style={{ width: size, height: size, borderRadius: size * 0.3 }}
+      className={cn('relative inline-block shrink-0 overflow-hidden bg-screen', props.className)}
+      style={{ width: size, height: size, borderRadius: (size * 9) / 32 }}
       title={`${props.name} · ${props.status}`}
+      data-lead-avatar={props.name}
       aria-hidden
     >
+      <svg width={size} height={size} className="absolute inset-0" aria-hidden>
+        {field}
+      </svg>
       <PixelFace
         mood={mood}
-        color={agentColor(props.name)}
+        color={face.color}
         cols={cols}
         rows={rows}
         cell={cell}
-        gap={cell * 0.3}
+        gap={gap}
+        eyes={face.eyes}
+        dots={face.dots}
+        grid={face.grid}
+        glow="off"
+        className="absolute max-w-none"
+        style={{ left, top }}
       />
       {mood === 'sleep' && size >= 28 && <Snore size={size} />}
     </span>

@@ -92,6 +92,15 @@
   --screen-live: #3ddc84;
   /* Worker characters' eyes, and text on an agent's colour: dark on bright fills, white on deep ones. */
   --character-ink: #16161a;
+  /* The characters' small extras, drawn on or next to an agent's colour: an eye's glint, blushing cheeks, gold (crowns,
+     halos, stars), a sprout's green and a bow's pink. */
+  --character-shine: #ffffff;
+  --character-blush: #ff6f9c;
+  --character-gold: #ffcf3f;
+  --character-leaf: #3fcf8e;
+  --character-bow: #ff5d8f;
+  /* A hairline round a character, so its palest colours still hold their shape on a light page; none on dark ones. */
+  --character-edge: rgb(0 0 0 / 0.12);
   --on-bright: #0b0b0d;
   --on-deep: #ffffff;
   /* The Myrmidon mark: amber pixel eyes on a dark glass tile. */
@@ -151,6 +160,7 @@
    writes this one block out for both cases. */
 :root {
   @variant dark-tokens {
+    --character-edge: transparent;
     --window: #0b0b0e;
     --content: #111114;
     --raised: #18181c;

@@ -234,6 +234,148 @@
   }
 }
 
+/* The crewmate characters' motions (ui/crew.tsx motionFor): each persona picks one per state, at its own tempo. The
+   component sets none with less motion; the rule at the end holds them still for the system setting too. */
+@keyframes avatar-breathe {
+  50% {
+    transform: scale(1.035, 0.97);
+  }
+}
+@keyframes avatar-bob {
+  50% {
+    transform: translateY(-4%);
+  }
+}
+@keyframes avatar-sway {
+  25% {
+    transform: rotate(-4deg);
+  }
+  75% {
+    transform: rotate(4deg);
+  }
+}
+@keyframes avatar-bounce {
+  0%,
+  70%,
+  100% {
+    transform: none;
+  }
+  30% {
+    transform: translateY(-8%) scale(0.97, 1.03);
+  }
+  52% {
+    transform: scale(1.05, 0.95);
+  }
+}
+@keyframes avatar-tilt {
+  0%,
+  40%,
+  100% {
+    transform: none;
+  }
+  55%,
+  85% {
+    transform: rotate(-7deg);
+  }
+}
+@keyframes avatar-wiggle {
+  0%,
+  100% {
+    transform: none;
+  }
+  20% {
+    transform: rotate(-5deg);
+  }
+  40% {
+    transform: rotate(4deg);
+  }
+  60% {
+    transform: rotate(-3deg);
+  }
+  80% {
+    transform: rotate(2deg);
+  }
+}
+@keyframes avatar-float {
+  50% {
+    transform: translateY(-6%) rotate(2deg);
+  }
+}
+@keyframes avatar-nod {
+  50% {
+    transform: translateY(3%) scale(1.01, 0.98);
+  }
+}
+@keyframes avatar-lean {
+  0%,
+  100% {
+    transform: rotate(-3deg);
+  }
+  50% {
+    transform: rotate(3deg);
+  }
+}
+@keyframes avatar-jitter {
+  25% {
+    transform: translateX(-2%);
+  }
+  75% {
+    transform: translateX(2%);
+  }
+}
+@keyframes avatar-hop {
+  40% {
+    transform: translateY(-14%) scale(0.97, 1.04);
+  }
+  70% {
+    transform: scale(1.04, 0.96);
+  }
+}
+@keyframes avatar-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes avatar-grow {
+  50% {
+    transform: scale(1.12);
+  }
+}
+@keyframes avatar-shake {
+  25% {
+    transform: translateX(-5%);
+  }
+  75% {
+    transform: translateX(5%);
+  }
+}
+@keyframes avatar-droop {
+  to {
+    transform: translateY(5%) scale(1.03, 0.94);
+  }
+}
+@keyframes avatar-flinch {
+  20% {
+    transform: translateY(2%) scale(1.06, 0.9);
+  }
+  60% {
+    transform: scale(0.98, 1.02);
+  }
+}
+@keyframes avatar-tremble {
+  25% {
+    transform: translateX(-1.5%);
+  }
+  75% {
+    transform: translateX(1.5%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-avatar-motion] {
+    animation: none;
+  }
+}
+
 @keyframes blink-caret {
   50% {
     opacity: 0;
