@@ -15,6 +15,7 @@ import { basename, dirname, join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import type { BunPlugin } from 'bun'
 import tailwind from 'bun-plugin-tailwind'
+import { buildVisualLibs } from '../../web/src/visual-libs.ts'
 import { desktopCopy } from '../src/copy.ts'
 import { executableName, onnxRuntimeLibraries, sidecarDist, sidecarTarget } from '../src/platform.ts'
 
@@ -64,13 +65,26 @@ const jsonAsString: BunPlugin = {
   },
 }
 
+// The drawing libraries of visual answers, which the server bundles on first use when run from source, are bundled
+// here and carried in the executable as text (apps/web/src/visual-libs.ts).
+const visualLibs = await buildVisualLibs()
+const visualLibsCarried: BunPlugin = {
+  name: 'visual-libs-carried',
+  setup(build) {
+    build.onLoad({ filter: /[\\/]visual-libs-prebuilt\.ts$/ }, () => ({
+      contents: `export const prebuiltVisualLibs = ${JSON.stringify(visualLibs)}`,
+      loader: 'ts',
+    }))
+  },
+}
+
 // Minified, not bytecode: Bun stores bytecode beside the source for every module, which made the executable three
 // times the size (~290 MB) for a start ~0.4 s quicker, and a slower first launch while macOS checks the larger file.
 const result = await Bun.build({
   entrypoints: [join(repo, 'apps/desktop/src/sidecar.ts')],
   target: 'bun',
   minify: true,
-  plugins: [tailwind, ortBesideExecutable, jsonAsString],
+  plugins: [tailwind, ortBesideExecutable, jsonAsString, visualLibsCarried],
   // An optional import oh-my-pi makes only for legacy pi plugins, which Myrmidon does not use.
   external: ['omp-legacy-pi-modules'],
   compile: { target: target.bun, outfile: join(dist, executableName('myrmidon', target.platform)) },

@@ -120,6 +120,37 @@ export const DIFF_MAX_CELLS = 4_000_000
 /** A folder with more changed files than this starts folded in change lists (often caches or build output). */
 export const FOLDER_FOLD_AT = 10
 
+/* ------------------------------------------------------------------ visual answers */
+
+/**
+ * The largest source each visual block draws, in characters: past it the block stays as code. Specs past these are
+ * rarely a reply's figure; they cost a slow first draw on every scroll past the message.
+ */
+export const VISUAL_MAX_CHARS = {
+  chart: 200_000,
+  mermaid: 20_000,
+  table: 300_000,
+  tree: 300_000,
+  svg: 200_000,
+  widget: 300_000,
+} as const
+/** A chart's data rows, and a table's rows and columns, past which the block stays as code. */
+export const CHART_MAX_ROWS = 5_000
+export const TABLE_MAX_ROWS = 2_000
+export const TABLE_MAX_COLUMNS = 40
+/** A table shows its filter box from this many rows, and this many rows before "Show all". */
+export const TABLE_FILTER_FROM = 8
+export const TABLE_ROWS_SHOWN = 50
+/** A JSON tree opens this many levels deep, and lists this many entries of an array or object before "more". */
+export const TREE_OPEN_DEPTH = 2
+export const TREE_ENTRIES_SHOWN = 100
+/** The height a chart draws at, and how tall a widget may grow before it scrolls inside its frame. */
+export const CHART_HEIGHT_PX = 260
+export const WIDGET_MIN_PX = 80
+export const WIDGET_MAX_PX = 640
+/** The largest picture a reply may carry inline as a data: address (base64 characters). */
+export const INLINE_IMAGE_MAX_CHARS = 2_000_000
+
 /* ------------------------------------------------------------------ agents and the mascot */
 
 /** The colours the mascot can rest in (Settings → You & mascot); its moods still bring their own. */

@@ -159,6 +159,7 @@ import {
 import { Logins } from './logins.ts'
 import { buildPluginUI, uiStamp } from './plugin-ui.ts'
 import { foregroundCommand } from './terminal-foreground.ts'
+import { visualLibs } from './visual-libs.ts'
 
 export interface ServeOptions {
   readonly home: string
@@ -1125,6 +1126,12 @@ export function startServer(options: ServeOptions): WebServer {
       '/': index,
       // The desktop app's see-through window over the screen while an agent drives the Mac (ComputerOverlay.tsx).
       '/overlay': index,
+      // Mermaid and Vega for visual answers, apart from the page's bundle (visual-libs.ts). Library code only, as
+      // public as the page itself.
+      '/visual-libs.js': async () =>
+        new Response(await visualLibs(), {
+          headers: { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-cache' },
+        }),
       // The entry page's line. The rules' greeting comes back at once; with the model writing it, `pending` asks the
       // page to come back shortly for the model's own.
       '/api/greeting': guard(async (req) => {
