@@ -1,5 +1,5 @@
 import { clockMinutes, localDate } from '../clock.ts'
-import { RULES_MAX_LISTED } from '../config.ts'
+import { REVIEW_FILES, RULES_MAX_LISTED } from '../config.ts'
 import { prompts } from '../prompts.ts'
 import { type CrewInfo, has, type PromptFacts, type ToolGroup } from './facts.ts'
 import { FAMILY_BLOCKS } from './families.ts'
@@ -79,7 +79,7 @@ function roundLine(f: PromptFacts): string {
   const { kind } = f.agent
   if (kind === 'answer') return modes.answer
   if (kind === 'crewmate') return modes.crewmate(f.agent.lead)
-  if (kind === 'solo' && has(f, 'ask_crewmate')) return modes.soloCrew(f.mode.crewmatesOnCall.length)
+  if (kind === 'solo' && has(f, 'delegate')) return modes.soloCrew(f.mode.crewmatesOnCall.length)
   if (f.mode.tier === 'solo' || (f.mode.chat && f.mode.size === 1)) return modes.solo
   if (f.mode.team === 'swarm') return modes.swarm(f.mode.size)
   if (f.mode.team) return modes.orchestrated(f.mode.size - 1)
@@ -138,9 +138,7 @@ function roleBrief(f: PromptFacts): string {
     case 'crewmate':
       return prompts.roles.crewmate({ ...specialty, model: agent.model, lead: agent.lead })
     case 'solo':
-      return has(f, 'ask_crewmate') && f.mode.crewmatesOnCall.length > 0
-        ? prompts.roles.soloCrew
-        : prompts.roles.solo
+      return has(f, 'delegate') ? prompts.roles.soloCrew : prompts.roles.solo
     case 'swarm-peer':
       return prompts.roles.swarmPeer({ peers: f.mode.size, ...specialty, roster: roster(f) })
     case 'team-lead': {
@@ -209,7 +207,7 @@ function reviewNote(f: PromptFacts): string {
   return setting === 'off'
     ? prompts.review.off
     : setting === 'auto'
-      ? prompts.review.auto
+      ? prompts.review.auto(REVIEW_FILES)
       : prompts.review.always
 }
 
@@ -503,6 +501,11 @@ export const SECTIONS: readonly Section[] = [
       render: (f) => (f.access.worktree?.copy ? say.projectCopy : say.worktree),
     },
     {
+      key: 'job-worktree',
+      guard: (f) => f.access.worktree !== undefined && has(f, 'report_result'),
+      render: (f) => say.jobWorktree(f.access.worktree?.copy === true),
+    },
+    {
       key: 'escalation',
       guard: (f) =>
         (f.agent.kind === 'answer' || f.agent.kind === 'solo') &&
@@ -527,13 +530,13 @@ export const SECTIONS: readonly Section[] = [
   ...under('others', [
     {
       key: 'crewmates',
-      version: 2,
-      guard: (f) => f.agent.kind === 'solo' && has(f, 'ask_crewmate') && f.mode.crewmatesOnCall.length > 0,
+      version: 3,
+      guard: (f) => f.agent.kind === 'solo' && has(f, 'delegate'),
       render: (f) =>
         say.crewmates({
           list: crewLines(f.mode.crewmatesOnCall, () => 'crewmate'),
+          limit: f.mode.subagents,
           log: has(f, 'read_log'),
-          escalate: has(f, 'escalate'),
         }),
     },
     { key: 'log', guard: team, render: () => say.colony.log },

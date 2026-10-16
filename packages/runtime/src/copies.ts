@@ -198,6 +198,12 @@ export class ProjectCopies {
     return next
   }
 
+  /** The files the worker changed since the copy last agreed with the project (see `ProjectWorktrees.pending`). */
+  async pending(agent: string): Promise<string[]> {
+    const copy = this._copies.get(agent)
+    return copy ? this.changed(copy.base, copy.path) : []
+  }
+
   /** Removes copies whose changes are all in the project folder; one holding unmerged changes stays. */
   async close(): Promise<{ agent: string; kept: boolean }[]> {
     const out: { agent: string; kept: boolean }[] = []

@@ -366,6 +366,7 @@ export const channelCopy = {
     speech: 'recording audio',
     crewmate: 'bringing in a crewmate',
     askCrewmate: (name: string) => `asking ${name}`,
+    delegate: 'handing off jobs',
     tasks: 'planning tasks',
     thinking: 'thinking',
     tool: (name: string) => `using ${name}`,

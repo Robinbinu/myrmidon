@@ -69,7 +69,10 @@ export const SERVER_START_MS = 60_000
 export const PORT_LISTING_MS = 2_000
 /** How long a tool call waits for the person's approval before it is denied. */
 export const APPROVAL_MS = 15 * 60_000
-/** A claimed task whose holder sits idle this long goes back to the pool. */
+/**
+ * A claimed task whose holder sits idle this long goes back to the pool: the backstop for a holder that crashed.
+ * One that ends its turns still holding it after its reminders goes back at once (ColonyRun._remindHolder).
+ */
 export const LEASE_MS = 120_000
 /** A swarm whose first peer produced no tasks in this long gets a second peer to bootstrap it. */
 export const BOOTSTRAP_MS = 60_000
@@ -123,7 +126,8 @@ export const PROMPT_HEADING_WORDS = {
 export const PROMPT_ROLE_WORDS = {
   answer: 650,
   solo: 1340,
-  crewmate: 1040,
+  // A delegated job's helper also carries how to finish with report_result and run its checks once (omp's yield).
+  crewmate: 1060,
   'team-lead': 940,
   'team-lead-hands-on': 1620,
   'team-worker': 1180,
@@ -156,6 +160,22 @@ export const MAX_BUDGET_USD = 100_000
 export const BUDGET_CHECK_MS = 2_000
 /** The most workers (or swarm peers) a chat's team may have, so one request cannot start an unbounded crowd. */
 export const MAX_WORKERS = 8
+/**
+ * Delegated jobs (delegate) a round runs at once; more wait their turn. Claude Code's teams guidance starts with 3-5
+ * ("three focused teammates often outperform five scattered ones"); omp allows 32. Settings → Crew & budget.
+ */
+export const SUBAGENTS = 4
+/** The most delegated jobs a round may run at once, whatever the setting says. */
+export const MAX_SUBAGENTS = 8
+/** Jobs one delegate call may start; omp's batches have no cap, but a brief per job is the lead's work. */
+export const MAX_JOBS_PER_CALL = 8
+/** Times a job's agent that ends a turn without its report is reminded, after omp's yield reminder, before the harness reports for it. */
+export const JOB_REMINDERS = 2
+/**
+ * Files changed in the person's project at or past which a round's final answer is reviewed in "auto" review, though
+ * the agent did not ask: a multi-file change is where a fresh look finds what the author's own tests miss.
+ */
+export const REVIEW_FILES = 3
 
 // Models (models.ts, windows.ts)
 

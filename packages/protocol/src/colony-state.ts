@@ -7,6 +7,7 @@ import type {
   ColonyStatus,
   ComputerApp,
   EventPayloads,
+  JobResult,
   NoteSection,
   QuestionAnswers,
   QuestionChoice,
@@ -202,6 +203,11 @@ export interface ColonyState {
     string,
     EventPayloads['worktree/created'] & { time: string; merges: number; conflict?: string[]; kept?: boolean }
   >
+  /** Jobs the lead delegated, by id: queued, running (`started`) or done (`result`). */
+  jobs: Record<
+    string,
+    EventPayloads['job/queued'] & { time: string; started?: string; result?: JobResult; finished?: string }
+  >
   /** Tool calls waiting for the person, and how earlier ones were decided. */
   approvals: Record<
     string,
@@ -312,6 +318,7 @@ export function emptyColonyState(id: string): ColonyState {
     skillProposals: {},
     servers: {},
     worktrees: {},
+    jobs: {},
     memories: {},
     logins: {},
     verdicts: [],
@@ -430,6 +437,25 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
       const p = event.payload as EventPayloads['memory/decided']
       const memory = state.memories[p.id]
       if (memory) memory.kept = p.kept
+      break
+    }
+    case 'job/queued': {
+      const p = event.payload as EventPayloads['job/queued']
+      state.jobs[p.id] = { ...p, time: event.time }
+      break
+    }
+    case 'job/started': {
+      const job = state.jobs[(event.payload as EventPayloads['job/started']).id]
+      if (job) job.started = event.time
+      break
+    }
+    case 'job/finished': {
+      const p = event.payload as EventPayloads['job/finished']
+      const job = state.jobs[p.id]
+      if (job) {
+        job.result = p.result
+        job.finished = event.time
+      }
       break
     }
     case 'worktree/created': {

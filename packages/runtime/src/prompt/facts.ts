@@ -121,8 +121,10 @@ export interface PromptFacts {
     readonly size: number
     /** The round's other agents. */
     readonly roster: readonly CrewInfo[]
-    /** Crewmates the lead may ask with ask_crewmate. */
+    /** Crewmates on call a job the lead delegates may go to. */
     readonly crewmatesOnCall: readonly CrewInfo[]
+    /** How many delegated jobs run at once; 0 when the agent cannot delegate. */
+    readonly subagents: number
     /** How many more crewmates a team lead may add, and the models it may give them. */
     readonly canAdd: number
     readonly workerModels: readonly string[]
@@ -310,6 +312,7 @@ export function factsFor(spec: ColonySpec, agent: AgentSpec, env: Environment): 
       workerModels: team?.workerModels ?? [],
       specialists: (team?.specialists ?? []).map((a) => info(spec, env, a)),
       escalateTo: spec.chat?.escalate ?? [],
+      subagents: isLead(spec, agent) ? (team?.subagents ?? 0) : 0,
     },
     tools: {
       names,

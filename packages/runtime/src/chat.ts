@@ -56,11 +56,13 @@ import {
   GOAL,
   HANDOFF,
   MAX_READ_FOLDERS,
+  MAX_SUBAGENTS,
   MAX_WORKERS,
   MEMORY_EXTRACT_MIN_CHARS,
   MEMORY_REFLECT_EVERY_MS,
   MEMORY_REFLECT_OVERLAP,
   SKILL_REVIEW_CALLS,
+  SUBAGENTS,
   SUGGEST_CORPUS,
 } from './config.ts'
 import { parseGoal } from './goal.ts'
@@ -180,6 +182,8 @@ export interface TeamConfig {
    * them in only when the work needs it. A roster with nobody in it means no helpers at all.
    */
   readonly helpers?: 'auto' | 'always'
+  /** Delegated jobs a lead working alone may run at once; absent, the one in Settings → Crew & budget. 0: none. */
+  readonly subagents?: number
 }
 
 export type Thinking = 'low' | 'medium' | 'high'
@@ -233,6 +237,9 @@ export function normalizeTeamConfig(raw: Record<string, unknown>): TeamConfig {
     ...(typeof raw.wallMinutes === 'number' ? { wallMinutes: raw.wallMinutes } : {}),
     ...(thinking ? { thinking } : {}),
     ...(raw.helpers === 'always' ? { helpers: 'always' as const } : {}),
+    ...(typeof raw.subagents === 'number'
+      ? { subagents: Math.min(MAX_SUBAGENTS, Math.max(0, Math.floor(raw.subagents))) }
+      : {}),
     ...(str(raw.advisorModel) ? { advisorModel: str(raw.advisorModel) } : {}),
     ...(str(raw.carryOutModel) ? { carryOutModel: str(raw.carryOutModel) } : {}),
   }
@@ -2230,9 +2237,13 @@ export class ChatService {
     // An answer or solo round may hand its request up: to one agent with every tool, or to a team if one exists.
     const teamSize =
       config.mode === 'swarm' ? kept.length || roster.length || 2 : 1 + (kept.length || roster.length) + extra
+    // A lead working alone delegates jobs in the round instead of handing the request to a team, which ended the
+    // round and reran it from the start; other modes still move up to their team.
+    const jobs = config.mode === 'orchestrated' ? (config.subagents ?? s?.team.subagents ?? SUBAGENTS) : 0
+    const subagents = tier === 'solo' ? jobs : 0
     const escalate: ('solo' | 'team')[] = [
       ...(tier === 'answer' ? (['solo'] as const) : []),
-      ...(tier !== 'team' && teamSize > 1 ? (['team'] as const) : []),
+      ...(tier !== 'team' && teamSize > 1 && jobs === 0 ? (['team'] as const) : []),
     ]
     // A swarm has no lead, even when a round has one agent: that agent is a peer.
     const alone: AgentSpec =
@@ -2322,6 +2333,7 @@ export class ChatService {
           ? { specialists: this._bringable(agents, roster[0]?.model ?? config.leadModel) }
           : {}),
         ...(crewmates.length ? { crewmates } : {}),
+        ...(subagents > 0 ? { subagents } : {}),
       },
     }
   }

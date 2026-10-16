@@ -2,6 +2,7 @@ import {
   type AccessChange,
   accessLoosened,
   type BudgetScope,
+  type JobResult,
   type PermissionSource,
   type RoundGoal,
 } from '@myrmidon/protocol'
@@ -159,8 +160,9 @@ export const prompts = {
       answer: 'You finish with one reply_user(final: true) that answers the message, then stop.',
       /** `review`: the agent can ask for a review first. */
       solo: `When the work is done and checked, send the final answer with reply_user(final: true) and stop; until then, do not end a turn while work you can do is left.`,
+      /** After omp's subagent completion block: one terminal, typed result is the only way the work reaches the lead. */
       crewmate: (lead: string) =>
-        `To finish, answer ${lead} once with message(to: "${lead}"): what you did or found, the files you made, your evidence (what you ran or read; what is inferred) and anything unfinished, in under 300 words unless the job asks for more. Then stop. Your job is that piece, not the whole request.`,
+        `While work remains, keep calling tools. Run your piece's checks once, after your last edit; ${lead} runs the whole suite after merging. Finish with one report_result: done, blocked (on something only ${lead} or the person can give) or failed (what you tried), with a summary, the checks you ran and how sure you are. It is the only way your work reaches ${lead}; then stop. Your job is that piece, not the whole request.`,
       worker: `A task is done when its outputs are published (publish_artifact; scratch is private) and checked against its "Done when": then submit_task, reply with one short line, and stop until woken. Your job is the task, not the whole request.`,
       peer: `Finish each task by publishing its outputs, submit_task, and a "finding" note of what you learned; then stop until woken. Your job is that task, not the whole request.`,
       lead: `When every task is verified, send the complete final answer with reply_user(final: true), then stop. Until then, stop after each step: every verdict and message to you wakes you.`,
@@ -293,6 +295,9 @@ export const prompts = {
       `This is the person's real folder: your file tools and shell work there, and changes are real. Scratch files and saved web pages go in your scratch directory, not the project.${propose ? ' When the person should look a change over before it lands (a file they care about, a commit), use propose: they see it in full, may rewrite it, and say yes or no.' : ''}`,
     /** For an agent in its own git worktree of the project; paths are under Environment. */
     worktree: `You work in your own git worktree of the project, so your edits never collide with other crewmates'. When you submit_task, the harness merges your changes into the person's folder; do not commit, switch branches, or edit that folder yourself. If your changes conflict with someone else's, submit_task fails and your worktree shows both sides with conflict markers to resolve.`,
+    /** For a job's helper in its own worktree or copy: its report, not submit_task, merges the work. */
+    jobWorktree: (copy: boolean) =>
+      `You work in your own ${copy ? 'copy' : 'git worktree'} of the project, so your edits never collide with anyone else's. When you report the job done, the harness merges your changes into the person's folder; do not ${copy ? '' : 'commit, switch branches, or '}edit that folder yourself. If your changes conflict with someone else's, report_result fails and your ${copy ? 'copy' : 'worktree'} shows both sides with conflict markers to resolve.`,
     /** For an agent in its own copy of a project outside git (copies.ts). */
     projectCopy: `You work in your own copy of the project, so your edits never collide with other crewmates'. When you submit_task, the harness merges your changes into the person's folder; do not edit that folder yourself. If your changes conflict with someone else's, submit_task fails and your copy shows both sides with conflict markers to resolve.`,
     plugins: `A feature for Myrmidon itself (a tool, a command, a panel) is a plugin, never an edit to its compiled code: read_docs("plugins"), create_plugin, test_plugin until it passes, then propose_plugin.`,
@@ -336,9 +341,9 @@ export const prompts = {
       /** C1, for agents that work under someone: assume and record, after Claude Code's worker instructions. */
       assume: (lead: string) =>
         `- If something is unclear, make a sensible assumption, record it as a "decision" note (append_note), and carry on; message ${lead} only when you cannot continue.`,
-      /** A crewmate on call has no task board: it only answers the lead. */
+      /** A job's helper has no task board: it reports to the lead, and asks only what it cannot find out. */
       crewmateAsk: (lead: string) =>
-        `- If you need something only ${lead} knows, message them and stop; their reply wakes you. Otherwise make a sensible assumption, say it in your answer, and carry on.`,
+        `- If you need a decision only ${lead} can make, message them and stop; their reply wakes you. Otherwise make a sensible assumption, say it in your report, and carry on.`,
       /** A swarm peer's routine on every wake. */
       swarm: `- On every wake, read the plan, open tasks and recent findings in your snapshot. Never re-plan: split tasks or append "decision" and "finding" notes. Claim one ready task at a time; never duplicate a held task or publish another task's outputs.
 - Only the holder of task-final answers the person. Never create a task for the final answer, a review or a reply: once every other task is verified, the harness creates task-final for one of you, with how to answer.`,
@@ -346,21 +351,17 @@ export const prompts = {
       swarmAsk: '- Use ask_user only if the whole crew is blocked on something only the person knows.',
     },
     /**
-     * A solo lead's crewmates on call (§4.4, §4.7): when to ask and when not, after omp's delegation gates ("never
-     * delegate one slice ... a slice you already have open"), and Claude Code's coordinator ("don't delegate work that
-     * you can handle without tools", "trust but verify"). `list`: one crewmate per line with its tools.
+     * A solo lead's delegation (§4.4, §4.7), after omp's delegation gates ("NEVER pad, serialize independent work, or
+     * spawn then idle"; "Shared prerequisite inline; sequence ONLY true dependencies"; "Results auto-deliver; NEVER
+     * poll"), Codex's spawn_agent ("keep the blocking step local", disjoint write sets), and Claude Code's coordinator
+     * ("When in doubt, don't spawn"; "trust but verify"). `list`: one crewmate on call per line with its tools.
      */
-    crewmates: (p: { list: string; log: boolean; escalate: boolean }) =>
-      `Your crewmates on call, each with its tools; one joins when you ask it:
-${p.list}
-- Ask one with ask_crewmate for a piece that is independent of yours, needs a tool or specialty you lack, or saves time in parallel; small, quick or blocking pieces you do yourself.
-- It sees only the job: brief it like a task (Goal, Context, Deliverable, Approach, Done when, Not yours), and never delegate understanding: give the paths and your hypothesis.
-- Its answer is a claim: read the files it names${p.log ? ' and check what it ran (read_log)' : ''} before you build on it, and do not redo its work.${
-        p.escalate
-          ? `
-- Prefer a crewmate to escalating; escalate only when the whole request needs a team in parallel.`
-          : ''
-      }`,
+    crewmates: (p: { list: string; limit: number; log: boolean }) =>
+      `You can delegate jobs (delegate): each runs at once beside you as a fresh helper${p.list ? ' or a crewmate on call' : ''}, in its own copy of the project, up to ${p.limit} at a time.${p.list ? `\nYour crewmates on call, each with its tools:\n${p.list}` : ''}
+- Most requests are one agent's work: do them yourself. Delegate only two or more sizeable, independent slices that change different files, all in one call, early; keep the slice your next step needs. Never delegate a small, quick or blocking piece.
+- A helper sees only its brief and the shared context: brief it like a task (Goal, Context, Deliverable, Approach, Done when, Not yours) with the files it owns, and never delegate understanding: give paths and your hypothesis. Do shared groundwork first; delegate a dependent slice once its prerequisite's result is in.
+- Meanwhile work on your own slice. Results arrive as messages, so never poll; call await_results only when you have nothing else to do.
+- A result is checked (files from its copy, checks from its calls) but still a claim: read the diff of what you build on${p.log ? ' (read_log shows what it ran)' : ''}, then run the whole suite once before the final answer.`,
 
     /**
      * "Talking to the person", for the agent that speaks (§4.3, §4.8). One rule for when to ask (C6). The final-answer
@@ -430,7 +431,9 @@ ${p.list}
   /** What happens to an agent's work under the round's reviewer setting; the setting and judge are under Environment. */
   review: {
     off: '- Your final answer is not reviewed: it completes the round as soon as you send it, so get it right first.',
-    auto: '- Your final answer completes the round. For work worth checking (code, files, research with sources), call request_review first and fix what it finds; skip it for simple answers and a few-line fix whose tests you ran and saw pass.',
+    /** `files`: REVIEW_FILES, the changed files at which the harness reviews the answer anyway. */
+    auto: (files: number) =>
+      `- Your final answer completes the round. For a multi-file or risky change (security, data, interfaces) or research with sources, call request_review first and fix what it finds; skip it for simple answers and a tested few-line fix. Answers after changing ${files}+ files are reviewed anyway.`,
     always:
       '- An independent reviewer checks your final answer; if it finds problems, fix them and send an updated final answer.',
     /** For an agent that submits tasks. */
@@ -456,11 +459,14 @@ ${p.list}
 Your first move: answer directly${p.escalate ? ', or, if it needs files, code, a build or many lookups, escalate at once (see How to work)' : ''}.`,
     solo: `You are the person's lead in this chat and do the work yourself, with every tool.
 Your first move: answer a question (an explanation, a quick fact) at once, with no plan and no files; ask first if the result depends on the person's choices (see Talking to the person); otherwise plan briefly and start.`,
-    soloCrew: `You are the person's lead in this chat: you do the work yourself, with every tool, and can ask crewmates on call for pieces (see Working with others).
+    soloCrew: `You are the person's lead in this chat: you do the work yourself, with every tool, and can delegate independent pieces to helpers that run beside you (see Working with others).
 Your first move: answer a question (an explanation, a quick fact) at once, with no plan and no files; ask first if the result depends on the person's choices (see Talking to the person); otherwise plan briefly and start.`,
-    /** A crewmate the lead asked for a piece of work in a round the lead otherwise works alone. */
+    /**
+     * A job the lead delegated in a round it otherwise works alone, after omp's subagent prompt ("You are operating on
+     * a piece of work assigned to you by the main agent"; "Your final result reaches Main automatically").
+     */
     crewmate: (p: { specialty?: string; model: string; lead: string }) =>
-      `You are a crewmate${p.specialty ? ` (${p.specialty})` : ''} on ${p.model}. The job, your first message, is all you do: you answer ${p.lead}, not the person, and there is no task board.
+      `You are a helper${p.specialty ? ` (${p.specialty})` : ''} on ${p.model}, doing one job that ${p.lead} delegated. The job, your first message, is all you do: you report to ${p.lead}, not the person, and there is no task board.
 Your first move: start on the job in your working directory (under Environment).`,
     /**
      * `roster`: the crewmates with their tools. `lacks`: tool groups the crewmates have and the lead does not;
@@ -512,8 +518,9 @@ ${roster}`,
       /** Agents echo this line to the person, so it says what they can use, never internal words like "solo". */
       solo: 'you alone, with every tool. No crewmates unless the person adds some with Crewmates in the message box',
       soloCrew: (n: number) =>
-        `you, with every tool, and ${n} crewmate${n === 1 ? '' : 's'} on call, asked with ask_crewmate`,
-      crewmate: (lead: string) => `one job for ${lead}, who works on the request alone and asked you for it`,
+        `you, with every tool, and helpers you delegate independent jobs to (delegate)${n > 0 ? `, ${n} crewmate${n === 1 ? '' : 's'} on call among them` : ''}`,
+      crewmate: (lead: string) =>
+        `one job for ${lead}, who works on the request and delegated this part to you`,
       swarm: (peers: number) => `swarm of ${peers} crewmates`,
       orchestrated: (specialists: number) => `orchestrated team (lead + ${specialists} crewmates)`,
       colony: (pattern: string, agents: number) => `${pattern} colony of ${agents}`,
@@ -688,6 +695,8 @@ ${roster}`,
   colony: {
     huddleOver: (p: { why: string; proposals: string; snapshot: string }) =>
       `The huddle is over (${p.why}). Proposals:\n${p.proposals}\n\nYou proposed first, so write the plan: one note with section "plan" that merges the proposals, then create the tasks with create_task, each with assignee set to the crewmate who volunteered for it and the outputs it will produce. Then claim your own.\n\n${p.snapshot}`,
+    /** Why a huddle closed before HUDDLE_MS: the peers that did not propose went idle. */
+    huddleSettled: 'every peer has had its say',
     noProposals: '(no proposals were posted)',
     /** Why a round stopped at one of its limits; the person reads it on the run, and agents when it resumes. */
     spendLimit: (spent: number, limit: number) =>
@@ -883,6 +892,43 @@ ${roster}`,
       names.length === 1
         ? `Your server ${names[0]} was stopped: it ran with access this round no longer has. Start it again with start_server if you still need it; it runs within the round's rules now.`
         : `Your servers ${names.join(', ')} were stopped: they ran with access this round no longer has. Start them again with start_server if you still need them; they run within the round's rules now.`,
+    /** A job's first message when the lead gave every job a shared context (omp's `§ Context` before the assignment). */
+    jobBrief: (context: string, brief: string) =>
+      `Context shared by every job:\n${context}\n\nYour job:\n${brief}`,
+    /**
+     * A finished job's result as the lead receives it, after omp's `<task-result>` envelope (id, agent, status,
+     * duration, output, merge summary) and Claude Code's `<task-notification>`. `open`: jobs still queued or running.
+     */
+    jobResult: (p: { id: string; agent: string; result: JobResult; open: readonly string[] }) => {
+      const r = p.result
+      const merged = r.status === 'done' && r.filesChanged.length > 0
+      const lines = [
+        `<job-result id="${p.id}" agent="${p.agent}" status="${r.status}" seconds="${r.seconds}" confidence="${r.confidence}">`,
+        r.summary,
+        `Files changed: ${r.filesChanged.length ? `${r.filesChanged.join(', ')}${merged ? " (merged into the person's folder)" : ' (kept in its copy, not merged)'}` : 'none'}`,
+        r.checks.length
+          ? `Checks: ${r.checks.map((c) => `\`${c.command}\` ${c.passed ? 'passed' : 'failed'}${c.seen ? '' : ' (claimed; not in its calls)'}`).join('; ')}`
+          : 'Checks: none reported',
+        r.blockers.length ? `Blockers: ${r.blockers.join('; ')}` : '',
+        r.followUps.length ? `Follow-ups: ${r.followUps.join('; ')}` : '',
+        r.claimedConfidence ? `Confidence lowered from ${r.claimedConfidence}: ${r.confidenceWhy}.` : '',
+        '</job-result>',
+        p.open.length
+          ? `Still open: ${p.open.join(', ')}.`
+          : 'No jobs open: check the whole once (run the suite), then answer.',
+      ]
+      return lines.filter(Boolean).join('\n')
+    },
+    /** After omp's subagent yield reminder ("Last turn had no tool call ... Reminder N of M"). */
+    jobReminder: (sent: number, max: number) =>
+      `Your turn ended without report_result, so the lead has nothing from you yet (reminder ${sent} of ${max}). If work remains, continue with your next tool call. If the job is done, or you are truly blocked, call report_result now. Never end a turn with text only.`,
+    jobSilent: (agent: string) =>
+      `${agent} ended its turns without reporting a result. Any changes it left are listed and not merged: read them before you use them, or do the job yourself.`,
+    jobFailed: (agent: string, why: string) =>
+      `${agent} stopped: ${why}. Any changes it left are listed and not merged; do the job yourself or delegate it again.`,
+    jobOver: (id: string) => `${id} finished`,
+    jobInterrupted: (agent: string, reason: string) =>
+      `the round was interrupted and resumed (${reason}) while ${agent} worked on this job, and its helper does not come back on resume; any changes it left stay in its worktree, not merged. Delegate it again or do it yourself.`,
     taskVerdict: (id: string, pass: boolean, evidence: string) =>
       `${id} ${pass ? 'VERIFIED' : 'REJECTED'}: ${evidence}`,
     leadVerdict: (p: {
@@ -2278,10 +2324,24 @@ Reply with JSON only: {"lines": ["...", "...", "..."]}.`,
       `${what} is not permitted (${why}). Do not try it another way; if the task needs it, say so to the person`,
     readOnly: (project: string, where: string) =>
       `${project} is read-only for agents: you can read it but not change ${where}. Put drafts in your scratch directory and describe the change instead.`,
-    crewmateAnswer: (name: string, answer: string) => `${name} answered:\n${answer}`,
-    /** ask_crewmate to a name not on call; `onCall`: "name (role)" for each crewmate on call. */
+    /** A job for a crewmate not on call; `onCall`: "name (role)" for each crewmate on call. */
     noCrewmate: (name: string, onCall: readonly string[]) =>
-      `${name} is not one of your crewmates on call, and ask_crewmate never brings in someone new. On call: ${onCall.join(', ') || 'nobody'}. Ask one of them by name.`,
+      `${name} is not one of your crewmates on call. On call: ${onCall.join(', ') || 'nobody'}. Name one of them, or leave out crewmate for a fresh helper.`,
+    crewmateBusy: (name: string) =>
+      `${name} is on another job; leave out crewmate for a fresh helper, or give it this job once its result is in.`,
+    /** delegate: two jobs naming one file. `job`: the new job, `owner`: the job that has the file. */
+    jobOverlap: (job: string, file: string, owner: string) =>
+      `${job} names ${file}, which ${owner} owns: two jobs that change one file overwrite each other. Give the file to one job, or change it yourself once the results are in. Nothing was started.`,
+    /** delegate's result, after omp's async spawn ("IDs return immediately ... Results auto-deliver; NEVER poll"). */
+    delegated: (jobs: readonly { id: string; agent: string; queued: boolean }[], limit: number) => {
+      const started = jobs.filter((j) => !j.queued).map((j) => `${j.id} (${j.agent})`)
+      const queued = jobs.filter((j) => j.queued).map((j) => `${j.id} (${j.agent})`)
+      return `${started.length ? `Started ${started.join(', ')}.` : ''}${queued.length ? ` Queued ${queued.join(', ')} until a place frees (${limit} run at once).` : ''} Each result arrives as a message when it lands: work on your own slice meanwhile, and do not poll or redo their work.`.trim()
+    },
+    reported: 'Result sent to the lead; your job is over. Stop now.',
+    noJobsOpen: 'No delegated jobs are open: there is nothing to wait for.',
+    jobsStillOpen: (jobs: readonly string[]) =>
+      `Delegated jobs are still open: ${jobs.join(', ')}. Their results arrive as messages; wait for them (await_results), integrate them and check the whole, then send the final answer.`,
     /** run_checks with nothing to run: `project` when the round has a project, else the agent's scratch folder. */
     noChecks: (project: boolean) =>
       project
@@ -2293,8 +2353,6 @@ Reply with JSON only: {"lines": ["...", "...", "..."]}.`,
     /** submit_task for a task that names outputs, with none of them submitted. */
     outputsMissing: (id: string, outputs: readonly string[]) =>
       `${id} names outputs (${outputs.join(', ')}) and none were submitted, so review would reject it. Publish them with publish_artifact and submit them in artifacts, or release_task and tell the lead why you cannot`,
-    crewmateSilent: (name: string) =>
-      `${name} stopped without answering. Read the shared files and notes for what it did, or ask it again with a clearer job.`,
     declined: (what: string, note?: string) =>
       `the person did not approve ${what}${note ? `. They said: ${note}` : ''}. Take that into account: ask them (ask_user) or take another approach`,
     notAddressed:
@@ -3295,8 +3353,9 @@ Reply with JSON only: {"lines": ["...", "...", "..."]}.`,
     request_review: {
       description:
         'Ask the independent reviewer to check your work against the request before you send the final answer. Worth ' +
-        'it for code, files and research with sources; skip it for a simple answer or a few-line fix whose tests you ' +
-        'ran and saw pass. Returns the verdict and what to ' +
+        'it for a change to several files, anything risky (security, data, migrations, a public interface) and ' +
+        'research with sources; skip it for a simple answer or a few-line fix whose tests you ran and saw pass. ' +
+        'Returns the verdict and what to ' +
         'fix; nothing reaches the person until you send the final answer.',
       params: {
         summary: 'What you did and where: the files, sources and checks the reviewer should look at',
@@ -3794,23 +3853,66 @@ Reply with JSON only: {"lines": ["...", "...", "..."]}.`,
     },
     // After Claude Code's subagent-delegation restraint ("do the work inline when it is a small, bounded sub-task ...
     // do not redo the subagent's work"), its Agent usage notes ("trust but verify") and writing-subagent-prompts.
-    ask_crewmate: {
+    /**
+     * omp's task tool (prompts/tools/task.md, task-async-contract.md: "Spawn tasks[] concurrently; IDs return
+     * immediately", "Children start blank", "`context`: shared (# Goal, # Contract interfaces); NEVER repeat per task",
+     * "Shared edits need one integration owner", "skip build/lint/tests/formatters mid-flight; run once afterward",
+     * "Results auto-deliver; NEVER poll"), with Claude Code's restraint ("Do not fan out multiple subagents on a single
+     * small task").
+     */
+    delegate: {
       description: (brief: string) =>
-        "Give one of your crewmates on call a job and wait for its answer, which comes back as this call's result; " +
-        'several asked in one step work in parallel. Only those on call can be asked: any other name is refused, ' +
-        'and nobody new joins. Ask when a piece is independent of yours, needs a tool or ' +
-        'specialty you lack, or saves time in parallel. Do it yourself when it is small, faster to do than to ' +
-        'explain, already open, or your next step waits on it; never ask one only to re-check what you can check. ' +
-        'The crewmate sees only the job, so brief it like a task, shorter for a small job:\n' +
-        `${brief}\n` +
-        'Its answer is a claim: what it did, the files, its evidence and what is unfinished; check the files before ' +
-        'you build on it, and do not redo its work. Example job: "Goal: 2025 visitor numbers for Yosemite, Zion and ' +
-        "Acadia, for a comparison table. Context: use the park service's statistics site, not news estimates. " +
-        'Deliverable: a Markdown table (park, visitors, source URL) in your answer, under 150 words. Done when: every ' +
-        'number links to the page it came from. Not yours: the write-up."',
+        'Start jobs that run at once in the background, each a fresh helper that sees only its brief and the shared ' +
+        'context, works in its own copy of the project, and ends with one checked result: done, blocked or failed, a ' +
+        'summary, the files it changed (taken from its copy, not its word), the checks it ran, its blockers and how ' +
+        'sure it is. Job ids come back now and each result arrives as a message when it lands: keep working on your ' +
+        'own slice and never poll. Only for two or more sizeable slices that are independent of each other and of ' +
+        'your next step, with disjoint files, all in one call; never for a small or blocking piece, and never pad. ' +
+        "Name each job's files: no two open jobs may own one file. Done work is merged into the person's folder " +
+        'as each job finishes; run the whole suite once yourself when the results are in. Brief each job like a task, ' +
+        `shorter for a small one:\n${brief}\n` +
+        'Example job: "Goal: formatCents in src/money.ts must pass src/money.test.ts. Context: the test file is the ' +
+        'spec; amounts are integer cents. Deliverable: the fixed function. Approach: no new dependencies. Done when: ' +
+        'bun test src/money.test.ts passes. Not yours: src/dates.ts, and every test file."',
       params: {
-        to: 'The name of a crewmate on call, as listed under Working with others (or by list_agents)',
-        job: 'The job, standing on its own, under the heads Goal, Context, Deliverable, Approach, Done when and Not yours',
+        context:
+          'What every job shares, given once instead of in each brief: the whole goal and the contracts between the parts (names, signatures, formats)',
+        jobs: 'The jobs to start now, one per independent slice',
+        brief:
+          'The job, standing on its own, under the heads Goal, Context, Deliverable, Approach, Done when and Not yours',
+        files: 'The project files this job creates or changes; no other open job may name one of them',
+        readOnly: 'true for research or a review that changes nothing: the helper gets no edits and no copy',
+        crewmate:
+          'A crewmate on call to do it, by name (Working with others lists them); leave it out for a fresh helper on your model',
+      },
+    },
+    /** omp's `wait` ("Completely blocked? Call `wait` to receive the first settled job you started"). */
+    await_results: {
+      description:
+        "Wait for your delegated jobs when you are blocked on them and have nothing else to do: returns the next job's " +
+        "result (all: every open job's). Results reach you as messages anyway; never call it to check on progress.",
+      params: { all: 'true to wait for every open job instead of the next one' },
+    },
+    /**
+     * omp's yield (prompts/tools/yield.md, subagent-system-prompt.md: "This is your only way to return a final
+     * result"; "If truly blocked, you MUST terminal-yield { error } describing what you tried and the exact blocker").
+     */
+    report_result: {
+      description:
+        "Your job's one result for the lead, then stop: the only way your work reaches them. done: its Done when " +
+        'holds; blocked: you need something only the lead or the person can give (say what); failed: say what you ' +
+        'tried. List the checks you ran after your last edit: the harness looks each up in your calls and takes the ' +
+        "changed files from your copy. Done work merges into the person's folder; a conflict fails this call and " +
+        'leaves both sides in your copy to resolve. high confidence only when a check shows the Done when holds.',
+      params: {
+        status: 'done, blocked or failed',
+        summary: 'What you did or found, in under 200 words: the lead reads this, not your conversation',
+        checks: 'The commands you ran to check the work, each with whether it passed',
+        c_command: 'The command, as you ran it',
+        c_passed: 'Whether it passed',
+        blockers: 'What stops the job, each something someone can act on',
+        confidence: 'How sure you are the job is right: high, medium or low',
+        followUps: 'Work you noticed outside your brief and left for the lead',
       },
     },
     add_crewmate: {

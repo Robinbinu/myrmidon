@@ -1184,6 +1184,15 @@ export const SETTINGS = {
     keywords: ['steps', 'iterations'],
     keys: ['team.maxTurns'],
   },
+  'team.subagents': {
+    page: 'team',
+    path: [s.team.limitsTitle],
+    control: 'number',
+    label: s.team.subagents,
+    help: s.team.subagentsHint,
+    keywords: ['subagents', 'delegate', 'parallel', 'concurrency', 'jobs', 'helpers'],
+    keys: ['team.subagents'],
+  },
   'team.observer': {
     page: 'team',
     path: [s.team.limitsTitle],

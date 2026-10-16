@@ -88,7 +88,12 @@ const suite: EvalCase[] =
   values.suite === 'crew'
     ? [
         ...CREW_CASES,
-        ...CASES.filter((c) => CONTROLS.includes(c.id)).map((c) => ({ ...c, modes: CREW_MODES })),
+        // A team from the start is the setup being measured there, so its tier is not a mismatch.
+        ...CASES.filter((c) => CONTROLS.includes(c.id)).map((c) => ({
+          ...c,
+          modes: CREW_MODES,
+          tiers: ['solo', 'team'] as EvalCase['tiers'],
+        })),
       ]
     : values.suite
       ? (() => {

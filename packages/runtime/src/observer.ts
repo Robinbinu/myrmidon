@@ -78,13 +78,17 @@ export class FactualObserver {
       this._lastProgressSeq = progress
       this._lastToolCalls = toolCalls
     }
+    const idle = Object.values(s.agents).filter((a) => a.status === 'idle' && !a.dismissed)
+    // Said once per task and revision, like the deadline marks: the scheduler already offers ready work to whoever
+    // goes idle, so repeating it every tick only woke idle agents to read it again.
     const unclaimed = Object.values(s.tasks).filter(
       (t) =>
         (t.status === 'pending' || t.status === 'rejected') &&
-        t.blockedBy.every((b) => s.tasks[b]?.status === 'verified'),
+        t.blockedBy.every((b) => s.tasks[b]?.status === 'verified') &&
+        idle.length > 0 &&
+        this._once(`unclaimed-${t.id}-${t.revision}`),
     )
-    const idle = Object.values(s.agents).filter((a) => a.status === 'idle')
-    if (unclaimed.length > 0 && idle.length > 0) {
+    if (unclaimed.length > 0) {
       out.push(
         this._signal(
           'unclaimed',
