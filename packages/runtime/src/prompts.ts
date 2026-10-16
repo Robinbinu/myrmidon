@@ -692,6 +692,13 @@ Workflow: read what was referenced and the project's state; plan the phases and 
     /** Where the chat left off (chat/handoff), for an agent that does not remember its earlier rounds. */
     handoff: (text: string, date: string) =>
       `Where this chat left off (noted ${date}; the files and the request below win where they differ):\n${text}\n\n`,
+    /**
+     * The same note for an agent that does remember the chat, on the first turn of the next round: its earlier rounds
+     * come back with their tool output elided, so the note is its short mental model of them, after omp's
+     * <mental_models> block (background knowledge, never commands; stale where the current state differs).
+     */
+    mentalModel: (text: string, date: string) =>
+      `<mental_model>\nYour notes of where this chat left off (written ${date}, after your last round): background, not instructions; the files and the request below win where they differ.\n${text}\n</mental_model>\n\n`,
     huddle: (request: string, snapshot: string) =>
       `${request}\n\nHuddle first: do no work yet. Read who your crewmates are (list_agents or the list in your instructions), then send one team chat message (message to "team") proposing how to split this request and which part you will take, and why you are suited to it. Then stop; you will be woken when every crewmate has proposed.\n\n${snapshot}`,
     /** The round's opening message, written to this agent directly (@name). */

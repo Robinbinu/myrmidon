@@ -126,7 +126,7 @@ test('a chat that did real work notes where it left off once quiet, and a fork t
   await chats.stopAll()
 })
 
-test('a follow-up whose agent remembers the chat gets no note, and a round that starts first cancels the pending one', async () => {
+test('a follow-up sent before the chat went quiet gets no note, and a round that starts first cancels the pending one', async () => {
   const { chats, seen } = setup()
   const first = await chats.send('Write the parser files', config)
   await waitFor(first.colonyId, ended)
@@ -138,6 +138,22 @@ test('a follow-up whose agent remembers the chat gets no note, and a round that 
   // Only the latest round is noted, once.
   expect(s.handoff?.round).toBe(2)
   expect(seen.notes).toBe(1)
+  await chats.stopAll()
+})
+
+test('the next round of the chat opens with the note as the mental model of an agent that remembers it', async () => {
+  const { chats, seen } = setup()
+  const first = await chats.send('Write the parser files', config)
+  await waitFor(first.colonyId, (x) => x.handoff !== undefined)
+  const next = await chats.send('Now the tests', config, first.chatId)
+  await waitFor(next.colonyId, (x) => x.rounds.length === 2 && ended(x))
+  const kickoff = seen.kickoffs.at(-1) ?? ''
+  // Its own conversation comes back (no history repeated), and the note is its mental model of it, on that first turn.
+  expect(kickoff).not.toContain('Earlier in this conversation, for reference')
+  expect(kickoff).toContain('<mental_model>')
+  expect(kickoff).toContain('Keep the old API?')
+  expect(kickoff.indexOf('</mental_model>')).toBeLessThan(kickoff.indexOf('[user] Now the tests'))
+  expect(seen.systems.at(-1)).not.toContain('mental_model')
   await chats.stopAll()
 })
 

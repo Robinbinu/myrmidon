@@ -758,7 +758,13 @@ Open work, in the order it will be done:
          (test: `packages/runtime/tests/magic-words.test.ts` — "ultrathink thinks at the highest effort the model
          has…", "orchestrate makes the round a team round led with room for a crew…")
       8. Credentials: several keys per provider rotated with backoff; models scoped to a project path.
-      9. Memory: compress each finished chat into a short mental model loaded on the next one's first turn.
+      9. [x] Memory: compress each finished chat into a short mental model loaded on the next one's first turn.
+         Done: the note of where a chat left off (memory-v2's chat/handoff) now opens the next round's first turn for
+         an agent that remembers the chat too, as a `<mental_model>` block (background, the files and request win),
+         after omp's mental models; an agent that does not remember it keeps the "where this chat left off" note.
+         Never in the system prompt.
+         (test: `packages/runtime/tests/memory-continuation.test.ts` — "the next round of the chat opens with the note
+         as the mental model of an agent that remembers it")
       10. Reset a provider stream (stale prompt cache) without touching the transcript (omp /fresh).
 12ab. - [ ] **Use more of omp's Rust (pi-natives 18.8.8)** — checked 2026-10-10. We call only grep, glob, Process,
       PtySession, ShellFilesystem, notebookToEditableText and pdfToMarkdown directly. Already shipped in the addon

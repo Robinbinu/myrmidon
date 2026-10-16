@@ -471,11 +471,15 @@ export function kickoff(spec: ColonySpec, state: ColonyState, remembers = false,
   if (to?.length && agent && !to.includes(agent))
     return prompts.kickoff.addressedElsewhere(to, spec.chat.request)
   const history = spec.chat.history && !remembers ? prompts.kickoff.history(spec.chat.history) : ''
-  // Where the chat left off, for an agent that does not remember it: after the history, nearest the request.
-  const note =
-    spec.chat.handoff && !remembers
-      ? prompts.kickoff.handoff(spec.chat.handoff.text, spec.chat.handoff.at.slice(0, 10))
-      : ''
+  // Where the chat left off: after the history, nearest the request. An agent that remembers the chat gets it as its
+  // mental model of the earlier rounds, whose tool output it no longer has word for word.
+  const handoff = spec.chat.handoff
+  const note = handoff
+    ? (remembers ? prompts.kickoff.mentalModel : prompts.kickoff.handoff)(
+        handoff.text,
+        handoff.at.slice(0, 10),
+      )
+    : ''
   // This round's request, not the chat's first one: a colony serves every round of its chat.
   const from = state.rounds.at(-1)?.startSeq ?? 0
   const attached = state.chatMessages.find((m) => m.from === 'user' && m.seq >= from)?.attachments

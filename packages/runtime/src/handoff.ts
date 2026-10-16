@@ -9,9 +9,10 @@ import { roundDigest, toolCallsSince } from './skill-learning.ts'
 /**
  * Where a chat left off: a short note (goal, done, open, next, decisions, files, the question still waiting on the
  * person) a cheap model writes from a round's record once the chat has gone quiet, after omp's rollout summaries and
- * the format of its compaction handoff. It is logged with the chat (chat/handoff) and read only when the chat is
- * picked up by an agent that does not remember it, or found with search_chats: never added to every prompt, which
- * both Hermes and omp avoid (episodes crowd out the task).
+ * the format of its compaction handoff. It is logged with the chat (chat/handoff) and read on the first turn of the
+ * chat's next round: as where the chat left off for an agent that does not remember it, and as a short mental model
+ * for one that does (omp loads its mental models on a session's first turn), or found with search_chats. Never added
+ * to every prompt, which both Hermes and omp avoid (episodes crowd out the task).
  */
 
 /** Whether a round did enough to leave anything to pick up: an answer alone does not. */
