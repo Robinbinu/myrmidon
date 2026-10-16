@@ -41,6 +41,8 @@ const buildDir = env.ELECTROBUN_BUILD_DIR ?? '.'
 const wrapper = env.ELECTROBUN_WRAPPER_BUNDLE_PATH
 const app = appBundle(os, config.app.name, channel)
 const bundle = join(buildDir, app.name)
+/** Folders the sidecar runs from besides its own files: the agents' browser engine. */
+const SIDECAR_FOLDERS = ['chrome-devtools-mcp']
 
 if (os === 'macos')
   for (const each of [bundle, ...(wrapper ? [wrapper] : [])]) {
@@ -88,9 +90,6 @@ function signAdHoc(path: string) {
   }
   console.log(desktopCopy.build.signed(path))
 }
-
-/** Folders the sidecar runs from besides its own files: the agents' browser engine. */
-const SIDECAR_FOLDERS = ['chrome-devtools-mcp']
 
 function copySidecar(resources: string) {
   const dist = sidecarDist(join(import.meta.dir, '..'), platform, arch)
