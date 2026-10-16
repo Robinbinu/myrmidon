@@ -1060,8 +1060,9 @@ export function App() {
       case 'settings':
         return leaveSettings(() => openSettings(name === 'mcp' ? 'tools' : 'general'))
       default: {
-        const fromPlugin = allCommands().find((c) => c.name === name && c.prompt !== undefined)
-        if (fromPlugin?.prompt !== undefined) return send(expandCommand({ prompt: fromPlugin.prompt }, arg))
+        const found = allCommands().find((c) => c.name === name)
+        if (found?.workflow) return send(found.workflow(arg))
+        if (found?.prompt !== undefined) return send(expandCommand({ prompt: found.prompt }, arg))
       }
     }
   }

@@ -6,8 +6,15 @@
 import type { PluginCommand } from '@myrmidon/protocol'
 import { copy } from '../copy.ts'
 
-export type CommandGroup = 'Round' | 'Team & model' | 'Chat' | 'App' | 'Plugins'
-export const GROUPS: readonly CommandGroup[] = ['Round', 'Team & model', 'Chat', 'App', 'Plugins']
+export type CommandGroup = 'Round' | 'Workflows' | 'Team & model' | 'Chat' | 'App' | 'Plugins'
+export const GROUPS: readonly CommandGroup[] = [
+  'Round',
+  'Workflows',
+  'Team & model',
+  'Chat',
+  'App',
+  'Plugins',
+]
 
 export interface ArgOption {
   readonly value: string
@@ -29,7 +36,15 @@ export interface SlashCommand {
   readonly options?: readonly ArgOption[]
   /** A plugin's command: sends this prompt, with the argument in place, instead of running app code. */
   readonly prompt?: string
+  /**
+   * A workflow: one of the skills Myrmidon comes with (review, ship...). Sends the message this makes from the
+   * argument, which asks the agent to follow that skill. A plugin's command of the same name takes its place.
+   */
+  readonly workflow?: (arg: string) => string
 }
+
+/** The skills Myrmidon comes with that have a command of their own, in menu order. */
+const WORKFLOWS = ['review', 'ship', 'qa', 'investigate', 'retro'] as const
 
 export const SLASH_COMMANDS: readonly SlashCommand[] = [
   {
@@ -70,6 +85,16 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
     when: 'resumable',
   },
   { name: 'retry', description: copy.commands.list.retry.description, group: 'Round', when: 'idle' },
+  ...WORKFLOWS.map(
+    (name): SlashCommand => ({
+      name,
+      args: copy.commands.list[name].args,
+      description: copy.commands.list[name].description,
+      ...(name === 'investigate' ? { needsArg: true } : {}),
+      group: 'Workflows',
+      workflow: copy.commands.list[name].send,
+    }),
+  ),
   {
     name: 'model',
     args: copy.commands.list.model.args,
@@ -172,9 +197,12 @@ export interface SlashContext {
 
 let fromPlugins: SlashCommand[] = []
 
-/** The enabled plugins' commands join the menu; a built-in command keeps its name. */
+/**
+ * The enabled plugins' commands join the menu; a built-in command keeps its name, except a workflow, which gives way to
+ * a plugin's command of its name (the person installed that one).
+ */
 export function setPluginCommands(commands: readonly PluginCommand[]) {
-  const taken = new Set(SLASH_COMMANDS.map((c) => c.name))
+  const taken = new Set(SLASH_COMMANDS.filter((c) => !c.workflow).map((c) => c.name))
   fromPlugins = commands
     .filter((c) => !taken.has(c.name))
     .map((c) => ({
@@ -188,7 +216,8 @@ export function setPluginCommands(commands: readonly PluginCommand[]) {
 
 /** Every command the menu offers: the app's own, then the plugins'. */
 export function allCommands(): readonly SlashCommand[] {
-  return [...SLASH_COMMANDS, ...fromPlugins]
+  const plugins = new Set(fromPlugins.map((c) => c.name))
+  return [...SLASH_COMMANDS.filter((c) => !(c.workflow && plugins.has(c.name))), ...fromPlugins]
 }
 
 /** Why a command can't run now, or undefined when it can. */
