@@ -280,7 +280,10 @@ function fakeServer(v: Variant = {}) {
         { id: 's1', name: 'ada', specialty: 'data analyst', instructions: '', off: [], createdAt: NOW },
       ],
     },
-    '/api/companies': { companies: [COMPANY], templates: [{ ...COMPANY, id: 'tiny', name: 'Tiny template' }] },
+    '/api/companies': {
+      companies: [COMPANY],
+      templates: [{ ...COMPANY, id: 'tiny', name: 'Tiny template' }],
+    },
     '/api/channels': { channels: CHANNELS },
     '/api/projects': { projects: [{ id: 'p1', name: 'Repo', path: '/repo', addedAt: NOW }] },
     '/api/devices': {

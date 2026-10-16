@@ -76,8 +76,9 @@ const COMPANY = {
   playbook: [{ id: 'draft', title: 'Draft', after: [], output: 'draft.md', brief: 'Write it.' }],
 }
 
-test('the crew panel picks a company: its roles replace the helpers, with tier models and the cost before a run', async () => {
+test('Style is Lead + team | Swarm | Company; Company reveals the chooser, tier models and the cost of a run', async () => {
   const sent = server({
+    '/api/specialists': { specialists: [] },
     '/api/companies': { companies: [COMPANY], templates: [] },
     '/api/companies/tiny-1/estimate': { estimate: { usd: 0.042, unpriced: [], roles: [], capUsd: 2 } },
     '/api/settings': { settings: { team: {}, verification: { reviewer: 'auto' } } },
@@ -85,9 +86,10 @@ test('the crew panel picks a company: its roles replace the helpers, with tier m
   const { TeamSettings } = await import('../src/client/chat/Composer.tsx')
   const { copy } = await import('../src/client/copy.ts')
   const { useState } = await import('react')
-  let config: Record<string, unknown> = CONFIG
-  function Panel() {
-    const [c, setC] = useState(CONFIG as never)
+  const withHelpers = { ...CONFIG, roster: [{ role: 'coder', model: 'deepseek/chat' }], extraWorkers: 1 }
+  let config: Record<string, unknown> = withHelpers
+  function Panel(props: { companies?: boolean }) {
+    const [c, setC] = useState(withHelpers as never)
     config = c
     return (
       <MotionConfig reducedMotion="always" skipAnimations>
@@ -95,44 +97,72 @@ test('the crew panel picks a company: its roles replace the helpers, with tier m
           models={MODELS as never}
           config={c}
           onConfig={(next) => setC(next as never)}
-          companies
+          {...(props.companies ? { companies: true } : {})}
         />
       </MotionConfig>
     )
   }
-  const view = await mount(<Panel />)
+  const e = copy.teamControls.editor
+  const styles = () =>
+    [...document.querySelectorAll<HTMLButtonElement>('button[aria-pressed]')].filter((b) =>
+      [e.orchestrated, e.swarm, e.company].includes(b.textContent ?? ''),
+    )
+  // The helper list remembers being open, so it is opened only when folded.
+  const openHelpers = async () => {
+    if (styles().length) return
+    const toggle = [...document.querySelectorAll('button')].find((b) =>
+      b.textContent?.includes(copy.composer.helperList),
+    )
+    await act(async () => toggle?.click())
+    await settle()
+  }
+  const chooser = () =>
+    document.querySelector<HTMLSelectElement>(`select[aria-label="${copy.teamControls.company.label}"]`)
+  const view = await mount(<Panel companies />)
   await settle()
-  const select = document.querySelector<HTMLSelectElement>(
-    `select[aria-label="${copy.teamControls.company.label}"]`,
-  )
-  expect([...(select?.options ?? [])].map((o) => o.textContent)).toEqual([
-    copy.teamControls.company.none,
-    'Tiny press',
-  ])
-  // The helpers are there while no company is picked.
-  expect(document.body.textContent).toContain(copy.composer.helpers)
-  await act(async () => {
-    if (select) select.value = 'tiny-1'
-    select?.dispatchEvent(new Event('change', { bubbles: true }))
-  })
-  expect(config.company).toBe('tiny-1')
+  await openHelpers()
+  expect(styles().map((b) => b.textContent)).toEqual(['Lead + team', 'Swarm', 'Company'])
+  expect(chooser()).toBeNull()
+  // Company picks the first saved company and reveals the chooser right below, with "New company…".
+  await act(async () => styles()[2]?.click())
   await act(async () => await Bun.sleep(400))
   await settle()
+  expect(config).toMatchObject({ company: 'tiny-1', mode: 'orchestrated' })
+  expect([...(chooser()?.options ?? [])].map((o) => o.textContent)).toEqual([
+    'Tiny press',
+    copy.teamControls.company.newCompany,
+  ])
   const text = document.body.textContent ?? ''
   expect(text).toContain(copy.teamControls.company.roles(2))
   expect(text).toContain(copy.teamControls.company.estimate('$0.04'))
   expect(text).toContain(copy.teamControls.company.cap('$2.00'))
-  expect(text).not.toContain(copy.composer.helpers)
+  // The company's roles are the crew: the panel's own helper rows go while it is chosen.
+  expect(document.querySelector(`input[aria-label="${e.roleOf(1)}"]`)).toBeNull()
   expect(sent.some((s) => s.method === 'POST' && s.path === '/api/companies/tiny-1/estimate')).toBe(true)
-  // Settings' default crew has no company picker: a company is chosen per chat.
-  await view.unmount()
-  const settingsView = await mount(
-    <MotionConfig reducedMotion="always" skipAnimations>
-      <TeamSettings models={MODELS as never} config={CONFIG as never} onConfig={() => {}} />
-    </MotionConfig>,
-  )
+  // "New company…" opens Settings → Companies instead of picking.
+  const opened: unknown[] = []
+  const listen = (ev: Event) => opened.push((ev as CustomEvent).detail)
+  window.addEventListener('myr:open-settings', listen)
+  await act(async () => {
+    const s = chooser()
+    if (s) s.value = '__new'
+    s?.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  window.removeEventListener('myr:open-settings', listen)
+  expect(opened).toEqual(['companies'])
+  expect(config.company).toBe('tiny-1')
+  // Back to Lead + team: the company goes and the helpers are as they were.
+  await act(async () => styles()[0]?.click())
   await settle()
-  expect(document.querySelector(`select[aria-label="${copy.teamControls.company.label}"]`)).toBeNull()
+  expect(config.company).toBeUndefined()
+  expect(config.roster).toEqual(withHelpers.roster)
+  expect(chooser()).toBeNull()
+  await view.unmount()
+  // Settings' default crew keeps two styles: a company is chosen per chat.
+  const settingsView = await mount(<Panel />)
+  await settle()
+  await openHelpers()
+  expect(styles().map((b) => b.textContent)).toEqual(['Lead + team', 'Swarm'])
   await settingsView.unmount()
 })
 

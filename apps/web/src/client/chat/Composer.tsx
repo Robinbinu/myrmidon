@@ -31,7 +31,6 @@ import { MAX_FILE_BYTES, MAX_FILES, spring, TEAM_PANEL_CLEARANCE_PX } from '../u
 import { PendingFiles } from './Attachments.tsx'
 import { ChatBudget } from './Budget.tsx'
 import { buildMenu, CommandMenu, type MenuModel, rememberCommand } from './CommandMenu.tsx'
-import { CompanyPicker } from './CompanyPicker.tsx'
 import { parseSlash, type SlashCommand } from './commands.ts'
 import { readDraft, saveDraft } from './drafts.ts'
 import { helperMode, helpersHint, helpersLabel, withHelperMode } from './helpers.ts'
@@ -173,17 +172,7 @@ export function TeamSettings(props: {
         <p className="-mt-1 px-1 text-footnote leading-snug text-muted">{copy.composer.sameProvider}</p>
       )}
 
-      {props.companies && (
-        <div className={GROUP}>
-          <CompanyPicker
-            models={props.models}
-            config={config}
-            onConfig={props.onConfig}
-            placement={props.placement}
-          />
-        </div>
-      )}
-      {props.companies && config.company ? null : (
+      {
         <div className={GROUP}>
           <Row label={copy.composer.helpers} hint={helpersHint(config)} setting="team.helpers">
             <Segmented
@@ -226,6 +215,7 @@ export function TeamSettings(props: {
                         config={config}
                         onConfig={props.onConfig}
                         {...(props.placement ? { placement: props.placement } : {})}
+                        {...(props.companies ? { companies: true } : {})}
                       />
                     </div>
                   </motion.div>
@@ -234,7 +224,7 @@ export function TeamSettings(props: {
             </div>
           )}
         </div>
-      )}
+      }
       {props.budget && <ChatBudget {...props.budget} />}
     </div>
   )

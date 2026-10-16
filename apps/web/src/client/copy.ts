@@ -945,9 +945,8 @@ export const copy = {
   teamControls: {
     company: {
       label: 'Company',
-      none: 'None (your crew)',
-      noneHint: 'The helpers below, as you set them up.',
-      manage: 'Manage companies…',
+      choose: 'Choose a company',
+      newCompany: 'New company…',
       roles: (n: number) => `${n} ${n === 1 ? 'role' : 'roles'}, each its own crewmate`,
       tierModel: (tier: string) => `${tier} roles`,
       estimate: (usd: string) => `About ${usd} per playbook run`,
@@ -999,8 +998,9 @@ export const copy = {
     },
     editor: {
       style: 'Style',
-      orchestrated: 'Lead + crewmates',
-      swarm: 'Equal crewmates',
+      orchestrated: 'Lead + team',
+      swarm: 'Swarm',
+      company: 'Company',
       peer: (n: number) => `Crewmate ${n}`,
       peerLower: (n: number) => `crewmate ${n}`,
       roleOf: (n: number) => `Role of crewmate ${n}`,
