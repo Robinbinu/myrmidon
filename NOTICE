@@ -9,3 +9,6 @@ Under section 4(d) of the Apache License 2.0, any redistribution of Myrmidon or 
 this NOTICE file's attribution notices.
 
 Third-party software included in Myrmidon, and its licenses, is listed in THIRD_PARTY_NOTICES.md.
+
+The built-in companies' role prompts are adapted from gstack by Garry Tan (https://github.com/garrytan/gstack),
+MIT License; its notice is in THIRD_PARTY_NOTICES.md.

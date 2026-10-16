@@ -546,6 +546,8 @@ export const copy = {
       'memory/decided': 'memory kept or discarded',
       'skill/proposed': 'skill suggested',
       'skill/decided': 'skill kept or discarded',
+      'company/proposed': 'company change suggested',
+      'company/decided': 'company change approved or declined',
       'hook/ran': 'hook ran',
       'rule/fired': 'rule stopped a reply',
       'skill/used': 'skill used',

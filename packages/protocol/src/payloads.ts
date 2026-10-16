@@ -1,3 +1,4 @@
+import type { CompanyAccess, CompanyChange, CompanyRef, ModelTier, RoleRecord } from './companies.ts'
 import type { EventId } from './event.ts'
 import type {
   AgentRole,
@@ -263,6 +264,8 @@ export interface EventPayloads {
     prewalk?: string
     /** What the round's agents may do as it starts, to tell them what changed next time (see `RoundAccess`). */
     access?: RoundAccess
+    /** The company the round's crew was made from, at the version it ran (see companies.ts). */
+    company?: CompanyRef
   }
   /**
    * `pid`/`hostname` identify the runner process so orphaned colonies can be detected. `resumed` marks a
@@ -314,6 +317,28 @@ export interface EventPayloads {
     update?: { description: string; body: string }
   }
   'skill/decided': { id: string; kept: boolean }
+  /**
+   * After a run, the lead proposes a change to the saved company (hire a role, fire one, re-role one), with what it saw
+   * and the role's record in the round as the harness counted it. Nothing changes until the person approves it.
+   */
+  'company/proposed': {
+    id: string
+    agent: string
+    company: CompanyRef
+    change: CompanyChange
+    role: string
+    why: string
+    evidence: string
+    title?: string
+    tier?: ModelTier
+    access?: CompanyAccess
+    prompt?: string
+    responsibilities?: string[]
+    /** The named role's record in this round, for a role the company already has. */
+    record?: RoleRecord
+  }
+  /** The person's answer to a proposal; an approved one became `version` of the company. */
+  'company/decided': { id: string; approved: boolean; version?: number; error?: string }
   /**
    * One of the person's stream rules stopped an agent's reply as the model wrote it: `source` says what matched (its
    * prose, its reasoning, or a call to `tool`), and the request went again with the rule's guidance. `path` is the

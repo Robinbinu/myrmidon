@@ -1,6 +1,7 @@
 export * from './audit.ts'
 export * from './colony-state.ts'
 export * from './commands.ts'
+export * from './companies.ts'
 export * from './conversations.ts'
 export * from './event.ts'
 export * from './identity.ts'

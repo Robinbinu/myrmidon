@@ -1586,3 +1586,35 @@ export const TELEMETRY = {
   /** Spans one round sends at most; a longer round sends its first ones and says how many it left out. */
   maxSpans: 5_000,
 } as const
+
+// Companies (companies.ts): saved crews of roles, each its own crewmate, with a playbook of stages
+
+export const COMPANY = {
+  /** A lead and up to MAX_WORKERS crewmates: every role is its own agent. */
+  maxRoles: MAX_WORKERS + 1,
+  maxStages: 12,
+  /** A role's prompt (roles/<name>.md), like a specialist's instructions. */
+  maxPromptChars: 8_000,
+  maxResponsibilities: 10,
+  /** Saved versions kept per company; the oldest snapshot goes once there are more. */
+  maxVersions: 50,
+  /** An imported file larger than this is refused before it is parsed. */
+  maxImportBytes: 512 * 1024,
+  /** The most a company's own per-run cap may be, in USD. */
+  maxRunUsd: 1_000,
+  /** Proposals to change the saved company (hire, fire, re-role) one round may make. */
+  maxProposals: 3,
+  /** Drafting a company from a description: tries, and how long each may take. */
+  draftAttempts: 3,
+  draftMs: 120_000,
+  /**
+   * The expected cost shown before a run: typical tokens for one staffed stage (its role reads its brief and inputs and
+   * works) and for the lead coordinating, priced at each role's model. A rough guide, never a cap.
+   */
+  estimate: {
+    stageInput: 120_000,
+    stageOutput: 8_000,
+    leadInput: 80_000,
+    leadOutput: 6_000,
+  },
+} as const
