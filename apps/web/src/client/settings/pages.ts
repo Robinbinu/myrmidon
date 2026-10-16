@@ -7,6 +7,7 @@ export type Section =
   | 'appearance'
   | 'mascot'
   | 'specialists'
+  | 'companies'
   | 'devices'
   | 'gateways'
   | 'channels'
@@ -45,6 +46,7 @@ export const SECTIONS: { id: Section; group: SectionGroup; label: string; hint: 
     page('team', 'setup', FEATURE_ICONS.crew),
     page('permissions', 'setup', FEATURE_ICONS.permissions),
     page('specialists', 'agents', FEATURE_ICONS.specialists),
+    page('companies', 'agents', FEATURE_ICONS.company),
     page('instructions', 'agents', FEATURE_ICONS.instructions),
     page('memory', 'agents', FEATURE_ICONS.memory),
     page('skills', 'agents', FEATURE_ICONS.skills),

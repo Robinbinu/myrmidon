@@ -7,7 +7,8 @@ export type HelperMode = 'never' | 'auto' | 'always'
 
 /** Never: the lead works alone; auto: it brings helpers in when a job needs them; always: every round is the team. */
 export function helperMode(config: TeamConfig): HelperMode {
-  if (config.roster.length === 0 && config.extraWorkers === 0) return 'never'
+  // A company's roles are the helpers: it has a crew even with no roster of its own.
+  if (config.roster.length === 0 && config.extraWorkers === 0 && !config.company) return 'never'
   return config.helpers === 'always' ? 'always' : 'auto'
 }
 
@@ -85,11 +86,12 @@ export function withHelperMode(
   next: HelperMode,
   models: readonly ModelOption[],
 ): TeamConfig {
-  const { helpers: _, ...rest } = config
+  const { helpers: _, company: __, tierModels: ___, ...alone } = config
+  const { helpers: _h, ...rest } = config
   const on = helperMode(config) !== 'never'
   if (next === 'never') {
     if (on) saveHelpers({ roster: config.roster, extraWorkers: config.extraWorkers, mode: config.mode })
-    return { ...rest, mode: 'orchestrated', roster: [], extraWorkers: 0 }
+    return { ...alone, mode: 'orchestrated', roster: [], extraWorkers: 0 }
   }
   return {
     ...rest,

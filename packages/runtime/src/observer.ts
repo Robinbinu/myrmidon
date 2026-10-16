@@ -83,7 +83,12 @@ export class FactualObserver {
         (t.status === 'pending' || t.status === 'rejected') &&
         t.blockedBy.every((b) => s.tasks[b]?.status === 'verified'),
     )
-    const idle = Object.values(s.agents).filter((a) => a.status === 'idle')
+    // A task meant for someone nudges only them: waking the rest (a company's later stages) costs turns for nothing.
+    const open = unclaimed.some((t) => !t.assignee)
+    const meant = new Set(unclaimed.flatMap((t) => (t.assignee ? [t.assignee] : [])))
+    const idle = Object.values(s.agents).filter(
+      (a) => a.status === 'idle' && (open || meant.has(a.info.name)),
+    )
     if (unclaimed.length > 0 && idle.length > 0) {
       out.push(
         this._signal(

@@ -7,6 +7,7 @@ import {
   type ColonyId,
   type ColonyState,
   type ColonyStatus,
+  type Company,
   type ComputerApp,
   chatLevel,
   DEFAULT_PRESET,
@@ -49,6 +50,18 @@ import type { ChatPlace, ChatShelf } from './chat-shelf.ts'
 import { nameChat } from './chat-titles.ts'
 import type { Checkpoints } from './checkpoints.ts'
 import { type Attachment, ColonyRun, RoundClosingError, type Runtime, SETTLE_MS } from './colony.ts'
+import {
+  ACCESS_TOOLS,
+  applyProposal,
+  type CompanyStore,
+  companyRef,
+  crewOf,
+  headOf,
+  leadInstructions,
+  playbookTasks,
+  roleAgent,
+  type TierModels,
+} from './companies.ts'
 import type { ComputerHub } from './computer/driver.ts'
 import {
   BUDGET_CHECK_MS,
@@ -180,6 +193,13 @@ export interface TeamConfig {
    * them in only when the work needs it. A roster with nobody in it means no helpers at all.
    */
   readonly helpers?: 'auto' | 'always'
+  /**
+   * One of the person's saved companies, by id: its roles are the crew (the head leads), each its own crewmate on its
+   * tier's model, and its playbook's stages become the team's tasks. It replaces the roster while it is picked.
+   */
+  readonly company?: string
+  /** The models a company's smart and fast roles run on, as the crew panel chose them (see ChatService._tierModels). */
+  readonly tierModels?: { readonly smart?: string; readonly fast?: string }
 }
 
 export type Thinking = 'low' | 'medium' | 'high'
@@ -221,6 +241,21 @@ export interface SendOptions {
   readonly importOf?: string
 }
 
+/** A company's tier models as the page sent them: model refs only, each optional. */
+function tierModelsOf(raw: unknown): { tierModels?: TeamConfig['tierModels'] } {
+  if (!raw || typeof raw !== 'object') return {}
+  const r = raw as Record<string, unknown>
+  const ref = (v: unknown) => (typeof v === 'string' && /^[^/\s]+\/\S+$/.test(v) ? v : undefined)
+  const smart = ref(r.smart)
+  const fast = ref(r.fast)
+  return smart || fast ? { tierModels: { ...(smart ? { smart } : {}), ...(fast ? { fast } : {}) } } : {}
+}
+
+/** The smaller of two optional limits; either alone when the other is unset. */
+function leastOf(a: number | undefined, b: number | undefined): number | undefined {
+  return a === undefined ? b : b === undefined ? a : Math.min(a, b)
+}
+
 /** Accepts the current team config or the older `{ mode: 'auto' | 'manual', workers, workerModel }` shape. */
 export function normalizeTeamConfig(raw: Record<string, unknown>): TeamConfig {
   const str = (v: unknown, fallback = '') => (typeof v === 'string' && v ? v : fallback)
@@ -235,6 +270,8 @@ export function normalizeTeamConfig(raw: Record<string, unknown>): TeamConfig {
     ...(raw.helpers === 'always' ? { helpers: 'always' as const } : {}),
     ...(str(raw.advisorModel) ? { advisorModel: str(raw.advisorModel) } : {}),
     ...(str(raw.carryOutModel) ? { carryOutModel: str(raw.carryOutModel) } : {}),
+    ...(str(raw.company) ? { company: str(raw.company).slice(0, 100) } : {}),
+    ...tierModelsOf(raw.tierModels),
   }
   if (raw.mode === 'orchestrated' || raw.mode === 'swarm') {
     const roster = (Array.isArray(raw.roster) ? raw.roster : [])
@@ -407,6 +444,8 @@ export class ChatService {
       projects?: ProjectStore
       /** Agents the person defined once and brings back. */
       specialists?: SpecialistStore
+      /** Saved companies: crews of roles, each its own crewmate, with a playbook of stages. */
+      companies?: CompanyStore
       /** Skills a reviewer proposed from finished work, waiting for the person or decided. */
       skillProposals?: SkillProposalStore
       /** How long a round's crew sits quiet before it is nudged, or a wound-down round closes (see RunOptions). */
@@ -576,6 +615,25 @@ export class ChatService {
       ...(as.instructions ? { instructions: as.instructions } : {}),
       ...(as.withoutTools ? { withoutTools: as.withoutTools } : {}),
     }
+  }
+
+  /** The company a chat's crew panel picked, as saved now; one that was removed stops the message with why. */
+  private _company(config: TeamConfig): Company | undefined {
+    if (!config.company) return undefined
+    const company = this.options.companies?.get(config.company)
+    if (!company) throw new Error(prompts.chat.companyGone(config.company))
+    return company
+  }
+
+  /**
+   * The person's models for a company's tiers: frontier is the lead's, smart the one the crew panel chose for it (else
+   * the crew's model in Settings, else the first helper's, else the lead's), fast its own choice or smart's.
+   */
+  private _tierModels(config: TeamConfig): TierModels {
+    const s = this.options.settings?.get()
+    const smart =
+      config.tierModels?.smart ?? s?.team.workerModel ?? config.roster[0]?.model ?? config.leadModel
+    return { frontier: config.leadModel, smart, fast: config.tierModels?.fast ?? smart }
   }
 
   /** The person's specialists a lead may still bring in: those not already on the team. */
@@ -843,13 +901,15 @@ export class ChatService {
     const latestState = previous.at(-1)?.state
     const to = latestState ? addressedIn(message, latestState) : []
     // The lead starts at once and sizes the work itself (escalate); tests and reruns may fix the size instead.
+    const company = this._company(config)
+    // A company that runs its playbook on every request starts as the team, as helpers set to always do.
+    const always = config.helpers === 'always' || company?.start === 'playbook'
     const sized = to.length
       ? 'team'
-      : (options.tier ??
-        (config.helpers === 'always' ? 'team' : await (this.options.classify ?? leadFirst)(message, history)))
+      : (options.tier ?? (always ? 'team' : await (this.options.classify ?? leadFirst)(message, history)))
     // A goal is worked toward with tools and checked: never a direct answer.
     const tier = goal && sized === 'answer' ? 'solo' : sized
-    const spec = this.buildSpec(id, message, config, previous, history, tier, to)
+    const spec = this.buildSpec(id, message, config, previous, history, tier, to, company)
     if (spec.chat) Object.assign(spec.chat, extra)
     // The note of where the chat (or, for a fork, the chat it came from) left off, if it covers the latest round.
     const before = (previous.length ? previous : source).at(-1)
@@ -874,7 +934,7 @@ export class ChatService {
     const spent = hasTotals(caps) ? await this._spent(id, project?.id) : NOTHING_SPENT
     const hit = totalReached(caps, spent)
     if (hit) throw new BudgetExceededError(hit)
-    const perRun = runCap(caps)?.usd
+    const perRun = leastOf(runCap(caps)?.usd, company?.budget?.perRunUsd)
     spec.budget = { ...spec.budget, ...runLimit(perRun, caps, spent) }
     if (source.length && options.forkOf) this.options.shelf?.fork(id, options.forkOf)
     if (imported) this.options.shelf?.imported(id, imported.id)
@@ -1102,6 +1162,42 @@ export class ChatService {
     const live = [...this._live.values()].find((r) => r.id === colony)
     if (live && live.state().status === 'running') await live.append(draft)
     else await this.runtime.ctx.log.appendOne(colony as never, draft)
+  }
+
+  /**
+   * The person's answer to a proposed company change. Approved, it is applied to the company as saved now (which may be
+   * newer than the version the round ran) and saved as a new version; a change that would leave the company invalid is
+   * refused with why, and the proposal stays open. Either way the round's log records the answer.
+   */
+  async decideCompanyProposal(
+    colonyId: string,
+    id: string,
+    approve: boolean,
+  ): Promise<{ company?: Company; version?: number }> {
+    const store = this.options.companies
+    if (!store) throw new Error('companies are not available')
+    const live = [...this._live.values()].find((r) => r.id === colonyId)
+    const state = live?.state() ?? foldColony(colonyId, await this.store.read(colonyId as never))
+    const proposal = state.companyProposals[id]
+    if (!proposal) throw new Error('no such proposal')
+    if (proposal.decided) throw new Error('this proposal was already decided')
+    let company: Company | undefined
+    if (approve) {
+      const current = store.get(proposal.company.id)
+      if (!current) throw new Error(prompts.chat.companyGone(proposal.company.id))
+      company = store.save(applyProposal(current, proposal), {
+        id: current.id,
+        note: prompts.company.approved(proposal.change, proposal.role, proposal.why),
+      })
+    }
+    const draft = {
+      type: 'company/decided',
+      actor: { kind: 'user', id: 'user' },
+      payload: { id, approved: approve, ...(company ? { version: company.version } : {}) },
+    } as const
+    if (live && live.state().status === 'running') await live.append(draft)
+    else await this.runtime.ctx.log.appendOne(colonyId as never, draft)
+    return company ? { company, version: company.version } : {}
   }
 
   /**
@@ -1877,7 +1973,8 @@ export class ChatService {
     const spent = hasTotals(caps) ? await this._spent(chatId, (fresh ?? project)?.id) : NOTHING_SPENT
     const hit = totalReached(caps, spent)
     if (hit) throw new BudgetExceededError(hit)
-    const perRun = runCap(caps)?.usd
+    const ran = last.state.company ? this.options.companies?.get(last.state.company.id) : undefined
+    const perRun = leastOf(runCap(caps)?.usd, ran?.budget?.perRunUsd)
     const { costUsd: _cost, total: _total, ...budget } = spec.budget
     spec.budget = { ...budget, ...(perRun ? { costUsd: perRun } : {}) }
     const models: Record<string, string> = {}
@@ -2147,23 +2244,32 @@ export class ChatService {
   private buildSpec(
     chatId: string,
     request: string,
-    config: TeamConfig,
+    picked: TeamConfig,
     previous: readonly RoundRef[],
     history: string,
     requested: Tier,
     addressed: readonly string[] = [],
+    company?: Company,
   ): ColonySpec {
     const s = this.options.settings?.get()
     const leadNote = s?.instructions.lead?.trim()
     const workerNote = s?.instructions.worker?.trim()
+    // A company's roles are the crew, whatever the panel's roster: each its own crewmate on its tier's model, with a
+    // lead that is the company's head. It runs as a lead and its workers.
+    const tiers = company ? this._tierModels(picked) : undefined
+    const staff = company && tiers ? crewOf(company).map((r) => roleAgent(company, r, tiers)) : undefined
+    const config: TeamConfig = company
+      ? { ...picked, mode: 'orchestrated', roster: [], extraWorkers: 0 }
+      : picked
     const roster = config.roster.slice(0, MAX_WORKERS)
     const extra = config.mode === 'orchestrated' ? Math.max(0, config.extraWorkers ?? 0) : 0
+    const crewSize = staff?.length ?? roster.length
     // A team with nobody to delegate to is one agent working alone. A swarm the person set up works together
     // on anything bigger than a direct answer.
     const tier: Tier =
       addressed.length > 0
         ? 'team'
-        : requested === 'team' && config.mode === 'orchestrated' && roster.length === 0 && extra === 0
+        : requested === 'team' && config.mode === 'orchestrated' && crewSize === 0 && extra === 0
           ? 'solo'
           : requested === 'solo' && config.mode === 'swarm' && roster.length > 1
             ? 'team'
@@ -2198,42 +2304,59 @@ export class ChatService {
       })
     }
     const crew = (role: 'worker' | 'peer'): AgentSpec[] =>
-      kept.length > 0
-        ? kept
-        : roster.flatMap((r) => {
-            // A roster place taken by a saved specialist: it joins under its own name, once.
-            const saved = r.specialist ? this.options.specialists?.byName(r.specialist) : undefined
-            if (saved) {
-              if (taken.has(saved.name)) return []
-              taken.add(saved.name)
-              return [specialistAgent({ ...saved, model: r.model || saved.model }, role, r.model)]
-            }
-            const name = pickName(taken)
-            taken.add(name)
-            return [
-              {
-                name,
-                role,
-                model: r.model,
-                ...(r.role && r.role !== 'peer' && r.role !== 'worker' ? { specialty: r.role } : {}),
-                ...(workerNote ? { instructions: workerNote } : {}),
-              },
-            ]
-          })
-    const lead: AgentSpec = {
-      name: 'lead',
-      role: 'lead',
-      model: config.leadModel,
-      ...(leadNote ? { instructions: leadNote } : {}),
-    }
+      staff
+        ? staff
+        : kept.length > 0
+          ? kept
+          : roster.flatMap((r) => {
+              // A roster place taken by a saved specialist: it joins under its own name, once.
+              const saved = r.specialist ? this.options.specialists?.byName(r.specialist) : undefined
+              if (saved) {
+                if (taken.has(saved.name)) return []
+                taken.add(saved.name)
+                return [specialistAgent({ ...saved, model: r.model || saved.model }, role, r.model)]
+              }
+              const name = pickName(taken)
+              taken.add(name)
+              return [
+                {
+                  name,
+                  role,
+                  model: r.model,
+                  ...(r.role && r.role !== 'peer' && r.role !== 'worker' ? { specialty: r.role } : {}),
+                  ...(workerNote ? { instructions: workerNote } : {}),
+                },
+              ]
+            })
     const swarm = tier === 'team' && config.mode === 'swarm'
     // An answer or solo round may hand its request up: to one agent with every tool, or to a team if one exists.
     const teamSize =
-      config.mode === 'swarm' ? kept.length || roster.length || 2 : 1 + (kept.length || roster.length) + extra
+      config.mode === 'swarm'
+        ? kept.length || roster.length || 2
+        : 1 + (staff?.length ?? (kept.length || roster.length)) + extra
     const escalate: ('solo' | 'team')[] = [
       ...(tier === 'answer' ? (['solo'] as const) : []),
       ...(tier !== 'team' && teamSize > 1 ? (['team'] as const) : []),
     ]
+    // A company's playbook goes on the board when the round is its team, unless the person wrote to a crewmate.
+    const stages =
+      company && tier === 'team' && addressed.length === 0 ? playbookTasks(company, request, 1) : []
+    const head = company ? headOf(company) : undefined
+    const companyNote = company
+      ? leadInstructions(company, tier, stages, escalate.includes('team'))
+      : undefined
+    const leadText = [leadNote, companyNote].filter(Boolean).join('\n\n')
+    const headOff = head ? ACCESS_TOOLS[head.access] : []
+    const lead: AgentSpec = {
+      name: 'lead',
+      role: 'lead',
+      model: head && tiers ? tiers[head.tier] : config.leadModel,
+      ...(head ? { specialty: head.title } : {}),
+      ...(leadText ? { instructions: leadText } : {}),
+      ...(headOff.length ? { withoutTools: [...headOff] } : {}),
+    }
+    // A company's roles are its own, never one of the person's specialists who happens to share a name.
+    const asSaved = (a: AgentSpec) => (company ? a : this._asSpecialist(a))
     // A swarm has no lead, even when a round has one agent: that agent is a peer.
     const alone: AgentSpec =
       config.mode === 'swarm'
@@ -2256,12 +2379,9 @@ export class ChatService {
                 return { name, role: 'peer', model: config.leadModel }
               })
           : [lead, ...crew('worker')]
-    ).map((a) => this._asSpecialist(a))
+    ).map(asSaved)
     // A lead working alone keeps the crew on call: it asks one for a piece of work instead of calling the team.
-    const crewmates =
-      tier === 'solo' && config.mode === 'orchestrated'
-        ? crew('worker').map((a) => this._asSpecialist(a))
-        : []
+    const crewmates = tier === 'solo' && config.mode === 'orchestrated' ? crew('worker').map(asSaved) : []
     // Without a settings store (tests, bare runtimes) the round keeps the rules from before the setting: direct
     // answers are not reviewed, other final answers always are.
     const review = s?.verification.reviewer
@@ -2270,7 +2390,9 @@ export class ChatService {
     const wallMs = Math.round((config.wallMinutes ?? s?.team.wallMinutes ?? 0) * 60_000)
     // The spend limit is set once the chat's project is known, from every level's caps (deliver, budgets.ts).
     const limits = s?.team.tokens ? { tokens: s.team.tokens } : {}
-    const models = [...new Set([...roster.map((r) => r.model), config.leadModel])]
+    const models = [
+      ...new Set([...roster.map((r) => r.model), ...(staff ?? []).map((a) => a.model), config.leadModel]),
+    ]
     // Every tier gets it: a direct answer that calls tools is watched as closely as a team's work.
     const advisor = config.advisorModel ?? s?.team.advisorModel
     // Only a lead hands off, and only in a round with work to carry out; a lead already on it has nothing to switch.
@@ -2316,13 +2438,16 @@ export class ChatService {
       ...(prewalk ? { prewalk } : {}),
       team: {
         mode: config.mode,
-        maxWorkers: tier === 'team' && !swarm ? (kept.length || roster.length) + extra : 0,
+        maxWorkers: tier === 'team' && !swarm ? (staff?.length ?? (kept.length || roster.length)) + extra : 0,
         workerModels: models,
-        ...(tier === 'team' && !swarm
+        // A company hires through proposals the person approves, not the person's other specialists.
+        ...(tier === 'team' && !swarm && !company
           ? { specialists: this._bringable(agents, roster[0]?.model ?? config.leadModel) }
           : {}),
         ...(crewmates.length ? { crewmates } : {}),
       },
+      ...(company ? { company: companyRef(company) } : {}),
+      ...(stages.length ? { tasks: stages } : {}),
     }
   }
 }

@@ -970,6 +970,123 @@ ${roster}`,
     goalWhileRunning: 'a goal starts its own round: wait for the running one to finish, or stop it first',
     handedBack:
       'The person handed your browser back. They may have navigated or filled things in: take a fresh browser_snapshot and continue.',
+    /** A chat's company was removed while the composer still had it picked. */
+    companyGone: (id: string) =>
+      `the company this chat uses (${id}) no longer exists: pick another one, or none, in the crew panel`,
+  },
+
+  /**
+   * Companies (companies.ts): each role is its own crewmate. A role's card follows CrewAI's role/goal/backstory slice
+   * ("You are {role}… Your personal goal is…") with Myrmidon's plain voice; the lead's card and the stage tasks follow
+   * Claude Code's guidance for briefing an agent that starts with no context: what, why, inputs, and what to hand back.
+   */
+  company: {
+    role: (r: {
+      company: string
+      name: string
+      title: string
+      reportsTo?: string | undefined
+      responsibilities: readonly string[]
+      stage?: string | undefined
+      prompt: string
+    }) =>
+      [
+        `You are ${r.name}, the ${r.title} of ${r.company}, a company the person set up and reuses. You are your own crewmate: you work on your own tasks with your own tools, and you report to ${r.reportsTo ?? 'lead'}.`,
+        r.responsibilities.length
+          ? `You are responsible for:\n${r.responsibilities.map((x) => `- ${x}`).join('\n')}`
+          : '',
+        r.stage
+          ? `You own the "${r.stage}" stage of the company's playbook. You are woken when its task is ready; claim it, do it, publish its output and submit it. Then you are done unless the lead sends it back or writes to you.`
+          : 'You own no stage of the playbook: you work when the lead asks you for something.',
+        `How you work:\n${r.prompt}`,
+      ]
+        .filter(Boolean)
+        .join('\n\n'),
+    rosterLine: (r: { name: string; title: string; responsibilities: readonly string[]; stage?: string }) =>
+      `- ${r.name}: ${r.title}${r.stage ? `, owns the ${r.stage} stage` : ''}${r.responsibilities.length ? ` (${r.responsibilities.join('; ')})` : ''}`,
+    lead: (c: {
+      company: string
+      title: string
+      responsibilities: readonly string[]
+      prompt: string
+      roster: readonly string[]
+    }) =>
+      [
+        `You are the ${c.title} of ${c.company}, a company the person set up and reuses, and you lead it.`,
+        c.responsibilities.length
+          ? `You are responsible for:\n${c.responsibilities.map((x) => `- ${x}`).join('\n')}`
+          : '',
+        `How you work:\n${c.prompt}`,
+        c.roster.length
+          ? `Your company (each is its own crewmate, with its own model and tools):\n${c.roster.join('\n')}`
+          : '',
+      ]
+        .filter(Boolean)
+        .join('\n\n'),
+    onCall: (stages: readonly string[], canEscalate: boolean) =>
+      [
+        'You start this request alone, with your company on call. For a question or a small job, answer it yourself, or ask one crewmate for the piece of work that is theirs (ask_crewmate); each crewmate costs only when asked.',
+        stages.length && canEscalate
+          ? `When the request needs the company's full playbook (${stages.join(' → ')}), escalate to the team: the stages then run as tasks, and each crewmate is woken only when its stage is ready.`
+          : '',
+      ]
+        .filter(Boolean)
+        .join(' '),
+    stageLine: (task: string, stage: string, owner: string, after: readonly string[]) =>
+      `- ${task}: ${stage}, owned by ${owner}${after.length ? `, after ${after.join(', ')}` : ''}`,
+    playbookOnBoard: (lines: readonly string[]) =>
+      lines.length
+        ? `The company's playbook is already on the task board, one task per stage, each assigned to the crewmate who owns it:\n${lines.join('\n')}\nA crewmate is woken when its stage's task is ready; the next stage starts once the one before it is submitted and verified. Do not create these tasks again or do the stages yourself. When you hear a stage's verdict, read its output and send it back (reject_task) with the specific gap if it falls short. When the last stage is verified, answer the person.`
+        : 'This company has no playbook: plan the work as tasks and assign each to the crewmate whose role fits it.',
+    proposals: (max: number) =>
+      `After the work, and only if this round's record shows the company itself should change, propose it with propose_company_change (at most ${max}): a role that never changed the outcome (fire), work no role covers (hire), or a role whose title, tier or prompt kept it from doing its job (rerole). Give the evidence you saw; the harness adds the role's record. The person decides, and the saved company changes only if they approve.`,
+    stageSubject: (title: string, stage: string) => `${title} [${stage}]`,
+    stageTask: (s: { brief: string; request: string; inputs: readonly string[]; output?: string }) =>
+      [
+        s.brief,
+        `The person's request: ${s.request}`,
+        s.inputs.length ? `Read first: ${s.inputs.join(', ')} (read_artifact).` : '',
+        s.output
+          ? `Hand back: publish ${s.output} and submit this task with it.`
+          : 'Submit this task when done.',
+      ]
+        .filter(Boolean)
+        .join('\n\n'),
+    rolledBack: (version: number) => `Rolled back to version ${version}`,
+    approved: (change: string, role: string, why: string) =>
+      `Approved: ${change} ${role}. ${why}`.slice(0, 300),
+    /** One call drafts a company from the person's description, against the fixed schema (after MiroFish's personas). */
+    draftSystem: `You design companies for Myrmidon, a multi-agent workspace. A company is a reusable crew: every role is its own AI agent with its own prompt, model tier and tools, and a playbook of stages runs as tasks, each owned by one role and woken only when the stages before it are done.
+
+Reply with one JSON object and nothing else, in this shape:
+{
+  "name": "…", "kind": "software | marketing | research | operations | …", "description": "one or two sentences",
+  "head": "<the role that leads>", "start": "lead",
+  "roles": [
+    { "name": "lowercase-name", "title": "…", "tier": "frontier | smart | fast",
+      "access": "full | no-shell | review | read-only", "reportsTo": "<role name>", "stage": "<stage id it owns>",
+      "responsibilities": ["…"], "prompt": "how this role works: a checklist and what it hands back" }
+  ],
+  "playbook": [ { "id": "lowercase-id", "title": "…", "after": ["<stage ids>"], "output": "file.md", "brief": "…" } ]
+}
+
+Rules:
+- 3 to 7 roles. The head leads and checks the stages; it owns no stage and reports to nobody. Every other role reports to the head or to another role.
+- Each stage is owned by exactly one non-head role; a role owns at most one stage. Stages that do not depend on each other may run side by side.
+- tier: frontier for the head and the hardest judgement, smart for most work, fast for simple, mechanical work.
+- access: full when the role must run commands and change files, no-shell for writing and research, review to read and run checks without changing files, read-only to only read.
+- Each prompt is written to the agent itself, like a brief to a smart colleague who has not seen the conversation: what the role is for and why, a short checklist of how it works, and exactly what it publishes and submits. Under 250 words. No role-play, no backstory: titles are labels; capability comes from the checklist.
+- Each stage has an output file the next stages read, and a one-sentence brief.`,
+    draft: (description: string, feedback?: string, previous?: string) =>
+      [
+        `Design a company for this description:\n${description}`,
+        previous ? `Your previous draft:\n${previous}` : '',
+        feedback
+          ? `It was not valid. Fix these and reply with the whole JSON object again:\n${feedback}`
+          : '',
+      ]
+        .filter(Boolean)
+        .join('\n\n'),
   },
 
   /** The factual observer's signals: time, budget, and coordination facts, with no authority of their own. */
@@ -2293,6 +2410,14 @@ Reply with JSON only: {"lines": ["...", "...", "..."]}.`,
     /** submit_task for a task that names outputs, with none of them submitted. */
     outputsMissing: (id: string, outputs: readonly string[]) =>
       `${id} names outputs (${outputs.join(', ')}) and none were submitted, so review would reject it. Publish them with publish_artifact and submit them in artifacts, or release_task and tell the lead why you cannot`,
+    noCompany: 'this round was not run by a company, so there is no saved company to change',
+    companyProposalsUsed: (max: number) =>
+      `you proposed ${max} company changes this round already; put the rest in your answer`,
+    companyHasRole: (role: string) => `the company already has ${role}; propose rerole to change it`,
+    companyNoRole: (role: string, change: string) =>
+      `${role} is not one of this round's crewmates, so there is nothing to ${change}; name one of them (the head is changed in Settings → Companies)`,
+    companyProposed:
+      "Proposed. The person sees it as a card with your evidence and the role's record, and decides; the saved company changes only if they approve.",
     crewmateSilent: (name: string) =>
       `${name} stopped without answering. Read the shared files and notes for what it did, or ask it again with a clearer job.`,
     declined: (what: string, note?: string) =>
@@ -3667,6 +3792,25 @@ Reply with JSON only: {"lines": ["...", "...", "..."]}.`,
         replaces:
           'Ids from recall of kept memories this one corrects, merges or supersedes; they are removed once the person ' +
           'keeps it. Omit for a new fact',
+      },
+    },
+    // Shaped like remember: a proposal the person keeps or discards, never a change made by the agent itself.
+    propose_company_change: {
+      description:
+        "Propose a change to the saved company this round's crew came from, for the person to approve: hire a role " +
+        'the work lacked, fire a role that never changed the outcome, or rerole one (its title, tier, access or ' +
+        "prompt). Only with evidence from this round; the harness adds the named role's record (tasks, sent back, " +
+        'turns, cost). Nothing changes unless the person approves; an approved change becomes a new version.',
+      params: {
+        change: '"hire": a new role. "fire": remove a role and its stage. "rerole": change an existing role',
+        role: "The role's name: an existing one for fire or rerole, a new lowercase name for hire",
+        why: 'The change in one or two sentences',
+        evidence: 'What you saw in this round that shows the change would help: tasks, outputs, verdicts',
+        title: 'For hire or rerole: the title',
+        tier: 'For hire or rerole: "frontier", "smart" or "fast"',
+        access: 'For hire or rerole: "full", "no-shell", "review" or "read-only"',
+        prompt: 'For hire or rerole: how the role works, written to the agent',
+        responsibilities: 'For hire or rerole: what it is responsible for, one line each',
       },
     },
     // After omp's recall ("search long-term memory; return raw relevance-ranked matching entries ... use proactively

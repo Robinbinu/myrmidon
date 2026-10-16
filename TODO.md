@@ -840,6 +840,15 @@ Open work, in the order it will be done:
       clear ownership) and structured outcomes (files changed, checks run, blockers, evidence-based confidence). Keep
       the colony history, task graph, permissions, approvals, notes, workspaces and artifacts. More agents is not the
       goal: the mode that reliably finishes with least overhead is.
+      - [ ] **Company gates wait for this** (company mode, branch company-mode, 2026-10-16). A company's playbook
+        stages run as tasks with `blockedBy`, and the only gate now is the minimal one: a stage's task must be
+        submitted with its output and pass the task check before the next stage starts. Once Task 7's typed outcomes
+        land, give stages real gates (docs/research/2026-10-15-mirofish-gstack-company-mode.md §3.4): `checks` on the
+        stage's typed result, `review` verdicts from a fresh-context reviewer role, `person` approval cards,
+        `fresh-reviews` with a tree fingerprint, a retry cap that hands a stage to the person, scope conditions
+        (`skipWhen`, paths) computed by the harness, and per-stage spend on a stage strip. Also: per-role hit-rate
+        stats across runs for "consider removing" (gstack's 0 findings in 10 runs, never-gate roles), a company arm in
+        the 12ac eval, swarm and org-mode readings of the same company file, and adding gstack to prompt-library/.
 12ad. - [ ] **Task 8: tool reliability and error recovery** (asked 2026-10-15). Phase 1 (audit + failure matrix,
       docs/research/2026-10-15-tool-failure-matrix.md, branch tool-failure-audit) runs now; phase 2 (implementation)
       starts after Task 5 lifecycle hardening lands, since it shares cancellation, timeouts and duplicate handling.

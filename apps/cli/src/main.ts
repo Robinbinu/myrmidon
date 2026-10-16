@@ -26,6 +26,7 @@ import {
   Checkpoints,
   CliCommand,
   ColonyRun,
+  CompanyStore,
   ComputerHub,
   ContextWindows,
   claimServerHome,
@@ -393,6 +394,7 @@ async function main() {
       const ssh = new SshHub({ controlDir: join(home, 'ssh') })
       const projects = new ProjectStore(home)
       const specialists = new SpecialistStore(home)
+      const companies = new CompanyStore(home)
       const skillProposals = new SkillProposalStore(home)
       const library = new ToolLibrary(join(home, 'tools'))
       // Recall matches by meaning too only once the person picks an embedding model (Settings → Memory).
@@ -458,6 +460,7 @@ async function main() {
         ssh,
         projects,
         specialists,
+        companies,
         skillProposals,
         library,
         checkpoints,
@@ -481,6 +484,7 @@ async function main() {
         telemetry,
         projects,
         specialists,
+        companies,
         skillProposals,
         library,
         memory,

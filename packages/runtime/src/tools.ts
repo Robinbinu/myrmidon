@@ -67,6 +67,7 @@ import {
   lsp,
   lspWrites,
 } from './code-intel.ts'
+import { roleRecord } from './companies.ts'
 import { desktopTool } from './computer/desktop.ts'
 import { DESKTOP_TOOL } from './computer/names.ts'
 import {
@@ -79,6 +80,7 @@ import {
 } from './computer/tool.ts'
 import {
   AUTORESEARCH,
+  COMPANY,
   FETCH_SHOWN_CHARS,
   FIND_TOOLS_LIMIT,
   GITHUB,
@@ -669,6 +671,7 @@ const COLONY_ONLY = new Set([
   'dismiss_crewmate',
   'ask_crewmate',
   'update_todo',
+  'propose_company_change',
 ])
 
 /** Write calls that may run side by side: each waits on someone else's work, so asks in one step go out together. */
@@ -2866,6 +2869,74 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     }),
     async run(args, agent, host) {
       return host.proposeMemory(agent, args)
+    },
+  },
+  {
+    name: 'propose_company_change',
+    tier: 'write',
+    description: prompts.tools.propose_company_change.description,
+    parameters: type({
+      change: type("'hire' | 'fire' | 'rerole'").describe(prompts.tools.propose_company_change.params.change),
+      role: type('string')
+        .atLeastLength(2)
+        .atMostLength(24)
+        .describe(prompts.tools.propose_company_change.params.role),
+      why: type('string')
+        .atLeastLength(10)
+        .atMostLength(600)
+        .describe(prompts.tools.propose_company_change.params.why),
+      evidence: type('string')
+        .atLeastLength(10)
+        .atMostLength(2000)
+        .describe(prompts.tools.propose_company_change.params.evidence),
+      'title?': type('string').atMostLength(60).describe(prompts.tools.propose_company_change.params.title),
+      'tier?': type("'frontier' | 'smart' | 'fast'").describe(
+        prompts.tools.propose_company_change.params.tier,
+      ),
+      'access?': type("'full' | 'no-shell' | 'review' | 'read-only'").describe(
+        prompts.tools.propose_company_change.params.access,
+      ),
+      'prompt?': type('string')
+        .atMostLength(COMPANY.maxPromptChars)
+        .describe(prompts.tools.propose_company_change.params.prompt),
+      'responsibilities?': type('string')
+        .array()
+        .atMostLength(COMPANY.maxResponsibilities)
+        .describe(prompts.tools.propose_company_change.params.responsibilities),
+    }),
+    async run(args, agent, host) {
+      const company = host.spec.company
+      if (!company) throw new Error(prompts.toolResults.noCompany)
+      const state = host.state()
+      const mine = Object.values(state.companyProposals).filter((p) => p.agent === agent)
+      if (mine.length >= COMPANY.maxProposals)
+        throw new Error(prompts.toolResults.companyProposalsUsed(COMPANY.maxProposals))
+      const role = args.role.trim().toLowerCase()
+      const member = state.agents[role]
+      if (args.change === 'hire' && member) throw new Error(prompts.toolResults.companyHasRole(role))
+      if (args.change !== 'hire' && (!member || member.info.role === 'lead'))
+        throw new Error(prompts.toolResults.companyNoRole(role, args.change))
+      const responsibilities = (args.responsibilities ?? []).map((r: string) => r.trim()).filter(Boolean)
+      await host.append({
+        type: 'company/proposed',
+        actor: agentActor(agent),
+        payload: {
+          id: `proposal-${state.lastSeq + 1}`,
+          agent,
+          company,
+          change: args.change,
+          role,
+          why: args.why.trim(),
+          evidence: args.evidence.trim(),
+          ...(args.title?.trim() ? { title: args.title.trim() } : {}),
+          ...(args.tier ? { tier: args.tier } : {}),
+          ...(args.access ? { access: args.access } : {}),
+          ...(args.prompt?.trim() ? { prompt: args.prompt.trim() } : {}),
+          ...(responsibilities.length ? { responsibilities } : {}),
+          ...(member ? { record: roleRecord(state, role) } : {}),
+        },
+      })
+      return prompts.toolResults.companyProposed
     },
   },
   {

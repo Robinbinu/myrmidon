@@ -1,7 +1,14 @@
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { Schema } from '@myrmidon/core'
-import type { BudgetScope, PermissionLevels, ProjectPermissions, RoundGoal } from '@myrmidon/protocol'
+import type {
+  BudgetScope,
+  CompanyRef,
+  PermissionLevels,
+  ProjectPermissions,
+  RoundGoal,
+  TaskSnapshot,
+} from '@myrmidon/protocol'
 import type { SshHost } from './ssh.ts'
 
 export type AcceptanceCheck =
@@ -149,6 +156,13 @@ export interface ColonySpec {
    * at its first change (ColonyRun._handOff). Taken from the team config or settings when a round starts.
    */
   prewalk?: string
+  /** The company the round's crew was made from (companies.ts), logged so a replay names the exact version. */
+  company?: CompanyRef
+  /**
+   * Tasks on the board before anyone works: a company's playbook, one per stage. Each wakes its assignee once nothing
+   * blocks it. Not logged as part of the spec: the task events are.
+   */
+  tasks?: TaskSnapshot[]
 }
 
 /** `answer`: one agent replies directly; `solo`: one agent with every tool; `team`: the configured team. */

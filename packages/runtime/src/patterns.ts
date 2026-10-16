@@ -126,6 +126,8 @@ function baseRoleTools(spec: ColonySpec, agent: AgentSpec): string[] {
         ...review,
       ]
     const plugin = speaksForColony(spec, agent) ? PLUGIN : []
+    // The lead of a company's round may propose changing the saved company; the person decides.
+    const company = spec.company && isLead(spec, agent) ? ['propose_company_change'] : []
     // A crewmate the lead asked for a piece of work: it works and answers the lead, never the person.
     if (spec.tier === 'solo' && agent.role === 'worker')
       return [...READ, 'message', 'append_note', ...PUBLISH, ...BUILD]
@@ -142,6 +144,7 @@ function baseRoleTools(spec: ColonySpec, agent: AgentSpec): string[] {
         ...escalation,
         ...review,
         ...plugin,
+        ...company,
       ]
     if (spec.team?.mode === 'swarm')
       return [
@@ -177,6 +180,7 @@ function baseRoleTools(spec: ColonySpec, agent: AgentSpec): string[] {
         ...USER,
         ...review,
         ...plugin,
+        ...company,
         ...spawn,
         ...(spec.agents.length > 1 ? ['dismiss_crewmate'] : []),
       ]
