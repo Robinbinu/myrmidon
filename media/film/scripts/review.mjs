@@ -1,4 +1,4 @@
-// Renders review stills of a composition: `node scripts/review.mjs <composition> <scale> <frame> [frame...]`,
+// Renders review stills of a composition: `bun scripts/review.mjs <composition> <scale> <frame> [frame...]`,
 // or every Nth frame with `--every N`. Stills land in out/review/<composition>-<frame>.png.
 import { mkdirSync } from 'node:fs'
 import path from 'node:path'

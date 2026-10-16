@@ -11,13 +11,13 @@ tokens (`apps/web/src/client/tokens.css`), Geist type, lucide icons (the version
 cursors, composer chips and computer-use glow. Names are made up (Robin, acme.dev); model makers and channels show the
 app's own marks (`@lobehub/icons-static-svg` as in `ProviderGlyph.tsx`, and `channel-logos.ts` itself).
 
-This folder is its own npm project, outside the root Bun workspaces, so the film's dependencies never reach the app.
+This folder is its own Bun project, outside the root Bun workspaces, so the film's dependencies never reach the app.
 
 ## Setup
 
 ```sh
 cd media/film
-npm ci
+bun install --frozen-lockfile
 ```
 
 Remotion downloads its headless Chrome into `node_modules` on the first render.
@@ -25,7 +25,7 @@ Remotion downloads its headless Chrome into `node_modules` on the first render.
 ## Preview
 
 ```sh
-npx remotion studio
+bunx remotion studio
 ```
 
 | Id         | Size        | What it is                                                          |
@@ -39,7 +39,7 @@ npx remotion studio
 Everything at once:
 
 ```sh
-FFMPEG=/path/to/ffmpeg npm run deliver
+FFMPEG=/path/to/ffmpeg bun run deliver
 ```
 
 It bundles once, renders near-lossless masters into `out/` (ignored by git), then encodes:
@@ -62,7 +62,7 @@ they start on are in `src/vo.ts`; the audio is committed in `public/vo/`, with e
 `src/vo-manifest.json`. To change a line, edit `src/vo.ts` and run
 
 ```sh
-FFMPEG=/path/to/ffmpeg VOICE_ENV_FILE=/path/to/.env node scripts/voice.mjs
+FFMPEG=/path/to/ffmpeg VOICE_ENV_FILE=/path/to/.env bun scripts/voice.mjs
 ```
 
 It reads only `AZURE_SPEECH_KEY` and `AZURE_SPEECH_REGION` (from the environment, or from that file), never prints
@@ -81,8 +81,8 @@ The banner and the feature posters are stills in `src/stills/` (registered in `s
 `feature-safety` and `feature-voice` (1600×900). Each id is its file name:
 
 ```sh
-FFMPEG=/path/to/ffmpeg npm run stills            # all of them, into docs/assets/<id>.webp
-npm run stills -- feature-voice --png            # one, as a PNG master in out/stills/ only
+FFMPEG=/path/to/ffmpeg bun run stills            # all of them, into docs/assets/<id>.webp
+bun run stills -- feature-voice --png            # one, as a PNG master in out/stills/ only
 ```
 
 `WEBP_QUALITY` (default 88) sets the WebP quality. The posters draw with `components/Ui.tsx`, `Icon.tsx` and
@@ -91,10 +91,10 @@ npm run stills -- feature-voice --png            # one, as a PNG master in out/s
 ## Review
 
 ```sh
-node scripts/review.mjs Film 0.5 --every 60      # a still every second into out/review/
-node scripts/review.mjs Film 1 2235 2590         # full-size stills of chosen frames
+bun scripts/review.mjs Film 0.5 --every 60      # a still every second into out/review/
+bun scripts/review.mjs Film 1 2235 2590         # full-size stills of chosen frames
 FFMPEG=/path/to/ffmpeg bash scripts/sheet.sh     # contact sheets of out/review/ into out/sheet-*.png
-node scripts/check-overlaps.mjs                  # the overlap check: every 6 frames, every 2 where things fly
+bun scripts/check-overlaps.mjs                  # the overlap check: every 6 frames, every 2 where things fly
 ```
 
 `check-overlaps.mjs` renders the film with its debug probe on (`src/components/Debug.tsx`), which measures every piece
