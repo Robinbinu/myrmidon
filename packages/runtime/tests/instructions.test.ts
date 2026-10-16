@@ -65,3 +65,23 @@ test('agents in a project chat get the instructions and a shell that starts in t
   expect(prompt).toContain('Project checks: lint `bun run lint`, test `bun run test`')
   expect(prompt).toContain('src/ (1 file)\n  src/app/ (1 file)')
 })
+
+test('a package with Bun test files and no test script gets `bun test` as its test check', () => {
+  write('package.json', '{"name": "app", "type": "module"}')
+  write('src/sum.ts', 'export const sum = (a: number, b: number) => a + b')
+  expect(readProjectContext(root).checks).toEqual([])
+  write(
+    'src/lib/sum.test.ts',
+    "import { expect, test } from 'bun:test'\ntest('sum', () => expect(1).toBe(1))\n",
+  )
+  expect(readProjectContext(root).checks).toEqual([{ name: 'test', command: 'bun test' }])
+  // A test script of its own wins, and test files for another runner are not Bun's.
+  write('package.json', '{"scripts": {"test": "vitest"}}')
+  expect(readProjectContext(root).checks).toEqual([{ name: 'test', command: 'npm run test' }])
+  write('package.json', '{"name": "app"}')
+  write('src/lib/sum.test.ts', "import { expect, test } from 'vitest'\n")
+  expect(readProjectContext(root).checks).toEqual([])
+  // Dependencies' own test files are never looked at.
+  write('node_modules/dep/index.test.ts', "import 'bun:test'\n")
+  expect(readProjectContext(root).checks).toEqual([])
+})

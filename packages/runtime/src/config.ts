@@ -895,6 +895,11 @@ export const RULE_DRAFT_OUTPUT_CHARS = 4_000
 export const MAX_PATCH = 512 * 1024
 export const MAX_UNTRACKED_SHOWN = 50
 export const MAX_UNTRACKED_BYTES = 256 * 1024
+/**
+ * How far project-context.ts looks for a Bun test file when package.json names no test script: folders this deep and
+ * this many entries at most, so a large repository costs a few milliseconds at round start.
+ */
+export const BUN_TEST_SCAN = { maxDepth: 4, maxEntries: 2000 } as const
 /** The largest project file the app opens to show (projects.ts `readProjectFile`). */
 export const MAX_PROJECT_FILE_BYTES = 2 * 1024 * 1024
 /** The file browser: entries one folder lists, matches a name search returns, and files it looks through outside git. */

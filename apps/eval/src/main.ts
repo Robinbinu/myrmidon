@@ -119,6 +119,10 @@ async function runTrial(c: EvalCase, mode: Mode, trial: number): Promise<TrialRe
         ])
           if (Bun.spawnSync(['git', ...args], { cwd: dir }).exitCode !== 0)
             throw new Error(`git ${args[0]} failed`)
+      for (const [name, text] of Object.entries(c.dirty ?? {})) {
+        mkdirSync(dirname(join(dir, name)), { recursive: true })
+        writeFileSync(join(dir, name), text)
+      }
       projectId = (await call<{ project: { id: string } }>('POST', '/api/projects', { path: dir })).project.id
     }
     const sent = await call<{ chatId: string; colonyId: string }>('POST', '/api/chats', {
@@ -131,19 +135,29 @@ async function runTrial(c: EvalCase, mode: Mode, trial: number): Promise<TrialRe
     const deadline = Date.now() + (c.budget.seconds * 1.5 + 60) * 1000
     let log: MyrEvent[] = []
     // A trial is a new chat: its rounds all run in one colony. A round that escalates hands the request to the
-    // next round there, so the trial ends when the latest round ended without escalating.
+    // next round there, so a message is done when the latest round ended without escalating.
     const colonyId = sent.colonyId
-    for (;;) {
-      log = await events(colonyId)
-      const last = foldColony(colonyId, log).rounds.at(-1)
-      if (last?.endSeq !== undefined && !last.escalated) break
-      if (Date.now() > deadline) {
-        await call('POST', `/api/chats/${sent.chatId}/stop`, {})
-        await Bun.sleep(2000)
+    const settle = async (after: number): Promise<boolean> => {
+      for (;;) {
         log = await events(colonyId)
-        break
+        const rounds = foldColony(colonyId, log).rounds
+        const last = rounds.at(-1)
+        if (rounds.length > after && last?.endSeq !== undefined && !last.escalated) return true
+        if (Date.now() > deadline) {
+          await call('POST', `/api/chats/${sent.chatId}/stop`, {})
+          await Bun.sleep(2000)
+          log = await events(colonyId)
+          return false
+        }
+        await Bun.sleep(3000)
       }
-      await Bun.sleep(3000)
+    }
+    let settled = await settle(0)
+    for (const text of c.followUps ?? []) {
+      if (!settled) break
+      const before = foldColony(colonyId, log).rounds.length
+      await call('POST', '/api/chats', { text, chatId: sent.chatId, config: teamConfig(mode) })
+      settled = await settle(before)
     }
     const latest = new Map<string, string>()
     for (const e of log)
@@ -169,7 +183,7 @@ async function runTrial(c: EvalCase, mode: Mode, trial: number): Promise<TrialRe
         } catch {
           now = undefined
         }
-        local[check.label] = now === c.project?.[check.file]
+        local[check.label] = now === (c.dirty?.[check.file] ?? c.project?.[check.file])
       }
     }
     const m = metrics(log)
@@ -227,12 +241,17 @@ writeFileSync(
   `${JSON.stringify({ startedAt, base, model, judge, trials, summary, results }, null, 2)}\n`,
 )
 
-console.log('\ncase [mode]                       pass   pass@k pass^k  median s   median tok')
+console.log(
+  '\ncase [mode]                       pass   pass@k pass^k  median s   median tok  tools  regress   cost $  untested  failed',
+)
 for (const s of summary)
   console.log(
     `${`${s.case} [${s.mode}]`.padEnd(34)} ${`${Math.round(s.passRate * 100)}%`.padStart(4)}   ` +
       `${(s.passAtK ? 'yes' : 'no').padEnd(6)} ${(s.passHatK ? 'yes' : 'no').padEnd(6)} ` +
-      `${String(s.medianSeconds).padStart(8)}   ${s.medianTokens.toLocaleString('en-US').padStart(10)}`,
+      `${String(s.medianSeconds).padStart(8)}   ${s.medianTokens.toLocaleString('en-US').padStart(10)}  ` +
+      `${String(s.medianToolCalls).padStart(5)}  ${`${Math.round(s.regressionRate * 100)}%`.padStart(7)}  ` +
+      `${s.costUsd === undefined ? '       ?' : s.costUsd.toFixed(3).padStart(8)}  ` +
+      `${String(s.untestedEdits).padStart(8)}  ${String(s.failedToolCalls).padStart(6)}`,
   )
 console.log(`\nreport: ${out}`)
 const hard = summary.flatMap((s) => s.hardFailures.map((f) => `${s.case} [${s.mode}] ${f}`))

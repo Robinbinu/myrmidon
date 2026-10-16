@@ -122,6 +122,53 @@ test('summaries give pass@k, pass^k and medians, and compare shows the change', 
   expect(s?.passRate).toBeCloseTo(2 / 3)
   const [after] = summarize([trial(1, true, 10), trial(2, true, 10)])
   expect(compare(s ? [s] : [], after ? [after] : [])).toEqual([
-    'heading [orchestrated]  pass 67% → 100%, 20s → 10s (-50%), 2000 → 1500 tok (-25%)',
+    'heading [orchestrated]  pass 67% → 100%, 20s → 10s (-50%), 2000 → 1500 tok (-25%), 1 → 1 tools, regressions 0% → 0%, untested edits 0 → 0, failed calls 3 → 2',
   ])
+})
+
+test('a failed regression check counts toward the regression rate, and cost sums over the trials', () => {
+  const trial = (n: number, regressed: boolean): TrialResult => ({
+    case: 'dirty',
+    mode: 'orchestrated',
+    trial: n,
+    metrics: metrics(run()),
+    grade: {
+      checks: [
+        { label: 'tests pass', pass: true },
+        { label: 'your edits kept', pass: !regressed, regression: true },
+      ],
+      pass: !regressed,
+      tierMismatch: false,
+    },
+  })
+  const [s] = summarize([trial(1, true), trial(2, false), trial(3, false), trial(4, false)])
+  expect(s?.regressionRate).toBe(0.25)
+  expect(s?.costUsd).toBeCloseTo(0.12)
+  const g = grade(
+    { ...CASE, checks: [{ kind: 'unchanged', label: 'kept', file: 'a.ts', regression: true }] },
+    { events: run(), artifacts: {}, local: { kept: false } },
+  )
+  expect(g.checks).toEqual([{ label: 'kept', pass: false, regression: true }])
+})
+
+test('an edit counts as tested only when a test run that went through follows it', () => {
+  seq = 0
+  const call = (id: string, tool: string, args: Record<string, unknown>) =>
+    ev('tool/call', { agent: 'lead', callId: id, tool, args })
+  const result = (id: string, tool: string, ok: boolean) =>
+    ev('tool/result', { agent: 'lead', callId: id, tool, ok, output: '' })
+  // Each step makes fresh events, so a log's order is its seq order, as in a real one.
+  const edit = () => [call('e', 'fs_edit', { path: 'a.ts' }), result('e', 'fs_edit', true)]
+  const shellTest = () => [call('t', 'shell', { command: 'bun test 2>&1' }), result('t', 'shell', true)]
+  const checks = (ok: boolean) => [call('c', 'run_checks', {}), result('c', 'run_checks', ok)]
+  expect(metrics([call('r', 'fs_read', {}), result('r', 'fs_read', true)]).testedAfterEdit).toBeUndefined()
+  expect(metrics(edit()).testedAfterEdit).toBe(false)
+  // A one-off script is not the project's tests; a test run before the edit does not cover it.
+  const script = () => [call('s', 'shell', { command: 'bun -e "f()"' }), result('s', 'shell', true)]
+  expect(metrics([...edit(), ...script()]).testedAfterEdit).toBe(false)
+  expect(metrics([...shellTest(), ...edit()]).testedAfterEdit).toBe(false)
+  expect(metrics([...edit(), ...shellTest()]).testedAfterEdit).toBe(true)
+  // run_checks with no checks to run fails, and tests nothing.
+  expect(metrics([...edit(), ...checks(false)]).testedAfterEdit).toBe(false)
+  expect(metrics([...edit(), ...checks(true)]).testedAfterEdit).toBe(true)
 })

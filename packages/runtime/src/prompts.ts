@@ -417,7 +417,7 @@ ${p.list}
   /** What happens to an agent's work under the round's reviewer setting; the setting and judge are under Environment. */
   review: {
     off: '- Your final answer is not reviewed: it completes the round as soon as you send it, so get it right first.',
-    auto: '- Your final answer completes the round. For work worth checking (code, files, research with sources), call request_review first and fix what it finds; skip it for simple answers.',
+    auto: '- Your final answer completes the round. For work worth checking (code, files, research with sources), call request_review first and fix what it finds; skip it for simple answers and a few-line fix whose tests you ran and saw pass.',
     always:
       '- An independent reviewer checks your final answer; if it finds problems, fix them and send an updated final answer.',
     /** For an agent that submits tasks. */
@@ -1823,7 +1823,7 @@ Reply with JSON only: {"lines": ["...", "...", "..."]}.`,
     /** run_checks with nothing to run: `project` when the round has a project, else the agent's scratch folder. */
     noChecks: (project: boolean) =>
       project
-        ? 'this project defines no checks (no check, typecheck, lint or test script in package.json, no Cargo.toml, go.mod, or pyproject with ruff, mypy or pytest); run its commands with shell'
+        ? 'this project defines no checks (no check, typecheck, lint or test script in package.json, no Cargo.toml, go.mod, or pyproject with ruff, mypy or pytest). That does not mean it has no tests: look for test files and run them with shell (bun test, npx vitest, pytest)'
         : 'nothing to check in your scratch folder: run_checks runs what a package.json (check, typecheck, lint or test scripts), tsconfig.json, Cargo.toml, go.mod or pyproject (ruff, mypy, pytest) there defines. Add one, or run your code with shell',
     /** run_checks(only) naming a check that is not there; `has`: the checks there are. */
     noSuchCheck: (only: string, has: readonly string[], project: boolean) =>
@@ -2548,8 +2548,9 @@ Reply with JSON only: {"lines": ["...", "...", "..."]}.`,
     read_task: {
       description:
         "Read the round's mission, its acceptance checks (run by the verifier, not by agents), the time left in " +
-        'seconds, and who is on the crew with role and model. Use it when the round starts or when you need the goal ' +
-        'again. For the tasks themselves use list_tasks; for time, budget and idle crewmates alone, observe.',
+        'seconds, and who is on the crew with role and model. Your first message already holds the request, so use it ' +
+        'when you need the goal again or what the verifier checks. For the tasks themselves use list_tasks; for time, ' +
+        'budget and idle crewmates alone, observe.',
     },
     // After omp's retain ("durable, reusable knowledge ... no ephemeral task state") and Hermes' kanban_comment.
     append_note: {
@@ -2832,7 +2833,8 @@ Reply with JSON only: {"lines": ["...", "...", "..."]}.`,
     request_review: {
       description:
         'Ask the independent reviewer to check your work against the request before you send the final answer. Worth ' +
-        'it for code, files and research with sources; skip it for a simple answer. Returns the verdict and what to ' +
+        'it for code, files and research with sources; skip it for a simple answer or a few-line fix whose tests you ' +
+        'ran and saw pass. Returns the verdict and what to ' +
         'fix; nothing reaches the person until you send the final answer.',
       params: {
         summary: 'What you did and where: the files, sources and checks the reviewer should look at',
@@ -3549,12 +3551,14 @@ Reply with JSON only: {"lines": ["...", "...", "..."]}.`,
       },
     },
     run_checks: {
-      /** `full`: the round runs without the sandbox. */
-      description: (full: boolean) =>
+      /** `full`: the round runs without the sandbox; `none`: the round's project defines no checks. */
+      description: (full: boolean, none = false) =>
         `Run the project's own checks${full ? '' : ' in the sandbox'} (outside a project, your scratch folder's) and ` +
         'get a short pass or fail per check, with the failing output: its `check` script if it has one, otherwise ' +
-        'typecheck, lint and test, from its package.json, tsconfig.json, Cargo.toml, go.mod or pyproject. Run it ' +
-        'after you change code and before you say you are done, then fix what fails. only runs one check by name.',
+        'typecheck, lint and test, from its package.json, tsconfig.json, Cargo.toml, go.mod or pyproject. ' +
+        (none
+          ? 'This project defines none, so run its tests with shell instead.'
+          : 'Run it after you change code and before you say you are done, then fix what fails. only runs one check by name.'),
       params: {
         only: '"check", "typecheck", "lint", "test" or "build" (build runs only when asked; default: all but build)',
       },
