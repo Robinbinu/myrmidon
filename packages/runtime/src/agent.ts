@@ -184,7 +184,8 @@ export class ColonyAgent {
         ...(history.length ? { messages: history } : {}),
         thinkingLevel: this._effort(resolved.model),
       },
-      getApiKey: (m) => resolver.apiKey(m),
+      // Per agent, so with several keys for a provider each agent stays on one (omp's session affinity).
+      getApiKey: (m) => resolver.requestKey(m, `${host.id}/${spec.name}`),
       // Everything that came in while a step ran is read at the next one, as when someone looks at a busy chat; one
       // message per step (pi's default) leaves a busy agent further behind with every burst.
       steeringMode: 'all',

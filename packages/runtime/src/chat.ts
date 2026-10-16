@@ -82,6 +82,7 @@ import {
   reflectMemories,
 } from './memory-review.ts'
 import { ProjectSummaries } from './memory-summary.ts'
+import { scopedOut } from './model-scopes.ts'
 import type { ModelResolver } from './models.ts'
 import { pickName } from './names.ts'
 import { speaksForColony } from './patterns.ts'
@@ -906,6 +907,15 @@ export class ChatService {
         })
       : this._project(options.project)
     if (project && spec.chat) spec.chat.project = project
+    // A model kept for another project's folder never answers here (Settings → Models & providers).
+    const scopes = this.options.settings?.get().models.scoped ?? {}
+    for (const ref of new Set([...spec.agents, ...(spec.team?.crewmates ?? [])].map((a) => a.model))) {
+      const folder = scopedOut(scopes, ref, project?.path)
+      if (folder) throw new Error(prompts.chat.modelScoped(ref, folder))
+    }
+    // Nor can the lead add a crewmate on one.
+    if (spec.team)
+      spec.team.workerModels = spec.team.workerModels.filter((ref) => !scopedOut(scopes, ref, project?.path))
     // A new run needs every running total it counts toward to have something left; its limit is the least left.
     const ownBudget = !latest && options.budget !== undefined ? normalizeBudget(options.budget) : undefined
     const caps = this._caps(project?.id, latest ? latest.state.chatBudget : ownBudget)
@@ -926,7 +936,7 @@ export class ChatService {
     if (this._computerUse(spec.askAll)) spec.computerUse = true
     const remotes = this._remotes(spec.askAll)
     if (remotes) spec.remotes = remotes
-    const fallbacks = this._fallbacks()
+    const fallbacks = this._fallbacks(project?.path)
     if (fallbacks) spec.fallbacks = fallbacks
     const memory = (await this.options.memory?.recallFor(project?.id, message)) ?? []
     if (memory.length && spec.chat) spec.chat.memory = memoryLines(memory)
@@ -1703,10 +1713,13 @@ export class ChatService {
   }
 
   /** The models agents go on with when theirs fails, from Settings → Crew & budget; none set leaves them out. */
-  private _fallbacks(): ColonySpec['fallbacks'] {
-    const team = this.options.settings?.get().team
-    const lead = team?.leadFallbacks ?? []
-    const workers = team?.workerFallbacks ?? []
+  private _fallbacks(project?: string): ColonySpec['fallbacks'] {
+    const s = this.options.settings?.get()
+    const team = s?.team
+    // A fallback kept for another project's folder is skipped, as the model itself would be refused.
+    const here = (ref: string) => !scopedOut(s?.models.scoped ?? {}, ref, project)
+    const lead = (team?.leadFallbacks ?? []).filter(here)
+    const workers = (team?.workerFallbacks ?? []).filter(here)
     if (!lead.length && !workers.length) return undefined
     return { ...(lead.length ? { lead } : {}), ...(workers.length ? { workers } : {}) }
   }

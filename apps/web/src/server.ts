@@ -1918,6 +1918,32 @@ export function startServer(options: ServeOptions): WebServer {
           return json({ ok: true, providers: options.omp.providers() })
         }),
       },
+      // Several API keys per provider, rotated by omp per agent (session affinity) with a rest after a quota or 429.
+      '/api/keys': {
+        GET: guard(() => json({ keys: options.omp?.keys() ?? [] })),
+      },
+      '/api/keys/:provider': {
+        POST: guard(async (req) => {
+          if (!options.omp) return json({ error: 'credentials need the chat runtime' }, 503)
+          const { apiKey } = (await req.json().catch(() => ({}))) as { apiKey?: unknown }
+          if (typeof apiKey !== 'string') return json({ error: 'apiKey is required' }, 400)
+          try {
+            await options.omp.addApiKey(req.params.provider ?? '', apiKey)
+            return json({ keys: options.omp.keys(), providers: options.omp.providers() })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
+        }),
+      },
+      '/api/keys/:provider/:id': {
+        DELETE: guard(async (req) => {
+          if (!options.omp) return json({ error: 'credentials need the chat runtime' }, 503)
+          const id = Number(req.params.id)
+          if (!Number.isInteger(id) || !(await options.omp.removeKey(req.params.provider ?? '', id)))
+            return json({ error: 'no such key' }, 404)
+          return json({ keys: options.omp.keys(), providers: options.omp.providers() })
+        }),
+      },
       '/api/credentials/:provider/oauth': {
         DELETE: guard(async (req) => {
           if (!options.omp) return json({ error: 'credentials need the chat runtime' }, 503)

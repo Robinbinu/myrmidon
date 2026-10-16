@@ -148,7 +148,16 @@ export interface MyrSettings {
    * `hidden`: model refs; `hiddenProviders`: provider ids whose models stay out of pickers; `windows`: context windows
    * the person set, in tokens, by model ref.
    */
-  models: { hidden: string[]; hiddenProviders: string[]; windows: Record<string, number> }
+  models: {
+    hidden: string[]
+    hiddenProviders: string[]
+    windows: Record<string, number>
+    /**
+     * Models kept for one project, by `provider/id`: the folder whose chats (its own and any project inside it) may use
+     * the model. Elsewhere a round on one is refused and fallbacks skip it. Absent means everywhere.
+     */
+    scoped: Record<string, string>
+  }
   /**
    * The global level of the permission model (see protocol's permissions.ts): the preset every chat starts from
    * (Full access runs without the OS sandbox), allow / ask / deny rules, and which tool groups the lead and crew get.
@@ -382,6 +391,7 @@ export const settingsSchema = Schema.object({
     hidden: Schema.array(Schema.string()).default([]),
     hiddenProviders: Schema.array(Schema.string()).default([]),
     windows: Schema.dict(Schema.natural().min(1024).max(100_000_000)).default({}),
+    scoped: Schema.dict(Schema.string().max(4096)).default({}),
   }).default({}),
   // Checked by `globalPermissions`, which also reads the shape from before the permission model.
   permissions: Schema.any(),
@@ -648,7 +658,12 @@ function parse(input: unknown): MyrSettings {
     verification: s.verification,
     instructions: s.instructions,
     observer: s.observer,
-    models: { hidden: s.models.hidden, hiddenProviders: s.models.hiddenProviders, windows: s.models.windows },
+    models: {
+      hidden: s.models.hidden,
+      hiddenProviders: s.models.hiddenProviders,
+      windows: s.models.windows,
+      scoped: s.models.scoped,
+    },
     permissions: globalPermissions(input),
     profile: {
       ...(s.profile.name?.trim() ? { name: s.profile.name.trim() } : {}),

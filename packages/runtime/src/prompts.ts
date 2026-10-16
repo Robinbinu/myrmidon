@@ -1015,6 +1015,9 @@ Workflow: read what was referenced and the project's state; plan the phases and 
       `This request started in a smaller round; ${by} moved it here because: ${reason}. Its files and notes are here.`,
     /** A goal message sent to a round already running: a goal starts a round of its own. */
     goalWhileRunning: 'a goal starts its own round: wait for the running one to finish, or stop it first',
+    /** A model kept for one project's folder (model-scopes.ts), asked for elsewhere. */
+    modelScoped: (ref: string, folder: string) =>
+      `${ref} is kept for chats in ${folder}: pick another model for this chat, or change where it is used in Settings → Models & providers`,
     /** /fresh, as omp words it: a reset never lands under a reply being written. */
     freshWhileWorking:
       'an agent is mid-reply: wait for the current step to finish, or stop the round, before refreshing provider state',

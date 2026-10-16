@@ -782,7 +782,19 @@ Open work, in the order it will be done:
          the composer and no setting to switch a word off (omp's magicKeywords.<id>).
          (test: `packages/runtime/tests/magic-words.test.ts` — "ultrathink thinks at the highest effort the model
          has…", "orchestrate makes the round a team round led with room for a crew…")
-      8. Credentials: several keys per provider rotated with backoff; models scoped to a project path.
+      8. [x] Credentials: several keys per provider rotated with backoff; models scoped to a project path. Done:
+         Settings → Providers & keys → Keys in rotation (registry `providers.keys`) lists each provider's stored keys
+         (last 4 characters, "resting until …"), adds another, removes one; with two or more keys an agent's calls
+         use omp's own resolver (`registry.resolver(model, session)`, session = colony/agent): affinity per agent,
+         a key that answers 429/quota rests as long as the provider says (omp's blocks) and the call moves on;
+         one key is sent as before. "Replace key" now replaces every key of the provider (it used to add one).
+         Settings → Models & providers → Kept for one project (`models.scoped`): a model kept for a folder only
+         answers chats in that project or one inside it; elsewhere the round is refused, fallbacks and crewmate
+         models skip it. Left: a custom endpoint keeps one key (models.yml); OAuth accounts rotate as omp already
+         did.
+         (test: `packages/runtime/tests/credentials.test.ts` — "several keys rotate per agent: a key out of quota
+         rests, the agent moves to the next and stays on it", "a chat outside the folder a model is kept for is
+         refused…")
       9. [x] Memory: compress each finished chat into a short mental model loaded on the next one's first turn.
          Done: the note of where a chat left off (memory-v2's chat/handoff) now opens the next round's first turn for
          an agent that remembers the chat too, as a `<mental_model>` block (background, the files and request win),

@@ -2,7 +2,7 @@ import { Database } from 'bun:sqlite'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, relative } from 'node:path'
-import type { Api, Model } from '@oh-my-pi/pi-ai'
+import type { Api, ApiKey, Model } from '@oh-my-pi/pi-ai'
 import { ownerOnly } from '../owner-only.ts'
 import type { VoiceKeys } from '../voice/providers.ts'
 import { createQuotaReader, type QuotaReader } from './usage.ts'
@@ -65,6 +65,17 @@ export interface ProviderInfo {
    * cloud profile such as ~/.aws, or none at all.
    */
   readonly stored?: boolean
+}
+
+/** One API key stored for a provider, as Settings shows it: never the key, only its last characters. */
+export interface StoredKey {
+  readonly provider: string
+  /** The vault row's id, which removing it names. */
+  readonly id: number
+  /** The key's last four characters. */
+  readonly hint: string
+  /** While omp rests it after a quota or rate-limit answer (429), when it is used again (ISO time). */
+  readonly restingUntil?: string
 }
 
 export interface ProviderUpdate {
@@ -132,8 +143,21 @@ export interface OmpRuntime {
   all(): Model<Api>[]
   find(provider: string, id: string): Model<Api> | undefined
   apiKey(model: Model<Api>): Promise<string | undefined>
+  /**
+   * The key a model call sends, for `session` (an agent of a round): with several keys stored for the provider, omp's
+   * resolver, which keeps the session on one key (affinity), rests a key that hit its quota or a 429 for as long as
+   * the provider says (or omp's default), and moves the call to the next; otherwise the one key, as apiKey gives it.
+   */
+  requestKey(model: Model<Api>, session: string): Promise<ApiKey | undefined>
   providers(): ProviderInfo[]
+  /** Replaces the provider's API keys with this one. */
   setApiKey(provider: string, key: string): Promise<void>
+  /** Stores one more API key for the provider, beside the ones it has: calls rotate among them. */
+  addApiKey(provider: string, key: string): Promise<void>
+  /** The API keys stored for each provider (built in ones; a custom provider's one key lives in models.yml). */
+  keys(): StoredKey[]
+  /** Removes one stored API key; false when there is no such key. */
+  removeKey(provider: string, id: number): Promise<boolean>
   removeCredentials(provider: string): Promise<void>
   /** Removes the provider's OAuth sign-ins and keeps any API key stored for it. */
   signOut(provider: string): Promise<void>
@@ -406,6 +430,46 @@ async function start(home: string): Promise<OmpRuntime> {
     all: () => core.registry.getAll('chat'),
     find: (provider, id) => core.registry.find(provider, id),
     apiKey: async (model) => (await core.registry.getApiKey(model)) as string | undefined,
+    async requestKey(model, session) {
+      const keys = core.credentials.list(model.provider).filter((row) => row.credential.type === 'api_key')
+      if (keys.length < 2) return (await core.registry.getApiKey(model)) as string | undefined
+      return core.registry.resolver(model, session) as ApiKey
+    },
+    async addApiKey(provider, key) {
+      if (!PROVIDER_NAME.test(provider)) throw new Error('invalid provider id')
+      if (!key.trim()) throw new Error('API key is empty')
+      if (readModelsYml().providers[provider])
+        throw new Error('a custom endpoint takes one key: change it in its settings')
+      await core.credentials.storeLoginApiKey(provider, key.trim())
+      await core.registry.refresh('offline').catch(() => {})
+    },
+    keys() {
+      const now = Date.now()
+      const rows = [...core.credentials.providers()].flatMap((provider) =>
+        core.credentials
+          .list(provider)
+          .flatMap((row) =>
+            row.credential.type === 'api_key' ? [{ provider, id: row.id, key: row.credential.key }] : [],
+          ),
+      )
+      const blocks = core.auth.blocks.list(rows.map((r) => r.id))
+      return rows.map(({ provider, id, key }): StoredKey => {
+        const until = Math.max(0, ...blocks.filter((b) => b.credentialId === id).map((b) => b.blockedUntilMs))
+        return {
+          provider,
+          id,
+          hint: key.slice(-4),
+          ...(until > now ? { restingUntil: new Date(until).toISOString() } : {}),
+        }
+      })
+    },
+    async removeKey(provider, id) {
+      const row = core.credentials.list(provider).find((r) => r.id === id && r.credential.type === 'api_key')
+      if (!row) return false
+      const removed = await core.credentials.removeById(provider, id)
+      await core.registry.refresh('offline').catch(() => {})
+      return removed
+    },
     providers() {
       const custom = readModelsYml().providers
       const ready = new Set(core.registry.getAvailable('chat').map((m) => m.provider))
@@ -444,7 +508,12 @@ async function start(home: string): Promise<OmpRuntime> {
         delete entry.auth
         writeModelsYml(doc)
       } else {
+        // Replacing a key replaces every key the provider had: adding beside them is addApiKey.
+        const old = core.credentials.list(provider).filter((row) => row.credential.type === 'api_key')
         await core.credentials.storeLoginApiKey(provider, key.trim())
+        for (const row of old)
+          if (row.credential.type === 'api_key' && row.credential.key !== key.trim())
+            await core.credentials.removeById(provider, row.id)
       }
       await core.registry.refresh('offline').catch(() => {})
     },
