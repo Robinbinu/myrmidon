@@ -772,7 +772,15 @@ Open work, in the order it will be done:
          Never in the system prompt.
          (test: `packages/runtime/tests/memory-continuation.test.ts` — "the next round of the chat opens with the note
          as the mental model of an agent that remembers it")
-      10. Reset a provider stream (stale prompt cache) without touching the transcript (omp /fresh).
+      10. [x] Reset a provider stream (stale prompt cache) without touching the transcript (omp /fresh). Done: the
+          `/fresh` command (Chat group): every agent of the chat starts a new provider session from its next model
+          call, after omp's freshSession (new session id, which is the prompt cache key and session headers
+          providers route by; provider session states closed; append-only context rebuilt), its conversation
+          unchanged; refused while an agent is mid-reply, as omp refuses while streaming; logged as chat/fresh so
+          the chat's later rounds stay fresh. Before a first reset no session id is sent, as before. Left: Anthropic
+          caches by content, so a reset changes nothing there.
+          (test: `packages/runtime/tests/fresh.test.ts` — "/fresh starts a new provider session for the chat, keeps
+          the conversation, and holds in later rounds")
 12ab. - [ ] **Use more of omp's Rust (pi-natives 18.8.8)** — checked 2026-10-10. We call only grep, glob, Process,
       PtySession, ShellFilesystem, notebookToEditableText and pdfToMarkdown directly. Already shipped in the addon
       we bundle, unused:

@@ -476,6 +476,24 @@ export class ChatService {
     else await this.runtime.ctx.log.appendOne(colonyId as never, draft)
   }
 
+  /**
+   * /fresh, after omp's: resets the provider's stream state for a chat (a stale prompt cache, a provider session gone
+   * bad) without touching its conversation. A running round's agents switch at once; otherwise the reset is logged and
+   * the next round's agents start fresh. Returns how many provider session states were closed.
+   */
+  async fresh(chatId: string): Promise<{ closed: number }> {
+    const live = this._live.get(chatId)
+    if (live && live.state().status === 'running') return { closed: await live.fresh() }
+    const latest = (await this.rounds(chatId)).at(-1)
+    if (!latest) throw new Error('no such chat')
+    await this._appendTo(latest.id, {
+      type: 'chat/fresh',
+      actor: { kind: 'user', id: 'user' },
+      payload: { closed: 0 },
+    })
+    return { closed: 0 }
+  }
+
   /** The person asked to learn a skill from a chat (/learn): its latest round is read now, whatever its size. */
   async learnNow(chatId: string): Promise<SkillProposal | undefined> {
     const latest = (await this.rounds(chatId)).at(-1)

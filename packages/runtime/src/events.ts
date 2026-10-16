@@ -606,6 +606,12 @@ const defs: EventTypeDefinition[] = [
     schema: Schema.object({ title: str(), by: optional(Schema.union(['auto'])) }),
   },
   {
+    type: 'chat/fresh',
+    version: 1,
+    actors: ['user'],
+    schema: Schema.object({ closed: Schema.natural().default(0) }),
+  },
+  {
     type: 'chat/handoff',
     version: 1,
     actors: ['system'],

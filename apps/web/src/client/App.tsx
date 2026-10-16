@@ -966,11 +966,23 @@ export function App() {
     }
   }
 
+  const fresh = async () => {
+    if (!activeChat) return toast(copy.app.toasts.openChatToFresh, 'info')
+    try {
+      const r = await post<{ closed: number }>(`/api/chats/${activeChat}/fresh`, {})
+      toast(copy.app.toasts.freshened(r.closed), 'success')
+    } catch (err) {
+      toast(copy.app.toasts.freshFailed(String((err as Error).message ?? err)), 'error')
+    }
+  }
+
   const command = async (name: string, arg: string) => {
     const last = chat?.rounds.at(-1)
     switch (name) {
       case 'learn':
         return learn()
+      case 'fresh':
+        return fresh()
       case 'rule':
         if (!activeChat) return toast(copy.rules.noChat, 'info')
         if (!arg) {

@@ -175,6 +175,7 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
   },
   { name: 'family', description: copy.commands.list.family.description, group: 'Chat', when: 'chat' },
   { name: 'learn', description: copy.commands.list.learn.description, group: 'Chat', when: 'chat' },
+  { name: 'fresh', description: copy.commands.list.fresh.description, group: 'Chat', when: 'chat' },
   {
     name: 'rule',
     args: copy.commands.list.rule.args,

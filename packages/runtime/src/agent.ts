@@ -224,6 +224,9 @@ export class ColonyAgent {
     this._agent.setOnTurnEnd((messages, signal, context) => {
       if (!signal?.aborted) this._atTurnEnd(messages, context)
     })
+    // A chat whose provider state the person reset (/fresh) keeps a fresh provider session in its later rounds too.
+    const freshes = host.state().freshes ?? 0
+    if (freshes > 0) this.fresh(freshes)
     // A signed-off agent stops before its next model call; aborting once pi has sent it would bill a request and
     // leave an aborted reply in its history. Something written to it meanwhile still gets its answer.
     this._agent.setBeforeModelCall((context) =>
@@ -311,6 +314,29 @@ export class ColonyAgent {
 
   get idle() {
     return !this.working && this.inbox.length === 0
+  }
+
+  /**
+   * Starts a new provider session from the next model call, after omp's freshSession: a new session id (the prompt
+   * cache key and session headers providers route by), any provider-side session state closed, the append-only
+   * context rebuilt. The conversation is untouched. Before the first reset no session id is sent, as before.
+   * Returns how many provider session states were closed.
+   */
+  fresh(generation: number): number {
+    const states = this._agent.providerSessionState
+    let closed = 0
+    for (const [key, state] of states ?? []) {
+      try {
+        state.close()
+        closed++
+      } catch (err) {
+        console.error(`[${this.name}] closing provider session ${key} failed:`, err)
+      }
+    }
+    states?.clear()
+    this._agent.sessionId = `${this.host.id}/${this.spec.name}/fresh-${generation}-${crypto.randomUUID()}`
+    this._agent.appendOnlyContext?.invalidateForModelChange()
+    return closed
   }
 
   /**

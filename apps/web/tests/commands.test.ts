@@ -162,3 +162,13 @@ test("a plugin's command of a workflow's name takes its place: the person instal
   setPluginCommands([])
   expect(parseSlash('/review')?.command.group).toBe('Workflows')
 })
+
+test('/fresh resets a chat’s provider state: a Chat command that takes nothing, offered only in a chat', () => {
+  const fresh = SLASH_COMMANDS.find((c) => c.name === 'fresh')
+  expect(parseSlash('/fresh')).toMatchObject({
+    command: { name: 'fresh', group: 'Chat', when: 'chat' },
+    arg: '',
+  })
+  expect(fresh && unavailable(fresh, { ...idle, chat: false })).toBeTruthy()
+  expect(fresh && unavailable(fresh, idle)).toBeFalsy()
+})

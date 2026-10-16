@@ -2596,6 +2596,17 @@ export function startServer(options: ServeOptions): WebServer {
           }
         }),
       },
+      // `/fresh`: the chat's agents start a new provider session, their conversation unchanged.
+      '/api/chats/:chatId/fresh': {
+        POST: guard(async (req) => {
+          if (!options.chats) return json({ error: 'this server was started without the chat runtime' }, 503)
+          try {
+            return json(await options.chats.fresh(req.params.chatId ?? ''))
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 409)
+          }
+        }),
+      },
       '/api/chats/:chatId/learn': {
         POST: guard(async (req) => {
           if (!options.chats) return json({ error: 'this server was started without the chat runtime' }, 503)

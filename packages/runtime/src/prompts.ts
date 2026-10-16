@@ -1002,6 +1002,9 @@ Workflow: read what was referenced and the project's state; plan the phases and 
       `This request started in a smaller round; ${by} moved it here because: ${reason}. Its files and notes are here.`,
     /** A goal message sent to a round already running: a goal starts a round of its own. */
     goalWhileRunning: 'a goal starts its own round: wait for the running one to finish, or stop it first',
+    /** /fresh, as omp words it: a reset never lands under a reply being written. */
+    freshWhileWorking:
+      'an agent is mid-reply: wait for the current step to finish, or stop the round, before refreshing provider state',
     handedBack:
       'The person handed your browser back. They may have navigated or filled things in: take a fresh browser_snapshot and continue.',
   },

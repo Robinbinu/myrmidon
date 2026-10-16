@@ -611,6 +611,11 @@ export interface EventPayloads {
    * open, next, the question still waiting on the person), read when the chat is picked up again.
    */
   'chat/handoff': { round: number; text: string }
+  /**
+   * The person reset the provider's stream state (/fresh, after omp's): agents start a new provider session and
+   * cache key from their next model call, with their conversation unchanged. `closed`: provider session states closed.
+   */
+  'chat/fresh': { closed: number }
   /** What the person allows without asking for the rest of the chat, across its runs: the whole set after a change. */
   /** `reads`: folders sandboxed agents may read for the rest of the chat; absent in events from before reads existed. */
   'chat/allowed': { grants: ChatGrant[]; reads?: string[] }

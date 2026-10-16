@@ -229,6 +229,8 @@ export interface ColonyState {
   chatTitle?: { title: string; at: string; by?: 'auto' }
   /** Where the chat left off after one of its rounds (chat/handoff), the latest note. */
   handoff?: { round: number; text: string; at: string }
+  /** How many times the person reset the provider's stream state for this chat (chat/fresh, the /fresh command). */
+  freshes?: number
   /** Old logs: kinds of step the person allowed for the rest of the chat (see `chatLevel`). */
   chatGrants?: ChatGrant[]
   /** The chat's level of the permission model; absent until the person first sets something for the chat. */
@@ -577,6 +579,9 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
       state.chatTitle = { title: p.title, at: event.time, ...(p.by ? { by: p.by } : {}) }
       break
     }
+    case 'chat/fresh':
+      state.freshes = (state.freshes ?? 0) + 1
+      break
     case 'chat/handoff': {
       const p = event.payload as EventPayloads['chat/handoff']
       state.handoff = { round: p.round, text: p.text, at: event.time }

@@ -593,6 +593,7 @@ export const copy = {
       'chat/reply': 'reply',
       'chat/renamed': 'chat renamed',
       'chat/handoff': 'noted where the chat left off',
+      'chat/fresh': 'provider state reset',
       'chat/allowed': 'allowed for this chat',
       'chat/permissions': 'chat permissions set',
       'chat/budget': 'chat budget set',
@@ -1124,6 +1125,10 @@ export const copy = {
       },
       family: { description: 'Show the chats forked from this one, and the one it came from' },
       learn: { description: 'Learn a skill from how this chat did its work' },
+      fresh: {
+        description:
+          'Reset the model provider’s stream state (a stale prompt cache) without changing the conversation',
+      },
       rule: {
         args: '<what went wrong>',
         description: 'Turn a complaint about the last reply into a rule that stops it next time',
@@ -2899,6 +2904,12 @@ export const copy = {
         `Proposed a skill from “${title}”: ${name}. Keep or discard it in the chat.`,
       nothingToLearn: (title: string) => `Nothing in “${title}” worth keeping as a skill.`,
       learnFailed: (title: string, reason: string) => `Couldn’t learn a skill from “${title}”: ${reason}`,
+      openChatToFresh: 'Open a chat to reset its provider state',
+      freshened: (closed: number) =>
+        closed > 0
+          ? `Fresh provider session started (${closed} provider state${closed === 1 ? '' : 's'} closed).`
+          : 'Fresh provider session started: agents use it from their next reply.',
+      freshFailed: (reason: string) => `Couldn’t reset the provider state: ${reason}`,
       skillsArchived: (names: string[]) =>
         names.length === 1
           ? `Archived the learned skill ${names[0]}: nobody used it for a while.`

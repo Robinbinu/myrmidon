@@ -1007,6 +1007,19 @@ export class ColonyRun implements ColonyHost {
     return a.loadTools(query)
   }
 
+  /**
+   * Resets every agent's provider stream state (/fresh), keeping their conversations; refused while one is mid-step,
+   * as omp refuses while streaming. Logged, so the round's later agents and the chat's next rounds start fresh too.
+   */
+  async fresh(): Promise<number> {
+    if ([...this._agents.values()].some((a) => a.working)) throw new Error(prompts.chat.freshWhileWorking)
+    const generation = (this._state.freshes ?? 0) + 1
+    let closed = 0
+    for (const a of this._agents.values()) closed += a.fresh(generation)
+    await this.append({ type: 'chat/fresh', actor: { kind: 'user', id: 'user' }, payload: { closed } })
+    return closed
+  }
+
   checkpoint(agent: string, goal: string): string {
     const a = this._agents.get(agent)
     if (!a) throw new Error(`no agent called ${agent}`)
