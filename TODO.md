@@ -822,6 +822,14 @@ Open work, in the order it will be done:
          Never in the system prompt.
          (test: `packages/runtime/tests/memory-continuation.test.ts` — "the next round of the chat opens with the note
          as the mental model of an agent that remembers it")
+      Real runs 2026-10-16 (branch omp-batch; temp home, own port; ark/deepseek-v4-pro-260425 lead,
+      deepseek-v4-flash reviewer): /commit (4) planned 3 commits, checked the plan, card shown, then committed in
+      dependency order (version bump after the code), tree clean, no remote; ultrathink (7) answered with the notice,
+      but the ark endpoint declares no thinking dial, so no effort was sent (with the catalog's deepseek/deepseek-v4-pro
+      the clamp gives `max` vs `low` under Auto). Not finished when stopped (out of credits): the orchestrate real run
+      and the /review real run (its round was running, 1 reviewer for 3 files). Left: run both again; the full
+      parallel suite was not run on the final branch (targeted files only); omp-batch conflicts with develop's newer
+      commits in chat.ts, prompts.ts and tools.ts (company-mode), to resolve on merge.
       10. [x] Reset a provider stream (stale prompt cache) without touching the transcript (omp /fresh). Done: the
           `/fresh` command (Chat group): every agent of the chat starts a new provider session from its next model
           call, after omp's freshSession (new session id, which is the prompt cache key and session headers
