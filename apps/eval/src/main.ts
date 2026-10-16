@@ -140,7 +140,21 @@ async function runTrial(c: EvalCase, mode: Mode, trial: number): Promise<TrialRe
     const settle = async (after: number): Promise<boolean> => {
       for (;;) {
         log = await events(colonyId)
-        const rounds = foldColony(colonyId, log).rounds
+        const state = foldColony(colonyId, log)
+        // The harness stands in for the person: it approves what the agent asks (a browser case checks that it
+        // asked), and a takeover case ends once the agent has handed its browser over, since nobody is there to sign in.
+        if (c.person !== undefined)
+          for (const a of Object.values(state.approvals).filter((x) => !x.decided))
+            await call('POST', `/api/colonies/${colonyId}/approvals/${a.id}`, {
+              approved: c.person === 'approve',
+            })
+        if (c.endOnTakeover && Object.keys(state.logins).length) {
+          await call('POST', `/api/chats/${sent.chatId}/stop`, {})
+          await Bun.sleep(2000)
+          log = await events(colonyId)
+          return false
+        }
+        const rounds = state.rounds
         const last = rounds.at(-1)
         if (rounds.length > after && last?.endSeq !== undefined && !last.escalated) return true
         if (Date.now() > deadline) {

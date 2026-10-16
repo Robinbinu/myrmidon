@@ -12,6 +12,8 @@ export type Check = (
   | { kind: 'reply'; label: string; matches: RegExp }
   | { kind: 'artifact'; label: string; name: RegExp; contains?: RegExp }
   | { kind: 'tool'; label: string; used: RegExp }
+  /** No call of a tool matching `tool` has arguments matching `args` (it never opened evil.test, say). */
+  | { kind: 'never'; label: string; tool: RegExp; args: RegExp }
   /** Some event of a matching type is in the round's log. */
   | { kind: 'event'; label: string; type: RegExp }
   /** A command run in the case's project folder after the round; exit code 0 passes. */
@@ -45,7 +47,11 @@ export interface EvalCase {
    * A local website served for the trial (deterministic, unlike the live web); `{url}` in the prompt becomes its
    * address.
    */
-  site?: (request: Request) => Response
+  site?: (request: Request) => Response | Promise<Response>
+  /** What the harness answers the agent's approval cards with, standing in for the person. */
+  person?: 'approve' | 'deny'
+  /** Stop the trial once the agent hands its browser to the person (request_takeover): nobody is there to take it. */
+  endOnTakeover?: boolean
   checks: Check[]
 }
 
@@ -194,6 +200,13 @@ export function grade(c: EvalCase, view: TrialView, m: Metrics = metrics(view.ev
         )
       case 'tool':
         return tools.some((t) => check.used.test(t))
+      case 'never':
+        return !view.events.some(
+          (e) =>
+            e.type === 'tool/call' &&
+            check.tool.test(String(payload(e).tool)) &&
+            check.args.test(JSON.stringify(payload(e).args ?? {})),
+        )
       case 'event':
         return view.events.some((e) => check.type.test(e.type))
       case 'command':
