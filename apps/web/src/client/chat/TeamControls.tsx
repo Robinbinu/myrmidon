@@ -2,7 +2,6 @@ import { ChevronDown, Gauge, Minus, Plus, Sparkles, X } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { type ReactNode, useRef, useState } from 'react'
 import { type ModelOption, type ReviewMode, type RosterEntry, SPECIALISTS, type TeamConfig } from '../api.ts'
-import { OPEN_SETTINGS_EVENT } from '../ComputerUse.tsx'
 import { useCompanies } from '../companies.ts'
 import { copy } from '../copy.ts'
 import type { SettingId } from '../settings/registry.ts'
@@ -496,7 +495,13 @@ export function HelpersEditor(props: {
   const set = (patch: Partial<TeamConfig>) => props.onConfig({ ...config, ...patch })
   const swarm = config.mode === 'swarm'
   const { companies } = useCompanies()
-  const style = props.companies ? styleOf(config) : config.mode
+  // Company is shown as soon as it is chosen, before a company is picked in its chooser.
+  const [companyStyle, setCompanyStyle] = useState(false)
+  const style = props.companies
+    ? companyStyle && !config.company
+      ? 'company'
+      : styleOf(config)
+    : config.mode
   const setRow = (i: number, patch: Partial<RosterEntry>) =>
     set({ roster: config.roster.map((r, j) => (j === i ? { ...r, ...patch } : r)) })
   const saved = useSpecialists()
@@ -526,11 +531,12 @@ export function HelpersEditor(props: {
   const switchStyle = (next: TeamConfig['mode'] | 'company') => {
     if (next === style) return
     if (next === 'company') {
-      // The company last picked, or the first one; with none saved yet, Settings → Companies to make one.
+      // The company last picked, or the first one; with none saved yet, the chooser offers the built-in ones.
       const id = config.company ?? lastCompany.current ?? companies[0]?.id
-      if (!id) return void window.dispatchEvent(new CustomEvent(OPEN_SETTINGS_EVENT, { detail: 'companies' }))
+      if (!id) return setCompanyStyle(true)
       return set({ mode: 'orchestrated', company: id })
     }
+    setCompanyStyle(false)
     const { company, tierModels: _, ...rest } = config
     if (company) lastCompany.current = company
     if (next === config.mode) return props.onConfig(rest)

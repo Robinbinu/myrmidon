@@ -220,7 +220,8 @@ test('a company that starts with its lead: the roles are on call, nothing is on 
   expect(s.status).toBe('completed')
   expect(Object.keys(s.tasks)).toEqual([])
   expect(Object.keys(s.agents)).toEqual(['lead'])
-  expect(seen.tools).toContain('ask_crewmate')
+  expect(seen.tools).toContain('escalate')
+  expect(seen.tools).not.toContain('delegate')
   expect(seen.system).toContain('escalate to the team')
   expect(seen.system).toContain('- writer: Writer, owns the draft stage')
   // A company that was removed stops the next message with why.

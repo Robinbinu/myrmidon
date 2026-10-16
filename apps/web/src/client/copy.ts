@@ -1601,6 +1601,7 @@ export const copy = {
       label: 'Company',
       choose: 'Choose a company',
       newCompany: 'New company…',
+      fromTemplate: (name: string) => `${name} (built in)`,
       roles: (n: number) => `${n} ${n === 1 ? 'role' : 'roles'}, each its own crewmate`,
       tierModel: (tier: string) => `${tier} roles`,
       estimate: (usd: string) => `About ${usd} per playbook run`,

@@ -2,7 +2,7 @@ import type { Company } from '@myrmidon/protocol'
 import { useEffect, useState } from 'react'
 import type { ModelOption, TeamConfig } from '../api.ts'
 import { OPEN_SETTINGS_EVENT } from '../ComputerUse.tsx'
-import { type CompanyEstimate, estimateCompany, useCompanies } from '../companies.ts'
+import { type CompanyEstimate, createFromTemplate, estimateCompany, useCompanies } from '../companies.ts'
 import { copy } from '../copy.ts'
 import { FEATURE_ICONS } from '../ui/icons.ts'
 import { Select } from '../ui/primitives.tsx'
@@ -25,6 +25,8 @@ export const styleOf = (config: TeamConfig): TeamConfig['mode'] | 'company' =>
 
 /** What "New company…" stands for in the chooser: it opens Settings → Companies instead of picking. */
 const NEW = '__new'
+/** A built-in template in the chooser: picking it saves a company made from it and picks that. */
+const TEMPLATE = 'template:'
 const openCompanies = () =>
   window.dispatchEvent(new CustomEvent(OPEN_SETTINGS_EVENT, { detail: 'companies' }))
 
@@ -39,12 +41,16 @@ export function CompanyChooser(props: {
   placement?: 'up' | 'down' | undefined
 }) {
   const { config } = props
-  const { companies } = useCompanies()
+  const { companies, templates } = useCompanies()
   const picked = config.company ? companies.find((c) => c.id === config.company) : undefined
   const [estimate, setEstimate] = useState<CompanyEstimate>()
   const pick = (id: string) => {
     if (id === NEW) return openCompanies()
-    props.onConfig({ ...config, company: id })
+    if (id.startsWith(TEMPLATE))
+      return void createFromTemplate(id.slice(TEMPLATE.length)).then((c) =>
+        props.onConfig({ ...config, mode: 'orchestrated', company: c.id }),
+      )
+    props.onConfig({ ...config, mode: 'orchestrated', company: id })
   }
   const tier = (key: 'smart' | 'fast', model: string) =>
     props.onConfig({ ...config, tierModels: { ...config.tierModels, [key]: model } })
@@ -84,6 +90,13 @@ export function CompanyChooser(props: {
               {c.name}
             </option>
           ))}
+          {templates
+            .filter((tpl) => !companies.some((c) => c.name === tpl.name))
+            .map((tpl) => (
+              <option key={tpl.id} value={`${TEMPLATE}${tpl.id}`}>
+                {t.fromTemplate(tpl.name)}
+              </option>
+            ))}
           <option value={NEW}>{t.newCompany}</option>
         </Select>
       </div>
