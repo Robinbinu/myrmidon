@@ -1,4 +1,5 @@
 import { ACCESS_GROUPS, type ColonyState, groupsOff, LEAD_WORK_GROUPS, toolHidden } from '@myrmidon/protocol'
+import { CODE_REVIEW } from './config.ts'
 import { levelsOf, presetOf } from './permissions.ts'
 import type { ProjectContext } from './project-context.ts'
 import { prompts } from './prompts.ts'
@@ -15,7 +16,9 @@ const LOOK = [
   'read_log',
 ]
 const WEB = ['web_search', 'web_fetch']
-const READ = ['read_task', ...LOOK, 'observe', ...WEB, 'read_docs', 'use_skill']
+/** Exploring in a fold of the context that collapses into a report: on demand, as omp marks them discoverable. */
+const CHECKPOINT = ['checkpoint', 'rewind']
+const READ = ['read_task', ...LOOK, 'observe', ...WEB, 'read_docs', 'use_skill', ...CHECKPOINT]
 const TALK = ['message', 'create_group', 'update_group', 'append_note']
 const HOLD = ['claim_task', 'release_task', 'submit_task']
 const BROWSER = [
@@ -56,12 +59,22 @@ const BUILD = [
   'stop_server',
   'create_tool',
   'github',
+  'split_commits',
   ...BROWSER,
   'mcp',
   ...ACCESS_GROUPS.remote,
   ...ACCESS_GROUPS.computer,
 ]
-const USER = ['reply_user', 'check_in', 'ask_user', 'remember', 'recall', 'search_chats']
+const USER = [
+  'reply_user',
+  'check_in',
+  'ask_user',
+  'remember',
+  'recall',
+  'search_chats',
+  'learn',
+  'manage_skill',
+]
 /** Structural search and rewrite, and language servers: loaded on demand, as omp marks them discoverable. */
 const CODE_INTEL = ['ast_grep', 'ast_edit', 'lsp']
 /** Code cells whose state lasts the round: loaded on demand, as omp marks its eval discoverable. */
@@ -199,6 +212,7 @@ function baseRoleTools(spec: ColonySpec, agent: AgentSpec): string[] {
  */
 const ON_DEMAND = new Set([
   'github',
+  'split_commits',
   'autoresearch',
   'request_login',
   'request_takeover',
@@ -211,14 +225,20 @@ const ON_DEMAND = new Set([
   ...CODE_INTEL,
   ...CELLS,
   ...CHECKING,
+  ...CHECKPOINT,
+  // Retiring and rewriting skills is rare; learn, which carries a skill too, stays loaded as omp's is essential.
+  'manage_skill',
   ...MEDIA,
   ...ACCESS_GROUPS.remote,
   ...ACCESS_GROUPS.computer,
   ...PLUGIN,
 ])
 
-/** On-demand tools that only work together, so loading one loads the rest: the computer works in apps open_app opens. */
-const LOADED_TOGETHER: readonly (readonly string[])[] = [ACCESS_GROUPS.computer]
+/**
+ * On-demand tools that only work together, so loading one loads the rest: the computer works in apps open_app opens,
+ * and rewind ends what checkpoint starts.
+ */
+const LOADED_TOGETHER: readonly (readonly string[])[] = [ACCESS_GROUPS.computer, CHECKPOINT]
 
 /** These tool names with the tools that load together with them. */
 export function withCompanions(names: readonly string[]): string[] {
@@ -253,6 +273,10 @@ export function preloaded(request: string, names: readonly string[]): string[] {
     /\bgithub\b|\bpull requests?\b|\bPRs?\b|\bPR ?#?\d+|\bissue ?#\d+|\bCI\b|\bworkflow runs?\b|\bactions? runs?\b/i.test(
       request,
     )
+  const commits =
+    /\b(split\b[^.]{0,30}\bcommits?|atomic commits?|commit (it|this|them|the changes|my changes|everything)|make (the )?commits?)\b/i.test(
+      request,
+    )
   const picture =
     /\b(draw|paint|sketch|illustrat\w*|logos?|pictures?|photos?|posters?|wallpapers?|avatars?|(generate|make|create|design|edit)\b[^.]{0,30}\b(images?|icons?|banners?|art(work)?))\b/i.test(
       request,
@@ -282,6 +306,7 @@ export function preloaded(request: string, names: readonly string[]): string[] {
       (debug && n === 'debug') ||
       (security && n === 'security_scan') ||
       (github && n === 'github') ||
+      (commits && n === 'split_commits') ||
       (picture && n === 'generate_image') ||
       (speech && n === 'tts') ||
       (computer && ACCESS_GROUPS.computer.includes(n)) ||
@@ -372,6 +397,8 @@ export interface Environment {
  * workers on a scoped task think moderately; a direct answer stays quick.
  */
 export function thinkingFor(spec: ColonySpec, agent: AgentSpec): Effort {
+  // As omp's ultrathink: the top level, which each model then clamps to the highest it has.
+  if (spec.ultrathink) return 'max'
   if (spec.tier === 'answer') return 'low'
   if (spec.thinking) return spec.thinking
   // A lone chat agent often just answers; it thinks harder when the person asks for it.
@@ -471,11 +498,15 @@ export function kickoff(spec: ColonySpec, state: ColonyState, remembers = false,
   if (to?.length && agent && !to.includes(agent))
     return prompts.kickoff.addressedElsewhere(to, spec.chat.request)
   const history = spec.chat.history && !remembers ? prompts.kickoff.history(spec.chat.history) : ''
-  // Where the chat left off, for an agent that does not remember it: after the history, nearest the request.
-  const note =
-    spec.chat.handoff && !remembers
-      ? prompts.kickoff.handoff(spec.chat.handoff.text, spec.chat.handoff.at.slice(0, 10))
-      : ''
+  // Where the chat left off: after the history, nearest the request. An agent that remembers the chat gets it as its
+  // mental model of the earlier rounds, whose tool output it no longer has word for word.
+  const handoff = spec.chat.handoff
+  const note = handoff
+    ? (remembers ? prompts.kickoff.mentalModel : prompts.kickoff.handoff)(
+        handoff.text,
+        handoff.at.slice(0, 10),
+      )
+    : ''
   // This round's request, not the chat's first one: a colony serves every round of its chat.
   const from = state.rounds.at(-1)?.startSeq ?? 0
   const attached = state.chatMessages.find((m) => m.from === 'user' && m.seq >= from)?.attachments
@@ -490,10 +521,27 @@ export function kickoff(spec: ColonySpec, state: ColonyState, remembers = false,
   // Only the lead hands off (ColonyRun._handOff), so only the lead is told to plan for it.
   const lead = spec.agents.find((a) => a.name === agent)?.role === 'lead'
   const prewalk = spec.prewalk && lead ? prompts.kickoff.prewalk(spec.prewalk) : ''
+  // Magic words (magic-words.ts): orchestrating is the lead's job, so only the lead is told how.
+  const ultrathink = spec.ultrathink ? prompts.kickoff.ultrathink : ''
+  const speaker = spec.agents.find((a) => a.name === agent)
+  const orchestrate =
+    spec.orchestrate && speaker && isLead(spec, speaker)
+      ? prompts.kickoff.orchestrate(toolsFor(spec, speaker))
+      : ''
+  // A /review round: its lead hands the files out to the reviewers (code-review.ts).
+  const review = spec.codeReview
+  const reviewing =
+    review && speaker && isLead(spec, speaker)
+      ? prompts.codeReview.lead({
+          ...review,
+          files: review.files.slice(0, CODE_REVIEW.listedFiles),
+          more: Math.max(0, review.files.length - CODE_REVIEW.listedFiles),
+        })
+      : ''
   const context = spec.chat.context ? prompts.chat.context(spec.chat.context) : ''
   const spoken = spec.chat.voice ? prompts.chat.spoken : ''
   const changed = agent && spec.chat.accessNotices?.[agent] ? `${spec.chat.accessNotices[agent]}\n\n` : ''
-  const request = `${history}${note}${changed}${context}[user] ${spec.chat.request}${attachedNote(attached)}${spoken}${plan}${goal}${prewalk}`
+  const request = `${history}${note}${changed}${context}[user] ${spec.chat.request}${attachedNote(attached)}${spoken}${ultrathink}${plan}${goal}${prewalk}${orchestrate}${reviewing}`
   if (spec.tier === 'answer') return request
   const files = Object.keys(state.artifacts).filter((f) => !attached?.includes(f))
   const carried = files.length > 0 ? prompts.kickoff.carried(files) : ''

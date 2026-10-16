@@ -441,6 +441,8 @@ const sendSchema = Schema.object({
   plan: Schema.boolean(),
   // Goal mode: the text is `<condition>: <request>`, and the round goes on until the condition holds.
   goal: Schema.boolean(),
+  // /review: reviewers in parallel over the project's changes; what the person named (empty: the default scope).
+  review: Schema.union([Schema.const(undefined), Schema.string().max(500)]),
   project: Schema.string().pattern(/^[a-z0-9-]{1,80}$/),
   // A new chat that continues another's conversation (Fork in the chat list).
   forkOf: Schema.string().pattern(/^chat-[a-z0-9-]{1,40}$/),
@@ -1955,6 +1957,32 @@ export function startServer(options: ServeOptions): WebServer {
           return json({ ok: true, providers: options.omp.providers() })
         }),
       },
+      // Several API keys per provider, rotated by omp per agent (session affinity) with a rest after a quota or 429.
+      '/api/keys': {
+        GET: guard(() => json({ keys: options.omp?.keys() ?? [] })),
+      },
+      '/api/keys/:provider': {
+        POST: guard(async (req) => {
+          if (!options.omp) return json({ error: 'credentials need the chat runtime' }, 503)
+          const { apiKey } = (await req.json().catch(() => ({}))) as { apiKey?: unknown }
+          if (typeof apiKey !== 'string') return json({ error: 'apiKey is required' }, 400)
+          try {
+            await options.omp.addApiKey(req.params.provider ?? '', apiKey)
+            return json({ keys: options.omp.keys(), providers: options.omp.providers() })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
+        }),
+      },
+      '/api/keys/:provider/:id': {
+        DELETE: guard(async (req) => {
+          if (!options.omp) return json({ error: 'credentials need the chat runtime' }, 503)
+          const id = Number(req.params.id)
+          if (!Number.isInteger(id) || !(await options.omp.removeKey(req.params.provider ?? '', id)))
+            return json({ error: 'no such key' }, 404)
+          return json({ keys: options.omp.keys(), providers: options.omp.providers() })
+        }),
+      },
       '/api/credentials/:provider/oauth': {
         DELETE: guard(async (req) => {
           if (!options.omp) return json({ error: 'credentials need the chat runtime' }, 503)
@@ -2782,6 +2810,51 @@ export function startServer(options: ServeOptions): WebServer {
           }
         }),
       },
+      // `/fresh`: the chat's agents start a new provider session, their conversation unchanged.
+      '/api/chats/:chatId/fresh': {
+        POST: guard(async (req) => {
+          if (!options.chats) return json({ error: 'this server was started without the chat runtime' }, 503)
+          try {
+            return json(await options.chats.fresh(req.params.chatId ?? ''))
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 409)
+          }
+        }),
+      },
+      // Notes pinned to lines of a chat's diff for its next /review (omp's /annotate).
+      '/api/chats/:chatId/annotations': {
+        POST: guard(async (req) => {
+          if (!options.chats) return json({ error: 'this server was started without the chat runtime' }, 503)
+          const body = (await req.json().catch(() => ({}))) as {
+            path?: unknown
+            line?: unknown
+            text?: unknown
+          }
+          if (typeof body.path !== 'string' || typeof body.line !== 'number' || typeof body.text !== 'string')
+            return json({ error: 'path, line and text are required' }, 400)
+          try {
+            const id = await options.chats.annotate(req.params.chatId ?? '', {
+              path: body.path,
+              line: body.line,
+              text: body.text.slice(0, 4000),
+            })
+            return json({ id })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
+        }),
+      },
+      '/api/chats/:chatId/annotations/:id': {
+        DELETE: guard(async (req) => {
+          if (!options.chats) return json({ error: 'this server was started without the chat runtime' }, 503)
+          try {
+            await options.chats.unannotate(req.params.chatId ?? '', req.params.id ?? '')
+            return json({ ok: true })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 404)
+          }
+        }),
+      },
       '/api/chats/:chatId/learn': {
         POST: guard(async (req) => {
           if (!options.chats) return json({ error: 'this server was started without the chat runtime' }, 503)
@@ -3301,6 +3374,7 @@ export function startServer(options: ServeOptions): WebServer {
               attachments,
               planFirst: body.plan === true,
               ...(body.goal ? { goal: true } : {}),
+              ...(body.review !== undefined ? { codeReview: { target: body.review } } : {}),
               ...(body.project ? { project: body.project } : {}),
               ...(body.forkOf && !body.chatId ? { forkOf: body.forkOf } : {}),
               ...(body.importOf && !body.chatId && !body.forkOf ? { importOf: body.importOf } : {}),

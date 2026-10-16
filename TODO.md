@@ -756,19 +756,105 @@ Open work, in the order it will be done:
          GLM 5.3 Flash).
          (test: `packages/runtime/tests/hashline.test.ts` — "a hashline agent reads anchored rows and edits by line
          number; the reply carries the new header")
-      2. Context checkpoint / rewind tools: the agent marks a point, explores, then collapses the exploration into
-         a short report (ours rewinds files, not context).
-      3. Code review with a verdict: parallel reviewer agents over a branch, commit or uncommitted work, every
+      2. [x] Context checkpoint / rewind tools: the agent marks a point, explores, then collapses the exploration into
+         a short report (ours rewinds files, not context). Done (agent.ts, after omp's checkpoint.ts and its
+         prompts): `checkpoint(goal)` and `rewind(report)` load on demand together; at the end of the rewind step the
+         messages since the checkpoint step leave the live context and the transcript, replaced by omp's rewind
+         report; mail that came in meanwhile and calls run beside rewind are kept; one checkpoint at a time; an agent
+         stopping with one open is reminded once (omp's checkpoint-active notice). Logged as agent/rewound (a step in
+         the run). Files stay changed.
+         (test: `packages/runtime/tests/checkpoint.test.ts` — "rewind folds the exploration since the checkpoint into
+         the report, in the context and the transcript")
+      3. [x] Code review with a verdict: parallel reviewer agents over a branch, commit or uncommitted work, every
          finding ranked P0–P3 with confidence; the person can pin notes to diff lines first (omp /review, /annotate).
-      4. Atomic commit splitting: split the working tree into dependency-ordered commits with checked messages
-         (omp commit).
-      5. Internal paths in file tools: `pr://N`, `issue://N`, `conflict://N` (resolve a merge conflict by writing
-         @ours/@theirs/@base), `agent://`, `skill://`.
-      6. learn / manage_skill: the agent saves a reusable lesson and can promote it into a managed skill.
-      7. Magic words in a message: ultrathink (highest effort), orchestrate (parallel crew + verify each phase).
-      8. Credentials: several keys per provider rotated with backoff; models scoped to a project path.
-      9. Memory: compress each finished chat into a short mental model loaded on the next one's first turn.
-      10. Reset a provider stream (stale prompt cache) without touching the transcript (omp /fresh).
+         Done (code-review.ts): `/review [target]` in a project chat makes a team round: the target (uncommitted
+         work, else the branch against its base; a commit, range, branch, `#N` pull request or files) becomes files
+         with +/- lines, grouped by folder (tests with their code) into at most CODE_REVIEW.maxReviewers groups; one
+         read-only reviewer per group on the reviewer model, briefed with omp's reviewer.md (criteria,
+         cross-boundary check, P0–P3, finding format with confidence, verdict); the lead gets omp's review request
+         (mode, file table, one task per reviewer at once) and merges one report, verdict first. Notes: the round's
+         diff (RoundChanges) takes a note on any new-side line number (chat/annotated, removable), and the next
+         /review hands each to its file's reviewer. The built-in review skill still applies. Left: no omp `jj`
+         modes; reviewers' tasks rely on the crew tools as they are (task7 owns how the crew runs).
+         (tests: `packages/runtime/tests/code-review.test.ts` — "/review runs a lead and read-only reviewers in
+         parallel, one group each, with the notes the person pinned"; `apps/web/tests/diff-notes.test.tsx` — "a diff
+         line takes a pinned note for the next /review…")
+      4. [x] Atomic commit splitting: split the working tree into dependency-ordered commits with checked messages
+         (omp commit). Done (commit-split.ts; omp's topo-sort and summary/scope checks through omp/commit.ts): the
+         `split_commits` tool (on demand, shell group) takes groups of changed files with a subject, body and
+         dependsOn; without write it checks the plan (every changed file once, no cycle, subject <=72 with no
+         trailing period, omp's filler and meta-phrase rules) and shows it; with write the person sees the whole plan
+         on a card (no preset skips it, only an allow rule), then it commits in dependency order with git add and
+         git commit only, renames kept whole. Never pushes. `/commit` (Workflows) asks for it. Left: files only, not
+         omp's per-hunk splits; no changelog proposals.
+         (test: `packages/runtime/tests/commit-split.test.ts` — "split_commits checks without writing, shows the
+         person the plan before it commits, and never pushes")
+      5. [x] Internal paths in file tools: `pr://N`, `issue://N`, `conflict://N` (resolve a merge conflict by writing
+         @ours/@theirs/@base), `agent://`, `skill://`. Done (internal-paths.ts; omp's conflict-detect through
+         omp/conflicts.ts): fs_read takes pr://N[/diff] (pr://owner/repo/N), issue://N, skill://name[/file],
+         agent://[name] and conflict://N[/ours|theirs|base]; a read numbers the conflict blocks it shows with omp's
+         footer; fs_write to conflict://N or conflict://* (uniform content or "N: @side" lines) splices only the
+         blocks, per file bottom-up, and writes like any fs_write (guardProjectEdit on the real file, inside the
+         workdir). pr/issue go through the github tool's read (gh where commands run, decided as that command) and
+         read as untrusted; skill:// as use_skill; agent:// shows a crewmate's status, tasks, notes and only the
+         messages the reader could see. The rest is read-only. Left: no `:conflicts` selector, issue/pr lists
+         (`pr://` alone), the github cache.
+         (test: `packages/runtime/tests/internal-paths.test.ts` — "a read numbers merge conflicts; conflict://N reads
+         one side and fs_write resolves one or all of them"; `packages/runtime/tests/github.test.ts` — "fs_read of
+         pr://owner/repo/N reads the pull request through the same gh read…")
+      6. [x] learn / manage_skill: the agent saves a reusable lesson and can promote it into a managed skill. Done
+         (after omp's learn.ts and manage-skill.ts): `learn(lesson, scope, why, skill?)` proposes the lesson as a
+         memory of kind lesson and, with `skill`, a learned skill; `manage_skill(create|update|delete)` (on demand)
+         proposes a new, changed or retired learned skill. All wait for the person as memories and the reviewer's
+         skill proposals do (an update shows as a diff; Retire archives it, restorable in Settings → Skills); skills
+         the person wrote, installed or that came with Myrmidon or a plugin are refused by name; 3 per agent a round.
+         (test: `packages/runtime/tests/learn-skill.test.ts` — "learn proposes the lesson as a memory and its
+         procedure as a learned skill…", "manage_skill updates and retires only learned skills…")
+      7. [x] Magic words in a message: ultrathink (highest effort), orchestrate (parallel crew + verify each phase).
+         Done (magic-words.ts): standalone lowercase prose only, never in code spans, fences, XML or identifiers, as
+         omp's pi-tui matcher. ultrathink: every agent asks for `max`, clamped to the model's top level, plus omp's
+         notice; orchestrate: a team round led by a lead (one worker joins if the roster is empty, room to add up to
+         ORCHESTRATE.workers) whose opening carries omp's orchestrate contract with our crew tools. Left: no glow in
+         the composer and no setting to switch a word off (omp's magicKeywords.<id>).
+         (test: `packages/runtime/tests/magic-words.test.ts` — "ultrathink thinks at the highest effort the model
+         has…", "orchestrate makes the round a team round led with room for a crew…")
+      8. [x] Credentials: several keys per provider rotated with backoff; models scoped to a project path. Done:
+         Settings → Providers & keys → Keys in rotation (registry `providers.keys`) lists each provider's stored keys
+         (last 4 characters, "resting until …"), adds another, removes one; with two or more keys an agent's calls
+         use omp's own resolver (`registry.resolver(model, session)`, session = colony/agent): affinity per agent,
+         a key that answers 429/quota rests as long as the provider says (omp's blocks) and the call moves on;
+         one key is sent as before. "Replace key" now replaces every key of the provider (it used to add one).
+         Settings → Models & providers → Kept for one project (`models.scoped`): a model kept for a folder only
+         answers chats in that project or one inside it; elsewhere the round is refused, fallbacks and crewmate
+         models skip it. Left: a custom endpoint keeps one key (models.yml); OAuth accounts rotate as omp already
+         did.
+         (test: `packages/runtime/tests/credentials.test.ts` — "several keys rotate per agent: a key out of quota
+         rests, the agent moves to the next and stays on it", "a chat outside the folder a model is kept for is
+         refused…")
+      9. [x] Memory: compress each finished chat into a short mental model loaded on the next one's first turn.
+         Done: the note of where a chat left off (memory-v2's chat/handoff) now opens the next round's first turn for
+         an agent that remembers the chat too, as a `<mental_model>` block (background, the files and request win),
+         after omp's mental models; an agent that does not remember it keeps the "where this chat left off" note.
+         Never in the system prompt.
+         (test: `packages/runtime/tests/memory-continuation.test.ts` — "the next round of the chat opens with the note
+         as the mental model of an agent that remembers it")
+      Real runs 2026-10-16 (branch omp-batch; temp home, own port; ark/deepseek-v4-pro-260425 lead,
+      deepseek-v4-flash reviewer): /commit (4) planned 3 commits, checked the plan, card shown, then committed in
+      dependency order (version bump after the code), tree clean, no remote; ultrathink (7) answered with the notice,
+      but the ark endpoint declares no thinking dial, so no effort was sent (with the catalog's deepseek/deepseek-v4-pro
+      the clamp gives `max` vs `low` under Auto). Not finished when stopped (out of credits): the orchestrate real run
+      and the /review real run (its round was running, 1 reviewer for 3 files). Left: run both again; the full
+      parallel suite was not run on the final branch (targeted files only); omp-batch conflicts with develop's newer
+      commits in chat.ts, prompts.ts and tools.ts (company-mode), to resolve on merge.
+      10. [x] Reset a provider stream (stale prompt cache) without touching the transcript (omp /fresh). Done: the
+          `/fresh` command (Chat group): every agent of the chat starts a new provider session from its next model
+          call, after omp's freshSession (new session id, which is the prompt cache key and session headers
+          providers route by; provider session states closed; append-only context rebuilt), its conversation
+          unchanged; refused while an agent is mid-reply, as omp refuses while streaming; logged as chat/fresh so
+          the chat's later rounds stay fresh. Before a first reset no session id is sent, as before. Left: Anthropic
+          caches by content, so a reset changes nothing there.
+          (test: `packages/runtime/tests/fresh.test.ts` — "/fresh starts a new provider session for the chat, keeps
+          the conversation, and holds in later rounds")
 12ab. - [ ] **Use more of omp's Rust (pi-natives 18.8.8)** — checked 2026-10-10. We call only grep, glob, Process,
       PtySession, ShellFilesystem, notebookToEditableText and pdfToMarkdown directly. Already shipped in the addon
       we bundle, unused:

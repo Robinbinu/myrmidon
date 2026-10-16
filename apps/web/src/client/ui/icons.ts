@@ -32,10 +32,12 @@ import {
   FishingHook,
   FlaskConical,
   FolderKey,
+  FolderLock,
   FolderTree,
   Footprints,
   Gavel,
   GitBranch,
+  GitCommitVertical,
   Glasses,
   Globe,
   Goal,
@@ -44,6 +46,7 @@ import {
   HeartHandshake,
   ImagePlus,
   Import,
+  IterationCw,
   Keyboard,
   KeyRound,
   LifeBuoy,
@@ -88,6 +91,7 @@ import {
   SquareFunction,
   SquareTerminal,
   Star,
+  StickyNote,
   Store,
   Telescope,
   Terminal,
@@ -101,6 +105,7 @@ import {
   Volume2,
   Wallet,
   Waypoints,
+  Wind,
   Workflow,
   Wrench,
   Zap,
@@ -320,4 +325,14 @@ export const FEATURE_ICONS = {
   investigate: Microscope,
   /** The retro workflow: /retro, what shipped over a window of days. */
   retro: CalendarRange,
+  /** Several API keys of a provider taking turns (Settings → Providers & keys → Keys in rotation). */
+  keyRotation: IterationCw,
+  /** Models kept for one project's folder (Settings → Models & providers → Your models). */
+  scopedModels: FolderLock,
+  /** /fresh: a new provider session for the chat, its conversation unchanged. */
+  freshSession: Wind,
+  /** /commit: the working tree split into atomic commits, previewed first. */
+  commitSplit: GitCommitVertical,
+  /** Notes the person pins to lines of a diff for the next /review. */
+  diffNotes: StickyNote,
 } as const

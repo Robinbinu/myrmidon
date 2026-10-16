@@ -73,6 +73,7 @@ import {
   RECALL_TOOL_COUNT,
   SERVER_START_MS,
   SETTLE_QUIET_MS,
+  SKILL_PROPOSALS_PER_ROUND,
   WIND_DOWN_MESSAGES,
 } from './config.ts'
 import { ProjectCopies } from './copies.ts'
@@ -111,7 +112,8 @@ import {
   unconfinedSandbox,
 } from './sandbox.ts'
 import { redactDeep } from './secrets.ts'
-import type { SkillLibrary } from './skills.ts'
+import type { SkillProposalStore } from './skill-learning.ts'
+import { SKILL_NAME, type SkillLibrary } from './skills.ts'
 import type { AgentSpec, ColonySpec } from './spec.ts'
 import type { SshHub } from './ssh.ts'
 import type { StreamRule, StreamRuleStore } from './stream-rules.ts'
@@ -205,6 +207,8 @@ export interface RunOptions {
   readonly pastChats?: (scope: ChatRecallScope, request: ChatRecallRequest) => Promise<string>
   /** Skills agents can load by name (use_skill). */
   readonly skills?: SkillLibrary
+  /** Where skills agents propose (learn, manage_skill) wait for the person, beside the reviewer's. */
+  readonly skillProposals?: SkillProposalStore
   /** The person's hooks, run before and after tools and when the round ends. */
   readonly hooks?: HookStore
   /** The person's stream rules, which stop an agent's reply mid-stream when it breaks one. */
@@ -1012,6 +1016,31 @@ export class ColonyRun implements ColonyHost {
     return a.loadTools(query)
   }
 
+  /**
+   * Resets every agent's provider stream state (/fresh), keeping their conversations; refused while one is mid-step,
+   * as omp refuses while streaming. Logged, so the round's later agents and the chat's next rounds start fresh too.
+   */
+  async fresh(): Promise<number> {
+    if ([...this._agents.values()].some((a) => a.working)) throw new Error(prompts.chat.freshWhileWorking)
+    const generation = (this._state.freshes ?? 0) + 1
+    let closed = 0
+    for (const a of this._agents.values()) closed += a.fresh(generation)
+    await this.append({ type: 'chat/fresh', actor: { kind: 'user', id: 'user' }, payload: { closed } })
+    return closed
+  }
+
+  checkpoint(agent: string, goal: string): string {
+    const a = this._agents.get(agent)
+    if (!a) throw new Error(`no agent called ${agent}`)
+    return a.checkpoint(goal)
+  }
+
+  rewind(agent: string, report: string): string {
+    const a = this._agents.get(agent)
+    if (!a) throw new Error(`no agent called ${agent}`)
+    return a.rewind(report)
+  }
+
   toolsChanged(made?: { readonly by: string; readonly tool: string }) {
     for (const a of this._agents.values()) a.refreshTools()
     if (made) this._agents.get(made.by)?.load([made.tool])
@@ -1563,6 +1592,69 @@ export class ColonyRun implements ColonyHost {
       },
     })
     return prompts.colony.memoryProposed
+  }
+
+  /**
+   * An agent's proposal to create, change or retire one of Myrmidon's learned skills (learn, manage_skill), after
+   * omp's managed skills: it applies only once the person keeps it, beside the reviewer's proposals. Skills the person
+   * wrote, installed, or that came with Myrmidon or a plugin are never touched, and a name they hold is refused.
+   */
+  async proposeSkill(
+    agent: string,
+    input: {
+      action: 'create' | 'update' | 'delete'
+      name: string
+      description?: string
+      body?: string
+      why: string
+    },
+  ): Promise<string> {
+    const library = this.options.skills
+    const store = this.options.skillProposals
+    if (!library || !store) throw new Error(prompts.colony.skillsUnavailable)
+    const name = input.name.trim()
+    if (!SKILL_NAME.test(name)) throw new Error(prompts.colony.skillName(name))
+    const since = this._state.rounds.at(-1)?.startSeq ?? 0
+    const mine = Object.values(this._state.skillProposals).filter((p) => p.by === agent && p.seq >= since)
+    if (mine.length >= SKILL_PROPOSALS_PER_ROUND)
+      throw new Error(prompts.colony.skillsPerRound(SKILL_PROPOSALS_PER_ROUND))
+    const learned = library.learned().find((s) => s.name === name)
+    const taken = library.list(this.spec.chat?.project?.path).find((s) => s.name === name)
+    if (taken && !learned) throw new Error(prompts.colony.skillAuthored(name))
+    if (input.action === 'create' && learned) throw new Error(prompts.colony.skillExists(name))
+    if (input.action !== 'create' && !learned) throw new Error(prompts.colony.skillMissing(name))
+    const description = input.description?.replace(/\s+/g, ' ').trim() || learned?.description || ''
+    const body = input.body?.trim() || (input.action === 'delete' ? (learned?.body ?? '') : '')
+    if (!description || !body) throw new Error(prompts.colony.skillIncomplete)
+    if (sensitive(`${description}\n${body}`)) throw new Error(prompts.colony.memorySensitive)
+    const proposal = store.add({
+      name,
+      description,
+      body,
+      why: input.why,
+      ...(input.action === 'update' && learned
+        ? { update: { description: learned.description, body: learned.body } }
+        : {}),
+      ...(input.action === 'delete' ? { remove: true as const } : {}),
+      by: agent,
+      colonyId: this.id,
+      ...(this.spec.chat ? { chatId: this.spec.chat.chatId } : {}),
+    })
+    await this.append({
+      type: 'skill/proposed',
+      actor: agentActor(agent),
+      payload: {
+        id: proposal.id,
+        name,
+        description,
+        body,
+        why: input.why,
+        ...(proposal.update ? { update: proposal.update } : {}),
+        ...(proposal.remove ? { remove: true as const } : {}),
+        by: agent,
+      },
+    })
+    return prompts.colony.skillProposed(input.action, name)
   }
 
   /** The kept memories best matching `query` that this chat may use, with the ids remember's `replaces` takes. */

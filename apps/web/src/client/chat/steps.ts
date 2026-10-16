@@ -404,6 +404,17 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
         })
         break
       }
+      case 'agent/rewound': {
+        const p = e.payload as EventPayloads['agent/rewound']
+        out.push({
+          ...base,
+          kind: 'think',
+          agent: p.agent,
+          lead: copy.steps.rewound,
+          tail: cut(copy.steps.rewoundTail(p.goal, p.dropped), 120),
+        })
+        break
+      }
       case 'agent/model': {
         const p = e.payload as EventPayloads['agent/model']
         out.push({

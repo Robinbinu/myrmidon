@@ -459,7 +459,7 @@ const defs: EventTypeDefinition[] = [
   {
     type: 'skill/proposed',
     version: 1,
-    actors: ['system'],
+    actors: ['system', 'agent'],
     schema: Schema.object({
       id: str(),
       name: str(),
@@ -467,6 +467,8 @@ const defs: EventTypeDefinition[] = [
       body: str(),
       why: Schema.string().default(''),
       update: optional(Schema.object({ description: str(), body: str() })),
+      remove: optional(Schema.const(true)),
+      by: optional(str()),
     }),
   },
   {
@@ -518,6 +520,17 @@ const defs: EventTypeDefinition[] = [
     version: 1,
     actors: ['system'],
     schema: Schema.object({ plugin: str(), type: str(), data: Schema.dict(Schema.any()).default({}) }),
+  },
+  {
+    type: 'agent/rewound',
+    version: 1,
+    actors: ['agent'],
+    schema: Schema.object({
+      agent: str(),
+      goal: str(),
+      report: str(),
+      dropped: Schema.natural().required(),
+    }),
   },
   {
     type: 'agent/compacted',
@@ -646,6 +659,29 @@ const defs: EventTypeDefinition[] = [
     actors: ['user', 'system'],
     // `auto`: Myrmidon named it from what it is about; anything else (the person, a channel, a schedule) is kept.
     schema: Schema.object({ title: str(), by: optional(Schema.union(['auto'])) }),
+  },
+  {
+    type: 'chat/annotated',
+    version: 1,
+    actors: ['user'],
+    schema: Schema.object({
+      id: str(),
+      path: str(),
+      line: Schema.natural().min(1).required(),
+      text: Schema.string().min(1).max(4000).required(),
+    }),
+  },
+  {
+    type: 'chat/unannotated',
+    version: 1,
+    actors: ['user'],
+    schema: Schema.object({ id: str() }),
+  },
+  {
+    type: 'chat/fresh',
+    version: 1,
+    actors: ['user'],
+    schema: Schema.object({ closed: Schema.natural().default(0) }),
   },
   {
     type: 'chat/handoff',

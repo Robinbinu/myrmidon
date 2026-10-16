@@ -72,7 +72,10 @@ export interface ColonySpec {
     memory?: string[]
     /** Kept memories left out of `memory` for room, which agents search with recall. */
     memoryMore?: number
-    /** Where the chat left off (chat/handoff), for agents that do not remember its earlier rounds. */
+    /**
+     * Where the chat left off (chat/handoff), on the next round's first turn: the note for agents that do not remember
+     * its earlier rounds, a short mental model for those that do.
+     */
     handoff?: { text: string; at: string }
     /** A summary of the project's kept memories (memory-summary.ts), when they do not all fit `memory`. */
     memorySummary?: string
@@ -144,6 +147,27 @@ export interface ColonySpec {
   tier?: Tier
   /** How hard reasoning models think in work rounds; omitted lets each role decide. */
   thinking?: 'low' | 'medium' | 'high'
+  /**
+   * The person wrote the magic word ultrathink (magic-words.ts): every agent thinks at the highest effort its model
+   * takes, whatever `thinking` says, as omp's ultrathink keyword.
+   */
+  ultrathink?: boolean
+  /**
+   * The person wrote the magic word orchestrate: the round is a team round whose lead splits the work into parallel
+   * tasks and checks each phase before the next, after omp's orchestrate notice.
+   */
+  orchestrate?: boolean
+  /**
+   * A /review round (code-review.ts): what is reviewed, the reviewers' file groups, and the notes the person pinned to
+   * lines of the diff. Its lead hands one group to each reviewer and merges what they find into one verdict.
+   */
+  codeReview?: {
+    mode: string
+    diff: string
+    files: { path: string; added: number; removed: number }[]
+    groups: { reviewer: string; files: string[] }[]
+    notes: { path: string; line: number; text: string }[]
+  }
   /** Plan mode: present the plan for approval (ask_user) before any work. */
   planFirst?: boolean
   /**

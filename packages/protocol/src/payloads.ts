@@ -335,6 +335,10 @@ export interface EventPayloads {
     body: string
     why: string
     update?: { description: string; body: string }
+    /** Retires a learned skill: keeping the proposal archives it (restorable in Settings). */
+    remove?: true
+    /** The agent that proposed it (learn, manage_skill); absent when the reviewer did. */
+    by?: string
   }
   'skill/decided': { id: string; kept: boolean }
   /**
@@ -558,6 +562,11 @@ export interface EventPayloads {
     tokensAfter?: number
   }
   /**
+   * An agent rewound to its checkpoint (the checkpoint and rewind tools): the exploration since it (`dropped`
+   * messages) left its context, and `report` took its place.
+   */
+  'agent/rewound': { agent: string; goal: string; report: string; dropped: number }
+  /**
    * The prompt an agent starts with, by section: each section's key, the version of its words and a hash of what it
    * rendered, so two runs can be compared by what their agents were told. `totalTokens` is a rough size.
    */
@@ -645,6 +654,15 @@ export interface EventPayloads {
    * open, next, the question still waiting on the person), read when the chat is picked up again.
    */
   'chat/handoff': { round: number; text: string }
+  /** The person pinned a note to a line of the chat's diff (after omp's /annotate), for the next /review. */
+  'chat/annotated': { id: string; path: string; line: number; text: string }
+  /** The person took a pinned note back. */
+  'chat/unannotated': { id: string }
+  /**
+   * The person reset the provider's stream state (/fresh, after omp's): agents start a new provider session and
+   * cache key from their next model call, with their conversation unchanged. `closed`: provider session states closed.
+   */
+  'chat/fresh': { closed: number }
   /** What the person allows without asking for the rest of the chat, across its runs: the whole set after a change. */
   /** `reads`: folders sandboxed agents may read for the rest of the chat; absent in events from before reads existed. */
   'chat/allowed': { grants: ChatGrant[]; reads?: string[] }

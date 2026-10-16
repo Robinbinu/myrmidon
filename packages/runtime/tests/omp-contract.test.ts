@@ -18,6 +18,8 @@ import {
   getSupportedEfforts,
 } from '../src/omp/catalog.ts'
 import { loadComputerSupervisor } from '../src/omp/computer.ts'
+import { loadCommit } from '../src/omp/commit.ts'
+import { loadConflicts } from '../src/omp/conflicts.ts'
 import { loadDap } from '../src/omp/dap.ts'
 import { loadPythonPrelude, loadPythonRunner } from '../src/omp/eval.ts'
 import { loadGithub } from '../src/omp/github.ts'
@@ -217,6 +219,34 @@ describe('pi-utils', () => {
 })
 
 describe('coding agent: tools loaded on first use', () => {
+  test('commit', async () => {
+    const { topo, validation } = await loadCommit()
+    expect(topo.computeDependencyOrder([{ dependencies: [1] }, { dependencies: [] }] as never)).toEqual([1, 0])
+    expect(topo.computeDependencyOrder([{ dependencies: [1] }, { dependencies: [0] }] as never)).toHaveProperty('error')
+    expect(validation.validateSummary('Fix it.', 72).errors).toEqual(['Summary must not end with a period'])
+    expect(validation.validateScope('Web/UI').valid).toBe(false)
+  })
+
+  test('conflicts', async () => {
+    const c = await loadConflicts()
+    const names = [
+      'scanConflictLines',
+      'parseConflictUri',
+      'spliceConflict',
+      'expandContentTokens',
+      'formatConflictWarning',
+    ]
+    expect(notFunctions(c, names)).toEqual([])
+    const text = 'a\n<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> b\nz'
+    const blocks = c.scanConflictLines(text.split('\n'), 1)
+    expect(blocks[0]).toMatchObject({ startLine: 2, separatorLine: 4, endLine: 6, oursLines: ['ours'] })
+    const [first] = blocks
+    if (!first) throw new Error('no conflict block found')
+    const entry = new c.ConflictHistory().register({ ...first, absolutePath: '/x', displayPath: 'x' })
+    expect(c.parseConflictUri('conflict://1/theirs')).toEqual({ id: 1, scope: 'theirs' })
+    expect(c.spliceConflict(text, entry, c.expandContentTokens('@theirs', entry)).text).toBe('a\ntheirs\nz')
+  })
+
   test('lsp', async () => {
     const lsp = await loadLsp()
     expect(notFunctions(lsp.config, ['getConfig', 'getServersForFile', 'resolveCommand'])).toEqual([])

@@ -5,6 +5,7 @@
  */
 export type {
   Api,
+  ApiKey,
   AssistantMessage,
   AssistantMessageEvent,
   ComputerAction,

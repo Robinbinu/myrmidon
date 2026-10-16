@@ -88,6 +88,7 @@ import {
   lsp,
   lspWrites,
 } from './code-intel.ts'
+import { planCommits, writeCommits } from './commit-split.ts'
 import { roleRecord } from './companies.ts'
 import { desktopTool } from './computer/desktop.ts'
 import { DESKTOP_TOOL } from './computer/names.ts'
@@ -154,6 +155,13 @@ import {
 } from './hashline.ts'
 import { agentActor, type ColonyHost, type ReviewDecision } from './host.ts'
 import {
+  type InternalReaders,
+  internalPath,
+  noteConflicts,
+  planConflictWrite,
+  readInternal,
+} from './internal-paths.ts'
+import {
   browserSteps,
   checkedArgs,
   checkedTool,
@@ -165,6 +173,7 @@ import {
 } from './made-tools.ts'
 import type { AgentTool, AgentToolResult } from './omp/agent-core.ts'
 import { type Model, type } from './omp/ai.ts'
+import { type ConflictHistory, loadConflicts } from './omp/conflicts.ts'
 import type { ServerConfig } from './omp/lsp.ts'
 import * as natives from './omp/natives.ts'
 import { RUNTIMES, toolsFor } from './patterns.ts'
@@ -1076,6 +1085,7 @@ function readsProject(host: ColonyHost, agent: string, tool: string, params: unk
  * their calls that are not reads.
  */
 const GUARDED = new Set([
+  'split_commits',
   'fs_write',
   'fs_edit',
   'ast_edit',
@@ -1980,6 +1990,111 @@ function placeOf(f: PromptFacts): Place {
   return { where, full: f.access.fullAccess }
 }
 
+/**
+ * The person sees a commit plan before it is written (split_commits): the plan in full, decided as the git commits it
+ * makes. Like a GitHub write, no preset runs it unasked; only a rule allowing split_commits does.
+ */
+async function askCommits(host: ColonyHost, agent: string, preview: string, count: number, key: string) {
+  const call: PermissionCall = {
+    tool: 'split_commits',
+    kind: 'command',
+    command: `git commit (${count} commit${count === 1 ? '' : 's'})`,
+    readOnly: false,
+    asks: true,
+  }
+  const verdict = host.permit(agent, call)
+  if (verdict.decision === 'deny') throw denied('split_commits', verdict)
+  if (verdict.decision === 'allow') return
+  const decision = await host.reviewChange(agent, 'split_commits', prompts.commitSplit.reviewTitle(count), {
+    review: {
+      kind: 'call',
+      title: prompts.commitSplit.reviewTitle(count),
+      fields: [
+        {
+          key: 'plan',
+          label: prompts.commitSplit.reviewLabel,
+          value: preview,
+          format: 'code',
+          editable: false,
+        },
+      ],
+    },
+    key,
+    permission: { call, verdict },
+  })
+  if (!decision.approved) throw new Error(prompts.toolResults.declined('these commits', decision.note))
+}
+
+/** Each agent's numbered conflict blocks (conflict://N), for as long as its round runs. */
+const CONFLICTS = new WeakMap<ColonyHost, Map<string, ConflictHistory>>()
+
+async function conflictsOf(host: ColonyHost, agent: string): Promise<ConflictHistory> {
+  const byAgent = CONFLICTS.get(host) ?? new Map<string, ConflictHistory>()
+  CONFLICTS.set(host, byAgent)
+  const known = byAgent.get(agent)
+  if (known) return known
+  const history = new (await loadConflicts()).ConflictHistory()
+  byAgent.set(agent, history)
+  return history
+}
+
+/**
+ * What an internal path reads with: GitHub as the github tool reads it (where commands run, decided by the
+ * permission model), skills as use_skill, crewmates from the round's state.
+ */
+async function internalReaders(host: ColonyHost, agent: string): Promise<InternalReaders> {
+  return {
+    agent,
+    conflicts: await conflictsOf(host, agent),
+    state: () => host.state(),
+    async github(op, ref) {
+      if (host.sandbox.kind === 'none' && !host.unsafeNoSandbox) throw new Error(prompts.github.needsSandbox)
+      const bin = ghBinary()
+      if (!bin) throw new Error(prompts.github.missing)
+      return clip(await runGithub(githubScope(host, agent, bin, false), { op, ...ref }))
+    },
+    async skill(name, file) {
+      if (!name)
+        return prompts.internalPaths.skills(host.skills().map((s) => `- ${s.name}: ${s.description}`))
+      return host.useSkill(agent, name, file)
+    },
+  }
+}
+
+/**
+ * fs_write to conflict://N or conflict://*: each file's blocks are spliced, then written as any fs_write is (the
+ * person's rules and presets decide it on the real file, inside the working directory only).
+ */
+async function resolveConflicts(
+  path: string,
+  content: string,
+  agent: string,
+  host: ColonyHost,
+): Promise<string> {
+  const conflicts = await conflictsOf(host, agent)
+  const plan = await planConflictWrite(path, content, conflicts, (file) =>
+    readFileSync(host.workspace.resolveInWorkdir(agent, file), 'utf8'),
+  )
+  const done: string[] = []
+  for (const write of plan.writes) {
+    const target = host.workspace.resolveInWorkdir(agent, write.absolutePath)
+    const { content: text, edited } = await guardProjectEdit(host, agent, 'fs_write', target, {
+      before: write.before,
+      after: write.after,
+      key: receiptKey(host, agent, 'fs_write', { path: target, content: write.after }),
+    })
+    writeFileSync(target, text)
+    for (const id of write.ids) conflicts.invalidate(id)
+    done.push(
+      `${prompts.internalPaths.resolved(write.ids, write.displayPath)}${edited ? prompts.toolResults.editedByPerson : ''}${rulesForFile(host, agent, target)}`,
+    )
+  }
+  if (!done.length && plan.failed.length) throw new Error(prompts.internalPaths.unresolvedFiles(plan.failed))
+  return [...done, ...(plan.failed.length ? [prompts.internalPaths.unresolvedFiles(plan.failed)] : [])].join(
+    '\n',
+  )
+}
+
 export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'read_task',
@@ -2622,6 +2737,57 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     },
   },
   {
+    name: 'split_commits',
+    tier: 'write',
+    description: prompts.tools.split_commits.description,
+    parameters: type({
+      commits: type({
+        files: type('string[]').describe(prompts.tools.split_commits.params.files),
+        subject: type('string').describe(prompts.tools.split_commits.params.subject),
+        'body?': type('string').describe(prompts.tools.split_commits.params.body),
+        'dependsOn?': type('number[]').describe(prompts.tools.split_commits.params.dependsOn),
+      })
+        .array()
+        .describe(prompts.tools.split_commits.params.commits),
+      'write?': type('boolean').describe(prompts.tools.split_commits.params.write),
+    }),
+    async run(args, agent, host) {
+      const cwd = host.workspace.workdir(agent)
+      const plan = await planCommits(cwd, args.commits)
+      const write = args.write === true && plan.errors.length === 0
+      if (!write) return prompts.commitSplit.report({ ...plan, write: false })
+      await askCommits(
+        host,
+        agent,
+        plan.preview,
+        args.commits.length,
+        receiptKey(host, agent, 'split_commits', args),
+      )
+      const made = await writeCommits(cwd, args.commits, plan.order)
+      return `${prompts.commitSplit.written(made)}${plan.warnings.length ? `\n\n${prompts.commitSplit.report({ ...plan, preview: '', write: true })}` : ''}`
+    },
+  },
+  {
+    name: 'checkpoint',
+    tier: 'read',
+    description: prompts.tools.checkpoint.description,
+    parameters: type({
+      goal: type('string').atLeastLength(3).describe(prompts.tools.checkpoint.params.goal),
+    }),
+    async run(args, agent, host) {
+      return host.checkpoint(agent, args.goal)
+    },
+  },
+  {
+    name: 'rewind',
+    tier: 'read',
+    description: prompts.tools.rewind.description,
+    parameters: type({ report: type('string').describe(prompts.tools.rewind.params.report) }),
+    async run(args, agent, host) {
+      return host.rewind(agent, args.report)
+    },
+  },
+  {
     name: 'find_tools',
     tier: 'read',
     description: prompts.tools.find_tools.description,
@@ -2681,6 +2847,9 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       content: type('string').describe(prompts.tools.fs_write.params.content),
     }),
     async run(args, agent, host) {
+      const inner = internalPath(args.path)
+      if (inner?.scheme === 'conflict') return resolveConflicts(args.path, args.content, agent, host)
+      if (inner) throw new Error(prompts.internalPaths.readOnly(inner.scheme))
       const path = host.workspace.resolveInWorkdir(agent, args.path)
       const { content, edited } = await guardProjectEdit(host, agent, 'fs_write', path, {
         before: existsSync(path) ? readFileSync(path, 'utf8') : '',
@@ -2751,6 +2920,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       'sql?': type('string').describe(prompts.tools.fs_read.params.sql),
     }),
     async run(args, agent, host) {
+      if (internalPath(args.path)) return readInternal(args.path, await internalReaders(host, agent))
       const path = host.workspace.resolveForRead(agent, args.path)
       const read = await readFileAs(path, args.path, args)
       if (read.image) return { text: read.head ?? '', images: [read.image] }
@@ -2763,11 +2933,21 @@ export const TOOL_DEFS: readonly ToolDef[] = [
           preface: `${read.head}\n`,
         }
       const whole = args.offset === undefined && args.limit === undefined
+      // Merge-conflict blocks in the lines shown are numbered for conflict://N, as omp's read surfaces them.
+      const conflicts = await noteConflicts(
+        await conflictsOf(host, agent),
+        path,
+        args.path,
+        read.text,
+        whole
+          ? undefined
+          : { first: args.offset ?? 1, ...(args.limit !== undefined ? { count: args.limit } : {}) },
+      )
       const summary = whole ? await summaryRead(host, agent, path, args.path, read.text) : undefined
-      if (summary) return `${summary}${rules}`
+      if (summary) return `${summary}${conflicts}${rules}`
       if (editModeOf(host, agent) !== 'hashline')
-        return `${readRange(read.text, args.offset, args.limit)}${rules}`
-      return `${anchoredRead(host, agent, path, args.path, read.text, readWindow(read.text, args.offset, args.limit))}${rules}`
+        return `${readRange(read.text, args.offset, args.limit)}${conflicts}${rules}`
+      return `${anchoredRead(host, agent, path, args.path, read.text, readWindow(read.text, args.offset, args.limit))}${conflicts}${rules}`
     },
   },
   {
@@ -3149,6 +3329,52 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     }),
     async run(args, agent, host) {
       return host.proposeMemory(agent, args)
+    },
+  },
+  {
+    name: 'learn',
+    tier: 'write',
+    description: prompts.tools.learn.description,
+    parameters: type({
+      lesson: type('string').atLeastLength(3).atMostLength(400).describe(prompts.tools.learn.params.lesson),
+      scope: type("'everywhere' | 'project'").describe(prompts.tools.learn.params.scope),
+      why: type('string').describe(prompts.tools.learn.params.why),
+      'skill?': type({
+        action: type("'create' | 'update'").describe(prompts.tools.learn.params.skillAction),
+        name: type('string').describe(prompts.tools.learn.params.skillName),
+        description: type('string').describe(prompts.tools.learn.params.skillDescription),
+        body: type('string').describe(prompts.tools.learn.params.skillBody),
+      }).describe(prompts.tools.learn.params.skill),
+    }),
+    async run(args, agent, host) {
+      // As omp's learn: the lesson first; a skill that cannot be proposed is reported beside it, not lost with it.
+      const lesson = await host.proposeMemory(agent, {
+        text: args.lesson,
+        kind: 'lesson',
+        scope: args.scope,
+        why: args.why,
+      })
+      if (!args.skill) return `lesson ${lesson}`
+      try {
+        return `lesson ${lesson}\nskill ${await host.proposeSkill(agent, { ...args.skill, why: args.why })}`
+      } catch (err) {
+        return `lesson ${lesson}\nskill not proposed: ${err instanceof Error ? err.message : String(err)}`
+      }
+    },
+  },
+  {
+    name: 'manage_skill',
+    tier: 'write',
+    description: prompts.tools.manage_skill.description,
+    parameters: type({
+      action: type("'create' | 'update' | 'delete'").describe(prompts.tools.manage_skill.params.action),
+      name: type('string').describe(prompts.tools.manage_skill.params.name),
+      'description?': type('string').describe(prompts.tools.manage_skill.params.description),
+      'body?': type('string').describe(prompts.tools.manage_skill.params.body),
+      why: type('string').describe(prompts.tools.manage_skill.params.why),
+    }),
+    async run(args, agent, host) {
+      return host.proposeSkill(agent, args)
     },
   },
   {
@@ -4852,10 +5078,11 @@ function harnessTools(
               }
               const preface = typeof result === 'string' ? '' : (result.preface ?? '')
               // Long pages are saved under web/ in scratch, and the browser's downloads under downloads/; reading one
-              // back is still outside content.
+              // back is still outside content. So are pull requests and issues read by internal path (pr://, issue://).
+              const readPath = String((params as { path?: unknown })?.path ?? '')
               const savedPage =
                 def.name === 'fs_read' &&
-                /(^|[\\/])(web|downloads)[\\/]/.test(String((params as { path?: unknown })?.path ?? ''))
+                (/(^|[\\/])(web|downloads)[\\/]/.test(readPath) || /^(pr|issue):\/\//.test(readPath.trim()))
               if (UNTRUSTED.has(def.name) || savedPage) {
                 const source = untrustedSource(def.name, params, output)
                 host.rememberUntrusted(agent, source, output)

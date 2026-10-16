@@ -247,7 +247,13 @@ export interface ServerSettings {
   search: { provider: string }
   /** The model generate_image uses (`provider/id`); none means the first that can. Absent from older servers. */
   images?: { model?: string }
-  models: { hidden: string[]; hiddenProviders: string[]; windows?: Record<string, number> }
+  models: {
+    hidden: string[]
+    hiddenProviders: string[]
+    windows?: Record<string, number>
+    /** Models kept for one project's folder, by ref; absent from older servers. */
+    scoped?: Record<string, string>
+  }
   /** The global level of the permission model: the default preset, rules, who can use what. */
   permissions: GlobalPermissions
   profile?: { name?: string; greeting: 'model' | 'rules'; titles?: 'model' | 'first-message' }
@@ -1533,6 +1539,7 @@ function ModelsSection(props: {
             </Card>
           )
         })}
+        <ScopedModels models={props.models} settings={props.settings} update={props.update} />
         {hiddenModels.length > 0 && (
           <Card>
             <button
@@ -2157,8 +2164,221 @@ export function Providers(props: {
         <span className="font-mono">ANTHROPIC_API_KEY</span>
         {copy.settings.providers.envAfter}
       </p>
+      {!props.embedded && <RotatingKeys providers={providers} onProviders={props.onProviders} />}
       {!props.embedded && <VoiceProviders focus={props.focusVoice ?? false} />}
     </>
+  )
+}
+
+/** One API key stored for a provider, as the server shows it: its last characters, and any rest after a 429. */
+interface StoredKey {
+  provider: string
+  id: number
+  hint: string
+  restingUntil?: string
+}
+
+/**
+ * Several API keys per provider (Settings → keys): each agent stays on one, a key that hits its quota or a 429 rests
+ * while calls move to the next (omp's rotation). Lists the stored keys by provider, adds one beside them, removes one.
+ */
+function RotatingKeys(props: { providers: ProviderInfo[]; onProviders(p: ProviderInfo[]): void }) {
+  const t = copy.settings.providers.rotation
+  const toast = useToast()
+  const [keys, setKeys] = useState<StoredKey[]>([])
+  const [adding, setAdding] = useState<string>()
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reloaded when the provider list changes (a key saved above)
+  useEffect(() => {
+    void api<{ keys: StoredKey[] }>('/api/keys')
+      .then((r) => setKeys(r.keys ?? []))
+      .catch(() => setKeys([]))
+  }, [props.providers])
+  const byProvider = new Map<string, StoredKey[]>()
+  for (const k of keys) byProvider.set(k.provider, [...(byProvider.get(k.provider) ?? []), k])
+  const change = async (
+    run: () => Promise<{ keys: StoredKey[]; providers: ProviderInfo[] }>,
+    done: string,
+  ) => {
+    try {
+      const r = await run()
+      setKeys(r.keys ?? [])
+      props.onProviders(r.providers)
+      toast(done, 'success')
+      return true
+    } catch (err) {
+      toast(String((err as Error).message), 'error')
+      return false
+    }
+  }
+  return (
+    <div {...settingRow('providers.keys')} className="mt-8">
+      <SectionHeader
+        icon={<FEATURE_ICONS.keyRotation className="size-4 text-muted" />}
+        title={t.heading}
+        note={t.note(keys.length)}
+      />
+      <p className="mb-2 text-callout text-muted">{t.intro}</p>
+      <Card>
+        {byProvider.size === 0 && <p className="px-4 py-3 text-callout text-muted">{t.empty}</p>}
+        {[...byProvider].map(([provider, list]) => (
+          <div key={provider} className="px-4 py-2.5">
+            <div className="flex items-center gap-3">
+              <ProviderLogo provider={provider} size={16} className="shrink-0" />
+              <span className="min-w-0 flex-1 font-mono text-body">{provider}</span>
+              <Button
+                size="sm"
+                variant="borderless"
+                onClick={() => setAdding(adding === provider ? undefined : provider)}
+                icon={<Plus className="size-3.5" />}
+              >
+                {t.add}
+              </Button>
+            </div>
+            {list.map((k) => (
+              <div key={k.id} className="flex items-center gap-3 py-1 pl-7">
+                <span className="min-w-0 flex-1 text-callout">
+                  <span className="font-mono">{t.key(k.hint)}</span>
+                  <span className="text-muted">
+                    {' · '}
+                    {k.restingUntil
+                      ? t.resting(
+                          new Date(k.restingUntil).toLocaleTimeString([], {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          }),
+                        )
+                      : t.ready}
+                  </span>
+                </span>
+                <ConfirmButton
+                  icon
+                  label={t.remove(k.hint)}
+                  confirm={t.confirmRemove}
+                  onConfirm={() =>
+                    void change(
+                      () => send('DELETE', `/api/keys/${encodeURIComponent(provider)}/${k.id}`),
+                      t.removed(k.hint),
+                    )
+                  }
+                />
+              </div>
+            ))}
+            {adding === provider && (
+              <KeyForm
+                provider={provider}
+                onSave={async (apiKey) => {
+                  if (
+                    await change(
+                      () => send('POST', `/api/keys/${encodeURIComponent(provider)}`, { apiKey }),
+                      t.added(provider),
+                    )
+                  )
+                    setAdding(undefined)
+                }}
+              />
+            )}
+          </div>
+        ))}
+      </Card>
+    </div>
+  )
+}
+
+/**
+ * Models kept for one project's folder (Settings → Models & providers): a model kept for a folder answers only chats
+ * in that project or one inside it; elsewhere the round is refused and fallbacks skip it (model-scopes.ts).
+ */
+function ScopedModels(props: {
+  models: ModelOption[]
+  settings: ServerSettings
+  update(p: (s: ServerSettings) => ServerSettings, immediate?: boolean): void
+}) {
+  const t = copy.settings.models.scoped
+  const toast = useToast()
+  const [projects, setProjects] = useState<{ id: string; name: string; path: string }[]>([])
+  const [model, setModel] = useState('')
+  const [folder, setFolder] = useState('')
+  useEffect(() => {
+    void api<{ projects: { id: string; name: string; path: string }[] }>('/api/projects')
+      .then((r) => setProjects(r.projects ?? []))
+      .catch(() => setProjects([]))
+  }, [])
+  const scoped = Object.entries(props.settings.models.scoped ?? {})
+  const save = (next: Record<string, string>) =>
+    props.update((s) => ({ ...s, models: { ...s.models, scoped: next } }), true)
+  return (
+    <div {...settingRow('models.scoped')} className="mt-8">
+      <SectionHeader
+        icon={<FEATURE_ICONS.scopedModels className="size-4 text-muted" />}
+        title={t.title}
+        note={t.count(scoped.length)}
+      />
+      <p className="mb-2 text-callout text-muted">{t.hint}</p>
+      <Card>
+        {scoped.length === 0 && <p className="px-4 py-3 text-callout text-muted">{t.empty}</p>}
+        {scoped.map(([ref, path]) => (
+          <div key={ref} className="flex items-center gap-3 px-4 py-2">
+            <div className="min-w-0 flex-1">
+              <div className="truncate font-mono text-body">{ref}</div>
+              <div className="truncate font-mono text-caption text-muted">{path}</div>
+            </div>
+            <Button
+              size="sm"
+              variant="borderless"
+              aria-label={t.remove(ref)}
+              onClick={() => {
+                const { [ref]: _gone, ...rest } = props.settings.models.scoped ?? {}
+                save(rest)
+                toast(t.removed(ref), 'success')
+              }}
+            >
+              <X className="size-3.5" />
+            </Button>
+          </div>
+        ))}
+        <form
+          className="flex flex-wrap gap-2 border-t border-line px-4 py-3"
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (!model || !folder) return
+            save({ ...(props.settings.models.scoped ?? {}), [model]: folder })
+            toast(t.kept(model, folder), 'success')
+            setModel('')
+            setFolder('')
+          }}
+        >
+          <Select
+            value={model}
+            onChange={(e) => setModel(e.target.value)}
+            aria-label={t.model}
+            className="min-w-0 flex-1"
+          >
+            <option value="">{t.pickModel}</option>
+            {props.models.map((m) => (
+              <option key={m.ref} value={m.ref}>
+                {m.ref}
+              </option>
+            ))}
+          </Select>
+          <Select
+            value={folder}
+            onChange={(e) => setFolder(e.target.value)}
+            aria-label={t.folder}
+            className="min-w-0 flex-1"
+          >
+            <option value="">{t.pickFolder}</option>
+            {projects.map((p) => (
+              <option key={p.id} value={p.path}>
+                {p.name}
+              </option>
+            ))}
+          </Select>
+          <Button type="submit" variant="primary" size="sm" disabled={!model || !folder}>
+            {t.add}
+          </Button>
+        </form>
+      </Card>
+    </div>
   )
 }
 

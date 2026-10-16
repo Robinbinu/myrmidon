@@ -1116,6 +1116,9 @@ export const copy = {
       summary: 'Summarized older messages to make room',
     },
     compactedTail: (messages: number, kTokens: number) => `${messages} messages, at ~${kTokens}k tokens`,
+    rewound: 'Folded its exploration into a report',
+    rewoundTail: (goal: string, dropped: number) =>
+      `${goal} · ${dropped} message${dropped === 1 ? '' : 's'} left context`,
     shakenTail: (results: number, kTokens: number) => `${results} tool outputs, at ~${kTokens}k tokens`,
     switchedTo: 'Switched to',
     switchedFrom: (model?: string) => `from ${model}, by you`,
@@ -1221,6 +1224,7 @@ export const copy = {
       'permissions/changed': 'permissions changed',
       'plugin/event': 'plugin event',
       'agent/compacted': 'context made to fit',
+      'agent/rewound': 'exploration folded into a report',
       'agent/prompt': 'prompt assembled',
       'agent/model': 'model switched',
       'agent/fallback': 'went on with a fallback model',
@@ -1231,6 +1235,9 @@ export const copy = {
       'chat/reply': 'reply',
       'chat/renamed': 'chat renamed',
       'chat/handoff': 'noted where the chat left off',
+      'chat/fresh': 'provider state reset',
+      'chat/annotated': 'note pinned to the diff',
+      'chat/unannotated': 'pinned note removed',
       'chat/allowed': 'allowed for this chat',
       'chat/permissions': 'chat permissions set',
       'chat/budget': 'chat budget set',
@@ -1715,6 +1722,13 @@ export const copy = {
         description: 'Review the changes: findings ranked P0–P3 with the line they come from, and a verdict',
         send: (arg: string) => `Use the review skill on ${arg || 'the changes on this branch'}.`,
       },
+      commit: {
+        args: '[what to leave out]',
+        description:
+          'Split the uncommitted changes into atomic commits in dependency order; you see them first, nothing is pushed',
+        send: (arg: string) =>
+          `Split the uncommitted changes into atomic commits with split_commits: check the plan first, then make the commits (I see the plan before anything is written). Do not push.${arg ? ` ${arg}` : ''}`,
+      },
       ship: {
         args: '[what to ship or skip]',
         description: 'Tests, review, version, changelog and commits, then a pull request if you ask for one',
@@ -1775,6 +1789,10 @@ export const copy = {
       },
       family: { description: 'Show the chats forked from this one, and the one it came from' },
       learn: { description: 'Learn a skill from how this chat did its work' },
+      fresh: {
+        description:
+          'Reset the model provider’s stream state (a stale prompt cache) without changing the conversation',
+      },
       rule: {
         args: '<what went wrong>',
         description: 'Turn a complaint about the last reply into a rule that stops it next time',
@@ -2253,6 +2271,11 @@ export const copy = {
     skill: {
       learned: 'Learned a skill',
       improve: 'Improve the skill',
+      retire: 'Retire the skill',
+      by: (agent: string) => `· proposed by ${agent}`,
+      retireKeep: 'Retire',
+      retired: (name: string) =>
+        `Retired ${name}: it is in the archive, and Settings → Skills can bring it back`,
       why: (why: string) => `Why: ${why}`,
       description: 'When to use it',
       instructions: 'Instructions',
@@ -2637,6 +2660,11 @@ export const copy = {
         observe: 'Look in on the crew',
         use_skill: 'Use a skill',
         find_tools: 'Find tools',
+        checkpoint: 'Mark an exploration checkpoint',
+        rewind: 'Fold exploration into a report',
+        learn: 'Capture a lesson',
+        manage_skill: 'Propose a learned skill change',
+        split_commits: 'Split changes into commits',
         read_docs: 'Read Myrmidon’s docs',
         read_log: 'Read the run’s log',
         request_review: 'Ask for a review',
@@ -3645,6 +3673,12 @@ export const copy = {
         `Proposed a skill from “${title}”: ${name}. Keep or discard it in the chat.`,
       nothingToLearn: (title: string) => `Nothing in “${title}” worth keeping as a skill.`,
       learnFailed: (title: string, reason: string) => `Couldn’t learn a skill from “${title}”: ${reason}`,
+      openChatToFresh: 'Open a chat to reset its provider state',
+      freshened: (closed: number) =>
+        closed > 0
+          ? `Fresh provider session started (${closed} provider state${closed === 1 ? '' : 's'} closed).`
+          : 'Fresh provider session started: agents use it from their next reply.',
+      freshFailed: (reason: string) => `Couldn’t reset the provider state: ${reason}`,
       skillsArchived: (names: string[]) =>
         names.length === 1
           ? `Archived the learned skill ${names[0]}: nobody used it for a while.`
@@ -3957,6 +3991,15 @@ export const copy = {
   },
 
   diffView: {
+    /** Notes pinned to lines for the next /review (after omp's /annotate). */
+    notes: {
+      pinLine: (n: number) => `Pin a note to line ${n} for the next /review`,
+      placeholder: (n: number) => `Note on line ${n}: what should the reviewers look at?`,
+      pin: 'Pin note',
+      cancel: 'Cancel',
+      pinned: 'Pinned: the next /review answers it',
+      unpin: (n: number) => `Remove the note on line ${n}`,
+    },
     /** git's status letters and what they mean. */
     status: {
       added: { label: 'A', title: 'Added' },
@@ -4412,6 +4455,21 @@ export const copy = {
       nowLeads: (model: string) => `New chats now lead with ${model}.`,
       nowNames: (model: string) => `${model} names chats now.`,
       hiddenHeading: (n: number) => `Hidden models · ${n}`,
+      /** Models kept for one project's folder (model-scopes.ts). */
+      scoped: {
+        title: 'Kept for one project',
+        hint: 'A model kept for a folder answers only chats in that project (or a project inside it), say a work account’s model for work. Elsewhere a chat on it is refused and fallbacks skip it.',
+        count: (n: number) => (n ? `${n} kept` : 'none'),
+        model: 'Model',
+        folder: 'Project folder',
+        pickModel: 'Pick a model',
+        pickFolder: 'Pick a project',
+        add: 'Keep for this folder',
+        kept: (model: string, folder: string) => `${model} is kept for ${folder}`,
+        remove: (model: string) => `Use ${model} everywhere again`,
+        removed: (model: string) => `${model} is used everywhere again`,
+        empty: 'Every model can answer any chat.',
+      },
       /** Hidden models as search names them. */
       hiddenTitle: 'Hidden models',
       restore: 'Restore',
@@ -4460,6 +4518,22 @@ export const copy = {
       import: 'Import',
       heading: 'Providers',
       readyCount: (ready: number, total: number) => `${ready} ready of ${total}`,
+      /** Several API keys per provider, rotated by omp (Settings → keys). */
+      rotation: {
+        heading: 'Keys in rotation',
+        intro:
+          'Add more than one API key for a provider and each agent stays on one key while it works; a key that hits its quota or a rate limit (429) rests for as long as the provider says, and calls move to the next.',
+        note: (keys: number) => (keys ? `${keys} stored` : 'none yet'),
+        empty: 'No API keys stored yet: add one to a provider above.',
+        key: (hint: string) => `Key ending ${hint}`,
+        resting: (time: string) => `resting until ${time}`,
+        ready: 'in rotation',
+        add: 'Add another key',
+        added: (provider: string) => `Added a key for ${provider}`,
+        remove: (hint: string) => `Remove the key ending ${hint}`,
+        confirmRemove: 'Yes, remove key',
+        removed: (hint: string) => `Removed the key ending ${hint}`,
+      },
       customEndpoint: 'Custom endpoint',
       connected: (name: string) => `Connected ${name}`,
       emptyTitle: 'No providers ready yet',

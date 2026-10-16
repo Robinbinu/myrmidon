@@ -34,7 +34,7 @@ export function effortFor(model: Model, wanted: Effort, chosen: boolean): Effort
  * answer's low level is the role's, not the person's pick.
  */
 export function agentEffort(model: Model, spec: ColonySpec, agent: AgentSpec): Effort | undefined {
-  const chosen = spec.thinking !== undefined && spec.tier !== 'answer'
+  const chosen = spec.ultrathink === true || (spec.thinking !== undefined && spec.tier !== 'answer')
   return effortFor(model, thinkingFor(spec, agent), chosen)
 }
 

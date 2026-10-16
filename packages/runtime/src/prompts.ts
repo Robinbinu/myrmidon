@@ -677,10 +677,44 @@ ${roster}`,
      */
     prewalk: (model: string) =>
       `\n\nPrewalk: you plan on this model, then hand off to ${model}, a cheaper one, which carries out your plan in this same conversation. The switch comes at your first change: a file edit or write, or creating a task. Before it, read what you need and write the whole plan as a note (append_note, section "plan"): the steps in order with the exact files, symbols and commands; the risks and edge cases; and how each step is checked.`,
+    /** The magic word ultrathink (magic-words.ts), after omp's ultrathink-notice. */
+    ultrathink: '\n\nMulti-step reasoning: think carefully through the problem before responding.',
+    /**
+     * The magic word orchestrate, after omp's orchestrate-notice: its role, rules and workflow with omp's `task`
+     * subagents as this round's crew and tasks; `tools` are the lead's own, so it is told only of what it has.
+     */
+    orchestrate: (tools: readonly string[]) => {
+      const has = (t: string) => tools.includes(t)
+      const checks = [
+        has('run_checks') && 'run_checks',
+        has('shell') && 'the tests with shell',
+        has('lsp') && 'lsp diagnostics',
+      ]
+        .filter(Boolean)
+        .join(', ')
+      return `\n\nThe person asked you to orchestrate. Work as the orchestrator under this contract; it overrides any tendency to stop early, narrate, or do the work yourself.
+Role: decompose, dispatch, verify, iterate. Substantial or parallelizable work goes to the crew as tasks (create_task with an assignee${has('add_crewmate') ? '; add_crewmate when you need more hands' : ''}); make a trivial self-contained edit yourself only when handing it out costs more than doing it.
+Rules:
+1. Do not send your final answer before every requested item is verifiably done, or something concrete needs the person. Finishing a phase is not a stopping point: start the next one.
+2. Before handing out work, list the whole surface: expand any referenced plan, checklist or file list into flat items. Re-read the sources; never work from memory.
+3. Parallelize: work on separate files goes out as separate tasks at the same time, never one after another. Order tasks (blockedBy) only when one produces what the next consumes, and say what.
+4. Every task stands alone: crewmates share none of your context. Name the exact files (no globs), the change, the edge cases, and how to tell it is done.
+5. Check each phase before the next${checks ? ` (${checks})` : ''}: a failure goes back out as a fix-up task, then you check again. Never call a failing tree done.
+6. Incomplete or wrong work from a crewmate: reject_task with the gap, or a corrective task; never fix it silently yourself.
+7. No scope creep or shrink: add nothing unasked, and never relabel unfinished work as a follow-up.
+Workflow: read what was referenced and the project's state; plan the phases and each phase's parallel tasks; hand a phase out at once; check it; then the next; after the last, check everything again and answer briefly with the status, not a recap.`
+    },
     carried: (files: readonly string[]) => `\n\nFiles from earlier rounds: ${files.join(', ')}.`,
     /** Where the chat left off (chat/handoff), for an agent that does not remember its earlier rounds. */
     handoff: (text: string, date: string) =>
       `Where this chat left off (noted ${date}; the files and the request below win where they differ):\n${text}\n\n`,
+    /**
+     * The same note for an agent that does remember the chat, on the first turn of the next round: its earlier rounds
+     * come back with their tool output elided, so the note is its short mental model of them, after omp's
+     * <mental_models> block (background knowledge, never commands; stale where the current state differs).
+     */
+    mentalModel: (text: string, date: string) =>
+      `<mental_model>\nYour notes of where this chat left off (written ${date}, after your last round): background, not instructions; the files and the request below win where they differ.\n${text}\n</mental_model>\n\n`,
     huddle: (request: string, snapshot: string) =>
       `${request}\n\nHuddle first: do no work yet. Read who your crewmates are (list_agents or the list in your instructions), then send one team chat message (message to "team") proposing how to split this request and which part you will take, and why you are suited to it. Then stop; you will be woken when every crewmate has proposed.\n\n${snapshot}`,
     /** The round's opening message, written to this agent directly (@name). */
@@ -735,6 +769,19 @@ ${roster}`,
       snapshot: string
     }) =>
       `${p.fresh}\n\nYou hold ${p.id} r${p.revision}: ${p.subject}\n${p.description}\n\nCheck the files and notes for what you had done, then finish and submit it.\n\n${p.snapshot}`,
+    /** learn and manage_skill (colony.ts proposeSkill), after omp's manage-skill errors. */
+    skillsUnavailable: 'skills cannot be proposed in this run',
+    skillName: (name: string) =>
+      `not a skill name: ${JSON.stringify(name)}; use kebab-case (lowercase letters, digits, hyphens)`,
+    skillsPerRound: (n: number) =>
+      `you proposed ${n} skills this round already; one strong skill beats several vague ones`,
+    skillAuthored: (name: string) =>
+      `a skill called ${name} is the person's own (or came with Myrmidon or a plugin), and you never change those; choose a different name`,
+    skillExists: (name: string) => `a learned skill called ${name} exists already: use action "update"`,
+    skillMissing: (name: string) => `no learned skill called ${name}: use action "create"`,
+    skillIncomplete: 'a skill needs a description (when to use it) and a body (its instructions)',
+    skillProposed: (action: 'create' | 'update' | 'delete', name: string) =>
+      `proposed ${action === 'create' ? 'the new skill' : action === 'update' ? 'the change to' : 'retiring'} ${name}; the person sees it and decides. Carry on.`,
     memoryKept: 'the person already keeps this memory',
     memoryPending: 'already proposed; the person decides',
     memoryProposed: 'proposed; the person sees it and decides whether to keep it. Carry on.',
@@ -984,6 +1031,16 @@ ${roster}`,
       `This request started in a smaller round; ${by} moved it here because: ${reason}. Its files and notes are here.`,
     /** A goal message sent to a round already running: a goal starts a round of its own. */
     goalWhileRunning: 'a goal starts its own round: wait for the running one to finish, or stop it first',
+    /** /review (code-review.ts). */
+    reviewNeedsProject: 'a review reads a project’s git repository: open the chat in a project first',
+    reviewNothing: (mode: string) => `nothing to review: ${mode} has no changes`,
+    reviewWhileRunning: 'a review starts its own round: wait for the running one to finish, or stop it first',
+    /** A model kept for one project's folder (model-scopes.ts), asked for elsewhere. */
+    modelScoped: (ref: string, folder: string) =>
+      `${ref} is kept for chats in ${folder}: pick another model for this chat, or change where it is used in Settings → Models & providers`,
+    /** /fresh, as omp words it: a reset never lands under a reply being written. */
+    freshWhileWorking:
+      'an agent is mid-reply: wait for the current step to finish, or stop the round, before refreshing provider state',
     handedBack:
       'The person handed your browser back. They may have navigated or filled things in: take a fresh browser_snapshot and continue.',
     /** A chat's company was removed while the composer still had it picked. */
@@ -1295,6 +1352,165 @@ Reply with ONLY a JSON object: {"note": null} when there is nothing to send, or 
     handoff: (date: string, text: string) => `Where it left off (noted ${date}):\n${text}`,
     notHere:
       "search_chats is not available in this round: someone other than the person wrote in it, and the person's other chats stay private.",
+  },
+
+  /**
+   * /review (code-review.ts), after omp's review-request prompt (the lead hands out the files) and its reviewer agent
+   * (prompts/agents/reviewer.md: the criteria, the cross-boundary check, P0-P3 and the finding format).
+   */
+  codeReview: {
+    /** A reviewer's standing instructions. */
+    reviewer: `You are a code reviewer. Find the bugs the author wants fixed before merge, in the files your task names.
+Procedure: read your task's files and the patch (the task says how to get it); read the full context of each modified file; report each issue as you find it.
+Read-only: you may run git diff, git log, git show and gh pr diff, and read files; never edit files, commit, or start builds.
+Report only issues that meet ALL of these: provable impact (name the affected code path, no speculation); actionable (a discrete fix, not "consider improving X"); unintentional (clearly not a deliberate design choice); introduced in the patch (never a pre-existing bug); no unstated assumptions about the codebase or the author's intent; proportionate rigor (asks no rigor absent elsewhere in the codebase).
+Cross-boundary: for every type, variant or value the patch sends across a function or module boundary (an event, message, command, enum variant, queue item, payload), find where the receiving side routes it (a switch, router, handler registry, filter chain), confirm a branch or catch-all handles it, and report a silent drop. That place is often outside the diff: read it before deciding the sending side is correct.
+Priority: P0 blocks release or operations, for any input (data corruption, auth bypass); P1 high, fix next cycle (a race under load); P2 medium, fix eventually (an edge case mishandled); P3 nice to have (suboptimal but correct).
+Each finding, in your submission: "[P<0-3>] <imperative title, at most 80 characters> (confidence <0.0-1.0>) <path>:<start>-<end>" (at most 10 lines, overlapping the patch), then one paragraph: the bug, what triggers it, its impact, in a neutral tone; a suggested replacement only when you have concrete code.
+End with your verdict: "Verdict: correct" (no bugs or blockers) or "Verdict: incorrect", a one to three sentence explanation, and "Confidence: <0.0-1.0>". Style, docs and nits never make a change incorrect.
+Every finding must be anchored in the patch and backed by evidence.`,
+    /** The lead's opening for a /review round. */
+    lead: (p: {
+      mode: string
+      diff: string
+      files: readonly { path: string; added: number; removed: number }[]
+      more: number
+      groups: readonly { reviewer: string; files: readonly string[] }[]
+      notes: readonly { path: string; line: number; text: string }[]
+    }) => {
+      const added = p.files.reduce((n, f) => n + f.added, 0)
+      const removed = p.files.reduce((n, f) => n + f.removed, 0)
+      const files = p.files.length
+        ? p.files.map((f) => `| ${f.path} | +${f.added}/-${f.removed} |`).join('\n')
+        : '(the patch names them)'
+      const groups = p.groups.length
+        ? p.groups.map((g) => `- ${g.reviewer}: ${g.files.join(', ')}`).join('\n')
+        : `- ${p.groups[0]?.reviewer ?? 'one reviewer'}: every file the patch changes`
+      const notes = p.notes.length
+        ? `\n\nThe person pinned these notes to lines of the diff; hand each to the reviewer of its file, and answer every one in your report:\n${p.notes.map((n) => `- ${n.path}:${n.line}: ${n.text}`).join('\n')}`
+        : ''
+      return `\n\nCode review request. Mode: ${p.mode}. Get the patch with: ${p.diff}.
+Changed files (${p.files.length}${p.more ? ` shown, ${p.more} more` : ''}, +${added}/-${removed} lines):
+| File | +/- |
+|---|---|
+${files}
+
+Hand the review out in parallel: create one task per reviewer below, all at once, each assigned to its reviewer, naming its files, the command for the patch, and that reviewers stay read-only. Reviewers focus only on their files.
+${groups}${notes}
+
+Do not review the files yourself meanwhile. When every reviewer has submitted, merge their findings: drop duplicates and any finding not anchored in the patch, keep each one's priority and confidence. Then send one report: the verdict first ("correct" or "incorrect", one to three sentences, and your confidence 0.0-1.0), then the findings ordered P0 to P3, each "[P<n>] title (confidence x.x) path:lines" with its paragraph.`
+    },
+  },
+
+  /** split_commits (commit-split.ts), after omp's commit workflow and its split_commit tool's messages. */
+  commitSplit: {
+    nothingChanged: 'nothing changed in the working tree: there is nothing to commit',
+    noGroups: 'the plan has no commits',
+    tooMany: (n: number) => `at most ${n} commits in one plan: merge closely related groups`,
+    emptyGroup: (n: number) => `Commit ${n}: lists no files`,
+    notChanged: (n: number, file: string) =>
+      `Commit ${n}: ${file} has no changes (use the paths git status shows, relative to the repository root)`,
+    twice: (file: string, first: number, second: number) =>
+      `File appears in multiple commits: ${file} (commits ${first} and ${second})`,
+    missing: (file: string) => `Changed file missing from the plan: ${file}`,
+    message: (n: number, error: string) => `Commit ${n}: ${error}`,
+    longBodyLine: (n: number, max: number) => `Commit ${n}: wrap body lines at ${max} characters`,
+    after: (deps: readonly number[]) => `  (after ${deps.join(', ')})`,
+    report: (p: {
+      preview: string
+      errors: readonly string[]
+      warnings: readonly string[]
+      write: boolean
+    }) =>
+      [
+        p.errors.length
+          ? `The plan is not valid yet; fix these and call split_commits again:\n${p.errors.map((e) => `- ${e}`).join('\n')}`
+          : p.write
+            ? ''
+            : 'The plan is valid. Call split_commits again with the same commits and write: true to make them (the person sees this preview first).',
+        p.warnings.length ? `Warnings:\n${p.warnings.map((w) => `- ${w}`).join('\n')}` : '',
+        `Commits, in order:\n${p.preview}`,
+      ]
+        .filter(Boolean)
+        .join('\n\n'),
+    reviewTitle: (n: number) => `Make ${n} commit${n === 1 ? '' : 's'}`,
+    reviewLabel: 'Commits, in order (nothing is pushed)',
+    written: (made: readonly string[]) =>
+      `Made ${made.length} commit${made.length === 1 ? '' : 's'} (nothing was pushed):\n${made.map((m) => `- ${m}`).join('\n')}`,
+    stopped: (made: readonly string[], why: string) =>
+      `stopped after ${made.length} commit${made.length === 1 ? '' : 's'}${made.length ? ` (${made.join('; ')})` : ''}: ${why}; the rest of the changes are left uncommitted`,
+  },
+
+  /** Internal paths in the file tools (internal-paths.ts), after omp's internal URLs and conflict-uri.ts errors. */
+  internalPaths: {
+    githubShape: 'use pr://N, pr://N/diff, pr://owner/repo/N or issue://N (issue://owner/repo/N)',
+    readOnly: (scheme: string) =>
+      `${scheme}:// is read-only; only conflict://N and conflict://* can be written`,
+    conflictShape: "use 'conflict://<N>', 'conflict://<N>/ours|theirs|base', or 'conflict://*'",
+    conflictWildcardRead:
+      'conflict://* is write-only: read conflict://<N> for one block, or read the file again for the list',
+    conflictUnknown: (id: number) =>
+      `Conflict #${id} not found. Conflict ids are registered when fs_read shows a marker block; read the file again to get a current id.`,
+    conflictScopeWrite: (id: string, scope: string) =>
+      `conflict://${id}/${scope} is read-only: write conflict://${id} with the chosen content (or @${scope} on its own line)`,
+    noBase: (id: number) =>
+      `Conflict #${id} has no base section (a 2-way merge); @base and /base need diff3 conflicts.`,
+    noConflicts: 'no conflicts are registered: fs_read the conflicted files first',
+    directiveTwice: (id: number) => `the per-id block lists conflict #${id} twice; each id may appear once`,
+    directivesMixed: (n: number, first: string) =>
+      `malformed conflict://* per-id block: ${n} line(s) are not "<id>: @side" (first: ${first.slice(0, 60)}); per-id lines take only @ours/@theirs/@base/@both, so write other content to conflict://<N> one by one`,
+    conflictsOutside: (n: number) =>
+      `\n⚠ the file has ${n} unresolved conflict${n === 1 ? '' : 's'} outside the lines shown: read the whole file to number them.`,
+    resolved: (ids: readonly number[], path: string) =>
+      `Resolved conflict${ids.length === 1 ? '' : 's'} ${ids.map((id) => `#${id}`).join(', ')} in ${path}.`,
+    unresolvedFiles: (failed: readonly string[]) =>
+      `Left untouched (re-read and retry):\n${failed.map((f) => `- ${f}`).join('\n')}`,
+    agents: (rows: readonly string[]) => `Agents in this round (read agent://<name>):\n${rows.join('\n')}`,
+    agentRow: (name: string, role: string, status: string) => `- ${name} (${role}): ${status}`,
+    noAgents: 'No agents in this round yet.',
+    agentUnknown: (name: string, names: readonly string[]) =>
+      `no agent called ${name} in this round${names.length ? `; there are ${names.join(', ')}` : ''}`,
+    agentTask: (id: string, subject: string, status: string, artifacts: readonly string[]) =>
+      `- ${id} ${subject} [${status}]${artifacts.length ? ` → ${artifacts.join(', ')}` : ''}`,
+    agentNote: (text: string) => `- ${text.length > 400 ? `${text.slice(0, 400)}…` : text}`,
+    agentMail: (to: string, subject: string, body: string) =>
+      `- to ${to}: ${subject}${body ? ` — ${body.length > 400 ? `${body.slice(0, 400)}…` : body}` : ''}`,
+    agent: (p: {
+      name: string
+      role: string
+      model: string
+      status: string
+      detail?: string
+      tasks: readonly string[]
+      notes: readonly string[]
+      sent: readonly string[]
+    }) =>
+      [
+        `${p.name} (${p.role}, ${p.model}): ${p.status}${p.detail ? ` — ${p.detail}` : ''}`,
+        p.tasks.length ? `Tasks:\n${p.tasks.join('\n')}` : 'Tasks: none',
+        p.notes.length ? `Latest notes:\n${p.notes.join('\n')}` : '',
+        p.sent.length ? `Latest messages you could see:\n${p.sent.join('\n')}` : '',
+      ]
+        .filter(Boolean)
+        .join('\n\n'),
+    skills: (rows: readonly string[]) => `Skills (read skill://<name>):\n${rows.join('\n')}`,
+  },
+
+  /** The checkpoint and rewind tools (agent.ts), after omp's checkpoint.ts and its prompts. */
+  checkpoint: {
+    started: (goal: string) =>
+      `Checkpoint: ${goal}\nFinish exploration and formulate findings, then rewind with them.`,
+    active: 'Checkpoint already active.',
+    none: 'No active checkpoint. Create a checkpoint before calling rewind.',
+    done: 'Checkpoint already completed; continue from the retained rewind report instead of calling rewind again.',
+    empty: 'Report cannot be empty.',
+    rewinding: 'Rewind requested.\nReport captured for context replacement.',
+    /** After omp's checkpoint-active-notice. */
+    remind:
+      '<system-notice>\nExploration checkpoint active.\n- MUST `rewind` with findings once exploration is done.\n- MUST `rewind` before yielding.\n</system-notice>',
+    /** After omp's rewind-report. */
+    report: (report: string) =>
+      `Checkpoint called and rewound. Report retained below. Need explore again → new \`checkpoint\`.\n\nReport:\n${report}`,
   },
 
   agent: {
@@ -3456,6 +3672,41 @@ Reply with JSON only: {"lines": ["...", "...", "..."]}.`,
       },
     },
     // After Claude Code's ToolSearch ("query forms: select:Read,Edit ... keyword search, up to max_results").
+    /** After omp's commit workflow system prompt (commit/agentic/prompts/system.md) and its split_commit tool. */
+    split_commits: {
+      description:
+        'Split the working tree into atomic commits: propose groups of changed files, each with its own message and ' +
+        'the groups it builds on; unrelated changes go in separate commits. First run git status and git diff to see ' +
+        "what changed, and git log -5 for the repository's message style. Every changed file must be in exactly one " +
+        'commit. Messages: a subject of at most 72 characters with no trailing period, in the style recent commits use; ' +
+        'no filler words (comprehensive, various, several, improved, enhanced, better) or meta phrases ("this commit", ' +
+        '"updated code"); an optional body saying why. Without write it only checks the plan and shows it; with write ' +
+        'it shows the person the plan, then commits in dependency order. It never pushes.',
+      params: {
+        commits: 'The commits to make, in any order; dependsOn orders them',
+        files: 'Changed paths in this commit, relative to the repository root as git status shows them',
+        subject: 'The commit subject line',
+        body: 'The commit body: why the change was made (optional)',
+        dependsOn: 'Indexes (0-based, into commits) of commits this one builds on; they are made first',
+        write: 'true to make the commits after the person sees the plan; omit to check the plan only',
+      },
+    },
+    /** After omp's checkpoint.md. */
+    checkpoint: {
+      description:
+        'Context checkpoint: call before exploratory work (many reads, searches, lookups), then rewind with a short ' +
+        'report, so only the report stays in your context and later steps cost less. Rules: you must rewind before ' +
+        'you send your answer or stop; never checkpoint while one is active. Flow: checkpoint(goal), explore, ' +
+        'rewind(report). Files you changed stay changed: only your context goes back.',
+      params: { goal: 'What the exploration is for' },
+    },
+    /** After omp's rewind.md. */
+    rewind: {
+      description:
+        'End the active checkpoint: your context goes back to it, and the exploration since is replaced by your report. ' +
+        'Put everything you will need in the report (findings, file paths and lines, decisions); the rest is gone.',
+      params: { report: 'Your findings: concise, specific, complete enough to carry on from' },
+    },
     find_tools: {
       description:
         'Load tools that stay unloaded until needed, so they are callable from your next step. Ask by what you need ' +
@@ -3505,7 +3756,9 @@ Reply with JSON only: {"lines": ["...", "...", "..."]}.`,
         `Write a whole file in ${place(p)}, creating folders as needed and replacing any file already there. Use it for ` +
         'new files or a full rewrite; to change part of a file, use fs_edit, which sends only the change. Write the ' +
         'complete content, never placeholders like "// rest unchanged". Prefer editing an existing file to adding a ' +
-        'new one.',
+        'new one. Path conflict://N resolves a merge-conflict block fs_read found: content replaces only the block ' +
+        '(a line @ours, @theirs, @base or @both takes that side); conflict://* resolves every one found, or each ' +
+        'listed by "N: @side" lines.',
       params: {
         path: 'File path, relative to your working directory, e.g. "src/app.ts"',
         content: 'The complete new content of the file',
@@ -3572,7 +3825,10 @@ Reply with JSON only: {"lines": ["...", "...", "..."]}.`,
         'lines you need, grep first: it gives line numbers. Besides text it reads PDF, Word, ' +
         'PowerPoint, Excel and EPUB files and Jupyter notebooks as text, images as pictures, an archive (zip, tar, 7z…) ' +
         'as the list of its files (entry reads one), and a SQLite database as its tables (sql queries it); other ' +
-        'binary files it names but does not show.',
+        'binary files it names but does not show. It also reads internal paths: pr://N (a pull request; pr://N/diff ' +
+        'its diff; pr://owner/repo/N another repo), issue://N, skill://name (skill://name/file one of its files), ' +
+        'agent://name (what a crewmate has done; agent:// lists them), and conflict://N (one merge-conflict block a ' +
+        'read found; /ours, /theirs or /base one side).',
       params: {
         path: 'File path, relative to your working directory, or absolute (~ allowed)',
         offset: 'First line to read, 1-based (default 1)',
@@ -3860,6 +4116,44 @@ Reply with JSON only: {"lines": ["...", "...", "..."]}.`,
         replaces:
           'Ids from recall of kept memories this one corrects, merges or supersedes; they are removed once the person ' +
           'keeps it. Omit for a new fact',
+      },
+    },
+    /** After omp's learn.md: a lesson to memory, and optionally a managed skill in the same call. */
+    learn: {
+      description:
+        'Capture a reusable lesson after solving something likely to pay off again: a non-obvious fix, a project ' +
+        'convention you discovered, or a workflow that worked. The lesson is proposed as a memory (kind "lesson") the ' +
+        'person keeps or discards. Add `skill` only for a repeatable procedure worth codifying as a skill (a setup ' +
+        'sequence, a debugging recipe, a project workflow), not a fact; it too waits for the person, and skills the ' +
+        'person wrote are never changed. Capture sparingly and specifically: one strong reusable lesson beats several ' +
+        'vague ones.',
+      params: {
+        lesson: 'The durable, self-contained lesson (what, when, why), in at most 400 characters',
+        scope: '"project": only chats in this project. "everywhere": cross-project lessons only',
+        why: 'Where it came from: what happened that taught it',
+        skill: "Also create or improve one of Myrmidon's learned skills with this procedure",
+        skillAction: '"create" a new learned skill, or "update" one you learned before',
+        skillName: 'kebab-case skill name (lowercase letters, digits, hyphens)',
+        skillDescription: 'One line saying when to use the skill; it drives discovery, so be specific',
+        skillBody:
+          "The skill's instructions in markdown, without front matter (it is made from the name and description)",
+      },
+    },
+    /** After omp's manage-skill.md. */
+    manage_skill: {
+      description:
+        "Create, update or retire one of Myrmidon's learned skills: SKILL.md files for repeatable procedures (a setup " +
+        'sequence, a debugging recipe, a project-specific workflow), offered as normal skills in later chats once the ' +
+        'person keeps the proposal. Skills the person wrote or installed are separate and never touched. "create" ' +
+        'fails if the skill exists; "update" replaces its description and body; "delete" retires it to the archive. ' +
+        'Every action is a proposal the person approves.',
+      params: {
+        action: '"create", "update" or "delete"',
+        name: 'kebab-case skill name (lowercase letters, digits, hyphens)',
+        description:
+          'One line saying when to use the skill; specific, it drives discovery. Not needed for delete',
+        body: 'The instructions in markdown, without front matter. Not needed for delete',
+        why: 'Why it is worth keeping, changing or retiring',
       },
     },
     // Shaped like remember: a proposal the person keeps or discards, never a change made by the agent itself.

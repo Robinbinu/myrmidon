@@ -1,6 +1,6 @@
 import { PROBE_FRESH_MS } from './config.ts'
 import type { StreamFn } from './omp/agent-core.ts'
-import { completeSimple, getEnvApiKey, type Model } from './omp/ai.ts'
+import { type ApiKey, completeSimple, getEnvApiKey, type Model } from './omp/ai.ts'
 import { getBundledModel, getBundledProviders } from './omp/catalog.ts'
 import type { OmpRuntime } from './omp/runtime.ts'
 import { prompts } from './prompts.ts'
@@ -62,6 +62,15 @@ export class ModelResolver {
   async apiKey(model: Model): Promise<string | undefined> {
     if (model.api === 'mock') return 'mock'
     return (await this.omp?.apiKey(model as never)) ?? getEnvApiKey(model.provider)
+  }
+
+  /**
+   * The key one agent's model calls send (`session` names the agent): several keys of a provider rotate with omp's
+   * session affinity and per-key rest after a quota or 429 (OmpRuntime.requestKey); otherwise as apiKey.
+   */
+  async requestKey(model: Model, session: string): Promise<ApiKey | undefined> {
+    if (model.api === 'mock') return 'mock'
+    return (await this.omp?.requestKey?.(model as never, session)) ?? this.apiKey(model)
   }
 
   /** When each model last answered a probe, so a chat does not pay a model round-trip on every message. */

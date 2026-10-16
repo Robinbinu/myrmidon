@@ -7,7 +7,7 @@ import { copy } from '../copy.ts'
 import { Button } from '../ui/primitives.tsx'
 import { Sheet } from '../ui/Sheet.tsx'
 import { useToast } from '../ui/Toast.tsx'
-import { type DiffFile, DiffView } from './DiffView.tsx'
+import { type DiffFile, type DiffNotes, DiffView } from './DiffView.tsx'
 import { useOpenProjectFile } from './ProjectFiles.tsx'
 
 interface Changes {
@@ -46,6 +46,27 @@ export function RoundChanges(props: {
   const rewound = restored !== undefined && restored.commit === checkpoints.start
   const key = `${checkpoints.end ?? ''}:${restored?.time ?? ''}`
   const query = props.round === undefined ? '' : `?round=${props.round}`
+  // Notes the person pins to lines here go to the chat's next /review (after omp's /annotate).
+  const chatId = state.chat?.chatId
+  const notes: DiffNotes = {
+    list: Object.values(state.annotations ?? {}),
+    pin: async (path, line, text) => {
+      try {
+        await send('POST', `/api/chats/${chatId}/annotations`, { path, line, text })
+        toast(copy.diffView.notes.pinned, 'success')
+      } catch (err) {
+        toast(String((err as Error).message), 'error')
+        throw err
+      }
+    },
+    unpin: async (id) => {
+      try {
+        await send('DELETE', `/api/chats/${chatId}/annotations/${encodeURIComponent(id)}`)
+      } catch (err) {
+        toast(String((err as Error).message), 'error')
+      }
+    },
+  }
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: refetch when the round ends or is rewound (`key`), or on Retry
   useEffect(() => {
@@ -158,6 +179,7 @@ export function RoundChanges(props: {
             patch={changes.patch}
             truncated={changes.truncated}
             {...(openFile ? { onOpen: openFile } : {})}
+            {...(chatId ? { notes } : {})}
           />
         </div>
       )}

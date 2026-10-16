@@ -25,6 +25,10 @@ export interface SkillProposal {
   readonly why: string
   /** Set when this changes a learned skill: what it says now. */
   readonly update?: { readonly description: string; readonly body: string }
+  /** Set when this retires a learned skill (manage_skill delete): keeping it moves the skill to the archive. */
+  readonly remove?: true
+  /** The agent that proposed it (learn, manage_skill); absent for the reviewer's proposals. */
+  readonly by?: string
   readonly colonyId: string
   readonly chatId?: string
   readonly createdAt: string

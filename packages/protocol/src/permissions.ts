@@ -80,6 +80,8 @@ export const ACCESS_GROUPS: Readonly<Record<AccessGroup, readonly string[]>> = {
     'stop_server',
     'create_tool',
     'github',
+    // Commits the working tree with git, after a preview.
+    'split_commits',
   ],
   web: ['web_search', 'web_fetch'],
   // browser_debug also needs the shell group: it is for agents that build and test code.

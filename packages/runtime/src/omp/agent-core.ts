@@ -6,6 +6,7 @@ export {
   type AgentState,
   type AgentTool,
   type AgentToolResult,
+  type AgentTurnEndContext,
   applyShakeRegions,
   type CompactionSettings,
   calculateContextTokens,

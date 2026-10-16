@@ -193,6 +193,8 @@ export const SKILL_REVIEW_CALLS = 20
 /** How much of a round the skill reviewer reads, and how long it may take. */
 export const SKILL_DIGEST_CHARS = 30_000
 export const SKILL_REVIEW_MS = 90_000
+/** The most skills one agent may propose in a round with learn and manage_skill (omp: one strong lesson over several). */
+export const SKILL_PROPOSALS_PER_ROUND = 3
 /** omp's window for a model it found but knows nothing about; treated as unknown since it is often wrong. */
 export const OMP_UNKNOWN = 128_000
 /** models.dev's catalog of model context windows, and how often the cached copy is refreshed (a day). */
@@ -382,6 +384,23 @@ export const FIND = {
  * The github tool (github.ts), which runs the GitHub CLI where the agent's commands run. Bounds on how long one `gh`
  * call and one run_watch may take, and how often run_watch asks: GitHub's API allows 5,000 calls an hour per person.
  */
+/**
+ * Splitting the working tree into commits (commit-split.ts), after omp's commit workflow: at most `maxCommits` in one
+ * plan, a subject of at most `subjectMaxChars` (omp's SUMMARY_MAX_CHARS), and body lines past `bodyLineMaxChars`
+ * warned about.
+ */
+/**
+ * /review (code-review.ts), after omp's: reviewers in parallel, one per group of files, at most `maxReviewers`, about
+ * `filesPerReviewer` files each; the lead is told the files and line counts of at most `listedFiles` files, and a new
+ * file's lines are counted only up to `countBytes`.
+ */
+export const CODE_REVIEW = {
+  maxReviewers: 4,
+  filesPerReviewer: 6,
+  listedFiles: 80,
+  countBytes: 1_000_000,
+} as const
+export const COMMIT_SPLIT = { maxCommits: 12, subjectMaxChars: 72, bodyLineMaxChars: 100 } as const
 export const GITHUB = {
   commandMs: 60_000,
   watchMs: 10 * 60_000,
@@ -975,6 +994,11 @@ export const HANDOFF = {
   maxChars: 1_500,
   digestChars: 12_000,
 } as const
+/**
+ * The magic word orchestrate (magic-words.ts): the crew its lead may reach at least, the person's roster counted, so it
+ * has hands to work in parallel with.
+ */
+export const ORCHESTRATE = { workers: 3 } as const
 /**
  * Project summaries (memory-summary.ts), after omp hindsight's mental models (project-conventions 800 tokens): built
  * only from a project's kept memories, at most `maxChars`, and only once it has more kept memories than a prompt

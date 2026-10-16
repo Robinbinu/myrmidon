@@ -96,6 +96,13 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
     }),
   ),
   {
+    name: 'commit',
+    args: copy.commands.list.commit.args,
+    description: copy.commands.list.commit.description,
+    group: 'Workflows',
+    workflow: copy.commands.list.commit.send,
+  },
+  {
     name: 'model',
     args: copy.commands.list.model.args,
     description: copy.commands.list.model.description,
@@ -175,6 +182,7 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
   },
   { name: 'family', description: copy.commands.list.family.description, group: 'Chat', when: 'chat' },
   { name: 'learn', description: copy.commands.list.learn.description, group: 'Chat', when: 'chat' },
+  { name: 'fresh', description: copy.commands.list.fresh.description, group: 'Chat', when: 'chat' },
   {
     name: 'rule',
     args: copy.commands.list.rule.args,
