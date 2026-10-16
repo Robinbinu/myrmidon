@@ -40,6 +40,7 @@ import {
   SSH,
   TTS_MAX_CHARS,
   VOICE_GREETING_WORDS,
+  WORKFLOW_SKILLS,
 } from './config.ts'
 import { EMBEDDED_SHELL_NAME, type ShellSyntax } from './shell.ts'
 import type { WorkKind } from './verifier.ts'
@@ -1241,6 +1242,337 @@ Reply with JSON only. Nothing worth keeping: {"skip": true}. Otherwise:
       ]
         .filter(Boolean)
         .join('\n\n'),
+  },
+
+  /**
+   * The skills Myrmidon comes with (skills.ts `writeBuiltinSkills`), offered like any other skill and run by the slash
+   * commands of the same name. Engineered from gstack's skills (github.com/garrytan/gstack at 47d639ab, MIT; NOTICE):
+   * /review's two-pass checklist, sideways sweep, forced-critical classes, pre-emit quote gate, confidence display rules,
+   * suppressions and Fix-First heuristic; /ship's pipeline, CHANGELOG cross-check and its iron law of fresh verification
+   * evidence; /qa's charters written before probing, contract map and evidence per probe; /investigate's iron law,
+   * scope lock, 3-strike rule, blast-radius question and debug report; /retro's midnight-aligned windows and metrics.
+   * gstack's own state files, helper scripts, browser daemon and outside-model calls are left out. Finding shape and
+   * priorities after omp's reviewer agent (P0-P3, provable impact, the consumer-side dispatch check), and the
+   * "concrete scenario in which the code misbehaves" after Claude Code's /code-review. Each body ends with an exact
+   * report shape, so the person (and the tests) can read the result the same way every time.
+   */
+  builtinSkills: {
+    review: {
+      description:
+        'Code review of changes before they land: reads the whole diff against the base branch, hunts for the bugs tests miss, ranks each finding P0-P3 with a confidence and the quoted line, and ends with a verdict: SHIP, FIX FIRST or BLOCK. Use for "review this", "check my diff", "is this ready to merge", or before shipping.',
+      body: `# Review: find what breaks before it lands
+
+Review the target for real defects a careful senior engineer would stop at. Report-only: change nothing while you review.
+
+## 1. Scope
+- Target: what the person named (a branch, a commit range, a pull request number, some files). Otherwise: the commits on this branch that are not on the base, plus uncommitted and untracked changes.
+- Base: the repository's default branch (\`git symbolic-ref --short refs/remotes/origin/HEAD\`, else whichever of main, master, develop exists).
+- Gather: \`git status --short\`, \`git log --oneline <base>..HEAD\`, \`git diff --stat <base>...HEAD\`, \`git diff <base>...HEAD\`, \`git diff HEAD\` for uncommitted work, and \`git ls-files --others --exclude-standard\` for new files (read them).
+- Nothing to review: reply "Nothing to review: no changes against <base>." and stop.
+- Read the WHOLE diff before writing any finding, then each changed file around its hunks, then the callers and consumers of anything whose contract changed. Never flag what the diff already handles.
+
+## 2. Pass 1: critical
+- Data safety: values interpolated into SQL or shell; check-then-set that should be atomic; writes that skip validation; migrations that lose or lock data.
+- Concurrency: read-check-write or find-or-create without a unique constraint; status changes that are not atomic; shared state touched from several tasks without a guard.
+- Trust boundaries: model output, user input or fetched content used unchecked in SQL, shell, HTML, file paths, URLs that get fetched (SSRF) or eval; secrets written to logs, errors or responses.
+- New values: a new enum value, status, type, flag or wider accepted input. Find every consumer that switches on, filters by or displays its siblings (grep the sibling values, then READ each match, also outside the diff) and flag each one that mishandles it. Check the consumer's dispatch point: an unmatched case that silently returns is a defect.
+- Removed behavior: guards, validation, error handling or cleanup the diff deletes; callers broken by a changed signature or return shape.
+- Gate integrity: any test, assertion, threshold, timeout, retry count, lint rule, type check, CI step or snapshot the diff removes, skips, loosens or regenerates, including a test the diff adds already skipped. Ask of each: does this silence the failure it was there to catch, or does something visible in this diff justify it? Every unjustified one is a finding, and it is the person's call, never yours to fix.
+
+## 3. Pass 2: informational
+Dropped or swallowed errors; null and empty paths; off-by-one; a missing await; time zones and day windows; numbers and strings crossing a boundary as the other type; a prompt that names tools or fields the code does not wire up; docs, CHANGELOG or version that now contradict the code; new branches with no test; dead code the diff adds.
+
+## 4. Sideways sweep (every finding)
+- A finding is a class of defect, not one line: grep the same pattern at the other entry points, commands, handlers and call sites, read each match, rate the finding on its worst instance and list the others under it.
+- Always P0, whatever else applies: data loss, an auth, permission, sandbox or tenancy check bypassed, a secret exposed, and spending or retrying with no cap.
+
+## 5. Evidence and confidence
+- Before a finding goes in the report, quote its line: path:line and the exact text. Cannot quote it? It is unverified: confidence 5 or less.
+- Confidence 1-10: 9-10 the code shows a concrete bug; 7-8 a strong pattern match; 5-6 might be a false positive (say "verify"); 3-4 goes under Low confidence only; 1-2 only for a suspected release-blocking catastrophe, labelled speculative.
+- Every finding names a concrete scenario in which the code misbehaves: the input or sequence, and what goes wrong.
+- If the project's checks are quick (run_checks, or the test command its instructions document), run them once; a failure this change causes is a finding.
+- Priorities: P0 blocks release (data loss, security, a crash on a main path); P1 fix before merging (wrong behavior a user will hit); P2 fix soon (an edge case); P3 nice to have.
+
+## 6. Do not flag
+Style and naming; harmless redundancy; "add a comment" or "extract a constant"; "could be tighter" on an assertion that covers the behavior; edge cases the inputs cannot reach; error handling the caller or framework already owns; length of a switch, table, config or generated file; null checks already narrowed in scope; hardcoded values in tests and examples; non-security randomness; anything that was already wrong before this change. Zero findings is a valid result.
+
+## 7. Bigger changes
+At ${WORKFLOW_SKILLS.freshEyesLines} or more changed lines, if you can ask a crewmate (ask_crewmate or add_crewmate), give one a fresh-context pass on the riskiest area (security, data or tests): the diff range, the files, and sections 2-6 of this skill. Merge what it finds into yours, drop duplicates, and keep only findings whose line it quoted.
+
+## 8. Fixing
+Only if the person asked you to fix: after the report, apply the mechanical fixes a senior engineer would make without discussion (dead code, a stale comment, a missing validation, a version or path mismatch), one line each as "Fixed path:line: problem -> change". Ask before anything else: security, races, design choices, removed functionality, user-visible behavior, fixes over 20 lines, and every gate finding. Re-review what your fixes touched; stop after ${WORKFLOW_SKILLS.fixCycles} rounds and say what is left. Never commit, push or open a pull request here: that is the ship skill's job.
+
+## 9. Report
+Reply with exactly this shape and nothing before or after it, terse: one line per problem, one per scenario, one per fix.
+
+\`\`\`
+Review: <target> against <base>: <files> files, +<added>/-<removed>
+Verdict: SHIP | FIX FIRST | BLOCK: <one sentence why>
+
+Findings (<count>, most serious first):
+1. [P1] (confidence 8/10) path/to/file.ts:42: <the problem>
+   Scenario: <the input or sequence, and what goes wrong>
+   Fix: <the change>
+Gate changes: none | <each weakened test, threshold or skip, with path:line and whether this diff justifies it>
+Checks: <what you ran and the result> | not run: <why>
+Not covered: <what you did not review or could not verify> | nothing
+Low confidence (not counted): <one line each> | none
+\`\`\`
+
+Verdict: BLOCK if any P0; FIX FIRST if any P1 or an unjustified gate change; otherwise SHIP (P2 and P3 may stay open). With no findings write "Findings: none" and SHIP.`,
+    },
+    ship: {
+      description:
+        'Ship a finished branch: checks it is not the default branch, runs the tests, reviews the diff (the review skill), bumps the version and writes the CHANGELOG entry the way the project does it, commits in bisectable chunks, re-verifies, then pushes and opens a pull request when the person asked for one. Ends with a ship report: SHIPPED, READY or BLOCKED. Use for "ship this", "get this ready to merge", "open a PR".',
+      body: `# Ship: from finished work to a reviewable pull request
+
+Iron law: no "ready" or "shipped" without fresh verification evidence: the tests run after the last change, their output read. Routine steps need no confirmation (including uncommitted work, drafting the CHANGELOG, a patch-level bump, splitting commits); the stops below always do.
+
+## 1. Pre-flight
+- Branch: \`git branch --show-current\`. On the default branch (main, master, or what origin/HEAD names) STOP: "Ship from a feature branch." Offer to create one; never commit or push to the default branch.
+- \`git status --short\`: uncommitted changes are part of this ship. Leave alone files that are plainly not part of this work (someone else's edits, local config) and list them in the report.
+- Base: the default branch. If there is a remote, \`git fetch origin <base>\`; say how far behind the base this branch is. Merge the base only if the person asked, or if the tests cannot run without it; never rebase or rewrite history.
+- \`git log --oneline <base>..HEAD\` and \`git diff --stat <base>...HEAD\`: what ships.
+
+## 2. Tests
+- The command: the project's instructions (AGENTS.md, CLAUDE.md, CONTRIBUTING, README) first, then run_checks if you have it, then the declared scripts (package.json "test", a Makefile test target, the ecosystem's runner). Never install a new test framework, and never guess-run a runner the project does not use.
+- Run them. A failure this branch causes: fix it if the cause is plain and the fix small, then rerun; otherwise STOP and report the failing output. A failure that also happens on the base branch is pre-existing: say so and ask whether to ship anyway.
+- No tests at all: say so in the report; do not invent coverage.
+
+## 3. Review
+- Load the review skill (use_skill "review") and run it on <base>...HEAD plus the uncommitted work.
+- P0: STOP. P1: fix it (mechanical) or ask. A gate change (a weakened test, threshold or skip): ask; never decide it yourself.
+- Note the commit you reviewed. Any later edit (your fixes included) means reviewing the changed hunks again before step 8.
+
+## 4. Version
+- Follow the project's convention, read from its history (\`git log -p --follow\` on the version file): if feature branches never touch the version, leave it.
+- Otherwise bump the version file the project uses (VERSION, package.json, Cargo.toml, pyproject.toml...) and every file that repeats it: patch for fixes and small changes; minor for a new user-facing capability; major only after the person says yes. A version already bumped on this branch stays as it is.
+
+## 5. CHANGELOG
+- Only if the project keeps one; never create one unasked.
+- List every commit on the branch, read the full diff, group the changes by theme, then write one entry in the file's own format and place (an Unreleased section if it keeps one, else the new version and today's date): Added, Changed, Fixed, Removed.
+- Voice: what a user can now do, in plain words, not implementation detail.
+- Cross-check against the commit list: every user-facing change appears; merges, bumps and fixes to work made earlier on this branch need no line.
+
+## 6. Docs
+Read the README and the docs the change touches. Behavior they describe that changed: update them, or list the gap in the report.
+
+## 7. Commits
+- Match the repository's commit style. Group each change with its tests; dependencies first; version and CHANGELOG last. Every commit must build on its own. A small change (under 50 lines in fewer than 4 files) may be one commit.
+- Stage files by path; never \`git add -A\` or \`git add .\`. Before each commit read \`git diff --cached\`: no secrets, .env files, keys or large generated files.
+
+## 8. Verify
+Run the tests again on the final tree (and the review again if anything changed since step 3). Content changed during verification: verify again. Paste the counts in the report.
+
+## 9. Push and pull request (only when the person asked for them)
+- Never push to the default branch, never force-push. \`git push -u origin <branch>\`; if it fails, STOP and report the error.
+- Already pushed and up to date, or a pull request already open: do not make a second; update the existing one's description if it is stale.
+- Pull request (the github tool or \`gh pr create\`): title in the repository's style; body with Summary, Changes, Tests (the command and result), Review (verdict and anything left open), Risks, and the CHANGELOG entry.
+
+## 10. Report
+Reply with exactly this shape and nothing before or after it:
+
+\`\`\`
+Ship: <branch> -> <base>
+Status: SHIPPED | READY | BLOCKED: <one sentence why>
+Tests: <command>: <result, counts> (run after the last change) | none: <why>
+Review: <verdict>; open: <P0/P1 count, gate changes>
+Version: <old> -> <new> | unchanged: <why>
+Changelog: <where the entry went> | none: <why>
+Commits: <hash subject, one per line> | none
+Pushed: <remote/branch> | not pushed: <why>
+Pull request: <url> | not opened: <why>
+Left for you: <decisions or steps only the person can take> | nothing
+\`\`\`
+
+SHIPPED: pushed and the pull request is open. READY: every local gate passes, nothing pushed (the person did not ask, or push needs them). BLOCKED: a stop above holds; say which and what clears it.`,
+    },
+    qa: {
+      description:
+        'QA a change or a target (a CLI, an API, a job or worker, a library): writes test charters before probing, exercises success, bad input, exit codes, state changes, retries, duplicates and cancellation in an isolated fixture, and reports every contract as pass, fail, blocked or not run with the exact command and output. Report-only unless the person asks for fixes. Use for "QA this", "test this change", "find bugs in", "does this really work".',
+      body: `# QA: does it really work?
+
+Exercise the real thing the way its users will, keep the evidence, and report what holds and what does not. Report-only by default: change no product code or tests unless the person asked you to fix (section 6).
+
+## 1. Target and surface
+- Target: what the person named (a command, an endpoint, a job, a module, a page). On a feature branch with no target: the behavior the diff against the base branch changes, and what sits next to it.
+- Surface: CLI, HTTP API, job or worker, webhook, library, or a page in a browser. Pages: use your browser tools if you have them and keep the same evidence (URL, action, what you saw, console errors); without them, say the page is not covered.
+- Use the project's own documented commands and tools; never install a new framework or harness to test with.
+
+## 2. Isolation
+- Work in a scratch or fixture copy: temporary folders, a throwaway database, synthetic data and identities. Never real accounts, customer data or production services.
+- Anything with an effect outside the fixture (sending, paying, publishing, calling a third-party service): ask first, or leave it as not run.
+
+## 3. Charters before probes
+Before the first probe, write the charters in your notes: for each contract, the source (docs, tests, the request, the code), the expected result, the risk, the entry point and when you stop. Do not write the plan after the fact.
+
+Contracts to consider (only those that apply):
+- Success: the right output AND the final effect (a file written, a row changed), not just that it started.
+- Bad or missing input: the declared rejection, the right status or exit code, and no state change.
+- Auth: valid, missing, invalid and wrong-owner identities.
+- CLI: exit code, stdout and stderr separately, files left behind.
+- State: initial, intermediate and final states; only allowed transitions.
+- Timeout and cancellation: partial state, cleanup, recovery.
+- Retry: the promised attempts and backoff, and no endless retry.
+- Duplicates: the same request or event twice; how many effects result.
+- Order and concurrency: two competing operations in both orders; the invariant after.
+- Partial failure: interrupt after an effect, restart, and look for duplicates or loss.
+
+## 4. Probe
+- One probe at a time. Each result decides the next probe: note what it taught you before running another. Exploring is learning from results, not running random commands.
+- For every probe keep: the exact command or request, the setup, the expected result and its source, exit code or status, stdout and stderr, and the state before and after.
+- Outcomes: pass, fail, blocked (a prerequisite is missing), not run, inconclusive. An unavailable service is a blocker, not a product bug; a missing prerequisite is never a pass.
+
+## 5. Findings
+A finding is a reproduced defect against the intended contract (not merely what the code does today). It needs the exact reproduction, what was expected and why, and what was observed. Rank: P0 data loss, security, or the main path broken; P1 wrong behavior a user will hit; P2 an edge case; P3 polish. For each, propose the regression test that would catch it.
+
+## 6. Fixing (only when asked)
+Per finding: write the regression test first and run it to see it fail for this defect; fix the root cause with the smallest change; run the test, the original probe and the neighbouring happy path to see them pass. A proof you cannot run is a coverage gap: never claim the repair. Stop after ${WORKFLOW_SKILLS.fixCycles} fix rounds. Commit nothing unless asked.
+
+## 7. Report
+Reply with exactly this shape and nothing before or after it:
+
+\`\`\`
+QA: <target> (<surface>): <N> contracts: <pass> pass, <fail> fail, <blocked> blocked, <not run> not run
+Health: GOOD | ISSUES | BROKEN: <one sentence>
+
+Contracts:
+| Contract (source) | Probe | Expected -> observed | Outcome |
+|---|---|---|---|
+
+Findings (<count>, most serious first):
+ISSUE-001 [P1] <title>
+  Repro: <working folder, setup, exact command or request>
+  Expected: <behavior and its source>  Observed: <exit/status, output, state>
+  Regression test: <proposed or written test, and its path>
+Fixed: <ISSUE ids with test and fix paths> | nothing (report-only)
+Not covered: <charters not run, blockers, remaining risk> | nothing
+Cleanup: <what was removed, anything left behind>
+\`\`\`
+
+Health: BROKEN if any P0 or the main path fails; ISSUES if any other finding; GOOD otherwise. With no findings write "Findings: none".`,
+    },
+    investigate: {
+      description:
+        'Root-cause debugging: collects the symptoms, reads the code path, checks recent changes, reproduces the bug, tests one hypothesis at a time, and only then fixes the cause with a regression test; stops after three failed hypotheses. Ends with a debug report (DONE, DONE_WITH_CONCERNS or BLOCKED). Use for "debug this", "why is this broken", "it worked yesterday", errors, stack traces and failing tests.',
+      body: `# Investigate: no fixes without the root cause
+
+Iron law: NO FIX BEFORE THE ROOT CAUSE IS FOUND. A fix for a symptom makes the next bug harder to find.
+
+## 1. Investigate
+1. Symptoms: read the error, the stack trace and the steps that cause it. Missing something only the person knows? Ask one question (ask_user) and stop.
+2. Code path: trace from the symptom back towards its causes, reading the code, not guessing from names. Two paths that look identical usually differ in a caller's guard, transaction or scope: read the call sites before calling them duplicates.
+3. Recent changes: \`git log --oneline -20 -- <affected files>\`. It worked before? Then the cause is most likely in what changed since (\`git diff <good>..<bad>\`; \`git bisect\` when the range is long and a check is scriptable).
+4. Reproduce: make it happen on demand, with a command or a failing test. Cannot reproduce? Gather more evidence before going on.
+5. Write down: "Root cause hypothesis: <a specific, testable claim about what is wrong and why>".
+
+## 2. Scope lock
+Name the narrowest folder that holds the affected code and tell the person: edits stay inside it unless the evidence leads out. If the bug spans the project, say why there is no lock.
+
+## 3. Patterns worth checking
+| Pattern | Signature | Look at |
+|---|---|---|
+| Race | intermittent, timing-dependent | shared state touched concurrently |
+| Null propagation | TypeError, undefined is not... | optional values without a guard |
+| State corruption | inconsistent or partial data | transactions, callbacks, hooks |
+| Integration | timeout, unexpected response | external calls, service boundaries |
+| Configuration drift | works here, fails there | environment variables, flags, versions |
+| Stale cache | old data until a clear | caches, build output, lockfiles |
+| Order dependence | passes alone, fails in the suite | shared fixtures, global state, test order |
+
+A bug that keeps coming back to the same files is an architecture smell, not bad luck. A rerun, a wider timeout or a skip is never a hypothesis.
+
+## 4. Test the hypothesis
+1. Before any fix, confirm it: a temporary log line, assertion or probe at the suspected cause; run the reproduction; does the evidence match?
+2. Wrong? Remove the probe, go back to section 1 with what you learned, and form the next hypothesis. Search the web for the generic error (never paste private names, paths, hosts or data into a search) when it may be a known issue.
+3. After ${WORKFLOW_SKILLS.hypotheses} failed hypotheses STOP and ask the person (ask_user): continue with a new hypothesis (say which), hand it to someone who knows the system, or add logging and catch it next time.
+
+Red flags: "a quick fix for now"; a fix proposed before the data flow is traced; each fix revealing a new problem elsewhere (wrong layer, not wrong line).
+
+## 5. Fix
+1. Fix the root cause with the smallest change: fewest files, fewest lines; no refactoring next door.
+2. A regression test that fails without the fix and passes with it (run both ways).
+3. Run the project's tests (run_checks, or its documented command) and read the result: no new failures.
+4. The fix touches more than ${WORKFLOW_SKILLS.blastRadiusFiles} files? Ask first (ask_user): proceed, split it (the critical path now, the rest later), or rethink.
+5. Remove every temporary probe.
+
+## 6. Verify and report
+Reproduce the original scenario and see it fixed: not optional. Never say "this should fix it". Reply with exactly this shape and nothing before or after it:
+
+\`\`\`
+Debug report
+Symptom: <what was observed>
+Root cause: <what was actually wrong, path:line>
+Fix: <what changed, path:line> | none
+Evidence: <the reproduction before and after; the test output>
+Regression test: <path:line> | none: <why>
+Hypotheses tested: <n>: <one line each, confirmed or ruled out>
+Related: <earlier bugs in the same place, follow-ups> | none
+Status: DONE | DONE_WITH_CONCERNS | BLOCKED
+\`\`\`
+
+DONE: root cause found, fixed, regression test written, tests pass. DONE_WITH_CONCERNS: fixed but not fully verifiable (intermittent, needs another environment); say what is unverified. BLOCKED: root cause still unclear; say what was ruled out and what would settle it.`,
+    },
+    retro: {
+      description:
+        'Engineering retrospective from the git history: commits, contributors, lines and test share, work sessions, commit types and fix ratio, hotspots, the biggest ship, per-person praise and one growth point each, and three things to improve, all tied to real commits. Read-only. Takes a window (24h, 7d, 14d, 30d) or "compare". Use for "retro", "what did we ship this week", "how did the week go".',
+      body: `# Retro: what shipped, and what to do better
+
+Read-only: change, write and commit nothing in the project. Everything goes in your reply.
+
+## 1. Window
+- The argument: a number with h, d or w (24h, 7d, 2w), "compare" (this window against the one before it, same length), or nothing (${WORKFLOW_SKILLS.retroDays}d). Anything else: show "Usage: retro [24h | 7d | 14d | 30d | compare [window]]" and stop.
+- Today is the date your instructions give, not the shell's clock. Day and week windows start at local midnight: for 7d on 2026-03-18, \`--since "2026-03-11T00:00:00"\` (without the time, git starts at the current hour). Hours: \`--since "24 hours ago"\`.
+- Ref: the default branch on the remote when there is one (\`git fetch origin <default> --quiet\`), else the local default branch; say which. If the newest commit on it is older than the window's start, say the window is empty or the ref is stale and stop.
+
+## 2. Gather
+\`git log <ref> --since=<start> [--until=<end>] --no-merges --date=iso-local --format='%H|%an|%ad|%s' --numstat\`, plus \`git log <ref> --since=<start> --merges --oneline\` for merged pull requests, and the commit bodies for Co-Authored-By trailers. If the github tool or gh works, list pull requests merged in the window. Read the CHANGELOG lines added in the window.
+
+## 3. Compute (from the output, never invented)
+- Commits, contributors, merged pull requests (or "referenced" when only commit messages name them), insertions, deletions, net.
+- Test share: lines added under test paths (test/, tests/, spec/, __tests__/, *.test.*, *.spec.*, *_test.*) over all lines added.
+- Sessions: commits less than ${WORKFLOW_SKILLS.sessionGapMinutes} minutes apart belong to one session; count deep (50+ min), medium (20-50) and micro (under 20); active time; peak hours.
+- Commit types from conventional prefixes or the subject's first word (feat, fix, refactor, test, docs, chore); a fix share over 50% says review is catching too little before merge.
+- Hotspots: the 10 most-changed files; files changed 5+ times are churn.
+- Focus: the share of file changes in the busiest top-level folder.
+- Ship of the window: the biggest user-visible change (commit or pull request) and why it matters.
+- Per author: commits, lines, test share, main areas, biggest commit. Commits with an AI co-author trailer are counted as AI-assisted, never as a team member.
+- compare: the same numbers for the previous window; show deltas (percentage points for ratios; N/A where the earlier value is 0).
+
+## 4. Tone
+Candid and specific; anchor every claim in a commit. Praise only what is earned and say exactly what was good. Growth points are investments ("worth your time because..."), never blame, and never compare people against each other. A section with nothing to say is cut, not padded. One contributor: skip the team section, it is personal.
+
+## 5. Report
+Reply with exactly this shape and nothing before or after it (fill only what the data supports):
+
+\`\`\`
+Retro: <repo> <start> to <end> (<window>, ref <ref>)
+Summary: <one tweetable line: commits, contributors, lines, test share, the headline>
+
+| Metric | Value |
+|---|---|
+| Commits | n |
+| Contributors | n |
+| Pull requests merged | n |
+| Lines +/- (net) | +a/-d (n) |
+| Test share | n% |
+| Sessions (deep/medium/micro) | n (d/m/u) |
+| Fix share | n% |
+| Focus | n% in <folder> |
+
+Shipped: <user-visible changes, each with its commit or pull request>
+Ship of the window: <what, why it matters>
+Hotspots: <file (changes)>, ...
+People: <name: what they worked on; praise; one growth point> (team repos only)
+Trends: <deltas vs the previous window> (compare only)
+Three things to improve:
+1. <specific, tied to the data>
+2. ...
+3. ...
+\`\`\`
+
+No commits in the window: say so and suggest a longer one.`,
+    },
   },
 
   /**

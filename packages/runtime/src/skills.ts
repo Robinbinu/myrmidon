@@ -12,6 +12,7 @@ import {
 import { homedir } from 'node:os'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import {
+  BUILTIN_SKILLS_DIR,
   SKILL_ARCHIVE_DAYS,
   SKILL_CURATE_EVERY_MS,
   SKILL_MAX_FILE_CHARS,
@@ -32,7 +33,8 @@ import { type SkillScan, scanSkill } from './skill-scan.ts'
  * instructions, then a bundled file only when they ask for it.
  */
 
-export type SkillSource = 'myrmidon' | 'claude' | 'plugin' | 'project'
+/** `builtin`: one of the skills Myrmidon comes with (prompts.ts `builtinSkills`); the person's own of the same name wins. */
+export type SkillSource = 'myrmidon' | 'claude' | 'plugin' | 'project' | 'builtin'
 
 export interface Skill {
   readonly name: string
@@ -122,6 +124,38 @@ export function allowSkills(home: string, hashes: Readonly<Record<string, string
 const NAME = /^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$/
 /** Marks a skill Myrmidon learned itself (in its front matter), as opposed to one the person wrote. */
 const LEARNED = /^source:\s*learned\s*$/m
+/** Marks a skill Myrmidon wrote from the ones it comes with, so only those are ever replaced or removed. */
+const BUILTIN = /^source:\s*builtin\s*$/m
+
+/** The SKILL.md Myrmidon writes for one of the skills it comes with. */
+function builtinSkillFile(name: string, skill: { description: string; body: string }): string {
+  return `---\nname: ${name}\ndescription: ${JSON.stringify(skill.description)}\nsource: builtin\n---\n\n${skill.body.trim()}\n`
+}
+
+/**
+ * Writes the skills Myrmidon comes with into `dir` (`<home>/builtin-skills` by default), so the library reads them like
+ * any other skill folder: a file is written only when its text changed, and a folder Myrmidon wrote for a skill it no
+ * longer comes with is removed. Anything else in the folder is left alone. Returns the folder.
+ */
+export function writeBuiltinSkills(home: string, dir = join(home, BUILTIN_SKILLS_DIR)): string {
+  mkdirSync(dir, { recursive: true })
+  const skills = prompts.builtinSkills as Record<string, { description: string; body: string }>
+  for (const [name, skill] of Object.entries(skills)) {
+    const file = join(dir, name, 'SKILL.md')
+    const text = builtinSkillFile(name, skill)
+    if (existsSync(file) && readFileSync(file, 'utf8') === text) continue
+    mkdirSync(join(dir, name), { recursive: true })
+    writeFileSync(`${file}.tmp`, text)
+    renameSync(`${file}.tmp`, file)
+  }
+  for (const entry of readdirSync(dir)) {
+    if (entry in skills) continue
+    const file = join(dir, entry, 'SKILL.md')
+    if (existsSync(file) && BUILTIN.test(readFileSync(file, 'utf8').split(/\r?\n---/)[0] ?? ''))
+      rmSync(join(dir, entry), { recursive: true, force: true })
+  }
+  return dir
+}
 
 /** A SKILL.md's front matter (its top-level keys) and body; undefined when it has no front matter. */
 function splitSkillFile(text: string): { meta: Record<string, unknown>; body: string } | undefined {
@@ -204,6 +238,8 @@ export class SkillLibrary {
     /** The skills folders of the person's enabled plugins. */
     private readonly pluginRoots: () => readonly string[] = () => [],
     registry?: SkillRegistryClient,
+    /** Where the skills Myrmidon comes with were written (`writeBuiltinSkills`); read last, so any other skill of the same name wins. */
+    private readonly builtinDir?: string,
   ) {
     this.dir = join(home, 'skills')
     this.installs = new SkillInstaller(home, this.dir, registry)
@@ -222,7 +258,10 @@ export class SkillLibrary {
   /** The curation thresholds, for the person to see. */
   readonly retire = { staleDays: SKILL_STALE_DAYS, archiveDays: SKILL_ARCHIVE_DAYS }
 
-  /** Every skill a chat can use: Myrmidon's own, the person's Claude Code skills, their plugins', and the project's. */
+  /**
+   * Every skill a chat can use: Myrmidon's own, the person's Claude Code skills, their plugins', the project's, then the
+   * ones Myrmidon comes with.
+   */
   list(project?: string, now = Date.now()): Skill[] {
     const state = readState(this._state)
     const disabled = new Set(state.disabled)
@@ -238,6 +277,7 @@ export class SkillLibrary {
             [join(project, '.claude', 'skills'), 'project'],
           ] as [string, SkillSource][])
         : []),
+      ...(this.builtinDir ? ([[this.builtinDir, 'builtin']] as [string, SkillSource][]) : []),
     ]
     const out = new Map<string, Skill>()
     for (const [root, source] of sources) {

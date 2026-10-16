@@ -9,3 +9,6 @@ Under section 4(d) of the Apache License 2.0, any redistribution of Myrmidon or 
 this NOTICE file's attribution notices.
 
 Third-party software included in Myrmidon, and its licenses, is listed in THIRD_PARTY_NOTICES.md.
+
+The workflow skills Myrmidon comes with (review, ship, qa, investigate, retro) are adapted from gstack
+(https://github.com/garrytan/gstack), Copyright (c) 2026 Garry Tan, MIT License; see THIRD_PARTY_NOTICES.md.
