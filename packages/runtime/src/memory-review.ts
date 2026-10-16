@@ -1,17 +1,21 @@
 import type { EventPayloads, MyrEvent } from '@myrmidon/protocol'
 import {
   MEMORY_EXTRACT_ANSWER_CHARS,
+  MEMORY_EXTRACT_INSTRUCTIONS_CHARS,
   MEMORY_EXTRACT_MAX,
   MEMORY_EXTRACT_PERSON_CHARS,
+  MEMORY_INSTRUCTIONS_OVERLAP,
   MEMORY_REFLECT_INPUT,
   MEMORY_REFLECT_MAX,
   MEMORY_REVIEW_MS,
   MEMORY_SAME_SIMILARITY,
 } from './config.ts'
 import {
+  inInstructions,
   MEMORY_KINDS,
   type Memory,
   type MemoryKind,
+  neverSave,
   normalizeMemoryText,
   sensitive,
   similarity,
@@ -59,7 +63,13 @@ export function finalAnswer(events: readonly MyrEvent[], from: number): string |
     .at(-1)
 }
 
-async function ask(resolver: ModelResolver, model: string, system: string, user: string): Promise<string> {
+/** One cheap call: `system` and `user` in, the reply's text out; throws when the model fails. */
+export async function ask(
+  resolver: ModelResolver,
+  model: string,
+  system: string,
+  user: string,
+): Promise<string> {
   const resolved = resolver.resolve(model)
   const apiKey = await resolver.requireApiKey(resolved.model)
   const context = {
@@ -95,7 +105,7 @@ function usable(raw: unknown): string | undefined {
   if (typeof raw !== 'string') return undefined
   try {
     const text = normalizeMemoryText(raw)
-    return sensitive(text) ? undefined : text
+    return sensitive(text) || neverSave(text) ? undefined : text
   } catch {
     return undefined
   }
@@ -107,12 +117,13 @@ const kindOf = (raw: unknown): MemoryKind | undefined =>
 /**
  * Holds the extractor's answer to the rules (after omp's sharpshooter extraction, whose evidence must be an exact
  * substring of the user's prompt): each memory rests on a quote of the person's own words, so nothing the crew, a web
- * page or a file said becomes one; it is new (not what a kept or waiting memory already says) unless it replaces a
- * kept one; and it holds no secret or personal data.
+ * page or a file said becomes one; it is new (not what a kept or waiting memory already says, nor what the project's
+ * `instructions` say) unless it replaces a kept one; it is no claim that stops being true once the setup is fixed
+ * (`neverSave`); and it holds no secret or personal data.
  */
 export function checkExtracted(
   raw: readonly Record<string, unknown>[],
-  input: { said: readonly string[]; project?: string; known: readonly Memory[] },
+  input: { said: readonly string[]; project?: string; known: readonly Memory[]; instructions?: string },
 ): MemorySuggestion[] {
   const said = squash(input.said.join('\n')).toLowerCase()
   const kept = new Map(input.known.filter((m) => m.status === 'active').map((m) => [m.id, m]))
@@ -140,6 +151,7 @@ export function checkExtracted(
         similarity(m.text, text) >= MEMORY_SAME_SIMILARITY,
     )
     if (repeats) continue
+    if (input.instructions && inInstructions(text, input.instructions, MEMORY_INSTRUCTIONS_OVERLAP)) continue
     out.push({ text, kind, ...(project ? { project } : {}), replaces, why: evidence })
     if (out.length >= MEMORY_EXTRACT_MAX) break
   }
@@ -156,6 +168,8 @@ export async function extractMemories(input: {
   project?: { id: string; name: string }
   /** Kept and waiting memories the round could see, so known things are not suggested again. */
   known: readonly Memory[]
+  /** The project's own instructions (AGENTS.md…), whose rules agents already read: never suggested again. */
+  instructions?: string
 }): Promise<MemorySuggestion[]> {
   let budget = MEMORY_EXTRACT_PERSON_CHARS
   const said = input.said.flatMap((s) => {
@@ -174,12 +188,16 @@ export async function extractMemories(input: {
       ...(input.answer ? { answer: input.answer.slice(0, MEMORY_EXTRACT_ANSWER_CHARS) } : {}),
       project: input.project !== undefined,
       known: input.known.map((m) => ({ id: m.id, kind: m.kind, text: m.text })),
+      ...(input.instructions
+        ? { instructions: input.instructions.slice(0, MEMORY_EXTRACT_INSTRUCTIONS_CHARS) }
+        : {}),
     }),
   )
   return checkExtracted(items(reply), {
     said,
     ...(input.project ? { project: input.project.id } : {}),
     known: input.known,
+    ...(input.instructions ? { instructions: input.instructions } : {}),
   })
 }
 

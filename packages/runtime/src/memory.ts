@@ -78,6 +78,40 @@ export function sensitive(text: string): boolean {
   )
 }
 
+/**
+ * What stops being true once the setup is fixed, after Hermes's do-not-capture list (agent/background_review.py): a
+ * claim that a tool is broken or unusable, or a failure from how one machine is set up. Saved, these "harden into
+ * refusals the agent cites against itself for months after the actual problem was fixed". Narrow on purpose: a
+ * lasting lesson ("the API tests need the local database") reads differently.
+ */
+const NEVER_SAVE = [
+  /\b(?:is|are|was|were|seems?|looks?)\s+(?:broken|unusable|not working)\b/i,
+  /\b(?:does(?:n['’]t| not)|do(?:n['’]t| not)|did(?:n['’]t| not))\s+work\b/i,
+  /\b(?:can(?:not|['’]t)|could(?:n['’]t| not))\s+be used\b/i,
+  /\bcommand not found\b|\bnot installed\b|\bisn['’]t installed\b|\bis not available\b|\bisn['’]t available\b/i,
+]
+
+/** Whether a text is the kind of claim memory never keeps (see NEVER_SAVE); the person may still write one. */
+export function neverSave(text: string): boolean {
+  return NEVER_SAVE.some((re) => re.test(text))
+}
+
+/**
+ * Whether a memory says what the project's own instructions (AGENTS.md…) already say, which agents read every round:
+ * nearly all its words are in one sentence of them (omp's sharpshooter "exclude anything the project's docs state").
+ */
+export function inInstructions(text: string, instructions: string, overlap: number): boolean {
+  const mine = new Set(terms(text))
+  if (mine.size < 3) return false
+  return instructions.split(/\n+|(?<=[.!?;:])\s+/).some((piece) => {
+    const theirs = new Set(terms(piece))
+    if (theirs.size < 3) return false
+    let both = 0
+    for (const w of mine) if (theirs.has(w)) both++
+    return both / mine.size >= overlap
+  })
+}
+
 function kindOf(kind: string): MemoryKind {
   if (!(MEMORY_KINDS as readonly string[]).includes(kind))
     throw new Error(`kind is ${MEMORY_KINDS.join(', ')}`)
@@ -203,14 +237,70 @@ export interface MemoryMeaning {
   lookAlike(memories: readonly Memory[]): boolean
 }
 
+/**
+ * The suggestion backlog, which the person's approval makes the risk to watch (docs/research/2026-10-15-memory-
+ * hermes-omp.md §4): suggestions waiting and how old the oldest is, how many were kept and discarded, and how often
+ * an agent's recall would have found a suggestion still waiting (a memory nobody reviewed, so agents never saw it).
+ */
+export interface MemoryBacklog {
+  readonly waiting: number
+  readonly oldest?: string
+  readonly kept: number
+  readonly discarded: number
+  readonly missed: number
+}
+
+type Tally = Pick<MemoryBacklog, 'kept' | 'discarded' | 'missed'>
+
 export class MemoryStore {
   private readonly _file: string
+  private readonly _tally: string
 
   constructor(
     home: string,
     private readonly _meaning?: MemoryMeaning,
   ) {
     this._file = join(home, 'memory.json')
+    this._tally = join(home, 'memory-stats.json')
+  }
+
+  /** The suggestion backlog (MemoryBacklog). */
+  backlog(): MemoryBacklog {
+    const waiting = this.list().filter((m) => m.status === 'proposed')
+    const oldest = waiting.map((m) => m.createdAt).sort()[0]
+    return { waiting: waiting.length, ...(oldest ? { oldest } : {}), ...this._counts() }
+  }
+
+  /** Counts the person keeping or discarding a suggestion, or a recall that a waiting suggestion would have answered. */
+  count(what: keyof Tally) {
+    const next = { ...this._counts(), [what]: this._counts()[what] + 1 }
+    const tmp = `${this._tally}.${process.pid}.tmp`
+    writeFileSync(tmp, `${JSON.stringify(next)}\n`)
+    renameSync(tmp, this._tally)
+  }
+
+  /** Waiting suggestions this chat could use that match `query`: counted, never shown to the agent. */
+  waitingMatches(query: string, project?: string): number {
+    const waiting = this.list().filter(
+      (m) => m.status === 'proposed' && (!m.project || m.project === project),
+    )
+    return terms(query).length ? rankMemories(waiting, query, 1).length : 0
+  }
+
+  private _counts(): Tally {
+    const zero = { kept: 0, discarded: 0, missed: 0 }
+    if (!existsSync(this._tally)) return zero
+    try {
+      const raw = JSON.parse(readFileSync(this._tally, 'utf8')) as Partial<Tally>
+      return {
+        kept: Number(raw.kept) || 0,
+        discarded: Number(raw.discarded) || 0,
+        missed: Number(raw.missed) || 0,
+      }
+    } catch (err) {
+      console.warn(`reading ${this._tally} failed: ${err instanceof Error ? err.message : err}`)
+      return zero
+    }
   }
 
   list(): Memory[] {

@@ -334,3 +334,36 @@ test('a move to a text-only model, which cannot read the frames, summarizes the 
   expect(shown(moved[0])).toContain('summary of the archive')
   expect(shown(moved[0])).not.toContain('"type":"image"')
 })
+
+test('a summary records finished work as dated facts, keeps an open question word for word, and its header says only the latest request is active', async () => {
+  const asked: string[] = []
+  const mock = createMockModel({
+    contextWindow: 4_000,
+    handler: (ctx) => {
+      asked.push(JSON.stringify(ctx))
+      return {
+        content: ['## Goal\n- Ship the parser\n\n## Critical Context\n- Open: "Should I keep the old API?"'],
+      }
+    },
+  })
+  const compactor = new ContextCompactor({
+    model: () => mock.model,
+    stream: () => mock.stream,
+    apiKey: async () => undefined,
+    onCompacted: () => {},
+    settings: { enabled: true, strategy: 'context-full', keepRecentTokens: 300 },
+    order: ['summary'],
+  })
+  const view = await compactor.transform(history(12, 3_900))
+  const today = new Date().toISOString().slice(0, 10)
+  // The summarizer is told the date to anchor finished work to, and to keep an unanswered question as it was asked.
+  expect(asked[0]).toContain(`today is ${today}`)
+  expect(asked[0]).toContain('dated, past-tense fact')
+  expect(asked[0]).toContain('keep it word for word and say it is open')
+  expect(asked[0]).toContain('exactly as written')
+  const header = shown(view[0])
+  expect(header).toContain('Work it lists as done is done: do not redo it')
+  expect(header).toContain('only the latest one is active')
+  expect(header).toContain('Keep using your tools')
+  expect(header).toContain('Should I keep the old API?')
+})

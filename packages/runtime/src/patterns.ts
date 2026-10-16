@@ -64,7 +64,7 @@ const BUILD = [
   ...ACCESS_GROUPS.remote,
   ...ACCESS_GROUPS.computer,
 ]
-const USER = ['reply_user', 'check_in', 'ask_user', 'remember', 'recall']
+const USER = ['reply_user', 'check_in', 'ask_user', 'remember', 'recall', 'search_chats']
 /** Structural search and rewrite, and language servers: loaded on demand, as omp marks them discoverable. */
 const CODE_INTEL = ['ast_grep', 'ast_edit', 'lsp']
 /** Code cells whose state lasts the round: loaded on demand, as omp marks its eval discoverable. */
@@ -469,6 +469,11 @@ export function kickoff(spec: ColonySpec, state: ColonyState, remembers = false,
   if (to?.length && agent && !to.includes(agent))
     return prompts.kickoff.addressedElsewhere(to, spec.chat.request)
   const history = spec.chat.history && !remembers ? prompts.kickoff.history(spec.chat.history) : ''
+  // Where the chat left off, for an agent that does not remember it: after the history, nearest the request.
+  const note =
+    spec.chat.handoff && !remembers
+      ? prompts.kickoff.handoff(spec.chat.handoff.text, spec.chat.handoff.at.slice(0, 10))
+      : ''
   // This round's request, not the chat's first one: a colony serves every round of its chat.
   const from = state.rounds.at(-1)?.startSeq ?? 0
   const attached = state.chatMessages.find((m) => m.from === 'user' && m.seq >= from)?.attachments
@@ -486,7 +491,7 @@ export function kickoff(spec: ColonySpec, state: ColonyState, remembers = false,
   const context = spec.chat.context ? prompts.chat.context(spec.chat.context) : ''
   const spoken = spec.chat.voice ? prompts.chat.spoken : ''
   const changed = agent && spec.chat.accessNotices?.[agent] ? `${spec.chat.accessNotices[agent]}\n\n` : ''
-  const request = `${history}${changed}${context}[user] ${spec.chat.request}${attachedNote(attached)}${spoken}${plan}${goal}${prewalk}`
+  const request = `${history}${note}${changed}${context}[user] ${spec.chat.request}${attachedNote(attached)}${spoken}${plan}${goal}${prewalk}`
   if (spec.tier === 'answer') return request
   const files = Object.keys(state.artifacts).filter((f) => !attached?.includes(f))
   const carried = files.length > 0 ? prompts.kickoff.carried(files) : ''

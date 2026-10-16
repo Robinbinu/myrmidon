@@ -86,7 +86,7 @@ export function toolCallsSince(events: readonly MyrEvent[], from: number): numbe
  * What happened in a round, short enough for one model call: what the person asked and said, each tool call with
  * whether it worked (failures and retries are where lessons are), and what the agents answered.
  */
-export function roundDigest(events: readonly MyrEvent[], from: number): string {
+export function roundDigest(events: readonly MyrEvent[], from: number, max = SKILL_DIGEST_CHARS): string {
   const results = new Map<string, EventPayloads['tool/result']>()
   for (const e of events)
     if (e.type === 'tool/result') {
@@ -111,8 +111,8 @@ export function roundDigest(events: readonly MyrEvent[], from: number): string {
   }
   const text = lines.join('\n')
   // The start says what was asked and the end how it went; a long middle is cut.
-  if (text.length <= SKILL_DIGEST_CHARS) return text
-  const half = Math.floor(SKILL_DIGEST_CHARS / 2)
+  if (text.length <= max) return text
+  const half = Math.floor(max / 2)
   return `${text.slice(0, half)}\n… (middle of the round cut) …\n${text.slice(-half)}`
 }
 

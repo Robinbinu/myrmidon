@@ -47,6 +47,33 @@ export interface IndexedRound {
   readonly cost?: number
   /** On a chat's latest round: the chat's own spend caps, when the person set any. */
   readonly budget?: Budget
+  /**
+   * On a colony's latest round: whether someone other than the person (a channel member, a share's guest) wrote into
+   * any of its rounds. Agents' past-chat search leaves such chats out; a row without it counts as theirs.
+   */
+  readonly others?: boolean
+  /** On a colony's latest round: the chat's latest note of where it left off (chat/handoff). */
+  readonly handoff?: { readonly round: number; readonly text: string; readonly at: string }
+}
+
+/** A chat agents' past-chat search may read (chat-recall.ts), as the index holds it. */
+export interface RecallChat {
+  readonly chatId: string
+  readonly title: string
+  readonly startedAt: string
+  readonly updatedAt: string
+  readonly rounds: number
+  /** Its latest note of where it left off. */
+  readonly handoff?: { readonly text: string; readonly at: string }
+}
+
+/** One message of a chat, numbered from 1 in the order it was said, across every colony the chat ran in. */
+export interface RecallMessage {
+  readonly chatId: string
+  readonly n: number
+  readonly from: string
+  readonly at: string
+  readonly text: string
 }
 
 /** A chat with a message that matches a search, and the words around the match. */
@@ -139,12 +166,16 @@ export class ChatIndex {
         // Rows written before chats ran in one colony hold a single round.
         const data = row.data ? (JSON.parse(row.data) as IndexedRound | IndexedRound[]) : []
         const list = Array.isArray(data) ? data : [data]
-        // Rows from before the crew, model failures and spend were indexed are read again once, and rows holding
-        // chat grants from before the permission model, so they show as the chat's rules.
+        // Rows from before the crew, model failures, spend and others' writing were indexed are read again once, and
+        // rows holding chat grants from before the permission model, so they show as the chat's rules.
         const last = list.at(-1) as (IndexedRound & { grants?: unknown }) | undefined
         if (
           list.length === 0 ||
-          (last?.crew && last.failed !== undefined && last.grants === undefined && last.cost !== undefined)
+          (last?.crew &&
+            last.failed !== undefined &&
+            last.grants === undefined &&
+            last.cost !== undefined &&
+            last.others !== undefined)
         ) {
           out.push(...list)
           continue
@@ -216,6 +247,112 @@ export class ChatIndex {
       )
       .all(limit) as { text: string }[]
     return rows.map((r) => r.text)
+  }
+
+  /**
+   * The chats an agent's past-chat search may read: those in `project` (or, without one, those in no project) that
+   * only the person wrote in, never one of `exclude` (the asking chat, and running chats someone else wrote into
+   * since their row was written). It reads the rows the last listing left; a chat with no row yet, or a row from
+   * before others' writing was indexed, is left out rather than guessed at.
+   */
+  recallChats(project: string | undefined, exclude: ReadonlySet<string>): RecallChat[] {
+    const rows = this._db
+      .query('select data from rounds where chat_id is not null and data is not null')
+      .all() as {
+      data: string
+    }[]
+    const byChat = new Map<string, IndexedRound[]>()
+    for (const r of rows) {
+      const data = JSON.parse(r.data) as IndexedRound | IndexedRound[]
+      for (const round of Array.isArray(data) ? data : [data])
+        byChat.set(round.chatId, [...(byChat.get(round.chatId) ?? []), round])
+    }
+    const out: RecallChat[] = []
+    for (const [chatId, list] of byChat) {
+      if (exclude.has(chatId)) continue
+      list.sort((a, b) => a.round - b.round)
+      const first = list[0] as IndexedRound
+      // Every colony's latest round says whether others wrote into it; any that does not say is not read.
+      const latest = [...new Map(list.map((r) => [r.colonyId, r])).values()]
+      if (latest.some((r) => r.others !== false)) continue
+      if (list.some((r) => r.project?.id !== project)) continue
+      const renamed = list
+        .flatMap((r) => (r.title ? [r.title] : []))
+        .sort((a, b) => a.at.localeCompare(b.at))
+        .at(-1)
+      const last = list.at(-1) as IndexedRound
+      const note = latest
+        .flatMap((r) => (r.handoff ? [r.handoff] : []))
+        .sort((a, b) => a.at.localeCompare(b.at))
+        .at(-1)
+      out.push({
+        chatId,
+        title: renamed?.title ?? clipTitle(first.request || first.name),
+        startedAt: first.createdAt ?? '',
+        updatedAt: last.endedAt ?? last.createdAt ?? '',
+        rounds: list.length,
+        ...(note ? { handoff: { text: note.text, at: note.at } } : {}),
+      })
+    }
+    return out.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+  }
+
+  /**
+   * Messages of `chats` holding any of `words` (lower case), up to `limit`, newest first. Words of three characters
+   * or more use the trigram index; shorter ones scan.
+   */
+  recallMatches(chats: readonly string[], words: readonly string[], limit: number): RecallMessage[] {
+    if (!chats.length || !words.length) return []
+    const long = words.filter((w) => Array.from(w).length >= 3)
+    const short = words.filter((w) => Array.from(w).length < 3)
+    const where = [
+      ...(long.length
+        ? ['rowid in (select rowid from chat_messages_fts where chat_messages_fts match ?)']
+        : []),
+      ...short.map(() => 'instr(folded, ?) > 0'),
+    ].join(' or ')
+    const rows = this._db
+      .query(
+        `select rowid, chat_id, sender, at, text from chat_messages
+         where (${where}) and chat_id in (select value from json_each(?))
+         order by at desc limit ?`,
+      )
+      .all(
+        ...(long.length ? [long.map((w) => `"${w.replaceAll('"', '""')}"`).join(' OR ')] : []),
+        ...short,
+        JSON.stringify(chats),
+        limit,
+      ) as { rowid: number; chat_id: string; sender: string; at: string; text: string }[]
+    const numbers = this._numbers([...new Set(rows.map((r) => r.chat_id))])
+    return rows.map((r) => ({
+      chatId: r.chat_id,
+      n: numbers.get(r.rowid) ?? 0,
+      from: r.sender,
+      at: r.at,
+      text: r.text,
+    }))
+  }
+
+  /** Every message of one chat in order, numbered from 1. */
+  recallThread(chatId: string): RecallMessage[] {
+    const rows = this._db
+      .query('select sender, at, text from chat_messages where chat_id = ? order by at, rowid')
+      .all(chatId) as { sender: string; at: string; text: string }[]
+    return rows.map((r, i) => ({ chatId, n: i + 1, from: r.sender, at: r.at, text: r.text }))
+  }
+
+  /** Each message's number in its chat (see RecallMessage), by rowid. */
+  private _numbers(chats: readonly string[]): Map<number, number> {
+    const out = new Map<number, number>()
+    for (const chatId of chats) {
+      const rows = this._db
+        .query('select rowid from chat_messages where chat_id = ? order by at, rowid')
+        .all(chatId) as { rowid: number }[]
+      rows.forEach((r, i) => {
+        out.set(r.rowid, i + 1)
+      })
+    }
+    return out
   }
 
   /** Indexes a round's messages as it ended, so search finds them before the next listing reads its log. */
@@ -299,6 +436,12 @@ function snippet(text: string, needle: string): Pick<MessageHit, 'snippet' | 'ma
   }
 }
 
+/** A chat's name from its first message when nobody named it, as the chat list shows it. */
+function clipTitle(text: string): string {
+  const line = text.trim().split('\n')[0] ?? 'Chat'
+  return line.length > 60 ? `${line.slice(0, 57)}…` : line
+}
+
 function summarize(colonyId: string, s: ColonyState): IndexedRound[] {
   const chat = s.chat
   if (!chat) return []
@@ -336,6 +479,8 @@ function summarize(colonyId: string, s: ColonyState): IndexedRound[] {
           ...(s.fullAccess ? { fullAccess: true } : {}),
           ...(s.computerApps?.length ? { computerApps: s.computerApps } : {}),
           ...(s.chatBudget && Object.keys(s.chatBudget).length ? { budget: s.chatBudget } : {}),
+          others: !!s.othersWrote,
+          ...(s.handoff ? { handoff: s.handoff } : {}),
         }
       : {}),
     ...(chat.project ? { project: { id: chat.project.id, name: chat.project.name } } : {}),

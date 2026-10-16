@@ -102,8 +102,8 @@ export const GOAL = {
  * (docs/research/2026-10-09-harness-prompts.md §4.3) are you ~150, finish ~80, safety ~200, method ~300, others
  * ~200, person ~200; these sit above them where a heading stacks parts some agents need: the delivery contract under
  * "How you finish", full access or an ask-first project under "Safety", and project rules (or, for a lead with
- * hands-on tools, the lead's method too) under "How to work", and the count of memories left for recall under the
- * person's instructions.
+ * hands-on tools, the lead's method too) under "How to work", and the count of memories left for recall and the rule
+ * that the files, command output and the person's latest message outrank a memory under the person's instructions.
  */
 export const PROMPT_HEADING_WORDS = {
   you: 210,
@@ -112,7 +112,7 @@ export const PROMPT_HEADING_WORDS = {
   method: 710,
   others: 230,
   person: 210,
-  instructions: 100,
+  instructions: 140,
   environment: 260,
 } as const
 /**
@@ -937,6 +937,29 @@ export const MEMORY_EXTRACT_PERSON_CHARS = 4_000
 export const MEMORY_EXTRACT_ANSWER_CHARS = 1_500
 export const MEMORY_REVIEW_MS = 60_000
 /**
+ * How much of the project's instructions (AGENTS.md…) the extractor reads so it suggests nothing they say, and the
+ * share of a suggestion's words one of their sentences must hold for it to count as already said there.
+ */
+export const MEMORY_EXTRACT_INSTRUCTIONS_CHARS = 6_000
+export const MEMORY_INSTRUCTIONS_OVERLAP = 0.8
+/**
+ * Where a chat left off (handoff.ts), after omp's rollout summaries, which wait for a session to go idle: a round
+ * that made at least `minCalls` tool calls gets its note once the chat has been quiet `quietMs` after it (a new round
+ * first cancels it); the note is at most `maxChars`, from a round digest of at most `digestChars`.
+ */
+export const HANDOFF = {
+  minCalls: 2,
+  quietMs: 2 * 60_000,
+  maxChars: 1_500,
+  digestChars: 12_000,
+} as const
+/**
+ * Project summaries (memory-summary.ts), after omp hindsight's mental models (project-conventions 800 tokens): built
+ * only from a project's kept memories, at most `maxChars`, and only once it has more kept memories than a prompt
+ * carries whole (MEMORY_PROMPT_COUNT), since below that every memory is in the prompt already.
+ */
+export const PROJECT_SUMMARY_MAX_CHARS = 1_500
+/**
  * Tidying memories up (reflect): the most kept memories it reads and merges it suggests per pass; after a round, it
  * runs at most this often, and only when two kept memories of one scope overlap at least this much.
  */
@@ -1227,6 +1250,26 @@ export const RECOVERY_GRACE_MS = 60_000
 
 /** The most chats one message search returns, and how much of the matching message shows around the match. */
 export const CHAT_SEARCH_LIMIT = 50
+/**
+ * Agents' past-chat search (chat-recall.ts), after Hermes's session_search: chats one search returns by default and
+ * at most, how many matching rows it ranks, the hits shown per chat (the best chat with the messages either side),
+ * how much of a message a search shows and how much a read or scroll shows (Hermes caps a read at 2,000 after one
+ * returned 74K characters, #114344), messages either side of a scroll's anchor, the head and tail of a read, the
+ * chats a browse lists, and the most one result may hold in all.
+ */
+export const CHAT_RECALL = {
+  chats: 3,
+  maxChats: 10,
+  scan: 300,
+  hitsPerChat: 3,
+  hitChars: 800,
+  messageChars: 2_000,
+  window: 3,
+  head: 2,
+  tail: 4,
+  browse: 10,
+  totalChars: 12_000,
+} as const
 /** The person's past messages the composer learns its suggestions from, most recent first. */
 /** Above this share of control characters in its first bytes, a file without NUL bytes is read as binary. */
 export const READ_BINARY_CONTROL_SHARE = 0.1

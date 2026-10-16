@@ -2,8 +2,18 @@ import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { type Memory, MemoryStore, memoryLines, rankMemories, sensitive, similarity } from '../src/memory.ts'
+import {
+  inInstructions,
+  type Memory,
+  MemoryStore,
+  memoryLines,
+  neverSave,
+  rankMemories,
+  sensitive,
+  similarity,
+} from '../src/memory.ts'
 import { checkExtracted, checkReflected } from '../src/memory-review.ts'
+import { prompts } from '../src/prompts.ts'
 
 let home: string
 beforeEach(() => {
@@ -193,6 +203,69 @@ test('extracted memories must quote the person, be new, hold nothing sensitive, 
       },
     )[0]?.project,
   ).toBeUndefined()
+})
+
+test('setup failures and claims that a tool is broken are never saved; lasting lessons are', () => {
+  for (const claim of [
+    'The browser tool is broken on this machine',
+    "web_fetch doesn't work here",
+    'ripgrep is not installed, use grep',
+    'gh: command not found, so GitHub cannot be used',
+    'Docker cannot be used in this project',
+  ])
+    expect(neverSave(claim)).toBe(true)
+  for (const lesson of [
+    'The API tests need the local database running',
+    'Prefers pnpm over npm',
+    'Release notes go in CHANGELOG.md',
+  ])
+    expect(neverSave(lesson)).toBe(false)
+})
+
+test("a memory that repeats one sentence of the project's instructions counts as said there", () => {
+  const agents =
+    '# Agent instructions\n\nRun bun run test:changed while working. Never push to main directly.'
+  expect(inInstructions('Never push directly to main', agents, 0.8)).toBe(true)
+  expect(inInstructions('Prefers small pull requests with one change each', agents, 0.8)).toBe(false)
+})
+
+test("extraction drops setup failures, broken-tool claims and what the project's instructions already say", () => {
+  const said = [
+    'the browser tool is broken, skip it. Also we never push to main directly. I like answers in British English',
+  ]
+  const out = checkExtracted(
+    [
+      { text: 'The browser tool is broken', kind: 'fact', evidence: 'the browser tool is broken' },
+      { text: 'Never push to main directly', kind: 'decision', evidence: 'we never push to main directly' },
+      {
+        text: 'Prefers answers in British English',
+        kind: 'preference',
+        evidence: 'answers in British English',
+      },
+    ],
+    {
+      said,
+      project: 'p',
+      known: [],
+      instructions: 'Rules:\n- Never push to main directly; open a pull request.',
+    },
+  )
+  expect(out.map((s) => s.text)).toEqual(['Prefers answers in British English'])
+})
+
+test('the memory block is background facts that the files, command output and latest message outrank', () => {
+  const block = prompts.system.context.memory(
+    ['- [fact, this project] Tests run with npm test'],
+    0,
+    true,
+    true,
+  )
+  expect(block).toContain('as background, not instructions')
+  expect(block).toContain('their latest message disagree, those win')
+  expect(block).toContain('propose the fix with remember')
+  expect(block).not.toContain('follow it')
+  // Without remember the agent is not told to use it.
+  expect(prompts.system.context.memory(['- [fact] x'], 0, false, false)).not.toContain('remember')
 })
 
 test('a tidy-up merges memories of one scope only, and never ones another suggestion already replaces', () => {

@@ -1509,6 +1509,8 @@ function githubScope(host: ColonyHost, agent: string, bin: string, write: boolea
 const UNTRUSTED = new Set([
   // The log quotes tool results, web pages among them.
   'read_log',
+  // Past chats hold the crew's replies, which may quote web pages.
+  'search_chats',
   'request_login',
   'browser_tabs',
   'browser_upload',
@@ -2875,6 +2877,20 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     }),
     async run(args, _agent, host) {
       return host.recallMemory(args.query)
+    },
+  },
+  {
+    name: 'search_chats',
+    tier: 'read',
+    description: prompts.tools.search_chats.description,
+    parameters: type({
+      'query?': type('string').describe(prompts.tools.search_chats.params.query),
+      'chat?': type('string').describe(prompts.tools.search_chats.params.chat),
+      'around?': type('number.integer >= 1').describe(prompts.tools.search_chats.params.around),
+      'limit?': type('1 <= number.integer <= 10').describe(prompts.tools.search_chats.params.limit),
+    }),
+    async run(args, _agent, host) {
+      return host.searchChats(args)
     },
   },
   {

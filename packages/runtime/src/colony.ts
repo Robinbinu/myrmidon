@@ -53,6 +53,7 @@ import { ColonyAgent, type ModelError } from './agent.ts'
 import type { BrowserHub } from './browser.ts'
 import { namingModel } from './catalog.ts'
 import { cellKernels } from './cells.ts'
+import type { ChatRecallRequest, ChatRecallScope } from './chat-recall.ts'
 import type { ComputerHub } from './computer/driver.ts'
 import { COMPUTER_TOOL_NAMES } from './computer/names.ts'
 import {
@@ -88,7 +89,7 @@ import {
 import type { ToolLibrary } from './made-tools.ts'
 import type { McpHub } from './mcp.ts'
 import type { MediaTools } from './media.ts'
-import { type MemoryStore, sensitive } from './memory.ts'
+import { type MemoryStore, neverSave, sensitive } from './memory.ts'
 import { ModelResolver } from './models.ts'
 import { pickName } from './names.ts'
 import { FactualObserver } from './observer.ts'
@@ -199,6 +200,8 @@ export interface RunOptions {
   readonly ssh?: SshHub
   /** What the person keeps across chats; agents propose additions to it with remember. */
   readonly memory?: MemoryStore
+  /** The person's past chats an agent may search (search_chats), in the scope this round gives it. */
+  readonly pastChats?: (scope: ChatRecallScope, request: ChatRecallRequest) => Promise<string>
   /** Skills agents can load by name (use_skill). */
   readonly skills?: SkillLibrary
   /** The person's hooks, run before and after tools and when the round ends. */
@@ -1240,6 +1243,8 @@ export class ColonyRun implements ColonyHost {
               ...(this.spec.chat.escalate?.length ? { escalate: this.spec.chat.escalate } : {}),
               ...(this.spec.chat.memory?.length ? { memory: this.spec.chat.memory } : {}),
               ...(this.spec.chat.memoryMore ? { memoryMore: this.spec.chat.memoryMore } : {}),
+              ...(this.spec.chat.handoff ? { handoff: this.spec.chat.handoff } : {}),
+              ...(this.spec.chat.memorySummary ? { memorySummary: this.spec.chat.memorySummary } : {}),
               ...(this.spec.chat.addressed?.length ? { addressed: this.spec.chat.addressed } : {}),
             },
           }
@@ -1504,6 +1509,7 @@ export class ColonyRun implements ColonyHost {
     if (input.scope === 'project' && !project)
       throw new Error('this chat has no project; use scope "everywhere"')
     if (sensitive(input.text)) throw new Error(prompts.colony.memorySensitive)
+    if (neverSave(input.text)) throw new Error(prompts.colony.memoryNeverSave)
     const kept = new Map(store.kept(this.spec.chat?.project?.id).map((m) => [m.id, m]))
     const ids = [...new Set(input.replaces ?? [])]
     const unknown = ids.filter((id) => !kept.has(id))
@@ -1549,6 +1555,8 @@ export class ColonyRun implements ColonyHost {
     const store = this.options.memory
     if (!store) throw new Error('memory is not available in this run')
     const found = await store.searchFor(query, RECALL_TOOL_COUNT, this.spec.chat?.project?.id)
+    // Measured, not shown: a suggestion the person has not reviewed yet would have answered this.
+    if (!found.length && store.waitingMatches(query, this.spec.chat?.project?.id)) store.count('missed')
     if (!found.length) return prompts.colony.recallNone
     return prompts.colony.recalled(
       found.map((m) =>
@@ -1556,6 +1564,19 @@ export class ColonyRun implements ColonyHost {
       ),
       formatCurrentTime(),
     )
+  }
+
+  /**
+   * search_chats: the person's past chats in this round's scope, which the round fixes and the agent cannot widen:
+   * this chat's project (or none), never this chat, never a chat someone else wrote in. A round someone other than
+   * the person started or wrote into reads none of them.
+   */
+  async searchChats(request: ChatRecallRequest): Promise<string> {
+    const search = this.options.pastChats
+    const chat = this.spec.chat
+    if (!search || !chat) throw new Error('past chats are not available in this run')
+    if (this.spec.askAll) throw new Error(prompts.chatRecall.notHere)
+    return search({ project: chat.project?.id, chatId: chat.chatId }, request)
   }
 
   /** Ends the round so the chat can rerun its request at a bigger tier; see ChatService. */

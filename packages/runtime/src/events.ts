@@ -88,6 +88,8 @@ const colonySpec = Schema.object({
       escalate: Schema.array(oneOf('solo', 'team')).default([]),
       memory: strs(),
       memoryMore: Schema.natural(),
+      handoff: optional(Schema.object({ text: str(), at: str() })),
+      memorySummary: Schema.string(),
       addressed: optional(Schema.array(str())),
       project: optional(
         Schema.object({
@@ -591,6 +593,12 @@ const defs: EventTypeDefinition[] = [
     actors: ['user', 'system'],
     // `auto`: Myrmidon named it from what it is about; anything else (the person, a channel, a schedule) is kept.
     schema: Schema.object({ title: str(), by: optional(Schema.union(['auto'])) }),
+  },
+  {
+    type: 'chat/handoff',
+    version: 1,
+    actors: ['system'],
+    schema: Schema.object({ round: Schema.natural().required(), text: str() }),
   },
   {
     type: 'chat/permissions',

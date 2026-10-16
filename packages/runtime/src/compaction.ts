@@ -265,7 +265,7 @@ export class ContextCompactor {
       reserve,
       apiKey as never,
       signal,
-      prompts.compaction.focus,
+      prompts.compaction.focus(new Date().toISOString().slice(0, 10)),
       previous === undefined ? undefined : hideSecrets(previous),
       {
         ...(completeImpl ? { completeImpl: completeImpl as never } : {}),

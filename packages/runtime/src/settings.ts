@@ -162,8 +162,11 @@ export interface MyrSettings {
    * kept memories that repeat or went stale; each waits for the person to keep or discard it (memory-review.ts).
    * `embeddingModel`: recall also matches by meaning with this embedding model (`provider/id`, memory-vectors.ts).
    * Unset, the default: recall matches words only, which costs nothing and works offline.
+   * `handoffs`: once a chat that did real work goes quiet, a cheap model notes where it left off (handoff.ts), read
+   * when the chat is picked up again. `projectSummaries`: a project with more kept memories than a prompt carries gets
+   * a short summary of them, built only from kept ones (memory-summary.ts); off by default.
    */
-  memory: { suggest: boolean; embeddingModel?: string }
+  memory: { suggest: boolean; embeddingModel?: string; handoffs: boolean; projectSummaries: boolean }
   /** How the entry page's mascot looks, and what its screen shows beside its mood. */
   mascot: {
     eyes: 'round' | 'happy' | 'tall' | 'sleepy' | 'lashes'
@@ -390,6 +393,8 @@ export const settingsSchema = Schema.object({
   memory: Schema.object({
     suggest: Schema.boolean().default(true),
     embeddingModel: Schema.string().max(200),
+    handoffs: Schema.boolean().default(true),
+    projectSummaries: Schema.boolean().default(false),
   }).default({}),
   mascot: Schema.object({
     eyes: Schema.union(['round', 'happy', 'tall', 'sleepy', 'lashes']).default('round'),
@@ -653,6 +658,8 @@ function parse(input: unknown): MyrSettings {
     memory: {
       suggest: s.memory.suggest,
       ...(s.memory.embeddingModel?.trim() ? { embeddingModel: s.memory.embeddingModel.trim() } : {}),
+      handoffs: s.memory.handoffs,
+      projectSummaries: s.memory.projectSummaries,
     },
     mascot: {
       ...s.mascot,

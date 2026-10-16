@@ -229,6 +229,13 @@ export interface EventPayloads {
       memory?: string[]
       /** Kept memories left out of `memory` for room. */
       memoryMore?: number
+      /**
+       * Where the chat left off (chat/handoff), for agents that do not remember its earlier rounds: the note written
+       * after the latest one, or for a fork's first round, the note of the chat it came from.
+       */
+      handoff?: { text: string; at: string }
+      /** A summary of the project's kept memories, when they did not all fit `memory`. */
+      memorySummary?: string
       /** The person started this round by writing to these crew members directly (@name): they start it, not the lead. */
       addressed?: string[]
     }
@@ -594,6 +601,11 @@ export interface EventPayloads {
   /** The user renamed the conversation; the newest rename across its rounds wins. */
   /** `by: 'auto'` when Myrmidon named the chat from what it is about; a name anyone gave it is never replaced. */
   'chat/renamed': { title: string; by?: 'auto' }
+  /**
+   * Where the chat left off after `round`: a short note a cheap model wrote once the chat went quiet (goal, done,
+   * open, next, the question still waiting on the person), read when the chat is picked up again.
+   */
+  'chat/handoff': { round: number; text: string }
   /** What the person allows without asking for the rest of the chat, across its runs: the whole set after a change. */
   /** `reads`: folders sandboxed agents may read for the rest of the chat; absent in events from before reads existed. */
   'chat/allowed': { grants: ChatGrant[]; reads?: string[] }
