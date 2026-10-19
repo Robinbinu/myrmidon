@@ -38,9 +38,9 @@
     "typescript": "7.0.2"
   },
   "patchedDependencies": {
-    "@oh-my-pi/pi-ai@18.11.1": "patches/@oh-my-pi%2Fpi-ai@18.11.1.patch",
-    "@oh-my-pi/pi-coding-agent@18.11.1": "patches/@oh-my-pi%2Fpi-coding-agent@18.11.1.patch",
-    "@oh-my-pi/pi-catalog@18.11.1": "patches/@oh-my-pi%2Fpi-catalog@18.11.1.patch",
-    "chrome-devtools-mcp@1.11.0": "patches/chrome-devtools-mcp@1.11.0.patch"
+    "chrome-devtools-mcp@1.11.0": "patches/chrome-devtools-mcp@1.11.0.patch",
+    "@oh-my-pi/pi-ai@18.12.2": "patches/@oh-my-pi%2Fpi-ai@18.12.2.patch",
+    "@oh-my-pi/pi-coding-agent@18.12.2": "patches/@oh-my-pi%2Fpi-coding-agent@18.12.2.patch",
+    "@oh-my-pi/pi-catalog@18.12.2": "patches/@oh-my-pi%2Fpi-catalog@18.12.2.patch"
   }
 }
